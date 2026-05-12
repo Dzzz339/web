@@ -26,6 +26,14 @@ function readDB() {
 }
 function writeDB(data) { fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2)) }
 
+// Определяем начальный этап заявки на основе статуса из Excel
+function getInitialStage(status) {
+  const s = String(status || '').toLowerCase();
+  if (s === 'done') return 'payment';
+  if (s === 'cancelled') return null;
+  return 'install'; // По умолчанию для всех новых или "в работе"
+}
+
 // ---------- Парсинг Сводных таблиц ----------
 function parseSvodnye(workbook) {
   const sheetNames = workbook.SheetNames.filter(n => n.startsWith('Заявки'))
@@ -178,12 +186,63 @@ app.post('/api/excel/upload', (req, res) => {
     const workbook = XLSX.readFile(filePath, {cellDates:true})
     const isSvodnye = workbook.SheetNames.some(n => n.startsWith('Заявки'))
     if (isSvodnye) {
-      const rows = parseSvodnye(workbook)
+      const newRows = parseSvodnye(workbook) // Данные, которые только что распарсили из Excel
       const db = readDB()
-      db.rows = rows; db.importedFrom = name; db.importedAt = new Date().toISOString()
+      const oldRows = db.rows || []
+
+      // 1. Создаем карту старых данных для быстрого поиска по ID
+      const oldMap = {}
+      oldRows.forEach(row => {
+        if (row.id) oldMap[row.id] = row
+      })
+
+      // 2. Поля, которые мы НЕ берем из Excel, а храним в своей БД (Editable)
+      const EDITABLE = ['assignee', 'controller', 'comment', 'contact', 'techLink', 'distributedAt', '_history', 'stage', 'archived']
+
+      // 3. Формируем новый список (Мержим данные)
+      const mergedRows = newRows.map(nr => {
+        const old = oldMap[nr.id]
+        if (old) {
+          // Заявка уже была: берем новые данные из Excel, но накладываем поверх старые Editable-поля
+          const merged = { ...nr }
+          EDITABLE.forEach(field => {
+            if (old[field] !== undefined) merged[field] = old[field]
+          })
+          merged.archived = false // Если пришла в новом файле — значит активна
+          if (!merged.stage) merged.stage = getInitialStage(nr.status)
+          return merged
+        } else {
+          // Совсем новая заявка: назначаем стадию и помечаем как не архивную
+          return { 
+            ...nr, 
+            archived: false, 
+            stage: getInitialStage(nr.status) 
+          }
+        }
+      })
+
+      // 4. Обработка пропавших заявок (Архивация)
+      const newIds = new Set(newRows.map(r => r.id))
+      oldRows.forEach(oldRow => {
+        if (oldRow.id && !newIds.has(oldRow.id)) {
+          // Этой заявки нет в новом файле — помечаем как архивную и добавляем в хвост
+          // Если она уже была архивная, просто оставляем как есть
+          if (!oldRow.archived) {
+            mergedRows.push({ ...oldRow, archived: true })
+          } else {
+            mergedRows.push(oldRow)
+          }
+        }
+      })
+
+      // 5. Записываем обновленный массив в БД
+      db.rows = mergedRows
+      db.importedFrom = name
+      db.importedAt = new Date().toISOString()
       writeDB(db)
-      console.log('Auto-imported:', rows.length, 'rows')
-      return res.json({success:true, name, autoImported:true, rowCount:rows.length})
+
+      console.log('Smart-imported:', newRows.length, 'new/updated,', mergedRows.length - newRows.length, 'archived')
+      return res.json({success:true, name, autoImported:true, rowCount:newRows.length})
     }
     res.json({success:true, name, autoImported:false})
   } catch(e) { console.error('Upload error:', e.message); res.status(500).json({error:e.message}) }

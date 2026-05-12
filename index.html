@@ -176,6 +176,8 @@ var S = {
   tasks: [], chains: [], stats: {}, importInfo: null,
   selChain: null,
   taskQ: '', taskSt: '', taskPr: '', taskReg: '', taskMgr: '', taskYear: '', taskOverdue: '',
+  taskArch: 'no',
+  taskStage: '',
   cardId: null, cardEdit: false
 };
 
@@ -394,6 +396,7 @@ function pageKanban() {
 
 function clearFilters() {
   S.taskQ=''; S.taskSt=''; S.taskPr=''; S.taskReg=''; S.taskMgr=''; S.taskYear=''; S.taskOverdue='';
+  S.taskArch='no'; S.taskStage=''; // Сбрасываем новые фильтры
   renderApp();
 }
 
@@ -407,6 +410,8 @@ function statBox(lbl, val, sub, color) {
 
 function pageTasks() {
   var q=S.taskQ, st=S.taskSt, pr=S.taskPr, reg=S.taskReg, mgr=S.taskMgr, yr=S.taskYear, ovd=S.taskOverdue;
+  
+  // 1. Фильтрация
   var filtered = S.tasks.filter(function(t) {
     if (q && (t.title||'').toLowerCase().indexOf(q.toLowerCase())<0 &&
               (t.region||'').toLowerCase().indexOf(q.toLowerCase())<0 &&
@@ -419,42 +424,66 @@ function pageTasks() {
     if (yr  && t.sheet    !== yr)  return false;
     if (ovd==='yes' && !(t.overdueDays>0)) return false;
     if (ovd==='no'  && t.overdueDays>0)    return false;
+    
+    // Новые фильтры (Архив и Стадия)
+    if (S.taskArch === 'no' && t.archived) return false;
+    if (S.taskArch === 'yes' && !t.archived) return false;
+    if (S.taskStage && t.stage !== S.taskStage) return false;
+
     return true;
   });
-  var sumAll     = filtered.reduce(function(s,t){return s+(t.amount||0);},0);
-  var sumDone    = filtered.filter(function(t){return t.status==='done';}).reduce(function(s,t){return s+(t.amount||0);},0);
-  var sumAct     = filtered.filter(function(t){return t.status==='progress';}).reduce(function(s,t){return s+(t.amount||0);},0);
-  var cntOvd     = filtered.filter(function(t){return t.overdueDays>0;}).length;
-  var portsDone  = filtered.filter(function(t){return t.status==='done';}).reduce(function(s,t){return s+(t.fact||0);},0);
-  var portsTotal = filtered.reduce(function(s,t){return s+(t.inOrder||0);},0);
+
+  // 2. Расчеты (добавляем Number() для защиты от склеивания строк)
+  var sumAll     = filtered.reduce(function(s,t){return s + Number(t.amount || 0);}, 0);
+  var sumDone    = filtered.filter(function(t){return t.status==='done';}).reduce(function(s,t){return s + Number(t.amount || 0);}, 0);
+  var sumAct     = filtered.filter(function(t){return t.status==='progress';}).reduce(function(s,t){return s + Number(t.amount || 0);}, 0);
+  
+  var cntOvd     = filtered.filter(function(t){return t.overdueDays > 0;}).length;
+  
+  var portsDone  = filtered.filter(function(t){return t.status==='done';}).reduce(function(s,t){return s + Number(t.fact || 0);}, 0);
+  var portsTotal = filtered.reduce(function(s,t){return s + Number(t.inOrder || 0);}, 0);
+  
+  // Остаток портов (тоже через Number)
+  var portBalance = filtered.reduce(function(acc, t) {
+    var order = Number(t.inOrder || 0);
+    var fact = Number(t.fact || 0);
+    return acc + (order - fact);
+  }, 0);
+
   var regions  = Array.from(new Set(S.tasks.map(function(t){return t.region||'';}).filter(Boolean))).sort();
   var managers = Array.from(new Set(S.tasks.map(function(t){return t.manager||'';}).filter(Boolean))).sort();
   var years    = Array.from(new Set(S.tasks.map(function(t){return t.sheet||'';}).filter(Boolean))).sort();
+  
   function mkOpts(arr,cur){return arr.map(function(v){
     var safe=v.replace(/"/g,'&quot;');
     return '<option value="'+safe+'"'+(cur===v?' selected':'')+'>'+v+'</option>';
   }).join('');}
-  var hasFilter = q||st||pr||reg||mgr||yr||ovd;
-  var totals = '<div class="card p mb" style="display:grid;grid-template-columns:repeat(6,1fr);gap:.5rem;padding:.75rem 1rem">' +
-    statBox('\u0417\u0430\u044f\u0432\u043e\u043a', fmtN(filtered.length), '\u0438\u0437 '+fmtN(S.tasks.length), 'var(--orange)') +
-    statBox('\u0421\u0443\u043c\u043c\u0430', fmtMoney(sumAll), null, null) +
-    statBox('\u0412\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u043e', fmtMoney(sumDone), null, 'var(--green)') +
-    statBox('\u0412 \u0440\u0430\u0431\u043e\u0442\u0435', fmtMoney(sumAct), null, 'var(--orange)') +
-    statBox('\u041f\u0440\u043e\u0441\u0440\u043e\u0447\u0435\u043d\u043e', fmtN(cntOvd), null, cntOvd>0?'var(--red)':'var(--green)') +
-    statBox('\u041f\u043e\u0440\u0442\u043e\u0432', fmtN(portsDone)+'/'+fmtN(portsTotal), null, null) +
+
+  var hasFilter = q||st||pr||reg||mgr||yr||ovd||S.taskArch==='yes'||S.taskStage;
+
+  // Сетка totals изменена на 7 колонок (repeat(7,1fr))
+  var totals = '<div class="card p mb" style="display:grid;grid-template-columns:repeat(7,1fr);gap:.5rem;padding:.75rem 1rem">' +
+    statBox('Заявок', fmtN(filtered.length), 'из '+fmtN(S.tasks.length), 'var(--orange)') +
+    statBox('Сумма', fmtMoney(sumAll), null, null) +
+    statBox('Выполнено', fmtMoney(sumDone), null, 'var(--green)') +
+    statBox('В работе', fmtMoney(sumAct), null, 'var(--orange)') +
+    statBox('Просрочено', fmtN(cntOvd), null, cntOvd>0?'var(--red)':'var(--green)') +
+    statBox('Портов', fmtN(portsDone)+'/'+fmtN(portsTotal), null, null) +
+    statBox('Остаток портов', fmtN(portBalance), 'заказ - факт', portBalance > 0 ? 'var(--orange)' : 'var(--green)') +
   '</div>';
+
   var tableRows='';
   filtered.slice(0,300).forEach(function(t){
     var od = t.overdueDays>0
-      ? '<span style="color:var(--red);font-weight:600">+'+t.overdueDays+' \u0434\u043d</span>'
-      : '<span class="t3">\u2014</span>';
+      ? '<span style="color:var(--red);font-weight:600">+'+t.overdueDays+' дн</span>'
+      : '<span class="t3">—</span>';
     var tid = (t.id||'').replace(/'/g,"\\'");
     tableRows += '<tr>' +
-      '<td><button class="btn-link" onclick="openCard(\''+tid+'\')">\u21D2 '+(t.id||'')+'</button></td>' +
+      '<td><button class="btn-link" onclick="openCard(\''+tid+'\')">⇒ '+(t.id||'')+'</button></td>' +
       '<td>'+(t.region||'')+'</td>' +
       '<td class="td-clip" title="'+(t.address||'').replace(/"/g,'&quot;')+'">'+(t.address||'').slice(0,50)+'</td>' +
       '<td class="td-clip" title="'+(t.workType||'').replace(/"/g,'&quot;')+'">'+(t.workType||'').slice(0,38)+'</td>' +
-      '<td>'+(t.manager||'<span class="t3">\u2014</span>')+'</td>' +
+      '<td>'+(t.manager||'<span class="t3">—</span>')+'</td>' +
       '<td>'+prBadge(t.priority)+'</td>' +
       '<td>'+od+'</td>' +
       '<td>'+stBadge(t.status)+'</td>' +
@@ -462,37 +491,44 @@ function pageTasks() {
       '<td><button class="btn btn-sm btn-ghost btn-icon" onclick="exportTask(\''+tid+'\')">&#x2B07;</button></td>' +
     '</tr>';
   });
+
   var more = filtered.length>300
-    ? '<tr><td colspan="10" style="text-align:center;padding:1rem;color:var(--text-3)">\u2026 \u0435\u0449\u0451 '+(filtered.length-300)+' \u0437\u0430\u044f\u0432\u043e\u043a \u2014 \u0443\u0442\u043e\u0447\u043d\u0438\u0442\u0435 \u0444\u0438\u043b\u044c\u0442\u0440</td></tr>'
+    ? '<tr><td colspan="10" style="text-align:center;padding:1rem;color:var(--text-3)">… ещё '+(filtered.length-300)+' заявок — уточните фильтр</td></tr>'
     : '';
-  return '<h1 class="page-title">\u0417\u0430\u044f\u0432\u043a\u0438</h1>' +
+
+  return '<h1 class="page-title">Заявки</h1>' +
     '<div style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.75rem;align-items:center">' +
-      '<input id="tq" type="text" placeholder="\u041f\u043e\u0438\u0441\u043a \u043f\u043e \u043d\u043e\u043c\u0435\u0440\u0443, \u0430\u0434\u0440\u0435\u0441\u0443, \u0440\u0435\u0433\u0438\u043e\u043d\u0443\u2026" style="flex:2;min-width:200px" value="'+q+'">' +
-      '<select id="tst"><option value="">\u0412\u0441\u0435 \u0441\u0442\u0430\u0442\u0443\u0441\u044b</option>' +
-        '<option value="done"'+(st==='done'?' selected':'')+'>\u0413\u043e\u0442\u043e\u0432\u043e</option>' +
-        '<option value="progress"'+(st==='progress'?' selected':'')+'>&#9203; \u0412 \u0440\u0430\u0431\u043e\u0442\u0435</option>' +
-        '<option value="pending"'+(st==='pending'?' selected':'')+'>&#9711; \u041e\u0436\u0438\u0434\u0430\u043d\u0438\u0435</option>' +
-        '<option value="cancelled"'+(st==='cancelled'?' selected':'')+'>&#10007; \u041e\u0442\u043c\u0435\u043d\u0435\u043d\u043e</option>' +
+      '<input id="tq" type="text" placeholder="Поиск по номеру, адресу..." style="flex:2;min-width:200px" value="'+q+'">' +
+      '<select id="tst"><option value="">Все статусы</option>' +
+        '<option value="done"'+(st==='done'?' selected':'')+'>Готово</option>' +
+        '<option value="progress"'+(st==='progress'?' selected':'')+'>⏳ В работе</option>' +
+        '<option value="pending"'+(st==='pending'?' selected':'')+'>○ Ожидание</option>' +
+        '<option value="cancelled"'+(st==='cancelled'?' selected':'')+'>✕ Отменено</option>' +
       '</select>' +
-      '<select id="tpr"><option value="">\u0412\u0441\u0435 \u043f\u0440\u0438\u043e\u0440\u0438\u0442\u0435\u0442\u044b</option>' +
-        '<option value="high"'+(pr==='high'?' selected':'')+'>\ud83d\udd34 \u0412\u044b\u0441\u043e\u043a\u0438\u0439</option>' +
-        '<option value="medium"'+(pr==='medium'?' selected':'')+'>\ud83d\udfe1 \u0421\u0440\u0435\u0434\u043d\u0438\u0439</option>' +
-        '<option value="low"'+(pr==='low'?' selected':'')+'>\ud83d\udfe2 \u041d\u0438\u0437\u043a\u0438\u0439</option>' +
+      '<select id="tpr"><option value="">Все приоритеты</option>' +
+        '<option value="high"'+(pr==='high'?' selected':'')+'>🔴 Высокий</option>' +
+        '<option value="medium"'+(pr==='medium'?' selected':'')+'>🟡 Средний</option>' +
+        '<option value="low"'+(pr==='low'?' selected':'')+'>🟢 Низкий</option>' +
       '</select>' +
-      '<select id="treg"><option value="">\u0412\u0441\u0435 \u0440\u0435\u0433\u0438\u043e\u043d\u044b</option>'+mkOpts(regions,reg)+'</select>' +
-      '<select id="tmgr"><option value="">\u0412\u0441\u0435 \u043c\u0435\u043d\u0435\u0434\u0436\u0435\u0440\u044b</option>'+mkOpts(managers,mgr)+'</select>' +
-      '<select id="tyr"><option value="">\u0412\u0441\u0435 \u0433\u043e\u0434\u044b</option>'+mkOpts(years,yr)+'</select>' +
-      '<select id="tovd"><option value="">\u041b\u044e\u0431\u044b\u0435</option>' +
-        '<option value="yes"'+(ovd==='yes'?' selected':'')+'>&#9940; \u041f\u0440\u043e\u0441\u0440\u043e\u0447\u0435\u043d\u043d\u044b\u0435</option>' +
-        '<option value="no"'+(ovd==='no'?' selected':'')+'>&#10003; \u0411\u0435\u0437 \u043f\u0440\u043e\u0441\u0440\u043e\u0447\u043a\u0438</option>' +
+      '<select id="treg"><option value="">Все регионы</option>'+mkOpts(regions,reg)+'</select>' +
+      '<select id="tmgr"><option value="">Все менеджеры</option>'+mkOpts(managers,mgr)+'</select>' +
+      '<select id="tyr"><option value="">Все годы</option>'+mkOpts(years,yr)+'</select>' +
+      '<select id="tovd"><option value="">Любые</option>' +
+        '<option value="yes"'+(ovd==='yes'?' selected':'')+'>⛔ Просроченные</option>' +
+        '<option value="no"'+(ovd==='no'?' selected':'')+'>✓ Без просрочки</option>' +
       '</select>' +
-      (hasFilter ? '<button class="btn btn-sm btn-ghost" onclick="clearFilters()">\u2715 \u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c</button>' : '') +
+      // ВОТ ОН, СЕЛЕКТОР АРХИВА:
+      '<select id="tarch">' +
+        '<option value="no"' + (S.taskArch==='no'?' selected':'') + '>Активные</option>' +
+        '<option value="yes"' + (S.taskArch==='yes'?' selected':'') + '>Архив</option>' +
+      '</select>' +
+      (hasFilter ? '<button class="btn btn-sm btn-ghost" onclick="clearFilters()">✕ Сбросить</button>' : '') +
     '</div>' +
     totals +
     '<div class="card tbl-wrap">' +
       '<table><thead><tr>' +
-        '<th>\u041d\u043e\u043c\u0435\u0440</th><th>\u0420\u0435\u0433\u0438\u043e\u043d</th><th>\u0410\u0434\u0440\u0435\u0441</th><th>\u0422\u0438\u043f \u0440\u0430\u0431\u043e\u0442</th><th>\u041c\u0435\u043d\u0435\u0434\u0436\u0435\u0440</th>' +
-        '<th>\u041f\u0440\u0438\u043e\u0440\u0438\u0442\u0435\u0442</th><th>\u041f\u0440\u043e\u0441\u0440\u043e\u0447\u043a\u0430</th><th>\u0421\u0442\u0430\u0442\u0443\u0441</th><th>\u0421\u0443\u043c\u043c\u0430</th><th></th>' +
+        '<th>Номер</th><th>Регион</th><th>Адрес</th><th>Тип работ</th><th>Менеджер</th>' +
+        '<th>Приоритет</th><th>Просрочка</th><th>Статус</th><th>Сумма</th><th></th>' +
       '</tr></thead><tbody>'+tableRows+more+'</tbody></table>' +
     '</div>';
 }
@@ -534,6 +570,8 @@ function bindEvents() {
     sel.addEventListener('change', function() { moveTask(sel.dataset.tid, sel.value); });
   });
   // add task
+  var tarch = document.getElementById('tarch');
+  if (tarch) tarch.addEventListener('change', function(){ S.taskArch = this.value; renderApp(); });
   var addBtn = document.getElementById('addBtn');
   if (addBtn) addBtn.addEventListener('click', addTask);
   var ntask = document.getElementById('ntask');
