@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stockeasy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --orange: #FF6200;
+      --orange-dark: #CC4E00;
+      --orange-bg: #FFF4EE;
+      --green: #22C55E;
+      --green-bg: #F0FDF4;
+      --red: #EF4444;
+      --blue: #3B82F6;
+      --yellow: #F59E0B;
+      --bg: #F4F4F5;
+      --surface: #FFFFFF;
+      --border: #E4E4E7;
+      --text: #18181B;
+      --text-2: #52525B;
+      --text-3: #A1A1AA;
+      --radius: 10px;
+      --shadow: 0 1px 8px rgba(0,0,0,0.06);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Golos Text', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
+
+    /* HEADER */
+    .hdr { background: var(--orange); height: 54px; padding: 0 1.5rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 10px rgba(255,98,0,0.25); }
+    .hdr-logo { display: flex; align-items: center; gap: 9px; color: #fff; font-weight: 700; font-size: 1.05rem; letter-spacing: -0.2px; }
+    .hdr-logo img { width: 30px; height: 30px; border-radius: 5px; object-fit: cover; }
+    .nav { display: flex; gap: 2px; }
+    .nav-btn { background: none; border: none; color: rgba(255,255,255,0.82); padding: 6px 13px; border-radius: 7px; cursor: pointer; font-family: inherit; font-size: 0.875rem; font-weight: 500; transition: background .12s, color .12s; white-space: nowrap; }
+    .nav-btn:hover { background: rgba(255,255,255,0.14); color: #fff; }
+    .nav-btn.active { background: rgba(255,255,255,0.2); color: #fff; }
+
+    /* LAYOUT */
+    .main { padding: 1.5rem; max-width: 1440px; }
+    .page-title { font-size: 1.3rem; font-weight: 700; margin-bottom: 1.25rem; }
+
+    /* SURFACE */
+    .card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); }
+    .p { padding: 1.25rem; }
+
+    /* GRID */
+    .g4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 1rem; margin-bottom: 1rem; }
+    .g2 { display: grid; grid-template-columns: repeat(2,1fr); gap: 1rem; }
+    .row { display: flex; align-items: center; gap: .75rem; }
+    .mb { margin-bottom: 1rem; }
+
+    /* STAT */
+    .stat { padding: 1.1rem 1.25rem; }
+    .stat-lbl { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--text-3); margin-bottom: .4rem; }
+    .stat-val { font-size: 1.9rem; font-weight: 700; color: var(--orange); line-height: 1; }
+    .stat-sub { font-size: .8rem; color: var(--text-2); margin-top: .3rem; }
+
+    /* PROGRESS */
+    .prog { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: .6rem; }
+    .prog-fill { height: 100%; background: var(--orange); border-radius: 3px; }
+    .prog-fill.g { background: var(--green); }
+
+    /* BADGE */
+    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 20px; font-size: .72rem; font-weight: 600; }
+    .b-red { background: #FEE2E2; color: #B91C1C; }
+    .b-orange { background: #FFEDD5; color: #C2410C; }
+    .b-green { background: #DCFCE7; color: #15803D; }
+    .b-gray { background: #F4F4F5; color: #71717A; }
+    .b-blue { background: #DBEAFE; color: #1D4ED8; }
+
+    /* BUTTONS */
+    .btn { display: inline-flex; align-items: center; gap: 5px; background: var(--orange); color: #fff; border: none; padding: 7px 15px; border-radius: 7px; cursor: pointer; font-family: inherit; font-size: .85rem; font-weight: 600; transition: background .12s; white-space: nowrap; text-decoration: none; }
+    .btn:hover { background: var(--orange-dark); }
+    .btn-sm { padding: 4px 11px; font-size: .78rem; }
+    .btn-ghost { background: transparent; color: var(--orange); border: 1.5px solid var(--orange); }
+    .btn-ghost:hover { background: var(--orange-bg); }
+    .btn-icon { padding: 5px 9px; }
+    .td-clip { max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+    .btn-link { background:none;border:none;color:var(--orange-dark);font-weight:700;font-size:.82rem;cursor:pointer;padding:2px 4px;border-radius:4px;white-space:nowrap;font-family:inherit; }
+    .btn-link:hover { background:var(--orange-bg); }
+    .field-row { display:grid;grid-template-columns:180px 1fr;gap:.5rem;padding:.5rem 0;border-bottom:1px solid var(--border);align-items:start; }
+    .field-lbl { font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-3);padding-top:4px; }
+    .field-val { font-size:.875rem;color:var(--text); }
+    .field-val input,.field-val select,.field-val textarea { width:100%;padding:5px 9px;font-size:.875rem; }
+    .field-val textarea { resize:vertical;min-height:80px; }
+    .card-hdr { display:flex;align-items:center;gap:.75rem;margin-bottom:1.25rem;flex-wrap:wrap; }
+    .card-hdr h1 { margin:0;flex:1;font-size:1.1rem; }
+    .hist-item { font-size:.78rem;color:var(--text-2);padding:.35rem 0;border-bottom:1px solid var(--border); }
+
+    /* INPUTS */
+    input, select, textarea { font-family: inherit; font-size: .875rem; border: 1.5px solid var(--border); border-radius: 7px; padding: 7px 11px; color: var(--text); background: #fff; outline: none; transition: border-color .12s; }
+    input:focus, select:focus { border-color: var(--orange); }
+    select { cursor: pointer; }
+
+    /* TABLE */
+    .tbl-wrap { overflow: auto; max-height: 68vh; border-radius: var(--radius); }
+    table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+    thead th { background: #FAFAFA; position: sticky; top: 0; padding: 9px 11px; text-align: left; font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--text-3); border-bottom: 1px solid var(--border); white-space: nowrap; }
+    tbody td { padding: 8px 11px; border-bottom: 1px solid #F4F4F5; vertical-align: middle; }
+    tbody tr:hover td { background: var(--orange-bg); }
+    tbody tr:last-child td { border-bottom: none; }
+
+    /* CHAIN */
+    .chain-steps { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .step { display: flex; flex-direction: column; align-items: center; background: #fff; border: 2px solid var(--border); border-radius: 9px; padding: 9px 12px; min-width: 76px; text-align: center; font-size: .78rem; font-weight: 600; }
+    .step.done { background: var(--green-bg); border-color: var(--green); color: #15803D; }
+    .step.active { background: var(--orange-bg); border-color: var(--orange); color: var(--orange-dark); }
+    .step-icon { font-size: 1.1rem; margin-bottom: 3px; }
+    .chain-arr { color: var(--text-3); flex-shrink: 0; }
+
+    /* REGION ROWS */
+    .rrow { display: flex; align-items: center; gap: .75rem; padding: 8px 12px; border-radius: 7px; cursor: pointer; transition: background .1s; border: 1.5px solid transparent; }
+    .rrow:hover { background: var(--orange-bg); }
+    .rrow.sel { background: var(--orange-bg); border-color: var(--orange); }
+    .rname { font-weight: 600; min-width: 110px; font-size: .82rem; }
+    .rstats { display: flex; gap: .6rem; font-size: .78rem; flex: 1; }
+    .rprog { flex: 1; min-width: 70px; }
+    .ramt { font-size: .78rem; color: var(--text-2); white-space: nowrap; }
+
+    /* KANBAN */
+    .kanban { display: flex; gap: 1rem; overflow-x: auto; padding-bottom: .5rem; }
+    .kcol { min-width: 220px; flex-shrink: 0; }
+    .kcol-hdr { padding: 7px 11px; border-radius: 7px; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: #fff; margin-bottom: .6rem; }
+    .c-pending { background: #9CA3AF; }
+    .c-progress { background: var(--orange); }
+    .c-review   { background: var(--yellow); }
+    .c-done     { background: var(--green); }
+    .kcard { background: #fff; border-radius: 8px; padding: 9px 11px; margin-bottom: 7px; box-shadow: var(--shadow); border: 1px solid var(--border); }
+    .kcard-title { font-weight: 600; font-size: .8rem; margin-bottom: 5px; }
+
+    /* UPLOAD */
+    .upload-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 2.5rem; text-align: center; cursor: pointer; transition: border-color .12s, background .12s; }
+    .upload-zone:hover, .upload-zone.drag { border-color: var(--orange); background: var(--orange-bg); }
+    .upload-zone input { display: none; }
+
+    /* BANNER */
+    .banner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .875rem 1.1rem; border-radius: var(--radius); margin-bottom: 1.1rem; }
+    .banner-ok { background: var(--green-bg); border: 1px solid #BBF7D0; }
+    .banner-warn { background: var(--orange-bg); border: 1px solid #FDDCBC; }
+    .banner-title { font-weight: 700; font-size: .875rem; }
+    .banner-ok .banner-title { color: #15803D; }
+    .banner-warn .banner-title { color: var(--orange-dark); }
+    .banner-body { font-size: .82rem; color: var(--text-2); margin-top: 2px; }
+
+    /* SPINNER */
+    .spin-wrap { text-align: center; padding: 2.5rem; color: var(--text-2); }
+    .spin { display: inline-block; width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--orange); border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .sec-title { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--text-3); margin-bottom: .75rem; }
+    .divider { height: 1px; background: var(--border); margin: 1.1rem 0; }
+    .t2 { color: var(--text-2); }
+    .t3 { color: var(--text-3); }
+    .fw6 { font-weight: 600; }
+    .fw7 { font-weight: 700; }
+
+    @media (max-width: 900px) { .g4 { grid-template-columns: repeat(2,1fr); } .main { padding: 1rem; } .hdr { padding: 0 1rem; } }
+    @media (max-width: 580px) { .g4, .g2 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<header class="hdr">
+  <div class="hdr-logo">
+    <img src="images/logo.jpg" alt="" onerror="this.style.display='none'">
+    Stockeasy
+  </div>
+  <nav class="nav" id="nav"></nav>
+</header>
+<main class="main" id="app"></main>
+<script>
+// ─── STATE ───────────────────────────────────────────────────────────────────
+var S = {
+  page: 'dashboard',
+  tasks: [], chains: [], stats: {}, importInfo: null,
+  selChain: null,
+  taskQ: '', taskSt: '', taskPr: '', taskReg: '', taskMgr: '', taskYear: '', taskOverdue: '',
+  cardId: null, cardEdit: false
+};
+
+var NAV = [
+  {id:'dashboard', icon:'📊', label:'Обзор'},
+  {id:'supply',    icon:'🔗', label:'Цепи'},
+  {id:'kanban',    icon:'📋', label:'Канбан'},
+  {id:'tasks',     icon:'✅', label:'Заявки'},
+  {id:'data',      icon:'📥', label:'Данные'},
+];
+
+// ─── API ──────────────────────────────────────────────────────────────────────
+function api(url, opts) {
+  return fetch('/api' + url, opts).then(function(r){ return r.json(); });
+}
+
+// ─── BOOT ─────────────────────────────────────────────────────────────────────
+function init() {
+  renderNav();
+  setApp('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.75rem">Загрузка…</p></div>');
+  Promise.all([api('/stats'), api('/tasks'), api('/chains'), api('/import-info')])
+    .then(function(res) {
+      S.stats = res[0]; S.tasks = res[1]; S.chains = res[2]; S.importInfo = res[3];
+      if (S.chains.length) {
+        var firstReal = S.chains.find(function(c){ return c.id && c.id !== '(без региона)'; });
+        S.selChain = (firstReal || S.chains[0]).id;
+      }
+      renderApp();
+    });
+}
+
+function go(page) { S.page = page; renderNav(); renderApp(); }
+
+// ─── NAV ─────────────────────────────────────────────────────────────────────
+function renderNav() {
+  var nav = document.getElementById('nav');
+  nav.innerHTML = '';
+  NAV.forEach(function(item) {
+    var b = document.createElement('button');
+    b.className = 'nav-btn' + (S.page === item.id ? ' active' : '');
+    b.innerHTML = item.icon + ' ' + item.label;
+    b.onclick = function() { go(item.id); };
+    nav.appendChild(b);
+  });
+}
+
+// ─── RENDER ───────────────────────────────────────────────────────────────────
+function setApp(html) { document.getElementById('app').innerHTML = html; }
+
+function renderApp() {
+  if      (S.page === 'dashboard') setApp(pageDash());
+  else if (S.page === 'supply')    setApp(pageSupply());
+  else if (S.page === 'kanban')    setApp(pageKanban());
+  else if (S.page === 'tasks')     setApp(pageTasks());
+  else if (S.page === 'card')      setApp(pageCard());
+  else if (S.page === 'data')      setApp(pageData());
+  bindEvents();
+}
+
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+function pct(a, b)  { return b > 0 ? Math.round(a / b * 100) : 0; }
+function fmtN(n)    { return (n || 0).toLocaleString('ru'); }
+function fmtMoney(n) {
+  if (!n) return '—';
+  if (n >= 1e6)  return (n/1e6).toFixed(1) + ' М₽';
+  if (n >= 1000) return Math.round(n/1000) + ' К₽';
+  return Math.round(n) + ' ₽';
+}
+function bar(done, total, green) {
+  var p = pct(done, total);
+  return '<div class="prog"><div class="prog-fill' + (green?' g':'') + '" style="width:' + p + '%"></div></div>';
+}
+function badge(cls, txt) { return '<span class="badge ' + cls + '">' + txt + '</span>'; }
+function stBadge(s) {
+  var m = {done:['b-green','Готово'], progress:['b-orange','В работе'], pending:['b-gray','Ожидание'], cancelled:['b-red','Отменено']};
+  var v = m[s] || ['b-gray', s||'—']; return badge(v[0], v[1]);
+}
+function prBadge(p) {
+  var m = {high:['b-red','🔴 Высокий'], medium:['b-orange','🟡 Средний'], low:['b-green','🟢 Низкий']};
+  var v = m[p] || ['b-gray', p||'—']; return badge(v[0], v[1]);
+}
+function importBanner() {
+  var info = S.importInfo;
+  if (info && info.importedFrom) {
+    var dt = new Date(info.importedAt).toLocaleString('ru');
+    return '<div class="banner banner-ok">' +
+      '<div><div class="banner-title">📂 Данные загружены</div>' +
+      '<div class="banner-body">' + info.importedFrom + ' &nbsp;·&nbsp; ' + dt + ' &nbsp;·&nbsp; <strong>' + fmtN(info.rowCount) + ' заявок</strong></div></div>' +
+      '<button class="btn btn-sm btn-ghost" onclick="go(\'data\')">Обновить</button></div>';
+  }
+  return '<div class="banner banner-warn">' +
+    '<div><div class="banner-title">⚠️ Нет данных</div>' +
+    '<div class="banner-body">Загрузите файл Сводные таблицы</div></div>' +
+    '<button class="btn btn-sm" onclick="go(\'data\')">Загрузить</button></div>';
+}
+
+// ─── PAGE: DASHBOARD ─────────────────────────────────────────────────────────
+function pageDash() {
+  var s = S.stats;
+  var total   = s.tasks   && s.tasks.total    || 0;
+  var done    = s.tasks   && s.tasks.done     || 0;
+  var pend    = s.tasks   && s.tasks.pending  || 0;
+  var overdue = s.supply  && s.supply.overdue || 0;
+  var revenue = s.revenue && s.revenue.total  || 0;
+  var p = pct(done, total);
+
+  var top = '';
+  var topChains = S.chains.slice().sort(function(a,b){ return b.totalTasks - a.totalTasks; }).slice(0,8);
+  topChains.forEach(function(c) {
+    var cp = pct(c.doneTasks, c.totalTasks);
+    top += '<div style="margin-bottom:.6rem">' +
+      '<div class="row" style="justify-content:space-between;margin-bottom:3px">' +
+        '<span class="fw6" style="font-size:.82rem">' + c.id + '</span>' +
+        '<span class="t3" style="font-size:.75rem">' + c.doneTasks + '/' + c.totalTasks + ' · ' + cp + '% · ' + fmtMoney(c.totalAmount) + '</span>' +
+      '</div>' + bar(c.doneTasks, c.totalTasks) + '</div>';
+  });
+
+  return '<h1 class="page-title">Дашборд</h1>' +
+    importBanner() +
+    '<div class="g4">' +
+      '<div class="card stat"><div class="stat-lbl">Всего заявок</div><div class="stat-val">' + fmtN(total) + '</div>' +
+        '<div class="stat-sub">✓ Готово: <strong>' + fmtN(done) + '</strong> · ⏳ В работе: <strong>' + fmtN(pend) + '</strong></div>' +
+        bar(done, total) + '</div>' +
+      '<div class="card stat"><div class="stat-lbl">Просрочено</div><div class="stat-val" style="color:' + (overdue>0?'var(--red)':'var(--green)') + '">' + fmtN(overdue) + '</div>' +
+        '<div class="stat-sub">заявок с превышением срока</div></div>' +
+      '<div class="card stat"><div class="stat-lbl">Регионы / цепи</div><div class="stat-val">' + S.chains.length + '</div>' +
+        '<div class="stat-sub">✓ Завершено: <strong>' + S.chains.filter(function(c){return c.status==='completed';}).length + '</strong></div></div>' +
+      '<div class="card stat"><div class="stat-lbl">Сумма договоров</div><div class="stat-val" style="font-size:1.4rem">' + fmtMoney(revenue) + '</div>' +
+        '<div class="stat-sub">по всем заявкам</div></div>' +
+    '</div>' +
+    '<div class="card p"><div class="sec-title">Топ регионов</div>' + (top || '<p class="t3">Нет данных</p>') + '</div>';
+}
+
+// ─── PAGE: SUPPLY ─────────────────────────────────────────────────────────────
+function pageSupply() {
+  if (!S.chains.length) return '<h1 class="page-title">Цепи по регионам</h1>' +
+    '<div class="card p" style="text-align:center;padding:3rem"><p class="t3">Нет данных.</p><button class="btn" style="margin-top:1rem" onclick="go(\'data\')">Загрузить</button></div>';
+
+  var chain = S.chains.find(function(c){ return c.id === S.selChain; }) || S.chains[0];
+  var cp = pct(chain.doneTasks, chain.totalTasks);
+
+  var stepsHtml = '';
+  (chain.steps || []).forEach(function(s, i) {
+    var cls = i < chain.currentStep ? 'done' : i === chain.currentStep ? 'active' : '';
+    var icon = i < chain.currentStep ? '✓' : i === chain.currentStep ? '⏳' : '○';
+    stepsHtml += '<div class="step ' + cls + '"><div class="step-icon">' + icon + '</div>' + s + '</div>';
+    if (i < chain.steps.length - 1) stepsHtml += '<span class="chain-arr">→</span>';
+  });
+
+  var listHtml = '';
+  S.chains.forEach(function(c, idx) {
+    var rp = pct(c.doneTasks, c.totalTasks);
+    var isSel = c.id === S.selChain;
+    listHtml += '<div class="rrow' + (isSel?' sel':'') + '" data-cid="' + encodeURIComponent(c.id) + '">' +
+      '<span class="rname">' + c.id + '</span>' +
+      '<div class="rstats">' +
+        '<span style="color:var(--green)">✓ ' + c.doneTasks + '</span>' +
+        '<span style="color:var(--orange)">⏳ ' + c.inProgressTasks + '</span>' +
+        '<span class="t3">✗ ' + c.cancelledTasks + '</span>' +
+      '</div>' +
+      '<div class="rprog">' + bar(c.doneTasks, c.totalTasks) + '</div>' +
+      '<span class="ramt">' + rp + '% · ' + fmtMoney(c.totalAmount) + '</span>' +
+    '</div>';
+  });
+
+  return '<h1 class="page-title">Цепи по регионам</h1>' +
+    '<div class="g2">' +
+      '<div>' +
+        '<div class="card p mb">' +
+          '<div class="fw7" style="font-size:1rem;margin-bottom:.75rem">' + chain.name + '</div>' +
+          '<div class="row" style="flex-wrap:wrap;gap:.75rem;margin-bottom:.9rem;font-size:.82rem">' +
+            '<span style="color:var(--green)">✓ Готово: <strong>' + chain.doneTasks + '</strong></span>' +
+            '<span style="color:var(--orange)">⏳ В работе: <strong>' + chain.inProgressTasks + '</strong></span>' +
+            '<span class="t3">✗ Отменено: <strong>' + chain.cancelledTasks + '</strong></span>' +
+            '<span style="color:var(--blue)">💰 ' + fmtMoney(chain.totalAmount) + '</span>' +
+          '</div>' +
+          '<div class="chain-steps">' + stepsHtml + '</div>' +
+          '<div style="margin-top:.75rem">' + bar(chain.doneTasks, chain.totalTasks) + '</div>' +
+          '<div style="text-align:right;font-size:.75rem;color:var(--text-3);margin-top:3px">' + cp + '% выполнено</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="card p" style="max-height:70vh;overflow-y:auto">' +
+        '<div class="sec-title">Все регионы (' + S.chains.length + ')</div>' +
+        listHtml +
+      '</div>' +
+    '</div>';
+}
+
+// ─── PAGE: KANBAN ─────────────────────────────────────────────────────────────
+function pageKanban() {
+  var cols = [
+    {id:'pending', label:'Ожидание', cls:'c-pending'},
+    {id:'progress',label:'В работе',  cls:'c-progress'},
+    {id:'review',  label:'Проверка',  cls:'c-review'},
+    {id:'done',    label:'Готово',    cls:'c-done'},
+  ];
+  var board = '';
+  cols.forEach(function(col) {
+    var colTasks = S.tasks.filter(function(t){ return t.status === col.id; }).slice(0,50);
+    var cards = '';
+    colTasks.forEach(function(t) {
+      var opts = cols.map(function(c){ return '<option value="' + c.id + '"' + (c.id===t.status?' selected':'') + '>' + c.label + '</option>'; }).join('');
+      cards += '<div class="kcard">' +
+        '<div class="kcard-title">' + (t.title||'').slice(0,80) + '</div>' +
+        '<select data-tid="' + t.id + '" class="kmove" style="padding:3px 8px;font-size:.75rem">' + opts + '</select>' +
+      '</div>';
+    });
+    board += '<div class="kcol">' +
+      '<div class="kcol-hdr ' + col.cls + '">' + col.label + ' (' + colTasks.length + ')</div>' +
+      cards + '</div>';
+  });
+  return '<h1 class="page-title">Канбан</h1>' +
+    '<div class="row mb"><input id="ntask" type="text" placeholder="Новая задача…" style="flex:1;max-width:380px"><button class="btn" id="addBtn">+ Добавить</button></div>' +
+    '<div class="kanban">' + board + '</div>';
+}
+
+function clearFilters() {
+  S.taskQ=''; S.taskSt=''; S.taskPr=''; S.taskReg=''; S.taskMgr=''; S.taskYear=''; S.taskOverdue='';
+  renderApp();
+}
+
+function statBox(lbl, val, sub, color) {
+  return '<div style="text-align:center">' +
+    '<div style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-3)">' + lbl + '</div>' +
+    '<div style="font-size:1.05rem;font-weight:700;' + (color ? 'color:' + color + ';' : '') + '">' + val + '</div>' +
+    (sub ? '<div style="font-size:.7rem;color:var(--text-3)">' + sub + '</div>' : '') +
+  '</div>';
+}
+
+function pageTasks() {
+  var q=S.taskQ, st=S.taskSt, pr=S.taskPr, reg=S.taskReg, mgr=S.taskMgr, yr=S.taskYear, ovd=S.taskOverdue;
+  var filtered = S.tasks.filter(function(t) {
+    if (q && (t.title||'').toLowerCase().indexOf(q.toLowerCase())<0 &&
+              (t.region||'').toLowerCase().indexOf(q.toLowerCase())<0 &&
+              (t.id||'').toLowerCase().indexOf(q.toLowerCase())<0 &&
+              (t.address||'').toLowerCase().indexOf(q.toLowerCase())<0) return false;
+    if (st  && t.status   !== st)  return false;
+    if (pr  && t.priority !== pr)  return false;
+    if (reg && t.region   !== reg) return false;
+    if (mgr && t.manager  !== mgr) return false;
+    if (yr  && t.sheet    !== yr)  return false;
+    if (ovd==='yes' && !(t.overdueDays>0)) return false;
+    if (ovd==='no'  && t.overdueDays>0)    return false;
+    return true;
+  });
+  var sumAll     = filtered.reduce(function(s,t){return s+(t.amount||0);},0);
+  var sumDone    = filtered.filter(function(t){return t.status==='done';}).reduce(function(s,t){return s+(t.amount||0);},0);
+  var sumAct     = filtered.filter(function(t){return t.status==='progress';}).reduce(function(s,t){return s+(t.amount||0);},0);
+  var cntOvd     = filtered.filter(function(t){return t.overdueDays>0;}).length;
+  var portsDone  = filtered.filter(function(t){return t.status==='done';}).reduce(function(s,t){return s+(t.fact||0);},0);
+  var portsTotal = filtered.reduce(function(s,t){return s+(t.inOrder||0);},0);
+  var regions  = Array.from(new Set(S.tasks.map(function(t){return t.region||'';}).filter(Boolean))).sort();
+  var managers = Array.from(new Set(S.tasks.map(function(t){return t.manager||'';}).filter(Boolean))).sort();
+  var years    = Array.from(new Set(S.tasks.map(function(t){return t.sheet||'';}).filter(Boolean))).sort();
+  function mkOpts(arr,cur){return arr.map(function(v){
+    var safe=v.replace(/"/g,'&quot;');
+    return '<option value="'+safe+'"'+(cur===v?' selected':'')+'>'+v+'</option>';
+  }).join('');}
+  var hasFilter = q||st||pr||reg||mgr||yr||ovd;
+  var totals = '<div class="card p mb" style="display:grid;grid-template-columns:repeat(6,1fr);gap:.5rem;padding:.75rem 1rem">' +
+    statBox('\u0417\u0430\u044f\u0432\u043e\u043a', fmtN(filtered.length), '\u0438\u0437 '+fmtN(S.tasks.length), 'var(--orange)') +
+    statBox('\u0421\u0443\u043c\u043c\u0430', fmtMoney(sumAll), null, null) +
+    statBox('\u0412\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u043e', fmtMoney(sumDone), null, 'var(--green)') +
+    statBox('\u0412 \u0440\u0430\u0431\u043e\u0442\u0435', fmtMoney(sumAct), null, 'var(--orange)') +
+    statBox('\u041f\u0440\u043e\u0441\u0440\u043e\u0447\u0435\u043d\u043e', fmtN(cntOvd), null, cntOvd>0?'var(--red)':'var(--green)') +
+    statBox('\u041f\u043e\u0440\u0442\u043e\u0432', fmtN(portsDone)+'/'+fmtN(portsTotal), null, null) +
+  '</div>';
+  var tableRows='';
+  filtered.slice(0,300).forEach(function(t){
+    var od = t.overdueDays>0
+      ? '<span style="color:var(--red);font-weight:600">+'+t.overdueDays+' \u0434\u043d</span>'
+      : '<span class="t3">\u2014</span>';
+    var tid = (t.id||'').replace(/'/g,"\\'");
+    tableRows += '<tr>' +
+      '<td><button class="btn-link" onclick="openCard(\''+tid+'\')">\u21D2 '+(t.id||'')+'</button></td>' +
+      '<td>'+(t.region||'')+'</td>' +
+      '<td class="td-clip" title="'+(t.address||'').replace(/"/g,'&quot;')+'">'+(t.address||'').slice(0,50)+'</td>' +
+      '<td class="td-clip" title="'+(t.workType||'').replace(/"/g,'&quot;')+'">'+(t.workType||'').slice(0,38)+'</td>' +
+      '<td>'+(t.manager||'<span class="t3">\u2014</span>')+'</td>' +
+      '<td>'+prBadge(t.priority)+'</td>' +
+      '<td>'+od+'</td>' +
+      '<td>'+stBadge(t.status)+'</td>' +
+      '<td style="text-align:right;white-space:nowrap">'+fmtMoney(t.amount)+'</td>' +
+      '<td><button class="btn btn-sm btn-ghost btn-icon" onclick="exportTask(\''+tid+'\')">&#x2B07;</button></td>' +
+    '</tr>';
+  });
+  var more = filtered.length>300
+    ? '<tr><td colspan="10" style="text-align:center;padding:1rem;color:var(--text-3)">\u2026 \u0435\u0449\u0451 '+(filtered.length-300)+' \u0437\u0430\u044f\u0432\u043e\u043a \u2014 \u0443\u0442\u043e\u0447\u043d\u0438\u0442\u0435 \u0444\u0438\u043b\u044c\u0442\u0440</td></tr>'
+    : '';
+  return '<h1 class="page-title">\u0417\u0430\u044f\u0432\u043a\u0438</h1>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.75rem;align-items:center">' +
+      '<input id="tq" type="text" placeholder="\u041f\u043e\u0438\u0441\u043a \u043f\u043e \u043d\u043e\u043c\u0435\u0440\u0443, \u0430\u0434\u0440\u0435\u0441\u0443, \u0440\u0435\u0433\u0438\u043e\u043d\u0443\u2026" style="flex:2;min-width:200px" value="'+q+'">' +
+      '<select id="tst"><option value="">\u0412\u0441\u0435 \u0441\u0442\u0430\u0442\u0443\u0441\u044b</option>' +
+        '<option value="done"'+(st==='done'?' selected':'')+'>\u0413\u043e\u0442\u043e\u0432\u043e</option>' +
+        '<option value="progress"'+(st==='progress'?' selected':'')+'>&#9203; \u0412 \u0440\u0430\u0431\u043e\u0442\u0435</option>' +
+        '<option value="pending"'+(st==='pending'?' selected':'')+'>&#9711; \u041e\u0436\u0438\u0434\u0430\u043d\u0438\u0435</option>' +
+        '<option value="cancelled"'+(st==='cancelled'?' selected':'')+'>&#10007; \u041e\u0442\u043c\u0435\u043d\u0435\u043d\u043e</option>' +
+      '</select>' +
+      '<select id="tpr"><option value="">\u0412\u0441\u0435 \u043f\u0440\u0438\u043e\u0440\u0438\u0442\u0435\u0442\u044b</option>' +
+        '<option value="high"'+(pr==='high'?' selected':'')+'>\ud83d\udd34 \u0412\u044b\u0441\u043e\u043a\u0438\u0439</option>' +
+        '<option value="medium"'+(pr==='medium'?' selected':'')+'>\ud83d\udfe1 \u0421\u0440\u0435\u0434\u043d\u0438\u0439</option>' +
+        '<option value="low"'+(pr==='low'?' selected':'')+'>\ud83d\udfe2 \u041d\u0438\u0437\u043a\u0438\u0439</option>' +
+      '</select>' +
+      '<select id="treg"><option value="">\u0412\u0441\u0435 \u0440\u0435\u0433\u0438\u043e\u043d\u044b</option>'+mkOpts(regions,reg)+'</select>' +
+      '<select id="tmgr"><option value="">\u0412\u0441\u0435 \u043c\u0435\u043d\u0435\u0434\u0436\u0435\u0440\u044b</option>'+mkOpts(managers,mgr)+'</select>' +
+      '<select id="tyr"><option value="">\u0412\u0441\u0435 \u0433\u043e\u0434\u044b</option>'+mkOpts(years,yr)+'</select>' +
+      '<select id="tovd"><option value="">\u041b\u044e\u0431\u044b\u0435</option>' +
+        '<option value="yes"'+(ovd==='yes'?' selected':'')+'>&#9940; \u041f\u0440\u043e\u0441\u0440\u043e\u0447\u0435\u043d\u043d\u044b\u0435</option>' +
+        '<option value="no"'+(ovd==='no'?' selected':'')+'>&#10003; \u0411\u0435\u0437 \u043f\u0440\u043e\u0441\u0440\u043e\u0447\u043a\u0438</option>' +
+      '</select>' +
+      (hasFilter ? '<button class="btn btn-sm btn-ghost" onclick="clearFilters()">\u2715 \u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c</button>' : '') +
+    '</div>' +
+    totals +
+    '<div class="card tbl-wrap">' +
+      '<table><thead><tr>' +
+        '<th>\u041d\u043e\u043c\u0435\u0440</th><th>\u0420\u0435\u0433\u0438\u043e\u043d</th><th>\u0410\u0434\u0440\u0435\u0441</th><th>\u0422\u0438\u043f \u0440\u0430\u0431\u043e\u0442</th><th>\u041c\u0435\u043d\u0435\u0434\u0436\u0435\u0440</th>' +
+        '<th>\u041f\u0440\u0438\u043e\u0440\u0438\u0442\u0435\u0442</th><th>\u041f\u0440\u043e\u0441\u0440\u043e\u0447\u043a\u0430</th><th>\u0421\u0442\u0430\u0442\u0443\u0441</th><th>\u0421\u0443\u043c\u043c\u0430</th><th></th>' +
+      '</tr></thead><tbody>'+tableRows+more+'</tbody></table>' +
+    '</div>';
+}
+
+// ─── PAGE: DATA ───────────────────────────────────────────────────────────────
+function pageData() {
+  var info = S.importInfo;
+  var curBanner = '';
+  if (info && info.importedFrom) {
+    curBanner = '<div class="banner banner-ok">' +
+      '<div><div class="banner-title">✅ Активный источник</div>' +
+      '<div class="banner-body"><strong>' + info.importedFrom + '</strong> · ' + new Date(info.importedAt).toLocaleString('ru') + ' · <strong>' + fmtN(info.rowCount) + ' заявок</strong>' +
+      '<br><span style="font-size:.78rem">Загрузите новый файл — всё обновится автоматически.</span></div></div>' +
+    '</div>';
+  }
+  return '<h1 class="page-title">Данные из таблиц</h1>' +
+    curBanner +
+    '<div class="card p">' +
+      '<div class="fw7 mb" style="font-size:.95rem">📤 Загрузить Сводные таблицы</div>' +
+      '<p class="t2 mb" style="font-size:.82rem">Файл с листами «Заявки 2023 / 2024 / 2025 / 2026». После загрузки дашборд, цепи и задачи обновятся автоматически.</p>' +
+      '<div class="upload-zone" id="uzone" onclick="document.getElementById(\'ufile\').click()">' +
+        '<input type="file" id="ufile" accept=".xlsx,.xls">' +
+        '<div style="font-size:2rem;margin-bottom:.4rem">📂</div>' +
+        '<div class="fw6">Нажмите или перетащите файл</div>' +
+        '<div class="t3" style="font-size:.78rem;margin-top:3px">.xlsx / .xls</div>' +
+      '</div>' +
+      '<div id="ustatus" style="margin-top:1rem"></div>' +
+    '</div>';
+}
+
+// ─── EVENTS ──────────────────────────────────────────────────────────────────
+function bindEvents() {
+  // chain region rows
+  document.querySelectorAll('[data-cid]').forEach(function(el) {
+    el.addEventListener('click', function() { S.selChain = decodeURIComponent(el.dataset.cid); renderApp(); });
+  });
+  // kanban move
+  document.querySelectorAll('.kmove').forEach(function(sel) {
+    sel.addEventListener('change', function() { moveTask(sel.dataset.tid, sel.value); });
+  });
+  // add task
+  var addBtn = document.getElementById('addBtn');
+  if (addBtn) addBtn.addEventListener('click', addTask);
+  var ntask = document.getElementById('ntask');
+  if (ntask) ntask.addEventListener('keypress', function(e){ if(e.key==='Enter') addTask(); });
+    var saveBtn = document.getElementById('saveCardBtn');
+  if (saveBtn) saveBtn.addEventListener('click', saveCard);
+  // task filters
+  var tq = document.getElementById('tq');
+  if (tq) tq.addEventListener('input', function(){ S.taskQ = this.value; renderApp(); });
+  var tst = document.getElementById('tst');
+  if (tst) tst.addEventListener('change', function(){ S.taskSt = this.value; renderApp(); });
+  var tpr = document.getElementById('tpr');
+  if (tpr) tpr.addEventListener('change', function(){ S.taskPr = this.value; renderApp(); });
+  var treg = document.getElementById('treg');
+  if (treg) treg.addEventListener('change', function(){ S.taskReg = this.value; renderApp(); });
+  var tmgr = document.getElementById('tmgr');
+  if (tmgr) tmgr.addEventListener('change', function(){ S.taskMgr = this.value; renderApp(); });
+  var tyr = document.getElementById('tyr');
+  if (tyr) tyr.addEventListener('change', function(){ S.taskYear = this.value; renderApp(); });
+  var tovd = document.getElementById('tovd');
+  if (tovd) tovd.addEventListener('change', function(){ S.taskOverdue = this.value; renderApp(); });
+  // file upload
+  var ufile = document.getElementById('ufile');
+  if (ufile) ufile.addEventListener('change', function(){ if(this.files[0]) doUpload(this.files[0]); });
+  var uzone = document.getElementById('uzone');
+  if (uzone) {
+    uzone.addEventListener('dragover', function(e){ e.preventDefault(); uzone.classList.add('drag'); });
+    uzone.addEventListener('dragleave', function(){ uzone.classList.remove('drag'); });
+    uzone.addEventListener('drop', function(e){
+      e.preventDefault(); uzone.classList.remove('drag');
+      if (e.dataTransfer.files[0]) doUpload(e.dataTransfer.files[0]);
+    });
+  }
+}
+
+// ─── ACTIONS ─────────────────────────────────────────────────────────────────
+function exportTask(id) {
+  fetch('/api/export/' + encodeURIComponent(id))
+    .then(function(r) {
+      if (!r.ok) return r.json().then(function(e){ throw new Error(e.error); });
+      return r.blob();
+    })
+    .then(function(blob) {
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = id.replace(/\//g, '-') + '_Приложение_2.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    })
+    .catch(function(e) { alert('Ошибка экспорта: ' + e.message); });
+}
+
+function addTask() {
+  var inp = document.getElementById('ntask');
+  if (!inp) return;
+  var title = inp.value.trim();
+  if (!title) return;
+  api('/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:title,status:'pending',priority:'medium'})})
+    .then(function(t){ S.tasks.push(t); inp.value = ''; renderApp(); });
+}
+
+function moveTask(id, status) {
+  api('/tasks/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status:status})})
+    .then(function(){
+      var t = S.tasks.find(function(x){ return String(x.id)===String(id); });
+      if (t) t.status = status;
+      renderApp();
+    });
+}
+
+function doUpload(file) {
+  if (!file.name.match(/\.(xlsx|xls)$/i)) { alert('Только .xlsx / .xls'); return; }
+  var st = document.getElementById('ustatus');
+  if (st) st.innerHTML = '<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Загрузка…</p></div>';
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var b64 = e.target.result.split(',')[1];
+    fetch('/api/excel/upload', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({file: b64, name: file.name})
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(result) {
+      if (result.error) throw new Error(result.error);
+      if (result.autoImported) {
+        return Promise.all([api('/stats'), api('/tasks'), api('/chains'), api('/import-info')])
+          .then(function(res){
+            S.stats=res[0]; S.tasks=res[1]; S.chains=res[2]; S.importInfo=res[3];
+            if (S.chains.length && !S.selChain) {
+              var firstReal = S.chains.find(function(c){ return c.id && c.id !== '(без региона)'; });
+              S.selChain = (firstReal || S.chains[0]).id;
+            }
+            if (st) st.innerHTML = '<div class="banner banner-ok"><div>' +
+              '<div class="banner-title">✅ Импорт успешен!</div>' +
+              '<div class="banner-body">Загружено <strong>' + fmtN(result.rowCount) + ' заявок</strong> из «' + file.name + '»</div>' +
+              '</div><div class="row" style="gap:.5rem">' +
+              '<button class="btn btn-sm" onclick="go(\'dashboard\')">Дашборд</button>' +
+              '<button class="btn btn-sm btn-ghost" onclick="go(\'tasks\')">Задачи</button>' +
+              '</div></div>';
+          });
+      } else {
+        if (st) st.innerHTML = '<div class="banner banner-warn"><div>' +
+          '<div class="banner-title">⚠️ Файл не распознан</div>' +
+          '<div class="banner-body">Нет листов «Заявки 20XX». Данные не изменены.</div>' +
+          '</div></div>';
+      }
+    })
+    .catch(function(e){
+      if (st) st.innerHTML = '<div class="banner" style="background:#FEE2E2;border:1px solid #FECACA">' +
+        '<div><div class="banner-title" style="color:#B91C1C">❌ Ошибка</div>' +
+        '<div class="banner-body">' + e.message + '</div></div></div>';
+    });
+  };
+  reader.readAsDataURL(file);
+}
+
+
+// ─── PAGE: CARD ───────────────────────────────────────────────────────────────
+function openCard(id) {
+  S.cardId = id;
+  S.cardEdit = false;
+  S.page = 'card';
+  renderNav();
+  renderApp();
+  window.scrollTo(0,0);
+}
+
+function pageCard() {
+  var t = S.tasks.find(function(x){ return String(x.id) === String(S.cardId); });
+  if (!t) return '<div class="card p"><p class="t3">Заявка не найдена.</p><button class="btn" onclick="go(\'tasks\')">← Назад</button></div>';
+
+  var edit = S.cardEdit;
+  var statusOpts = ['done','progress','pending','cancelled'].map(function(v){
+    var labels = {done:'Готово',progress:'В работе',pending:'Ожидание',cancelled:'Отменено'};
+    return '<option value="'+v+'"'+(t.status===v?' selected':'')+'>'+labels[v]+'</option>';
+  }).join('');
+  var prioOpts = ['high','medium','low'].map(function(v){
+    var labels = {high:'🔴 Высокий',medium:'🟡 Средний',low:'🟢 Низкий'};
+    return '<option value="'+v+'"'+(t.priority===v?' selected':'')+'>'+labels[v]+'</option>';
+  }).join('');
+
+  function field(lbl, key, type) {
+    var val = t[key] || '';
+    if (!edit) {
+      var disp = val || '<span class="t3">—</span>';
+      if (key === 'status') disp = stBadge(val);
+      if (key === 'priority') disp = prBadge(val);
+      if (key === 'amount') disp = fmtMoney(val);
+      if (key === 'overdueDays') disp = val > 0 ? '<span style="color:var(--red);font-weight:600">+'+val+' дн</span>' : '<span class="t3">0</span>';
+      return '<div class="field-row"><div class="field-lbl">'+lbl+'</div><div class="field-val">'+disp+'</div></div>';
+    }
+    var inp = '';
+    if (key === 'status') inp = '<select name="status">'+statusOpts+'</select>';
+    else if (key === 'priority') inp = '<select name="priority">'+prioOpts+'</select>';
+    else if (type === 'textarea') inp = '<textarea name="'+key+'">'+val+'</textarea>';
+    else inp = '<input type="'+(type||'text')+'" name="'+key+'" value="'+String(val).replace(/"/g,'&quot;')+'">';
+    return '<div class="field-row"><div class="field-lbl">'+lbl+'</div><div class="field-val">'+inp+'</div></div>';
+  }
+
+  // История изменений
+  var hist = (t._history || []).slice().reverse();
+  var histHtml = hist.length ? hist.map(function(h){
+    return '<div class="hist-item">'+h.date+' — '+h.field+': <em>'+h.old+'</em> → <b>'+h.new+'</b></div>';
+  }).join('') : '<div class="t3" style="font-size:.78rem;padding:.5rem 0">Изменений не было</div>';
+
+  // Карта — Leaflet + Nominatim с умным геокодированием
+  var mapRegion = (t.region||'').trim();
+  var mapAddress = (t.address||'').trim();
+  var mapFullAddr = (mapRegion ? mapRegion + ', ' : '') + mapAddress;
+
+  // Очищаем адрес: убираем сокращения типа "с.", "ул.", "пгт" для лучшего поиска
+  function cleanAddr(s) {
+    return s
+      .replace(/\bс\.\s*/g,'').replace(/\bпгт\.?\s*/g,'').replace(/\bул\.\s*/g,'')
+      .replace(/\bд\.\s*/g,'').replace(/\bпр-кт\s*/g,'').replace(/\bпр\.\s*/g,'')
+      .replace(/\bпер\.\s*/g,'').replace(/\bпос\.\s*/g,'')
+      .trim();
+  }
+
+  // Строим умные варианты запросов по очереди (от точного к широкому)
+  var addrParts = mapAddress.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+  var lastParts = addrParts.slice(-3).join(', ');   // последние 3 части (улица, номер)
+  var cityParts = addrParts.slice(-2).join(', ');   // последние 2 части
+
+  var mapQueries = [
+    'Россия, ' + mapRegion + ', ' + cleanAddr(mapAddress),          // полный очищенный
+    'Россия, ' + cleanAddr(mapAddress),                              // без региона
+    'Россия, ' + mapRegion + ', ' + cleanAddr(lastParts),            // регион + конец адреса
+    'Россия, ' + mapRegion + ', ' + cleanAddr(cityParts),            // регион + улица/номер
+    'Россия, ' + mapRegion                                           // только регион — хотя бы покажет город
+  ].filter(function(q, i, arr){ return arr.indexOf(q) === i; });    // дедупликация
+
+  var mapId = 'leafmap' + Date.now();
+  var dgisUrl  = 'https://2gis.ru/search/' + encodeURIComponent('Россия, ' + mapFullAddr);
+  var yandexUrl = 'https://yandex.ru/maps/?text=' + encodeURIComponent('Россия, ' + mapFullAddr);
+
+  // Кнопки карт — показываются ВСЕГДА под картой
+  var mapNavBtns = '<div style="display:flex;gap:.5rem;margin-top:.6rem;flex-wrap:wrap">' +
+    '<a href="' + dgisUrl + '" target="_blank" class="btn btn-sm" style="background:#3069b0;gap:5px">' +
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="10" r="4"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="white"/></svg>' +
+      '2ГИС' +
+    '</a>' +
+    '<a href="' + yandexUrl + '" target="_blank" class="btn btn-sm" style="background:#fc3f1d;gap:5px">' +
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="10" r="4"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="white"/></svg>' +
+      'Яндекс.Карты' +
+    '</a>' +
+  '</div>';
+
+  var mapHtml = '<div id="'+mapId+'" style="height:260px;border-radius:var(--radius);overflow:hidden;background:#f0f0f0;display:flex;align-items:center;justify-content:center;color:#888;font-size:.82rem">Загрузка карты…</div>' +
+    mapNavBtns;
+
+  setTimeout(function(){
+    var el = document.getElementById(mapId);
+    if (!el) return;
+
+    function tryGeocode(queries, cb) {
+      if (!queries.length) { cb(null); return; }
+      var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ru&accept-language=ru&q=' + encodeURIComponent(queries[0]);
+      fetch(url)
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if (d && d[0]) cb(d[0], queries[0]);
+          else tryGeocode(queries.slice(1), cb);
+        })
+        .catch(function(){ tryGeocode(queries.slice(1), cb); });
+    }
+
+    function renderLeaflet() {
+      tryGeocode(mapQueries, function(result, matchedQuery) {
+        if (!result) {
+          // Геокодирование не удалось — показываем заглушку, кнопки уже есть под картой
+          el.style.background = '#f8f8f8';
+          el.innerHTML = '<div style="text-align:center;padding:1.5rem 1rem">' +
+            '<div style="font-size:1.6rem;margin-bottom:.5rem">🗺️</div>' +
+            '<div style="color:#555;font-size:.82rem;margin-bottom:.3rem">Адрес не найден на карте</div>' +
+            '<div style="color:#aaa;font-size:.72rem">Воспользуйтесь кнопками ниже для&nbsp;просмотра</div>' +
+          '</div>';
+          return;
+        }
+        var lat = parseFloat(result.lat), lng = parseFloat(result.lon);
+        // Если нашли только регион (широкий результат) — используем зум поменьше
+        var isApprox = result.type === 'administrative' || result.type === 'state' || result.class === 'boundary';
+        var zoom = isApprox ? 11 : 15;
+        el.innerHTML = '';
+        el.style.display = 'block';
+        var map = L.map(el).setView([lat, lng], zoom);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© <a href="https://osm.org/copyright">OSM</a>',
+          maxZoom: 19
+        }).addTo(map);
+        var popup = isApprox
+          ? '<div style="font-size:.78rem;color:#888">⚠️ Приблизительно<br>' + mapFullAddr + '</div>'
+          : mapFullAddr;
+        L.marker([lat, lng]).addTo(map).bindPopup(popup).openPopup();
+      });
+    }
+
+    if (window.L) { renderLeaflet(); }
+    else {
+      var css = document.createElement('link'); css.rel='stylesheet'; css.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(css);
+      var s = document.createElement('script'); s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      s.onload = renderLeaflet; document.head.appendChild(s);
+    }
+  }, 150);
+
+  var eid = t.id.replace(/'/g, "\\'");
+  var docBtns = '<button class="btn btn-sm btn-ghost" onclick="exportTask(\'' + eid + '\')" title="Скачать Приложение \u21162">&#x2B07; Прил. &#x2116;2</button>';
+
+  var hdr = '<div class="card-hdr">' +
+    '<button class="btn btn-sm btn-ghost" onclick="go(\'tasks\')">← Заявки</button>' +
+    '<h1>'+t.id+'</h1>' +
+    (edit
+      ? '<button class="btn btn-sm" id="saveCardBtn">💾 Сохранить</button><button class="btn btn-sm btn-ghost" onclick="S.cardEdit=false;renderApp()">Отмена</button>'
+      : '<button class="btn btn-sm" onclick="S.cardEdit=true;renderApp()">✏️ Редактировать</button>' + docBtns
+    ) +
+  '</div>';
+
+  var leftCol = '<div class="card p">' +
+    '<div class="sec-title" style="margin-bottom:.5rem">Основные данные</div>' +
+    (edit ? '<form id="cardForm">' : '') +
+    field('Регион', 'region') +
+    field('Адрес объекта', 'address') +
+    field('Тип работ', 'workType') +
+    field('Менеджер Сбера', 'manager') +
+    field('Статус', 'status') +
+    field('Приоритет', 'priority') +
+    field('Срок выполнения', 'deadline', 'date') +
+    field('Дней просрочки', 'overdueDays', 'number') +
+    field('Сумма договора', 'amount', 'number') +
+    field('В заказе (портов)', 'inOrder', 'number') +
+    field('Факт', 'fact', 'number') +
+    '<div class="divider"></div>' +
+    '<div class="sec-title" style="margin-bottom:.5rem">Назначение</div>' +
+    field('Исполнитель', 'assignee') +
+    field('Контролёр', 'controller') +
+    field('Дата распределения', 'distributedAt', 'date') +
+    field('Подрядчик', 'contractor') +
+    field('Контакт / сопровождение', 'contact', 'textarea') +
+    field('Ссылка на тех.информацию', 'techLink') +
+    field('Комментарий', 'comment', 'textarea') +
+    (edit ? '</form>' : '') +
+  '</div>';
+
+  var rightCol = '<div style="display:flex;flex-direction:column;gap:1rem">' +
+    '<div class="card p"><div class="sec-title" style="margin-bottom:.5rem">Карта объекта</div>' + mapHtml + '</div>' +
+    '<div class="card p"><div class="sec-title" style="margin-bottom:.5rem">История изменений</div>' + histHtml + '</div>' +
+  '</div>';
+
+  return hdr +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start">' +
+      leftCol + rightCol +
+    '</div>';
+}
+
+function saveCard() {
+  var form = document.getElementById('cardForm');
+  if (!form) return;
+  var t = S.tasks.find(function(x){ return String(x.id) === String(S.cardId); });
+  if (!t) return;
+
+  var data = {};
+  form.querySelectorAll('input,select,textarea').forEach(function(el){
+    if (el.name) data[el.name] = el.value;
+  });
+
+  var now = new Date().toLocaleString('ru');
+  var hist = t._history || [];
+  var fieldNames = {
+    status:'Статус', priority:'Приоритет', assignee:'Исполнитель',
+    controller:'Контролёр', comment:'Комментарий', distributedAt:'Дата распределения',
+    contact:'Контакт', techLink:'Ссылка', deadline:'Срок', fact:'Факт',
+    region:'Регион', address:'Адрес объекта', workType:'Тип работ',
+    manager:'Менеджер Сбера', amount:'Сумма договора', inOrder:'В заказе (портов)',
+    overdueDays:'Дней просрочки', contractor:'Подрядчик'
+  };
+  Object.keys(data).forEach(function(k){
+    if (String(data[k]) !== String(t[k]||'')) {
+      hist.push({date:now, field:fieldNames[k]||k, old:t[k]||'', new:data[k]});
+    }
+  });
+  data._history = hist;
+
+  api('/tasks/' + S.cardId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})
+    .then(function(){
+      Object.assign(t, data);
+      S.cardEdit = false;
+      renderApp();
+    })
+    .catch(function(e){ alert('Ошибка сохранения: ' + e.message); });
+}
+
+init();
+</script>
+</body>
+</html>
