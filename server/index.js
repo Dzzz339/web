@@ -461,13 +461,13 @@ app.get('/api/export/:type/:id', async (req, res) => {
 })
 
 // Обратная совместимость: старый маршрут /api/export/:id → app2
-app.get('/api/export/:id', (req, res) => {
+app.get('/api/export/:id', async (req, res) => {
   res.redirect('/api/export/app2/' + req.params.id)
 })
 
 initDB().then(() => {
   app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`)
+    console.log(`Stockeasy: http://localhost:${PORT}`)
   })
 }).catch(err => {
   console.error('DB init failed:', err)

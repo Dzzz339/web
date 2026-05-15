@@ -33,6 +33,8 @@
     .hdr-logo { display: flex; align-items: center; gap: 9px; color: #fff; font-weight: 700; font-size: 1.05rem; letter-spacing: -0.2px; }
     .hdr-logo img { width: 30px; height: 30px; border-radius: 5px; object-fit: cover; }
     .nav { display: flex; gap: 2px; }
+    .mob-bottom-nav { display: none; }
+    .mob-nav-toggle { display: none; }
     .nav-btn { background: none; border: none; color: rgba(255,255,255,0.82); padding: 6px 13px; border-radius: 7px; cursor: pointer; font-family: inherit; font-size: 0.875rem; font-weight: 500; transition: background .12s, color .12s; white-space: nowrap; }
     .nav-btn:hover { background: rgba(255,255,255,0.14); color: #fff; }
     .nav-btn.active { background: rgba(255,255,255,0.2); color: #fff; }
@@ -164,8 +166,126 @@
       body { background: white !important; }
       .main { padding: 0 !important; }
     }
-    @media (max-width: 900px) { .g4 { grid-template-columns: repeat(2,1fr); } .main { padding: 1rem; } .hdr { padding: 0 1rem; } }
-    @media (max-width: 580px) { .g4, .g2 { grid-template-columns: 1fr; } }
+
+    /* === ПЛАНШЕТ === */
+    @media (max-width: 900px) {
+      .g4 { grid-template-columns: repeat(2,1fr); }
+      .main { padding: 1rem; }
+      .hdr { padding: 0 1rem; }
+    }
+
+    /* === МОБИЛЬНЫЙ === */
+    @media (max-width: 640px) {
+      /* Запрет горизонтального скролла */
+      html, body { overflow-x: hidden; max-width: 100vw; }
+
+      /* Хедер — логотип + бургер-меню */
+      .hdr { height: 52px; padding: 0 .75rem; position: sticky; top: 0; z-index: 200; }
+      .hdr-logo { font-size: .95rem; }
+      .hdr-logo img { width: 26px; height: 26px; }
+
+      /* Скрываем обычную nav, показываем мобильную */
+      .nav { display: none !important; }
+      .mob-nav-toggle { display: flex !important; }
+
+      /* Нижняя панель навигации */
+      .mob-bottom-nav {
+        display: flex !important;
+        position: fixed;
+        bottom: 0; left: 0; right: 0;
+        background: #fff;
+        border-top: 1px solid var(--border);
+        z-index: 300;
+        box-shadow: 0 -2px 10px rgba(0,0,0,0.08);
+      }
+      .mob-bottom-nav button {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        background: none;
+        border: none;
+        padding: 8px 4px 10px;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: .6rem;
+        font-weight: 600;
+        color: var(--text-3);
+        transition: color .12s;
+        min-height: 56px;
+      }
+      .mob-bottom-nav button .mbn-icon { font-size: 1.2rem; }
+      .mob-bottom-nav button.active { color: var(--orange); }
+      .mob-bottom-nav button.active .mbn-icon { transform: scale(1.1); }
+
+      /* Паддинг снизу чтобы контент не залезал под нижнее меню */
+      .main { padding: .75rem .75rem 72px; }
+
+      /* Сетки — всё в одну колонку */
+      .g4, .g2 { grid-template-columns: 1fr; gap: .6rem; }
+
+      /* Карточки заявки — одна колонка */
+      #app [style*="grid-template-columns:1fr 1fr"],
+      #app [style*="grid-template-columns: 1fr 1fr"] {
+        display: block !important;
+      }
+      #app [style*="grid-template-columns:1fr 1fr"] > *,
+      #app [style*="grid-template-columns: 1fr 1fr"] > * {
+        margin-bottom: .75rem;
+      }
+
+      /* Баннер — вертикально */
+      .banner { flex-direction: column; align-items: flex-start; gap: .5rem; }
+      .banner .btn { width: 100%; justify-content: center; }
+
+      /* Заголовок страницы */
+      .page-title { font-size: 1.1rem; margin-bottom: .9rem; }
+
+      /* Шапка карточки — перенос кнопок */
+      .card-hdr { flex-wrap: wrap; gap: .4rem; }
+      .card-hdr h1 { font-size: .95rem; flex-basis: 100%; }
+      .card-hdr .btn { flex: 1; justify-content: center; font-size: .75rem; padding: 6px 8px; }
+
+      /* Поле в карточке — одна колонка */
+      .field-row { grid-template-columns: 1fr; gap: .15rem; }
+      .field-lbl { padding-top: 0; }
+
+      /* Таблица заявок — горизонтальный скролл */
+      .tbl-wrap { max-height: none; border-radius: var(--radius); -webkit-overflow-scrolling: touch; }
+      table { font-size: .75rem; min-width: 540px; }
+      thead th { padding: 7px 8px; }
+      tbody td { padding: 6px 8px; }
+      .td-clip { max-width: 130px; }
+
+      /* Цепи — одна колонка */
+      .chain-steps { gap: 3px; }
+      .step { min-width: 56px; padding: 7px 6px; font-size: .68rem; }
+      .chain-arr { font-size: .7rem; }
+
+      /* Канбан — горизонтальный скролл */
+      .kanban { padding-bottom: .75rem; gap: .75rem; -webkit-overflow-scrolling: touch; }
+      .kcol { min-width: 200px; }
+
+      /* Зона загрузки */
+      .upload-zone { padding: 1.5rem 1rem; }
+
+      /* Строки региона */
+      .rrow { flex-wrap: wrap; gap: .4rem; }
+      .rname { min-width: auto; font-size: .8rem; }
+      .ramt { font-size: .72rem; }
+      .rprog { min-width: 100%; }
+
+      /* Фильтры заявок — колонка */
+      #app .row.mb { flex-wrap: wrap; }
+      #app .row.mb input,
+      #app .row.mb select { flex: 1 1 calc(50% - .375rem); min-width: 0; font-size: .8rem; }
+
+      /* Стат карточки */
+      .stat { padding: .875rem 1rem; }
+      .stat-val { font-size: 1.6rem; }
+    }
   </style>
 </head>
 <body>
@@ -176,6 +296,7 @@
   </div>
   <nav class="nav" id="nav"></nav>
 </header>
+<nav class="mob-bottom-nav" id="mob-nav"></nav>
 <main class="main" id="app"></main>
 <script>
 // ─── STATE ───────────────────────────────────────────────────────────────────
@@ -230,6 +351,19 @@ function renderNav() {
     b.onclick = function() { go(item.id); };
     nav.appendChild(b);
   });
+
+  // Мобильная нижняя навигация
+  var mobNav = document.getElementById('mob-nav');
+  if (mobNav) {
+    mobNav.innerHTML = '';
+    NAV.forEach(function(item) {
+      var b = document.createElement('button');
+      b.className = (S.page === item.id ? 'active' : '');
+      b.innerHTML = '<span class="mbn-icon">' + item.icon + '</span>' + item.label;
+      b.onclick = function() { go(item.id); };
+      mobNav.appendChild(b);
+    });
+  }
 }
 
 // ─── RENDER ───────────────────────────────────────────────────────────────────
