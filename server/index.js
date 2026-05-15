@@ -1,30 +1,60 @@
 import express from 'express'
 import cors from 'cors'
-import fs from 'fs'
 import path from 'path'
+import fs from 'fs'
 import { fileURLToPath } from 'url'
 import XLSX from 'xlsx'
+import pg from 'pg'
 
+
+const { Pool } = pg
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(__dirname, '..')
 const app = express()
-const PORT = 3000
-const DB_FILE = path.join(ROOT, 'db.json')
+const PORT = process.env.PORT || 3000
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+})
 
 app.use(cors())
 app.use(express.json({ limit: '200mb' }))
 app.use(express.urlencoded({ limit: '200mb', extended: true }))
 app.use(express.static(ROOT))
 
-app.get('/', (req, res) => {
+app.get('/', async (req, res) => {
   res.sendFile(path.join(ROOT, 'index.html'))
 })
 
-function readDB() {
-  if (!fs.existsSync(DB_FILE)) return { rows: [], importedFrom: null, importedAt: null }
-  return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'))
+
+
+// Создаём таблицу при старте, если её нет
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS appdata (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      data JSONB NOT NULL
+    )
+  `)
+  // Вставляем пустую запись если таблица только создана
+  await pool.query(`
+    INSERT INTO appdata (id, data) 
+    VALUES (1, '{"rows":[],"importedFrom":null,"importedAt":null}')
+    ON CONFLICT (id) DO NOTHING
+  `)
 }
-function writeDB(data) { fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2)) }
+
+async function readDB() {
+  const res = await pool.query('SELECT data FROM appdata WHERE id = 1')
+  return res.rows[0].data
+}
+
+async function writeDB(data) {
+  await pool.query(
+    'UPDATE appdata SET data = $1 WHERE id = 1',
+    [JSON.stringify(data)]
+  )
+}
 
 // Определяем начальный этап заявки на основе статуса из Excel
 function getInitialStage(status) {
@@ -55,6 +85,7 @@ function parseSvodnye(workbook) {
       if (overdue > 30) priority = 'high'
       else if (overdue > 0) priority = 'medium'
 
+      // Улучшенный парсинг суммы: сохраняем числа как есть, строки парсим
       const rawAmount = row['Сумма договора '] ?? row['Сумма договора']
       const amount = (typeof rawAmount === 'number') ? rawAmount : (parseFloat(rawAmount) || 0)
 
@@ -126,48 +157,48 @@ function computeStats(rows) {
 }
 
 // ---------- API ----------
-app.get('/api/stats', (req, res) => {
-  const db = readDB()
+app.get('/api/stats', async (req, res) => {
+  const db = await readDB()
   if (db.rows && db.rows.length > 0) return res.json(computeStats(db.rows))
   res.json({ tasks:{total:0,done:0,pending:0,cancelled:0}, orders:{total:0,pending:0}, supply:{steps:6,completed:0,overdue:0}, revenue:{total:0,month:0} })
 })
 
-app.get('/api/tasks', (req, res) => { const db = readDB(); res.json(db.rows || []) })
-app.post('/api/tasks', (req, res) => {
-  const db = readDB(); if (!db.rows) db.rows = []
+app.get('/api/tasks', async (req, res) => { const db = await readDB(); res.json(db.rows || []) })
+app.post('/api/tasks', async (req, res) => {
+  const db = await readDB(); if (!db.rows) db.rows = []
   const task = { id: 'manual_'+Date.now(), ...req.body, status: req.body.status||'pending' }
-  db.rows.push(task); writeDB(db); res.json(task)
+  db.rows.push(task); await writeDB(db); res.json(task)
 })
-app.put('/api/tasks/:id', (req, res) => {
-  const db = readDB(); const arr = db.rows||[]
+app.put('/api/tasks/:id', async (req, res) => {
+  const db = await readDB(); const arr = db.rows||[]
   const idx = arr.findIndex(t => String(t.id)===req.params.id)
   if (idx !== -1) arr[idx] = {...arr[idx], ...req.body}
-  db.rows = arr; writeDB(db); res.json({success:true})
+  db.rows = arr; await writeDB(db); res.json({success:true})
 })
-app.delete('/api/tasks/:id', (req, res) => {
-  const db = readDB(); db.rows = (db.rows||[]).filter(t => String(t.id)!==req.params.id)
-  writeDB(db); res.json({success:true})
+app.delete('/api/tasks/:id', async (req, res) => {
+  const db = await readDB(); db.rows = (db.rows||[]).filter(t => String(t.id)!==req.params.id)
+  await writeDB(db); res.json({success:true})
 })
 
-app.get('/api/chains', (req, res) => {
-  const db = readDB()
+app.get('/api/chains', async (req, res) => {
+  const db = await readDB()
   if (db.rows && db.rows.length > 0) return res.json(buildChainsFromRows(db.rows))
   res.json([])
 })
-app.put('/api/chains/:id', (req, res) => res.json({success:true}))
+app.put('/api/chains/:id', async (req, res) => res.json({success:true}))
 
-app.get('/api/import-info', (req, res) => {
-  const db = readDB()
+app.get('/api/import-info', async (req, res) => {
+  const db = await readDB()
   res.json({ importedFrom: db.importedFrom||null, importedAt: db.importedAt||null, rowCount: (db.rows||[]).length })
 })
 
-app.get('/api/files', (req, res) => {
+app.get('/api/files', async (req, res) => {
   const dir = path.join(ROOT, 'uploads')
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, {recursive:true})
   res.json(fs.readdirSync(dir).filter(f => f.endsWith('.xlsx')||f.endsWith('.xls')))
 })
 
-app.get('/api/excel/:filename', (req, res) => {
+app.get('/api/excel/:filename', async (req, res) => {
   try {
     const filePath = path.join(ROOT, 'uploads', req.params.filename)
     if (!fs.existsSync(filePath)) return res.status(404).json({error:'File not found'})
@@ -178,7 +209,7 @@ app.get('/api/excel/:filename', (req, res) => {
   } catch(e) { res.status(500).json({error:e.message}) }
 })
 
-app.post('/api/excel/upload', (req, res) => {
+app.post('/api/excel/upload', async (req, res) => {
   try {
     const { file, name } = req.body
     const dir = path.join(ROOT, 'uploads')
@@ -192,7 +223,7 @@ app.post('/api/excel/upload', (req, res) => {
     const isSvodnye = workbook.SheetNames.some(n => n.startsWith('Заявки'))
     if (isSvodnye) {
       const newRows = parseSvodnye(workbook) // Данные, которые только что распарсили из Excel
-      const db = readDB()
+      const db = await readDB()
       const oldRows = db.rows || []
 
       // 1. Создаем карту старых данных для быстрого поиска по ID
@@ -202,6 +233,7 @@ app.post('/api/excel/upload', (req, res) => {
       })
 
       // 2. Поля, которые мы НЕ берем из Excel, а храним в своей БД (Editable)
+      // contact, techLink, excelComment, edoNumber — теперь приходят из Excel, поэтому их нет в списке
       const EDITABLE = ['assignee', 'controller', 'comment', 'distributedAt', '_history', 'stage', 'archived']
 
       // 3. Формируем новый список (Мержим данные)
@@ -244,7 +276,7 @@ app.post('/api/excel/upload', (req, res) => {
       db.rows = mergedRows
       db.importedFrom = name
       db.importedAt = new Date().toISOString()
-      writeDB(db)
+      await writeDB(db)
 
       console.log('Smart-imported:', newRows.length, 'new/updated,', mergedRows.length - newRows.length, 'archived')
       return res.json({success:true, name, autoImported:true, rowCount:newRows.length})
@@ -412,9 +444,9 @@ function numToWords(n) {
 }
 
 // ─── API: единый эндпоинт экспорта ────────────────────────────────────────────
-app.get('/api/export/:type/:id', (req, res) => {
+app.get('/api/export/:type/:id', async (req, res) => {
   try {
-    const db   = readDB()
+    const db   = await readDB()
     const task = (db.rows || []).find(r => String(r.id) === req.params.id)
     if (!task) return res.status(404).json({ error: 'Заявка не найдена' })
 
@@ -436,8 +468,15 @@ app.get('/api/export/:type/:id', (req, res) => {
 })
 
 // Обратная совместимость: старый маршрут /api/export/:id → app2
-app.get('/api/export/:id', (req, res) => {
+app.get('/api/export/:id', async (req, res) => {
   res.redirect('/api/export/app2/' + req.params.id)
 })
 
-app.listen(PORT, () => console.log(`Stockeasy: http://localhost:${PORT}`))
+initDB().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Stockeasy: http://localhost:${PORT}`)
+  })
+}).catch(err => {
+  console.error('DB init failed:', err)
+  process.exit(1)
+})
