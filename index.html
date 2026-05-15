@@ -945,6 +945,7 @@ function pageCard() {
       if (key === 'overdueDays') disp = val > 0 ? '<span style="color:var(--red);font-weight:600">+'+val+' дн</span>' : '<span class="t3">0</span>';
       if (key === 'stage') disp = stageLabel[val] || '<span class="t3">—</span>';
       if (key === 'archived') disp = val ? '<span class="badge b-gray">Архив</span>' : '<span class="badge b-green">Активна</span>';
+      if (key === 'techLink' && val) disp = '<a href="'+val+'" target="_blank" rel="noopener noreferrer">🔗 Открыть</a>';
       return '<div class="field-row"><div class="field-lbl">'+lbl+'</div><div class="field-val">'+disp+'</div></div>';
     }
     var inp = '';
@@ -1105,7 +1106,7 @@ function pageCard() {
     field('Дата распределения', 'distributedAt', 'date') +
     field('Подрядчик', 'contractor') +
     field('Контакт / сопровождение', 'contact', 'textarea') +
-    field('Ссылка на тех.информацию', 'techLink') +
+    field('Ссылка на тех.информацию', 'techLink', 'url') +
     field('Комментарий', 'comment', 'textarea') +
     (edit ? '</form>' : '') +
   '</div>';
