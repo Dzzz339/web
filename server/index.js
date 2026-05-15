@@ -437,7 +437,7 @@ function numToWords(n) {
 }
 
 // ─── API: единый эндпоинт экспорта ────────────────────────────────────────────
-app.get('/api/export/:type/:id', (req, res) => {
+app.get('/api/export/:type/:id', async (req, res) => {
   try {
     const db   = await readDB()
     const task = (db.rows || []).find(r => String(r.id) === req.params.id)
