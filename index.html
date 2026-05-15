@@ -156,6 +156,14 @@
     .fw6 { font-weight: 600; }
     .fw7 { font-weight: 700; }
 
+
+    /* === ПЕЧАТЬ === */
+    @media print {
+      .hdr, .nav, .card-hdr .btn, #mapBtn, .map-nav-btns, #leaflet-attribution { display: none !important; }
+      .card { box-shadow: none !important; border: 1px solid #ccc !important; }
+      body { background: white !important; }
+      .main { padding: 0 !important; }
+    }
     @media (max-width: 900px) { .g4 { grid-template-columns: repeat(2,1fr); } .main { padding: 1rem; } .hdr { padding: 0 1rem; } }
     @media (max-width: 580px) { .g4, .g2 { grid-template-columns: 1fr; } }
   </style>
@@ -174,7 +182,7 @@
 var S = {
   page: 'dashboard',
   tasks: [], chains: [], stats: {}, importInfo: null,
-  selChain: null,
+  selChain: null, selChainStep: null,
   taskQ: '', taskSt: '', taskPr: '', taskReg: '', taskMgr: '', taskYear: '', taskOverdue: '',
   taskArch: 'no',
   taskStage: '',
@@ -313,17 +321,35 @@ function pageDash() {
 
 // ─── PAGE: SUPPLY ─────────────────────────────────────────────────────────────
 function pageSupply() {
+  var STAGE_KEYS  = ['request','survey','install','control','acceptance','payment'];
+  var STAGE_NAMES = ['Заявка','Обследование','Монтаж','Контроль','Приёмка','Оплата'];
+
   if (!S.chains.length) return '<h1 class="page-title">Цепи по регионам</h1>' +
     '<div class="card p" style="text-align:center;padding:3rem"><p class="t3">Нет данных.</p><button class="btn" style="margin-top:1rem" onclick="go(\'data\')">Загрузить</button></div>';
 
   var chain = S.chains.find(function(c){ return c.id === S.selChain; }) || S.chains[0];
   var cp = pct(chain.doneTasks, chain.totalTasks);
 
+  // Считаем заявки по этапам для выбранного региона
+  var stageCount = {};
+  STAGE_KEYS.forEach(function(k){ stageCount[k] = 0; });
+  S.tasks.filter(function(t){ return t.region === S.selChain && !t.archived; }).forEach(function(t){
+    if (t.stage && stageCount[t.stage] !== undefined) stageCount[t.stage]++;
+  });
+
   var stepsHtml = '';
   (chain.steps || []).forEach(function(s, i) {
     var cls = i < chain.currentStep ? 'done' : i === chain.currentStep ? 'active' : '';
     var icon = i < chain.currentStep ? '✓' : i === chain.currentStep ? '⏳' : '○';
-    stepsHtml += '<div class="step ' + cls + '"><div class="step-icon">' + icon + '</div>' + s + '</div>';
+    var stageKey = STAGE_KEYS[i];
+    var cnt = stageCount[stageKey] || 0;
+    var isSel = S.selChainStep === stageKey;
+    var stepStyle = isSel ? 'outline:2px solid var(--orange);outline-offset:2px;cursor:pointer;' : 'cursor:pointer;';
+    stepsHtml += '<div class="step ' + cls + '" style="' + stepStyle + '" data-step="' + stageKey + '">' +
+      '<div class="step-icon">' + icon + '</div>' +
+      s +
+      (cnt > 0 ? '<div style="font-size:.7rem;margin-top:2px;color:var(--orange-dark);font-weight:700">' + cnt + ' з.</div>' : '') +
+    '</div>';
     if (i < chain.steps.length - 1) stepsHtml += '<span class="chain-arr">→</span>';
   });
 
@@ -358,6 +384,25 @@ function pageSupply() {
           '<div style="margin-top:.75rem">' + bar(chain.doneTasks, chain.totalTasks) + '</div>' +
           '<div style="text-align:right;font-size:.75rem;color:var(--text-3);margin-top:3px">' + cp + '% выполнено</div>' +
         '</div>' +
+        (S.selChainStep ? (function(){
+          var stepIdx = STAGE_KEYS.indexOf(S.selChainStep);
+          var stepName = STAGE_NAMES[stepIdx] || S.selChainStep;
+          var stepTasks = S.tasks.filter(function(t){ return t.region===S.selChain && t.stage===S.selChainStep && !t.archived; });
+          if (!stepTasks.length) return '<div class="card p mb"><div class="sec-title">' + stepName + ' — нет заявок</div></div>';
+          var rows = stepTasks.slice(0,30).map(function(t){
+            var tid = (t.id||'').replace(/'/g,"\\'");
+            return '<div style="display:flex;align-items:center;gap:.75rem;padding:.4rem 0;border-bottom:1px solid var(--border)">' +
+              '<button class="btn-link" style="min-width:100px" onclick="openCard(\'' + tid + '\')">' + (t.id||'') + '</button>' +
+              '<span class="t3" style="flex:1;font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (t.address||'') + '</span>' +
+              stBadge(t.status) +
+              '<span class="t3" style="font-size:.75rem;white-space:nowrap">' + fmtMoney(t.amount) + '</span>' +
+            '</div>';
+          }).join('');
+          var more = stepTasks.length > 30 ? '<div class="t3" style="font-size:.78rem;margin-top:.5rem">... ещё ' + (stepTasks.length-30) + ' заявок</div>' : '';
+          return '<div class="card p mb"><div class="sec-title" style="margin-bottom:.5rem">' + stepName + ' (' + stepTasks.length + ' заявок) ' +
+            '<button class="btn btn-sm btn-ghost" style="float:right;font-size:.7rem;padding:2px 8px" onclick="S.selChainStep=null;renderApp()">✕</button></div>' +
+            rows + more + '</div>';
+        })() : '') +
       '</div>' +
       '<div class="card p" style="max-height:70vh;overflow-y:auto">' +
         '<div class="sec-title">Все регионы (' + S.chains.length + ')</div>' +
@@ -521,6 +566,16 @@ function pageTasks() {
       '<select id="tarch">' +
         '<option value="no"' + (S.taskArch==='no'?' selected':'') + '>Активные</option>' +
         '<option value="yes"' + (S.taskArch==='yes'?' selected':'') + '>Архив</option>' +
+        '<option value=""' + (S.taskArch===''?' selected':'') + '>Все (с архивом)</option>' +
+      '</select>' +
+      '<select id="tstage">' +
+        '<option value="">Все этапы</option>' +
+        '<option value="request"' + (S.taskStage==='request'?' selected':'') + '>Заявка</option>' +
+        '<option value="survey"' + (S.taskStage==='survey'?' selected':'') + '>Обследование</option>' +
+        '<option value="install"' + (S.taskStage==='install'?' selected':'') + '>Монтаж</option>' +
+        '<option value="control"' + (S.taskStage==='control'?' selected':'') + '>Контроль</option>' +
+        '<option value="acceptance"' + (S.taskStage==='acceptance'?' selected':'') + '>Приёмка</option>' +
+        '<option value="payment"' + (S.taskStage==='payment'?' selected':'') + '>Оплата</option>' +
       '</select>' +
       (hasFilter ? '<button class="btn btn-sm btn-ghost" onclick="clearFilters()">✕ Сбросить</button>' : '') +
     '</div>' +
@@ -563,7 +618,15 @@ function pageData() {
 function bindEvents() {
   // chain region rows
   document.querySelectorAll('[data-cid]').forEach(function(el) {
-    el.addEventListener('click', function() { S.selChain = decodeURIComponent(el.dataset.cid); renderApp(); });
+    el.addEventListener('click', function() { S.selChain = decodeURIComponent(el.dataset.cid); S.selChainStep = null; renderApp(); });
+  });
+  // chain step click
+  document.querySelectorAll('[data-step]').forEach(function(el) {
+    el.addEventListener('click', function() {
+      var key = el.dataset.step;
+      S.selChainStep = S.selChainStep === key ? null : key;
+      renderApp();
+    });
   });
   // kanban move
   document.querySelectorAll('.kmove').forEach(function(sel) {
@@ -572,6 +635,8 @@ function bindEvents() {
   // add task
   var tarch = document.getElementById('tarch');
   if (tarch) tarch.addEventListener('change', function(){ S.taskArch = this.value; renderApp(); });
+  var tstage = document.getElementById('tstage');
+  if (tstage) tstage.addEventListener('change', function(){ S.taskStage = this.value; renderApp(); });
   var addBtn = document.getElementById('addBtn');
   if (addBtn) addBtn.addEventListener('click', addTask);
   var ntask = document.getElementById('ntask');
@@ -608,6 +673,25 @@ function bindEvents() {
 }
 
 // ─── ACTIONS ─────────────────────────────────────────────────────────────────
+function exportDoc(type, id) {
+  fetch('/api/export/' + type + '/' + encodeURIComponent(id))
+    .then(function(r) {
+      if (!r.ok) return r.json().then(function(e){ throw new Error(e.error); });
+      return r.blob();
+    })
+    .then(function(blob) {
+      var suffix = type === 'invoice' ? '_Счёт' : type === 'act' ? '_Акт' : '_Приложение_2';
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = id.replace(/\//g, '-') + suffix + '.xlsx';
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    })
+    .catch(function(e) { alert('\u041e\u0448\u0438\u0431\u043a\u0430 \u044d\u043a\u0441\u043f\u043e\u0440\u0442\u0430: ' + e.message); });
+}
+
 function exportTask(id) {
   fetch('/api/export/' + encodeURIComponent(id))
     .then(function(r) {
@@ -725,11 +809,14 @@ function pageCard() {
       if (key === 'priority') disp = prBadge(val);
       if (key === 'amount') disp = fmtMoney(val);
       if (key === 'overdueDays') disp = val > 0 ? '<span style="color:var(--red);font-weight:600">+'+val+' дн</span>' : '<span class="t3">0</span>';
+      if (key === 'stage') disp = stageLabel[val] || '<span class="t3">—</span>';
+      if (key === 'archived') disp = val ? '<span class="badge b-gray">Архив</span>' : '<span class="badge b-green">Активна</span>';
       return '<div class="field-row"><div class="field-lbl">'+lbl+'</div><div class="field-val">'+disp+'</div></div>';
     }
     var inp = '';
     if (key === 'status') inp = '<select name="status">'+statusOpts+'</select>';
     else if (key === 'priority') inp = '<select name="priority">'+prioOpts+'</select>';
+    else if (key === 'stage') inp = '<select name="stage"><option value="">—</option>'+stageOpts+'</select>';
     else if (type === 'textarea') inp = '<textarea name="'+key+'">'+val+'</textarea>';
     else inp = '<input type="'+(type||'text')+'" name="'+key+'" value="'+String(val).replace(/"/g,'&quot;')+'">';
     return '<div class="field-row"><div class="field-lbl">'+lbl+'</div><div class="field-val">'+inp+'</div></div>';
@@ -842,7 +929,15 @@ function pageCard() {
   }, 150);
 
   var eid = t.id.replace(/'/g, "\\'");
-  var docBtns = '<button class="btn btn-sm btn-ghost" onclick="exportTask(\'' + eid + '\')" title="Скачать Приложение \u21162">&#x2B07; Прил. &#x2116;2</button>';
+  var stageLabel = {request:'\u0417\u0430\u044f\u0432\u043a\u0430',survey:'\u041e\u0431\u0441\u043b\u0435\u0434\u043e\u0432\u0430\u043d\u0438\u0435',install:'\u041c\u043e\u043d\u0442\u0430\u0436',control:'\u041a\u043e\u043d\u0442\u0440\u043e\u043b\u044c',acceptance:'\u041f\u0440\u0438\u0451\u043c\u043a\u0430',payment:'\u041e\u043f\u043b\u0430\u0442\u0430'};
+  var stageOpts = ['request','survey','install','control','acceptance','payment'].map(function(v){
+    return '<option value="'+v+'"'+(t.stage===v?' selected':'')+'>'+stageLabel[v]+'</option>';
+  }).join('');
+  var docBtns =
+    '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'app2\',\''+eid+'\')" title="\u041f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u0435 \u21162">&#x2B07; \u041f\u0440\u0438\u043b. \u21162</button>' +
+    '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'invoice\',\''+eid+'\')" title="\u0421\u0447\u0451\u0442">&#x1F4CB; \u0421\u0447\u0451\u0442</button>' +
+    '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'act\',\''+eid+'\')" title="\u0410\u043a\u0442">&#x2714; \u0410\u043a\u0442</button>' +
+    '<button class="btn btn-sm btn-ghost" onclick="window.print()" title="\u041f\u0435\u0447\u0430\u0442\u044c / PDF">&#x1F5A8; \u041f\u0435\u0447\u0430\u0442\u044c</button>';
 
   var hdr = '<div class="card-hdr">' +
     '<button class="btn btn-sm btn-ghost" onclick="go(\'tasks\')">← Заявки</button>' +
@@ -869,6 +964,8 @@ function pageCard() {
     field('Факт', 'fact', 'number') +
     '<div class="divider"></div>' +
     '<div class="sec-title" style="margin-bottom:.5rem">Назначение</div>' +
+    field('Этап', 'stage') +
+    field('Статус записи', 'archived') +
     field('Исполнитель', 'assignee') +
     field('Контролёр', 'controller') +
     field('Дата распределения', 'distributedAt', 'date') +
@@ -904,7 +1001,7 @@ function saveCard() {
   var now = new Date().toLocaleString('ru');
   var hist = t._history || [];
   var fieldNames = {
-    status:'Статус', priority:'Приоритет', assignee:'Исполнитель',
+    status:'Статус', priority:'Приоритет', stage:'Этап', assignee:'Исполнитель',
     controller:'Контролёр', comment:'Комментарий', distributedAt:'Дата распределения',
     contact:'Контакт', techLink:'Ссылка', deadline:'Срок', fact:'Факт',
     region:'Регион', address:'Адрес объекта', workType:'Тип работ',
