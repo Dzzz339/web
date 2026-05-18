@@ -288,186 +288,195 @@ app.post('/api/excel/upload', async (req, res) => {
 // ─── EXPORT: Generate Приложение №2 xlsx (pure Node.js, no Python) ──────────
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-function styleSheet(ws) {
-  // Применяем ширину колонок — вызывается после формирования листа
-  ws['!cols'] = [{ wch: 6 }, { wch: 48 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 16 }]
+// ─── Тарифная логика из шаблонов ББ-5376 ────────────────────────────────────
+function calcPricePerPort(ports) {
+  // =IF(B22>=3,3750,IF(B22=2,4250,5000))
+  if (ports >= 3) return 3750
+  if (ports === 2) return 4250
+  return 5000
 }
-function today() {
-  return new Date().toLocaleDateString('ru-RU')
+function calcTransport(km) {
+  // =IF(B26>200,B26*2*35, IF(B26<=200,B26>100,B26*2*30, ...))
+  if (!km || km <= 0) return 0
+  if (km > 200) return km * 2 * 35
+  if (km > 100) return km * 2 * 30
+  if (km > 50)  return km * 2 * 25
+  if (km > 10)  return km * 2 * 15
+  return 0
 }
-function statusRu(s) {
-  return s === 'done' ? 'Выполнено' : s === 'cancelled' ? 'Отменено' : 'В работе'
+function calcTotal(ports, km) {
+  return calcTransport(km) + calcPricePerPort(ports) * ports
+}
+function fmtDate(d) {
+  if (!d) return new Date().toLocaleDateString('ru-RU')
+  try { return new Date(d).toLocaleDateString('ru-RU') } catch { return String(d) }
+}
+function numToWords(n) {
+  if (!n) return 'Ноль рублей 00 копеек.'
+  n = Math.round(n)
+  const e1f = ['','одна','две','три','четыре','пять','шесть','семь','восемь','девять']
+  const e1m = ['','один','два','три','четыре','пять','шесть','семь','восемь','девять']
+  const e2  = ['десять','одиннадцать','двенадцать','тринадцать','четырнадцать','пятнадцать','шестнадцать','семнадцать','восемнадцать','девятнадцать']
+  const e3  = ['','','двадцать','тридцать','сорок','пятьдесят','шестьдесят','семьдесят','восемьдесят','девяносто']
+  const e4  = ['','сто','двести','триста','четыреста','пятьсот','шестьсот','семьсот','восемьсот','девятьсот']
+  function morph(n, one, two, five) {
+    if (n % 100 >= 11 && n % 100 <= 19) return five
+    if (n % 10 === 1) return one
+    if (n % 10 >= 2 && n % 10 <= 4) return two
+    return five
+  }
+  function block(n, fem) {
+    const arr = fem ? e1f : e1m
+    let r = ''
+    const h = Math.floor(n/100); if(h) r += e4[h]+' '
+    const t = Math.floor((n%100)/10), u = n%10
+    if (t===1) return r + e2[u] + ' '
+    if (t) r += e3[t]+' '
+    if (u) r += arr[u]+' '
+    return r
+  }
+  const m  = Math.floor(n/1000000)
+  const th = Math.floor((n%1000000)/1000)
+  const r  = n%1000
+  let res = ''
+  if (m)  res += block(m,false)  + morph(m,'миллион','миллиона','миллионов') + ' '
+  if (th) res += block(th,true)  + morph(th,'тысяча','тысячи','тысяч') + ' '
+  if (r)  res += block(r,false)
+  res = res.trim()
+  return res.charAt(0).toUpperCase() + res.slice(1) + ' рублей  00 копеек.'
 }
 
-// ─── EXPORT: Приложение №2 ───────────────────────────────────────────────────
+// ─── Построители документов по шаблону ББ-5376 ───────────────────────────────
 function buildApp2(task) {
   const wb = XLSX.utils.book_new()
-  const amount = task.amount || 0
-  const nds    = Math.round(amount * 0.2)
-  const total  = Math.round(amount * 1.2)
-
+  const ports = task.fact || task.inOrder || 0
+  const km    = Number(task.distanceKm) || 0
+  const ppp   = calcPricePerPort(ports)
+  const tr    = calcTransport(km)
+  const total = calcTotal(ports, km)
   const data = [
-    ['ПРИЛОЖЕНИЕ №2'],
-    ['к Договору на выполнение работ'],
-    [''],
-    ['Дата:', today()],
-    ['Номер заявки:', task.id],
-    [''],
-    ['АКТ ПРИЁМКИ ВЫПОЛНЕННЫХ РАБОТ'],
-    [''],
-    ['Регион:', task.region || '—'],
-    ['Адрес объекта:', task.address || '—'],
-    ['Тип работ:', task.workType || '—'],
-    ['Подрядчик:', task.contractor || '—'],
-    ['Менеджер Сбера:', task.manager || '—'],
-    ['Исполнитель:', task.assignee || '—'],
-    ['Статус:', statusRu(task.status)],
-    ['Срок выполнения:', task.deadline || '—'],
-    [''],
-    ['№', 'Наименование работ', 'Ед.изм.', 'В заказе', 'Факт', 'Сумма, руб.'],
-    [1, task.workType || '—', 'шт.', task.inOrder || 0, task.fact || 0, amount],
-    [''],
-    ['', '', '', '', 'Итого (без НДС):', amount],
-    ['', '', '', '', 'НДС 20%:', nds],
-    ['', '', '', '', 'ИТОГО с НДС:', total],
-    [''],
-    ['Сдал:', '', '', '', 'Принял:', ''],
-    ['', '', '', '', '', ''],
-    ['________________', '', '', '', '________________', ''],
-    ['(подпись, дата)', '', '', '', '(подпись, дата)', ''],
+    ['Приложение №2'],
+    ['к Договору № _____ от "__" _______ 202_г.'],
+    ['Заявка на выполнение работ'],
+    ['исполнитель работ', task.assignee || task.contractor || '—'],
+    ['дата распределения', task.distributedAt || fmtDate()],
+    ['куратор от Заказчика', task.manager || '—'],
+    ['1. Содержание заявки, контактная и техническая информация, сроки выполнения'],
+    ['Регион (договор)', task.region || '—'],
+    ['Номер заявки', task.id],
+    ['Дата заявки', task.deadline || '—'],
+    ['Срок выполнения', task.deadline || '—'],
+    ['Кол-во дней просрочки', task.overdueDays || 0],
+    ['Адрес выполнения работ', task.address || '—'],
+    ['Контакт / сопровождающий', task.contact || task.contractor || '—'],
+    ['ТИП РАБОТ', task.workType || '—'],
+    ['Ссылка на Тех.Информацию', task.techLink || '—'],
+    ['Количество портов'],
+    ['В заказе', task.inOrder || 0],
+    ['Фактически', task.fact || 0],
+    ['Комментарий', task.comment || ''],
+    ['2. Стоимость работ и транспортные расходы'],
+    ['Удалённость, км', km],
+    ['Стоимость за ед., руб.', ppp],
+    ['Транспортные расходы, руб.', tr],
+    ['Общая стоимость, руб.', total],
+    [],
+    ['От Заказчика', '', '', 'Директор __________________ /И.О. Городович/'],
+    ['От Подрядчика', '', '', 'гр. РФ _________________ / ___________________ /'],
   ]
   const ws = XLSX.utils.aoa_to_sheet(data)
-  styleSheet(ws)
+  ws['!cols'] = [{wch:28},{wch:52},{wch:8},{wch:20}]
   XLSX.utils.book_append_sheet(wb, ws, 'Приложение №2')
   return wb
 }
 
-// ─── EXPORT: Счёт ─────────────────────────────────────────────────────────────
 function buildInvoice(task) {
   const wb = XLSX.utils.book_new()
-  const amount = task.amount || 0
-  const nds    = Math.round(amount * 0.2)
-  const total  = Math.round(amount * 1.2)
-
+  const ports = task.fact || task.inOrder || 0
+  const km    = Number(task.distanceKm) || 0
+  const ppp   = calcPricePerPort(ports)
+  const tr    = calcTransport(km)
+  const total = calcTotal(ports, km)
+  const desc  = `Работы по заявке ${task.id} ${task.address||''} ${task.workType||''}, цена ${ppp} рублей, ${tr} руб. компенсация транспортных расходов.`
   const data = [
-    ['СЧЁТ НА ОПЛАТУ №' + task.id],
-    [''],
-    ['Дата:', today()],
-    [''],
-    ['Заказчик:', 'ПАО Сбербанк'],
-    ['Исполнитель:', task.contractor || task.assignee || '—'],
-    [''],
-    ['Основание:', 'Договор на выполнение работ СКС'],
-    ['Регион:', task.region || '—'],
-    ['Адрес объекта:', task.address || '—'],
-    [''],
-    ['№', 'Наименование', 'Ед.изм.', 'Кол-во', 'Цена', 'Сумма'],
-    [1, task.workType || 'Работы по СКС', 'шт.', task.fact || task.inOrder || 1, amount, amount],
-    [''],
-    ['', '', '', '', 'Итого:', amount],
-    ['', '', '', '', 'НДС 20%:', nds],
-    ['', '', '', '', 'ИТОГО К ОПЛАТЕ:', total],
-    [''],
-    ['Сумма прописью:', numToWords(total) + ' рублей'],
-    [''],
-    ['Руководитель:', '________________'],
-    ['Бухгалтер:', '________________'],
+    ['Подрядчик', '', 'Заказчик'],
+    [task.contractor || task.assignee || '—', '', 'ПАО Сбербанк России'],
+    [],[], [],[], [],
+    ['Счёт на оплату №', task.id, 'от', fmtDate(task.deadline)],
+    ['№', 'Товары и услуги', 'Кол-во', 'Цена, руб.', 'Сумма, руб.'],
+    [1, desc, 1, total, total],
+    ['Всего наименований 1 на сумму', '', total, '', ''],
+    [numToWords(total)],
+    [],
+    [],
+    ['От Подрядчика', '', '', '', 'гр. РФ _________________ / ___________________ /'],
   ]
   const ws = XLSX.utils.aoa_to_sheet(data)
-  styleSheet(ws)
+  ws['!cols'] = [{wch:5},{wch:70},{wch:8},{wch:14},{wch:14}]
   XLSX.utils.book_append_sheet(wb, ws, 'Счёт')
   return wb
 }
 
-// ─── EXPORT: Акт ─────────────────────────────────────────────────────────────
 function buildAct(task) {
   const wb = XLSX.utils.book_new()
-  const amount = task.amount || 0
-  const nds    = Math.round(amount * 0.2)
-  const total  = Math.round(amount * 1.2)
-
+  const ports = task.fact || task.inOrder || 0
+  const km    = Number(task.distanceKm) || 0
+  const ppp   = calcPricePerPort(ports)
+  const tr    = calcTransport(km)
+  const total = calcTotal(ports, km)
+  const desc  = `Работы по заявке ${task.id} ${task.address||''} ${task.workType||''}, цена ${ppp} рублей, ${tr} руб. компенсация транспортных расходов.`
+  const actRows = [
+    [`АКТ № ${task.id}`, '', '', 'от', fmtDate(task.deadline)],
+    ['', 'приёмки выполненных работ'],
+    ['', 'к Договору № _____ от "__" _______ 202_г.'],
+    ['Заказчик'], ['', 'ПАО Сбербанк России'],
+    ['Исполнитель'], ['', task.contractor || task.assignee || '—'],
+    ['Основание', `Договор №_____  от ${fmtDate(task.deadline)}`],
+    [],
+    ['№', 'Товары и услуги', 'Кол-во', 'Цена, руб.', 'Сумма, руб.'],
+    [1, desc, 1, total, total],
+    ['Всего наименований 1 на сумму', '', total],
+    [numToWords(total)],
+    [],
+    ['От Заказчика', '', '', '', 'Директор __________________ /И.О. Городович/'],
+    ['От Подрядчика', '', '', '', 'гр. РФ _________________ / ___________________ /'],
+    [], [],
+  ]
   const data = [
-    ['АКТ ВЫПОЛНЕННЫХ РАБОТ №' + task.id],
-    [''],
-    ['Дата:', today()],
-    [''],
-    ['Заказчик:', 'ПАО Сбербанк'],
-    ['Исполнитель:', task.contractor || task.assignee || '—'],
-    ['Менеджер Сбера:', task.manager || '—'],
-    [''],
-    ['Объект:', task.region + ', ' + (task.address || '')],
-    ['Вид работ:', task.workType || '—'],
-    ['Дата начала:', '—'],
-    ['Дата окончания:', task.deadline || today()],
-    [''],
-    ['Мы, нижеподписавшиеся, составили настоящий акт о том, что исполнитель'],
-    ['выполнил, а заказчик принял следующие работы:'],
-    [''],
-    ['№', 'Наименование работ', 'Ед.изм.', 'Кол-во', 'Цена', 'Сумма'],
-    [1, task.workType || 'Работы по СКС', 'шт.', task.fact || task.inOrder || 1, amount, amount],
-    [''],
-    ['', '', '', '', 'Итого (без НДС):', amount],
-    ['', '', '', '', 'НДС 20%:', nds],
-    ['', '', '', '', 'ИТОГО:', total],
-    [''],
-    ['Работы выполнены в полном объёме, в установленные сроки,'],
-    ['заказчик претензий не имеет.'],
-    [''],
-    ['Сдал (Исполнитель):', '', '', '', 'Принял (Заказчик):', ''],
-    ['', '', '', '', '', ''],
-    ['________________', '', '', '', '________________', ''],
-    ['(подпись, дата)', '', '', '', '(подпись, дата)', ''],
+    ...actRows,
+    ['─────────────────────── линия отреза ───────────────────────'],
+    [],
+    ...actRows,
   ]
   const ws = XLSX.utils.aoa_to_sheet(data)
-  styleSheet(ws)
-  XLSX.utils.book_append_sheet(wb, ws, 'Акт')
+  ws['!cols'] = [{wch:12},{wch:60},{wch:8},{wch:14},{wch:14}]
+  XLSX.utils.book_append_sheet(wb, ws, 'АКТ')
   return wb
 }
 
-// Простой перевод числа в слова (рубли, целые)
-function numToWords(n) {
-  const units  = ['','один','два','три','четыре','пять','шесть','семь','восемь','девять']
-  const teens  = ['десять','одиннадцать','двенадцать','тринадцать','четырнадцать','пятнадцать','шестнадцать','семнадцать','восемнадцать','девятнадцать']
-  const tens   = ['','','двадцать','тридцать','сорок','пятьдесят','шестьдесят','семьдесят','восемьдесят','девяносто']
-  const hunds  = ['','сто','двести','триста','четыреста','пятьсот','шестьсот','семьсот','восемьсот','девятьсот']
-  if (!n) return 'ноль'
-  if (n >= 1000000) return Math.floor(n/1000000) + ' млн ' + numToWords(n % 1000000)
-  let res = ''
-  const h = Math.floor(n / 100)
-  const t = Math.floor((n % 100) / 10)
-  const u = n % 10
-  if (h) res += hunds[h] + ' '
-  if (t === 1) { res += teens[u] + ' '; return res.trim() }
-  if (t) res += tens[t] + ' '
-  if (u) res += units[u] + ' '
-  return res.trim()
-}
-
-// ─── API: единый эндпоинт экспорта ────────────────────────────────────────────
+// ─── API экспорта документов ──────────────────────────────────────────────────
 app.get('/api/export/:type/:id', async (req, res) => {
   try {
     const db   = await readDB()
     const task = (db.rows || []).find(r => String(r.id) === req.params.id)
     if (!task) return res.status(404).json({ error: 'Заявка не найдена' })
-
-    const type = req.params.type  // 'app2' | 'invoice' | 'act'
+    const type = req.params.type
     let wb, suffix
     if (type === 'invoice') { wb = buildInvoice(task); suffix = '_Счёт' }
-    else if (type === 'act') { wb = buildAct(task);     suffix = '_Акт' }
-    else                     { wb = buildApp2(task);    suffix = '_Приложение_2' }
-
+    else if (type === 'act'){ wb = buildAct(task);     suffix = '_Акт' }
+    else                    { wb = buildApp2(task);    suffix = '_Приложение_2' }
     const buf      = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
     const filename = (task.id + suffix + '.xlsx').replace(/\//g, '-')
     res.setHeader('Content-Disposition', "attachment; filename*=UTF-8''" + encodeURIComponent(filename))
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     res.send(buf)
-  } catch (e) {
+  } catch(e) {
     console.error('Export error:', e)
     res.status(500).json({ error: e.message })
   }
 })
 
-// Обратная совместимость: старый маршрут /api/export/:id → app2
+// Обратная совместимость
 app.get('/api/export/:id', async (req, res) => {
   res.redirect('/api/export/app2/' + req.params.id)
 })
@@ -478,5 +487,4 @@ initDB().then(() => {
   })
 }).catch(err => {
   console.error('DB init failed:', err)
-  process.exit(1)
 })

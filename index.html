@@ -1097,6 +1097,7 @@ function pageCard() {
     field('Сумма договора', 'amount', 'number') +
     field('В заказе (портов)', 'inOrder', 'number') +
     field('Факт', 'fact', 'number') +
+    field('Удалённость, км', 'distanceKm', 'number') +
     '<div class="divider"></div>' +
     '<div class="sec-title" style="margin-bottom:.5rem">Назначение</div>' +
     field('Этап', 'stage') +
@@ -1138,6 +1139,7 @@ function saveCard() {
   var fieldNames = {
     status:'Статус', priority:'Приоритет', stage:'Этап', assignee:'Исполнитель',
     controller:'Контролёр', comment:'Комментарий', distributedAt:'Дата распределения',
+    distanceKm:'Удалённость (км)',
     contact:'Контакт', techLink:'Ссылка', deadline:'Срок', fact:'Факт',
     region:'Регион', address:'Адрес объекта', workType:'Тип работ',
     manager:'Менеджер Сбера', amount:'Сумма договора', inOrder:'В заказе (портов)',
