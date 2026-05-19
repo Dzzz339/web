@@ -1686,6 +1686,7 @@ function showModal(title, fields, onSave) {
         f.label + (f.required ? ' <span style="color:var(--red)">*</span>' : '') +
       '</label>' + inp +
       (f.hint ? '<div style="font-size:.72rem;color:var(--text-3);margin-top:4px">' + f.hint + '</div>' : '') +
+      (f.hintId ? '<div id="' + f.hintId + '" style="font-size:.72rem;color:var(--orange);margin-top:4px"></div>' : '') +
     '</div>';
   }).join('');
 
@@ -1844,11 +1845,14 @@ function openAddPoint(marchId) {
 
     // Авторасстояние через OSRM если задан базовый город
     if (!march.baseCity || !march.baseCity.trim()) return;
-    if (kmEl) { kmEl.placeholder = 'считаем…'; kmEl.disabled = true; }
+    if (kmEl) { kmEl.disabled = true; }
+    var kmStatus = document.getElementById('mf_km_status');
+    if (kmStatus) kmStatus.textContent = 'считаем…';
 
     // Геокодируем базу и адрес, потом считаем маршрут
     var baseQ = 'Россия, ' + march.baseCity;
-    var addrQ = 'Россия, ' + (task.region ? task.region + ', ' : '') + (task.address || '');
+    // Не добавляем регион — он мешает Nominatim (Красноярск ≠ Красноярский край)
+    var addrQ = 'Россия, ' + (task.address || '');
 
     Promise.all([
       fetch('/api/geocode?q=' + encodeURIComponent(baseQ) + '&_t=' + Date.now()).then(function(r){ return r.json(); }),
@@ -1856,8 +1860,10 @@ function openAddPoint(marchId) {
     ]).then(function(results) {
       var base = results[0] && results[0][0];
       var dest = results[1] && results[1][0];
+      console.log('[march] geocode base:', base ? base.display_name : 'NOT FOUND', '| dest:', dest ? dest.display_name : 'NOT FOUND');
       if (!base || !dest) {
-        if (kmEl) { kmEl.placeholder = 'не удалось определить'; kmEl.disabled = false; }
+        if (kmEl) kmEl.disabled = false;
+        if (kmStatus) kmStatus.textContent = '⚠ адрес не найден (' + (base ? 'база ок' : 'база не найдена') + ', ' + (dest ? 'адрес ок' : 'адрес не найден') + ')';
         return;
       }
       var coords = base.lon + ',' + base.lat + ';' + dest.lon + ',' + dest.lat;
@@ -1866,23 +1872,26 @@ function openAddPoint(marchId) {
         .then(function(d) {
           if (kmEl) {
             kmEl.disabled = false;
-            kmEl.placeholder = '';
             if (d.distance_km) {
               kmEl.value = d.distance_km;
               kmEl.style.background = '#e8f5e9';
               setTimeout(function(){ kmEl.style.background = ''; }, 1500);
+              if (kmStatus) kmStatus.textContent = '';
+            } else {
+              if (kmStatus) kmStatus.textContent = 'маршрут не найден';
             }
           }
         });
-    }).catch(function() {
-      if (kmEl) { kmEl.disabled = false; kmEl.placeholder = ''; }
+    }).catch(function(e) {
+      if (kmEl) kmEl.disabled = false;
+      if (kmStatus) kmStatus.textContent = 'ошибка: ' + (e && e.message || '');
     });
   }
 
   showModal('➕ Добавить точку', [
     { key: 'taskId',       label: 'ID заявки', placeholder: 'ББ-5376-03 (необязательно)', hint: 'Введите ID — адрес, порты и подрядчик подтянутся автоматически', onInput: autofillFromTask },
     { key: 'address',      label: 'Адрес объекта', placeholder: 'г. Шилка, ул. Ленина, 5', required: true },
-    { key: 'km',           label: 'Расстояние от базы (км)', type: 'number', value: '' },
+    { key: 'km',           label: 'Расстояние от базы (км)', type: 'number', value: '', hint: '', hintId: 'mf_km_status' },
     { key: 'ports',        label: 'Кол-во портов', type: 'number', value: '' },
     { key: 'pricePerPort', label: 'Цена за порт (₽)', type: 'number', value: 3750, hint: 'Авто: ≥3 пор. → 3750, 2 → 4250, 1 → 5000' },
     { key: 'extras',       label: 'Допы (₽)', type: 'number', value: 0 },
