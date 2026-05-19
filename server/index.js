@@ -481,6 +481,65 @@ app.get('/api/export/:id', async (req, res) => {
   res.redirect('/api/export/app2/' + req.params.id)
 })
 
+// ─── API: Марши ───────────────────────────────────────────────────────────────
+app.get('/api/marches', async (req, res) => {
+  const db = await readDB()
+  res.json(db.marches || [])
+})
+
+app.post('/api/marches', async (req, res) => {
+  const db = await readDB()
+  if (!db.marches) db.marches = []
+  const march = {
+    id: 'march_' + Date.now(),
+    name: req.body.name || 'Новый маршрут',
+    baseCity: req.body.baseCity || '',
+    kmRate: Number(req.body.kmRate) || 70,
+    createdAt: new Date().toISOString(),
+    points: []
+  }
+  db.marches.push(march)
+  await writeDB(db)
+  res.json(march)
+})
+
+app.put('/api/marches/:id', async (req, res) => {
+  const db = await readDB()
+  const arr = db.marches || []
+  const idx = arr.findIndex(m => m.id === req.params.id)
+  if (idx !== -1) arr[idx] = { ...arr[idx], ...req.body, id: arr[idx].id }
+  db.marches = arr
+  await writeDB(db)
+  res.json({ success: true })
+})
+
+app.delete('/api/marches/:id', async (req, res) => {
+  const db = await readDB()
+  db.marches = (db.marches || []).filter(m => m.id !== req.params.id)
+  await writeDB(db)
+  res.json({ success: true })
+})
+
+// ─── API: Геокодирование (прокси через сервер — нужен User-Agent для Nominatim) ─
+app.get('/api/geocode', async (req, res) => {
+  const q = req.query.q
+  if (!q) return res.json([])
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ru&accept-language=ru&q=${encodeURIComponent(q)}`
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Stockeasy/1.0 (internal logistics app)',
+        'Accept-Language': 'ru'
+      }
+    })
+    const data = await r.json()
+    res.json(data)
+  } catch (e) {
+    console.error('Geocode error:', e.message)
+    res.json([])
+  }
+})
+
 initDB().then(() => {
   app.listen(PORT, () => {
     console.log(`Stockeasy: http://localhost:${PORT}`)
