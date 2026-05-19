@@ -1655,6 +1655,13 @@ function showModal(title, fields, onSave) {
   document.body.appendChild(modal);
   modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
 
+  // Навешиваем onInput колбеки если заданы в полях
+  fields.forEach(function(f) {
+    if (!f.onInput) return;
+    var el = document.getElementById('mf_' + f.key);
+    if (el) el.addEventListener('input', function() { f.onInput(el.value); });
+  });
+
   document.getElementById('_msave').onclick = function() {
     var data = {};
     var ok = true;
@@ -1759,8 +1766,29 @@ function openAddPoint(marchId) {
   var march = S.marches.find(function(m){ return m.id === marchId; });
   if (!march) return;
 
+  function autofillFromTask(taskId) {
+    var task = S.tasks.find(function(t){ return t.id === taskId.trim(); });
+    if (!task) return;
+    var addrEl  = document.getElementById('mf_address');
+    var portsEl = document.getElementById('mf_ports');
+    var pppEl   = document.getElementById('mf_pricePerPort');
+    var ctrEl   = document.getElementById('mf_contractor');
+    if (addrEl  && !addrEl.value)  addrEl.value  = task.address || '';
+    if (portsEl && !portsEl.value) {
+      var p = task.fact || task.inOrder || 0;
+      portsEl.value = p;
+      // авто цена за порт
+      if (pppEl) pppEl.value = p >= 3 ? 3750 : p === 2 ? 4250 : 5000;
+    }
+    if (ctrEl && !ctrEl.value) ctrEl.value = task.assignee || task.contractor || '';
+    // Подсветка — поля заполнились
+    [addrEl, portsEl, pppEl, ctrEl].forEach(function(el) {
+      if (el) { el.style.background = '#fffbe6'; setTimeout(function(){ el.style.background = ''; }, 1200); }
+    });
+  }
+
   showModal('➕ Добавить точку', [
-    { key: 'taskId',       label: 'ID заявки', placeholder: 'ББ-5376-03 (необязательно)', hint: 'Если указать — адрес и порты подтянутся автоматически' },
+    { key: 'taskId',       label: 'ID заявки', placeholder: 'ББ-5376-03 (необязательно)', hint: 'Введите ID — адрес, порты и подрядчик подтянутся автоматически', onInput: autofillFromTask },
     { key: 'address',      label: 'Адрес объекта', placeholder: 'г. Шилка, ул. Ленина, 5', required: true },
     { key: 'km',           label: 'Расстояние от базы (км)', type: 'number', value: '' },
     { key: 'ports',        label: 'Кол-во портов', type: 'number', value: '' },
