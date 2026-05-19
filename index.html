@@ -1849,21 +1849,61 @@ function openAddPoint(marchId) {
     var kmStatus = document.getElementById('mf_km_status');
     if (kmStatus) kmStatus.textContent = 'считаем…';
 
-    // Геокодируем базу и адрес, потом считаем маршрут
+    // Геокодируем базу и адрес, потом считаем маршрут через OSRM
     var baseQ = 'Россия, ' + march.baseCity;
-    // Не добавляем регион — он мешает Nominatim (Красноярск ≠ Красноярский край)
-    var addrQ = 'Россия, ' + (task.address || '');
+    var rawAddr = (task.address || '').trim();
+
+    // Очищаем адрес: убираем сокращения, этажи, офисы — они мешают Nominatim
+    function cleanForGeo(s) {
+      return s
+        .replace(/\bрп\b/gi, 'посёлок')
+        .replace(/\bпгт\b/gi, 'посёлок')
+        .replace(/\bс\./gi, '')
+        .replace(/\bд\./gi, '')
+        .replace(/\bул\./gi, 'улица')
+        .replace(/\bпр-кт\b/gi, 'проспект')
+        .replace(/,?\s*\d+-й\s+этаж.*$/i, '')   // убираем этаж и всё после
+        .replace(/,?\s*оф\.?\s*\d+.*$/i, '')    // убираем офис
+        .replace(/,?\s*кв\.?\s*\d+.*$/i, '')    // убираем квартиру
+        .replace(/\s+/g, ' ').trim();
+    }
+
+    // Несколько вариантов запроса — от точного к упрощённому
+    function tryGeocode(queries) {
+      if (!queries.length) return Promise.resolve(null);
+      var q = queries[0];
+      return fetch('/api/geocode?q=' + encodeURIComponent(q) + '&_t=' + Date.now())
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if (d && d[0]) {
+            console.log('[march] geocode OK:', q, '->', d[0].display_name);
+            return d[0];
+          }
+          console.log('[march] geocode miss:', q);
+          return tryGeocode(queries.slice(1));
+        });
+    }
+
+    var cleaned = cleanForGeo(rawAddr);
+    // Берём только улицу+номер дома (последние 2 части через запятую)
+    var parts   = cleaned.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+    var short   = parts.slice(-2).join(', ');
+    var addrVariants = [
+      'Россия, ' + cleaned,
+      'Россия, ' + rawAddr,
+      short ? 'Россия, ' + short : null,
+      parts[0] ? 'Россия, ' + parts[0] : null,
+    ].filter(Boolean);
 
     Promise.all([
-      fetch('/api/geocode?q=' + encodeURIComponent(baseQ) + '&_t=' + Date.now()).then(function(r){ return r.json(); }),
-      fetch('/api/geocode?q=' + encodeURIComponent(addrQ) + '&_t=' + Date.now()).then(function(r){ return r.json(); })
+      tryGeocode(['Россия, ' + march.baseCity]),
+      tryGeocode(addrVariants)
     ]).then(function(results) {
-      var base = results[0] && results[0][0];
-      var dest = results[1] && results[1][0];
-      console.log('[march] geocode base:', base ? base.display_name : 'NOT FOUND', '| dest:', dest ? dest.display_name : 'NOT FOUND');
+      var base = results[0];
+      var dest = results[1];
       if (!base || !dest) {
         if (kmEl) kmEl.disabled = false;
-        if (kmStatus) kmStatus.textContent = '⚠ адрес не найден (' + (base ? 'база ок' : 'база не найдена') + ', ' + (dest ? 'адрес ок' : 'адрес не найден') + ')';
+        if (kmStatus) kmStatus.textContent = '⚠ ' + (!base ? 'база не найдена' : 'адрес не найден — введите км вручную');
         return;
       }
       var coords = base.lon + ',' + base.lat + ';' + dest.lon + ',' + dest.lat;
@@ -1872,19 +1912,20 @@ function openAddPoint(marchId) {
         .then(function(d) {
           if (kmEl) {
             kmEl.disabled = false;
-            if (d.distance_km) {
+            if (d && d.distance_km) {
               kmEl.value = d.distance_km;
               kmEl.style.background = '#e8f5e9';
               setTimeout(function(){ kmEl.style.background = ''; }, 1500);
-              if (kmStatus) kmStatus.textContent = '';
+              if (kmStatus) kmStatus.textContent = '✓ ' + d.distance_km + ' км (' + (d.duration_min || '?') + ' мин)';
             } else {
-              if (kmStatus) kmStatus.textContent = 'маршрут не найден';
+              if (kmStatus) kmStatus.textContent = '⚠ маршрут не найден — введите км вручную';
             }
           }
         });
     }).catch(function(e) {
       if (kmEl) kmEl.disabled = false;
-      if (kmStatus) kmStatus.textContent = 'ошибка: ' + (e && e.message || '');
+      if (kmStatus) kmStatus.textContent = 'ошибка соединения — введите км вручную';
+      console.error('[march] geocode error:', e);
     });
   }
 
