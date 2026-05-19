@@ -524,6 +524,8 @@ app.delete('/api/marches/:id', async (req, res) => {
 app.get('/api/geocode', async (req, res) => {
   const q = req.query.q
   if (!q) return res.json([])
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+  res.setHeader('Pragma', 'no-cache')
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ru&accept-language=ru&q=${encodeURIComponent(q)}`
     const r = await fetch(url, {
@@ -541,10 +543,11 @@ app.get('/api/geocode', async (req, res) => {
 })
 
 // ─── API: OSRM — расстояние и маршрут по дорогам ─────────────────────────────
-// GET /api/route?coords=lng1,lat1;lng2,lat2;...  — возвращает { distance_km, geometry }
 app.get('/api/route', async (req, res) => {
-  const coords = req.query.coords  // формат: "lng1,lat1;lng2,lat2;..."
+  const coords = req.query.coords
   if (!coords) return res.status(400).json({ error: 'coords required' })
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+  res.setHeader('Pragma', 'no-cache')
   try {
     const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false`
     const r = await fetch(url, {
@@ -554,9 +557,9 @@ app.get('/api/route', async (req, res) => {
     if (!data.routes || !data.routes[0]) return res.json({ error: 'no route' })
     const route = data.routes[0]
     res.json({
-      distance_km: Math.round(route.distance / 100) / 10,  // метры → км (1 знак)
+      distance_km: Math.round(route.distance / 100) / 10,
       duration_min: Math.round(route.duration / 60),
-      geometry: route.geometry  // GeoJSON LineString
+      geometry: route.geometry
     })
   } catch (e) {
     console.error('OSRM error:', e.message)

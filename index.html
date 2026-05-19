@@ -1496,7 +1496,7 @@ function renderMarchMap(march, mapId) {
   }
 
   function geocodeOne(query, cb) {
-    fetch('/api/geocode?q=' + encodeURIComponent(query))
+    fetch('/api/geocode?q=' + encodeURIComponent(query) + '&_t=' + Date.now())
       .then(function(r){ return r.json(); })
       .then(function(d){ cb(d && d[0] ? { lat: parseFloat(d[0].lat), lng: parseFloat(d[0].lon) } : null); })
       .catch(function(){ cb(null); });
@@ -1610,7 +1610,7 @@ function renderMarchMap(march, mapId) {
       }
 
       function drawRoute(coordsStr) {
-        fetch('/api/route?coords=' + encodeURIComponent(coordsStr))
+        fetch('/api/route?coords=' + encodeURIComponent(coordsStr) + '&_t=' + Date.now())
           .then(function(r){ return r.json(); })
           .then(function(d) {
             if (!d.geometry) {
@@ -1629,7 +1629,7 @@ function renderMarchMap(march, mapId) {
 
       if (march.baseCity && march.baseCity.trim()) {
         // Геокодируем базу и добавляем её как стартовую точку маршрута
-        fetch('/api/geocode?q=' + encodeURIComponent('Россия, ' + march.baseCity))
+        fetch('/api/geocode?q=' + encodeURIComponent('Россия, ' + march.baseCity) + '&_t=' + Date.now())
           .then(function(r){ return r.json(); })
           .then(function(d) {
             if (d && d[0]) {
@@ -1851,8 +1851,8 @@ function openAddPoint(marchId) {
     var addrQ = 'Россия, ' + (task.region ? task.region + ', ' : '') + (task.address || '');
 
     Promise.all([
-      fetch('/api/geocode?q=' + encodeURIComponent(baseQ)).then(function(r){ return r.json(); }),
-      fetch('/api/geocode?q=' + encodeURIComponent(addrQ)).then(function(r){ return r.json(); })
+      fetch('/api/geocode?q=' + encodeURIComponent(baseQ) + '&_t=' + Date.now()).then(function(r){ return r.json(); }),
+      fetch('/api/geocode?q=' + encodeURIComponent(addrQ) + '&_t=' + Date.now()).then(function(r){ return r.json(); })
     ]).then(function(results) {
       var base = results[0] && results[0][0];
       var dest = results[1] && results[1][0];
@@ -1861,7 +1861,7 @@ function openAddPoint(marchId) {
         return;
       }
       var coords = base.lon + ',' + base.lat + ';' + dest.lon + ',' + dest.lat;
-      return fetch('/api/route?coords=' + encodeURIComponent(coords))
+      return fetch('/api/route?coords=' + encodeURIComponent(coords) + '&_t=' + Date.now())
         .then(function(r){ return r.json(); })
         .then(function(d) {
           if (kmEl) {
