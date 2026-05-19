@@ -1560,6 +1560,8 @@ function renderMarchMap(march, mapId) {
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OSM', maxZoom: 19 }).addTo(map);
 
       var latLngs = [];
+      var validPoints = []; // только точки с координатами
+
       coords.forEach(function(c, i) {
         if (!c) return;
         var p = pts[i];
@@ -1567,28 +1569,26 @@ function renderMarchMap(march, mapId) {
         var addrDisplay = p.address || (task ? task.address : '') || '—';
         var ll = [c.lat, c.lng];
         latLngs.push(ll);
+        validPoints.push({ ll: ll, c: c, p: p, i: i, addrDisplay: addrDisplay });
 
-        // Нумерованный маркер
         var icon = L.divIcon({
           className: '',
-          html: '<div style="background:var(--orange);color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.75rem;box-shadow:0 2px 6px rgba(0,0,0,.3)">' + (i+1) + '</div>',
-          iconSize: [26, 26], iconAnchor: [13, 13]
+          html: '<div style="background:var(--orange);color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.78rem;box-shadow:0 2px 8px rgba(0,0,0,.35);border:2px solid #fff">' + (i+1) + '</div>',
+          iconSize: [28, 28], iconAnchor: [14, 14]
         });
-        var popup = '<div style="font-size:.8rem;min-width:160px">' +
-          '<div style="font-weight:700;margin-bottom:2px">' + escHtml(p.taskId || ('Точка ' + (i+1))) + '</div>' +
-          '<div style="color:#666;margin-bottom:4px">' + escHtml(addrDisplay.slice(0, 80)) + '</div>' +
-          '<div>🛣️ ' + (p.km || 0) + ' км · 🔌 ' + (p.ports || 0) + ' портов</div>' +
-          '<div style="color:var(--orange);font-weight:600;margin-top:2px">Оплата: ' + fmtMoney(calcMarchFinance(p).pay) + '</div>' +
+        var popup = '<div style="font-size:.8rem;min-width:180px">' +
+          '<div style="font-weight:700;margin-bottom:3px">' + escHtml(p.taskId || ('Точка ' + (i+1))) + '</div>' +
+          '<div style="color:#666;margin-bottom:5px;font-size:.75rem">' + escHtml(addrDisplay.slice(0, 90)) + '</div>' +
+          '<div style="display:flex;gap:.75rem">' +
+            '<span>🛣️ <strong>' + (p.km || 0) + '</strong> км</span>' +
+            '<span>🔌 <strong>' + (p.ports || 0) + '</strong> пор.</span>' +
+          '</div>' +
+          '<div style="color:var(--orange);font-weight:600;margin-top:4px">Оплата ПО: ' + fmtMoney(calcMarchFinance(p).pay) + '</div>' +
         '</div>';
-        L.marker(ll, {icon: icon}).addTo(map).bindPopup(popup);
+        L.marker(ll, { icon: icon }).addTo(map).bindPopup(popup);
       });
 
-      // Линия маршрута
-      if (latLngs.length > 1) {
-        L.polyline(latLngs, { color: '#FF6200', weight: 3, opacity: 0.7, dashArray: '8 4' }).addTo(map);
-      }
-
-      map.fitBounds(L.latLngBounds(latLngs), { padding: [30, 30] });
+      map.fitBounds(L.latLngBounds(latLngs), { padding: [40, 40] });
 
       // Сохраняем координаты чтобы не геокодировать повторно
       var updated = false;
@@ -1597,6 +1597,59 @@ function renderMarchMap(march, mapId) {
       });
       if (updated) {
         api('/marches/' + march.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ points: pts }) });
+      }
+
+      // Маршрут по дорогам через OSRM
+      if (latLngs.length < 2) return;
+
+      // Собираем цепочку координат: база (если есть) + все точки
+      function buildOsrmChain(baseLl) {
+        var chain = baseLl ? [baseLl].concat(latLngs) : latLngs;
+        // OSRM формат: lng,lat;lng,lat;...
+        return chain.map(function(ll){ return ll[1] + ',' + ll[0]; }).join(';');
+      }
+
+      function drawRoute(coordsStr) {
+        fetch('/api/route?coords=' + encodeURIComponent(coordsStr))
+          .then(function(r){ return r.json(); })
+          .then(function(d) {
+            if (!d.geometry) {
+              // Fallback — пунктирная прямая если OSRM не ответил
+              L.polyline(latLngs, { color: '#FF6200', weight: 3, opacity: 0.6, dashArray: '8 4' }).addTo(map);
+              return;
+            }
+            // GeoJSON LineString от OSRM — координаты в формате [lng, lat]
+            var routeLatLngs = d.geometry.coordinates.map(function(c){ return [c[1], c[0]]; });
+            L.polyline(routeLatLngs, { color: '#FF6200', weight: 4, opacity: 0.85 }).addTo(map);
+          })
+          .catch(function() {
+            L.polyline(latLngs, { color: '#FF6200', weight: 3, opacity: 0.6, dashArray: '8 4' }).addTo(map);
+          });
+      }
+
+      if (march.baseCity && march.baseCity.trim()) {
+        // Геокодируем базу и добавляем её как стартовую точку маршрута
+        fetch('/api/geocode?q=' + encodeURIComponent('Россия, ' + march.baseCity))
+          .then(function(r){ return r.json(); })
+          .then(function(d) {
+            if (d && d[0]) {
+              var baseLl = [parseFloat(d[0].lat), parseFloat(d[0].lon)];
+              // Маркер базы
+              var baseIcon = L.divIcon({
+                className: '',
+                html: '<div style="background:#2563eb;color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:1rem;box-shadow:0 2px 8px rgba(0,0,0,.35);border:2px solid #fff">🏠</div>',
+                iconSize: [28, 28], iconAnchor: [14, 14]
+              });
+              L.marker(baseLl, { icon: baseIcon }).addTo(map)
+                .bindPopup('<div style="font-size:.8rem"><strong>База: ' + escHtml(march.baseCity) + '</strong></div>');
+              drawRoute(buildOsrmChain(baseLl));
+            } else {
+              drawRoute(buildOsrmChain(null));
+            }
+          })
+          .catch(function(){ drawRoute(buildOsrmChain(null)); });
+      } else {
+        drawRoute(buildOsrmChain(null));
       }
     }
 
@@ -1769,21 +1822,60 @@ function openAddPoint(marchId) {
   function autofillFromTask(taskId) {
     var task = S.tasks.find(function(t){ return t.id === taskId.trim(); });
     if (!task) return;
+
     var addrEl  = document.getElementById('mf_address');
     var portsEl = document.getElementById('mf_ports');
     var pppEl   = document.getElementById('mf_pricePerPort');
     var ctrEl   = document.getElementById('mf_contractor');
+    var kmEl    = document.getElementById('mf_km');
+
     if (addrEl  && !addrEl.value)  addrEl.value  = task.address || '';
     if (portsEl && !portsEl.value) {
       var p = task.fact || task.inOrder || 0;
       portsEl.value = p;
-      // авто цена за порт
       if (pppEl) pppEl.value = p >= 3 ? 3750 : p === 2 ? 4250 : 5000;
     }
     if (ctrEl && !ctrEl.value) ctrEl.value = task.assignee || task.contractor || '';
-    // Подсветка — поля заполнились
+
+    // Подсветка
     [addrEl, portsEl, pppEl, ctrEl].forEach(function(el) {
       if (el) { el.style.background = '#fffbe6'; setTimeout(function(){ el.style.background = ''; }, 1200); }
+    });
+
+    // Авторасстояние через OSRM если задан базовый город
+    if (!march.baseCity || !march.baseCity.trim()) return;
+    if (kmEl) { kmEl.placeholder = 'считаем…'; kmEl.disabled = true; }
+
+    // Геокодируем базу и адрес, потом считаем маршрут
+    var baseQ = 'Россия, ' + march.baseCity;
+    var addrQ = 'Россия, ' + (task.region ? task.region + ', ' : '') + (task.address || '');
+
+    Promise.all([
+      fetch('/api/geocode?q=' + encodeURIComponent(baseQ)).then(function(r){ return r.json(); }),
+      fetch('/api/geocode?q=' + encodeURIComponent(addrQ)).then(function(r){ return r.json(); })
+    ]).then(function(results) {
+      var base = results[0] && results[0][0];
+      var dest = results[1] && results[1][0];
+      if (!base || !dest) {
+        if (kmEl) { kmEl.placeholder = 'не удалось определить'; kmEl.disabled = false; }
+        return;
+      }
+      var coords = base.lon + ',' + base.lat + ';' + dest.lon + ',' + dest.lat;
+      return fetch('/api/route?coords=' + encodeURIComponent(coords))
+        .then(function(r){ return r.json(); })
+        .then(function(d) {
+          if (kmEl) {
+            kmEl.disabled = false;
+            kmEl.placeholder = '';
+            if (d.distance_km) {
+              kmEl.value = d.distance_km;
+              kmEl.style.background = '#e8f5e9';
+              setTimeout(function(){ kmEl.style.background = ''; }, 1500);
+            }
+          }
+        });
+    }).catch(function() {
+      if (kmEl) { kmEl.disabled = false; kmEl.placeholder = ''; }
     });
   }
 

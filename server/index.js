@@ -540,6 +540,30 @@ app.get('/api/geocode', async (req, res) => {
   }
 })
 
+// ─── API: OSRM — расстояние и маршрут по дорогам ─────────────────────────────
+// GET /api/route?coords=lng1,lat1;lng2,lat2;...  — возвращает { distance_km, geometry }
+app.get('/api/route', async (req, res) => {
+  const coords = req.query.coords  // формат: "lng1,lat1;lng2,lat2;..."
+  if (!coords) return res.status(400).json({ error: 'coords required' })
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false`
+    const r = await fetch(url, {
+      headers: { 'User-Agent': 'Stockeasy/1.0 (internal logistics app)' }
+    })
+    const data = await r.json()
+    if (!data.routes || !data.routes[0]) return res.json({ error: 'no route' })
+    const route = data.routes[0]
+    res.json({
+      distance_km: Math.round(route.distance / 100) / 10,  // метры → км (1 знак)
+      duration_min: Math.round(route.duration / 60),
+      geometry: route.geometry  // GeoJSON LineString
+    })
+  } catch (e) {
+    console.error('OSRM error:', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
 initDB().then(() => {
   app.listen(PORT, () => {
     console.log(`Stockeasy: http://localhost:${PORT}`)
