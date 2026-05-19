@@ -1612,89 +1612,187 @@ function renderMarchMap(march, mapId) {
 }
 
 // ─── Диалоги маршрутов ───────────────────────────────────────────────────────
+// ─── Универсальная модалка ────────────────────────────────────────────────────
+function showModal(title, fields, onSave) {
+  var existing = document.getElementById('_mmodal');
+  if (existing) existing.remove();
+
+  var rows = fields.map(function(f) {
+    var inp;
+    if (f.type === 'select') {
+      inp = '<select id="mf_' + f.key + '" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:.9rem;background:#fff">' +
+        f.options.map(function(o){ return '<option value="' + o.value + '"' + (o.value == f.value ? ' selected' : '') + '>' + o.label + '</option>'; }).join('') +
+      '</select>';
+    } else if (f.type === 'textarea') {
+      inp = '<textarea id="mf_' + f.key + '" rows="3" placeholder="' + escHtml(f.placeholder||'') + '" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:.9rem;resize:vertical">' + escHtml(String(f.value||'')) + '</textarea>';
+    } else {
+      inp = '<input id="mf_' + f.key + '" type="' + (f.type||'text') + '" value="' + escHtml(String(f.value||'')) + '" placeholder="' + escHtml(f.placeholder||'') + '" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:.9rem">';
+    }
+    return '<div style="margin-bottom:.85rem">' +
+      '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.03em">' +
+        f.label + (f.required ? ' <span style="color:var(--red)">*</span>' : '') +
+      '</label>' + inp +
+      (f.hint ? '<div style="font-size:.72rem;color:var(--text-3);margin-top:4px">' + f.hint + '</div>' : '') +
+    '</div>';
+  }).join('');
+
+  var modal = document.createElement('div');
+  modal.id = '_mmodal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(2px)';
+  modal.innerHTML =
+    '<div style="background:#fff;border-radius:14px;padding:1.5rem;width:100%;max-width:480px;box-shadow:0 12px 48px rgba(0,0,0,.22);max-height:90vh;overflow-y:auto">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">' +
+        '<div style="font-weight:700;font-size:1.05rem">' + title + '</div>' +
+        '<button onclick="document.getElementById(\'_mmodal\').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-3);line-height:1;padding:0 4px">×</button>' +
+      '</div>' +
+      rows +
+      '<div style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1.25rem">' +
+        '<button onclick="document.getElementById(\'_mmodal\').remove()" class="btn btn-ghost btn-sm">Отмена</button>' +
+        '<button id="_msave" class="btn btn-sm">Сохранить</button>' +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
+
+  document.getElementById('_msave').onclick = function() {
+    var data = {};
+    var ok = true;
+    fields.forEach(function(f) {
+      var el = document.getElementById('mf_' + f.key);
+      if (!el) return;
+      data[f.key] = el.value.trim !== undefined ? el.value.trim() : el.value;
+      if (f.required && !data[f.key]) {
+        el.style.borderColor = 'var(--red)';
+        el.focus();
+        ok = false;
+      }
+    });
+    if (!ok) return;
+    modal.remove();
+    onSave(data);
+  };
+
+  modal.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') modal.remove();
+    if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+      var btn = document.getElementById('_msave');
+      if (btn) btn.click();
+    }
+  });
+
+  setTimeout(function(){
+    var el = document.getElementById('mf_' + fields[0].key);
+    if (el) { el.focus(); if (el.select) el.select(); }
+  }, 60);
+}
+
+// Диалог подтверждения вместо confirm()
+function showConfirm(msg, onYes) {
+  var existing = document.getElementById('_mmodal');
+  if (existing) existing.remove();
+
+  var modal = document.createElement('div');
+  modal.id = '_mmodal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(2px)';
+  modal.innerHTML =
+    '<div style="background:#fff;border-radius:14px;padding:1.5rem;width:100%;max-width:360px;box-shadow:0 12px 48px rgba(0,0,0,.22)">' +
+      '<div style="font-size:1rem;margin-bottom:1.25rem;line-height:1.5">' + msg + '</div>' +
+      '<div style="display:flex;gap:.6rem;justify-content:flex-end">' +
+        '<button onclick="document.getElementById(\'_mmodal\').remove()" class="btn btn-ghost btn-sm">Отмена</button>' +
+        '<button id="_myes" class="btn btn-sm" style="background:var(--red);border-color:var(--red)">Удалить</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
+  modal.addEventListener('keydown', function(e){ if (e.key === 'Escape') modal.remove(); });
+  document.getElementById('_myes').onclick = function() { modal.remove(); onYes(); };
+  setTimeout(function(){ var b = document.getElementById('_myes'); if(b) b.focus(); }, 60);
+}
+
+// ─── Функции маршрутов ────────────────────────────────────────────────────────
 function openCreateMarch() {
-  var name = prompt('Название маршрута (например: Шилка):');
-  if (!name || !name.trim()) return;
-  var base = prompt('Базовый город (откуда едут):') || '';
-  var rate = prompt('Тариф за км (руб/км):', '70') || '70';
-  api('/marches', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ name: name.trim(), baseCity: base.trim(), kmRate: parseFloat(rate) || 70 })
-  }).then(function(m) {
-    S.marches.push(m);
-    S.marchId = m.id;
-    S.page = 'march-detail';
-    renderNav(); renderApp();
+  showModal('🚗 Новый маршрут', [
+    { key: 'name',     label: 'Название', placeholder: 'Шилка, Забайкальск…', required: true },
+    { key: 'baseCity', label: 'Базовый город', placeholder: 'Чита, Новосибирск…' },
+    { key: 'kmRate',   label: 'Тариф за км (₽/км)', type: 'number', value: 70, hint: 'Удалёнка = км × 2 × тариф' },
+  ], function(d) {
+    api('/marches', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name: d.name, baseCity: d.baseCity, kmRate: parseFloat(d.kmRate) || 70 })
+    }).then(function(m) {
+      if (!m || !m.id) { alert('Ошибка создания маршрута'); return; }
+      S.marches.push(m);
+      S.marchId = m.id;
+      S.page = 'march-detail';
+      renderNav(); renderApp();
+    }).catch(function(e){ alert('Ошибка: ' + e.message); });
   });
 }
 
 function deleteMarch(id) {
-  if (!confirm('Удалить маршрут?')) return;
-  api('/marches/' + id, { method: 'DELETE' }).then(function() {
-    S.marches = S.marches.filter(function(m){ return m.id !== id; });
-    S.page = 'marches';
-    renderNav(); renderApp();
+  showConfirm('Удалить маршрут? Это действие нельзя отменить.', function() {
+    api('/marches/' + id, { method: 'DELETE' }).then(function() {
+      S.marches = S.marches.filter(function(m){ return m.id !== id; });
+      S.page = 'marches';
+      renderNav(); renderApp();
+    });
   });
 }
 
 function editMarchMeta(id) {
   var march = S.marches.find(function(m){ return m.id === id; });
   if (!march) return;
-  var name = prompt('Название маршрута:', march.name);
-  if (!name || !name.trim()) return;
-  var base = prompt('Базовый город:', march.baseCity || '');
-  var rate = prompt('Тариф за км:', march.kmRate || 70);
-  var upd = { name: name.trim(), baseCity: (base||'').trim(), kmRate: parseFloat(rate) || 70 };
-  api('/marches/' + id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(upd) })
-    .then(function() {
-      Object.assign(march, upd);
-      renderApp();
-    });
+  showModal('✏️ Настройки маршрута', [
+    { key: 'name',     label: 'Название', value: march.name, required: true },
+    { key: 'baseCity', label: 'Базовый город', value: march.baseCity || '' },
+    { key: 'kmRate',   label: 'Тариф за км (₽/км)', type: 'number', value: march.kmRate || 70 },
+  ], function(d) {
+    var upd = { name: d.name, baseCity: d.baseCity, kmRate: parseFloat(d.kmRate) || 70 };
+    api('/marches/' + id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(upd) })
+      .then(function() { Object.assign(march, upd); renderApp(); });
+  });
 }
 
 function openAddPoint(marchId) {
   var march = S.marches.find(function(m){ return m.id === marchId; });
   if (!march) return;
 
-  // Выбор заявки из списка
-  var taskId = prompt('ID заявки (оставьте пустым для ручного ввода):');
-  taskId = (taskId || '').trim();
+  showModal('➕ Добавить точку', [
+    { key: 'taskId',       label: 'ID заявки', placeholder: 'ББ-5376-03 (необязательно)', hint: 'Если указать — адрес и порты подтянутся автоматически' },
+    { key: 'address',      label: 'Адрес объекта', placeholder: 'г. Шилка, ул. Ленина, 5', required: true },
+    { key: 'km',           label: 'Расстояние от базы (км)', type: 'number', value: '' },
+    { key: 'ports',        label: 'Кол-во портов', type: 'number', value: '' },
+    { key: 'pricePerPort', label: 'Цена за порт (₽)', type: 'number', value: 3750, hint: 'Авто: ≥3 пор. → 3750, 2 → 4250, 1 → 5000' },
+    { key: 'extras',       label: 'Допы (₽)', type: 'number', value: 0 },
+    { key: 'tmc',          label: 'ТМЦ — материалы (₽)', type: 'number', value: 0 },
+    { key: 'contractor',   label: 'Подрядчик', placeholder: 'Необязательно' },
+  ], function(d) {
+    var taskId = (d.taskId || '').trim();
+    var task   = taskId ? S.tasks.find(function(t){ return t.id === taskId; }) : null;
+    var ports  = parseInt(d.ports) || (task ? (task.fact || task.inOrder || 0) : 0);
+    var ppp    = parseFloat(d.pricePerPort) || (ports >= 3 ? 3750 : ports === 2 ? 4250 : 5000);
 
-  var task = taskId ? S.tasks.find(function(t){ return t.id === taskId; }) : null;
-  var defAddr    = task ? task.address : '';
-  var defPorts   = task ? (task.fact || task.inOrder || 0) : 0;
-  var defContractor = task ? (task.assignee || task.contractor || '') : '';
+    var point = {
+      taskId:       taskId || null,
+      address:      d.address || (task ? task.address : ''),
+      km:           parseFloat(d.km) || 0,
+      ports:        ports,
+      pricePerPort: ppp,
+      kmRate:       march.kmRate || 70,
+      extras:       parseFloat(d.extras) || 0,
+      tmc:          parseFloat(d.tmc) || 0,
+      contractor:   d.contractor || (task ? (task.assignee || task.contractor || '') : ''),
+      lat: null, lng: null
+    };
 
-  var addr = prompt('Адрес:', defAddr);
-  if (addr === null) return;
-  var km = parseFloat(prompt('Расстояние от базы (км):', 0)) || 0;
-  var ports = parseInt(prompt('Кол-во портов:', defPorts)) || 0;
-
-  // Автоматический тариф по кол-ву портов (как в шаблоне)
-  var ppp = ports >= 3 ? 3750 : (ports === 2 ? 4250 : 5000);
-  var pppIn = parseFloat(prompt('Цена за порт (₽):', ppp)) || ppp;
-  var extras = parseFloat(prompt('Допы (₽):', 0)) || 0;
-  var tmc = parseFloat(prompt('ТМЦ — материалы (₽):', 0)) || 0;
-  var contractor = (prompt('Подрядчик (необязательно):', defContractor) || '').trim();
-
-  var point = {
-    taskId: taskId || null,
-    address: (addr || '').trim(),
-    km: km, ports: ports, pricePerPort: pppIn,
-    kmRate: march.kmRate || 70,
-    extras: extras, tmc: tmc,
-    contractor: contractor,
-    lat: null, lng: null
-  };
-
-  var pts = (march.points || []).slice();
-  pts.push(point);
-  api('/marches/' + marchId, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ points: pts }) })
-    .then(function() {
-      march.points = pts;
-      renderApp();
-    });
+    var pts = (march.points || []).slice();
+    pts.push(point);
+    api('/marches/' + marchId, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ points: pts }) })
+      .then(function() { march.points = pts; renderApp(); })
+      .catch(function(e){ alert('Ошибка: ' + e.message); });
+  });
 }
 
 function editPoint(marchId, idx) {
@@ -1704,21 +1802,24 @@ function editPoint(marchId, idx) {
   var p = pts[idx];
   if (!p) return;
 
-  var km = parseFloat(prompt('Км от базы:', p.km || 0));
-  if (isNaN(km)) return;
-  var ports = parseInt(prompt('Портов:', p.ports || 0));
-  if (isNaN(ports)) return;
-  var ppp = parseFloat(prompt('Цена за порт:', p.pricePerPort || 3750));
-  if (isNaN(ppp)) return;
-  var extras = parseFloat(prompt('Допы:', p.extras || 0)) || 0;
-  var tmc = parseFloat(prompt('ТМЦ:', p.tmc || 0)) || 0;
-  var addr = prompt('Адрес:', p.address || '');
-  if (addr === null) return;
-  var contractor = (prompt('Подрядчик:', p.contractor || '') || '').trim();
-
-  pts[idx] = Object.assign({}, p, { km: km, ports: ports, pricePerPort: ppp, extras: extras, tmc: tmc, address: addr.trim(), contractor: contractor, lat: null, lng: null });
-  api('/marches/' + marchId, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ points: pts }) })
-    .then(function() { march.points = pts; renderApp(); });
+  showModal('✏️ Редактировать точку', [
+    { key: 'address',      label: 'Адрес', value: p.address || '', required: true },
+    { key: 'km',           label: 'Км от базы', type: 'number', value: p.km || 0 },
+    { key: 'ports',        label: 'Портов', type: 'number', value: p.ports || 0 },
+    { key: 'pricePerPort', label: 'Цена за порт (₽)', type: 'number', value: p.pricePerPort || 3750 },
+    { key: 'extras',       label: 'Допы (₽)', type: 'number', value: p.extras || 0 },
+    { key: 'tmc',          label: 'ТМЦ (₽)', type: 'number', value: p.tmc || 0 },
+    { key: 'contractor',   label: 'Подрядчик', value: p.contractor || '' },
+  ], function(d) {
+    pts[idx] = Object.assign({}, p, {
+      address: d.address, km: parseFloat(d.km)||0, ports: parseInt(d.ports)||0,
+      pricePerPort: parseFloat(d.pricePerPort)||3750,
+      extras: parseFloat(d.extras)||0, tmc: parseFloat(d.tmc)||0,
+      contractor: d.contractor, lat: null, lng: null
+    });
+    api('/marches/' + marchId, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ points: pts }) })
+      .then(function() { march.points = pts; renderApp(); });
+  });
 }
 
 function toggleContractorBreakdown() {
@@ -1731,13 +1832,14 @@ function toggleContractorBreakdown() {
 }
 
 function deletePoint(marchId, idx) {
-  if (!confirm('Удалить точку из маршрута?')) return;
-  var march = S.marches.find(function(m){ return m.id === marchId; });
-  if (!march) return;
-  var pts = (march.points || []).slice();
-  pts.splice(idx, 1);
-  api('/marches/' + marchId, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ points: pts }) })
-    .then(function() { march.points = pts; renderApp(); });
+  showConfirm('Удалить эту точку из маршрута?', function() {
+    var march = S.marches.find(function(m){ return m.id === marchId; });
+    if (!march) return;
+    var pts = (march.points || []).slice();
+    pts.splice(idx, 1);
+    api('/marches/' + marchId, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ points: pts }) })
+      .then(function() { march.points = pts; renderApp(); });
+  });
 }
 
 init();
