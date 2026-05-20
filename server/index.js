@@ -85,9 +85,17 @@ function parseSvodnye(workbook) {
       if (overdue > 30) priority = 'high'
       else if (overdue > 0) priority = 'medium'
 
-      // Улучшенный парсинг суммы: сохраняем числа как есть, строки парсим
+      // Парсинг суммы: число берём как есть; формулы вычисляем из составляющих
       const rawAmount = row['Сумма договора '] ?? row['Сумма договора']
-      const amount = (typeof rawAmount === 'number') ? rawAmount : (parseFloat(rawAmount) || 0)
+      let amount = 0
+      if (typeof rawAmount === 'number') { amount = rawAmount }
+      else if (typeof rawAmount === 'string' && !rawAmount.startsWith('=')) { amount = parseFloat(rawAmount) || 0 }
+      else {
+        const remote = parseFloat(row[' Удаленность'] ?? row['Удаленность'] ?? 0) || 0
+        const ppp    = parseFloat(row['Стоимость за ед.'] ?? 0) || 0
+        const fact   = parseFloat(row['Факт'] ?? 0) || 0
+        amount = remote + ppp * fact
+      }
 
       let deadline = null
       const rawDeadline = row['Дата окончания работ']
@@ -219,8 +227,7 @@ app.post('/api/excel/upload', async (req, res) => {
     fs.writeFileSync(filePath, buffer)
     console.log('Uploaded:', name, buffer.length, 'bytes')
 
-    const workbook = XLSX.readFile(filePath, {cellDates:true})
-    const isSvodnye = workbook.SheetNames.some(n => n.startsWith('Заявки'))
+    const workbook = XLSX.readFile(filePath, {cellDates:true, cellFormula:false, raw:false})
     if (isSvodnye) {
       const newRows = parseSvodnye(workbook) // Данные, которые только что распарсили из Excel
       const db = await readDB()
