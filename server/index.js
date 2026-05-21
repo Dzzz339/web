@@ -64,62 +64,145 @@ function getInitialStage(status) {
   return 'install'; // По умолчанию для всех новых или "в работе"
 }
 
-// ---------- Парсинг Сводных таблиц ----------
+// ---------- Парсинг Сводных таблиц — динамический, без хардкода ----------
 function parseSvodnye(workbook) {
   const sheetNames = workbook.SheetNames.filter(n => n.startsWith('Заявки'))
   const allRows = []
+
+  // Нормализуем ключ колонки: убираем лишние пробелы, приводим к нижнему регистру
+  function normKey(s) {
+    return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ')
+  }
+
+  // Ищем колонку по нескольким возможным названиям
+  function findCol(row, ...variants) {
+    for (const v of variants) {
+      const nv = normKey(v)
+      for (const [k, val] of Object.entries(row)) {
+        if (normKey(k) === nv && val !== null && val !== undefined && String(val).trim() !== '') {
+          return val
+        }
+      }
+    }
+    return null
+  }
+
+  function strVal(v) {
+    if (v === null || v === undefined) return ''
+    return String(v).replace(/\n/g, ' ').trim()
+  }
+
+  function parseDate(v) {
+    if (!v) return null
+    if (v instanceof Date) return v.toISOString().split('T')[0]
+    if (typeof v === 'number') {
+      const d = XLSX.SSF.parse_date_code(v)
+      if (d) return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`
+    }
+    const s = String(v).split(' ')[0]
+    return s || null
+  }
+
+  function parseNum(v) {
+    if (v === null || v === undefined) return 0
+    if (typeof v === 'number') return v
+    const s = String(v).replace(/\s/g, '').replace(',', '.')
+    if (s.startsWith('=')) return 0 // формула — пропускаем
+    return parseFloat(s) || 0
+  }
+
   for (const name of sheetNames) {
     const ws = workbook.Sheets[name]
     const rows = XLSX.utils.sheet_to_json(ws, { defval: null })
+
     for (const row of rows) {
-      const rawStatus = (row['Статус'] || '').toString().trim().toLowerCase()
+      const num = strVal(findCol(row, 'Номер', 'номер')).trim()
+      if (!num) continue
+
+      // Статус
+      const rawStatus = strVal(findCol(row, 'Статус', 'статус')).toLowerCase()
       let status = 'progress'
       if (rawStatus.includes('готов')) status = 'done'
       else if (rawStatus.includes('отмен') || rawStatus.includes('стоп')) status = 'cancelled'
 
-      const num = (row['Номер'] || '').toString().trim()
-      if (!num) continue
-
-      const overdue = parseFloat(row['Кол-во дней просрочки']) || 0
+      // Просрочка и приоритет
+      const overdue = parseNum(findCol(row, 'Кол-во дней просрочки', 'дней просрочки', 'просрочка'))
       let priority = 'low'
       if (overdue > 30) priority = 'high'
       else if (overdue > 0) priority = 'medium'
 
-      // Парсинг суммы: число берём как есть; формулы вычисляем из составляющих
-      const rawAmount = row['Сумма договора '] ?? row['Сумма договора']
-      let amount = 0
-      if (typeof rawAmount === 'number') { amount = rawAmount }
-      else if (typeof rawAmount === 'string' && !rawAmount.startsWith('=')) { amount = parseFloat(rawAmount) || 0 }
-      else {
-        const remote = parseFloat(row[' Удаленность'] ?? row['Удаленность'] ?? 0) || 0
-        const ppp    = parseFloat(row['Стоимость за ед.'] ?? 0) || 0
-        const fact   = parseFloat(row['Факт'] ?? 0) || 0
-        amount = remote + ppp * fact
+      // Сумма — либо прямо из колонки, либо считаем
+      let amount = parseNum(findCol(row, 'Сумма договора', 'Сумма договора '))
+      if (!amount) {
+        const dist = parseNum(findCol(row, ' Удаленность', 'Удаленность', 'Удалённость'))
+        const ppu  = parseNum(findCol(row, 'Стоимость за ед.', 'Стоимость за ед'))
+        const fact = parseNum(findCol(row, 'Факт'))
+        if (ppu && fact) amount = dist + ppu * fact
       }
 
-      let deadline = null
-      const rawDeadline = row['Дата окончания работ']
-      if (rawDeadline instanceof Date) deadline = rawDeadline.toISOString().split('T')[0]
-      else if (typeof rawDeadline === 'number') {
-        const d = XLSX.SSF.parse_date_code(rawDeadline)
-        if (d) deadline = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`
-      } else if (rawDeadline) deadline = rawDeadline.toString()
+      // Удалённость — может быть в метрах (большие числа > 1000) или км
+      const rawDist = parseNum(findCol(row, ' Удаленность', 'Удаленность', 'Удалённость'))
+      const distanceKm = rawDist > 1000 ? Math.round(rawDist / 1000) : rawDist
+
+      // Регион — берём до первого пробела/запятой/переноса
+      const rawRegion = strVal(findCol(row, 'Регион'))
+      const region = rawRegion.split(/[\s,\n]/)[0].trim()
+
+      // Собираем ВСЕ оставшиеся колонки в rawFields — для полноты
+      const rawFields = {}
+      for (const [k, v] of Object.entries(row)) {
+        const nk = normKey(k)
+        if (nk && nk !== ' ' && v !== null && v !== undefined) {
+          rawFields[k.trim()] = strVal(v)
+        }
+      }
 
       allRows.push({
-        id: num,
-        title: num + (row['Адрес'] ? ' — ' + row['Адрес'].toString().replace(/\n/g,' ').slice(0,80) : ''),
-        region: (row['Регион'] || '').toString().replace(/\n/g,' ').split(' ')[0],
-        address: (row['Адрес'] || '').toString().replace(/\n/g,' '),
-        workType: (row['ТИП РАБОТ '] || row['ТИП РАБОТ'] || '').toString().trim(),
-        contractor: (row['Подрядчик, контакты '] || row['Подрядчик, контакты'] || '').toString().trim(),
-        manager: (row['Менеджер Сбера'] || '').toString().trim(),
-        contact: (row['Контакт'] || '').toString().trim(),
-        techLink: (row['Ссылка на Тех.Информацию'] || row['Ссылка на Тех.Информацию '] || '').toString().trim(),
-        excelComment: (row['Комментарий'] || '').toString().trim(),
-        edoNumber: (row['№ докумета в ЭДО'] || row['№ документа в ЭДО'] || '').toString().trim(),
-        status, priority, deadline, overdueDays: overdue,
-        amount, inOrder: parseFloat(row['В заказе']) || 0,
-        fact: parseFloat(row['Факт']) || 0, sheet: name
+        id:           num,
+        title:        num + (findCol(row,'Адрес') ? ' — ' + strVal(findCol(row,'Адрес')).slice(0,80) : ''),
+        sheet:        name,
+
+        // Основные поля из Excel
+        region,
+        address:      strVal(findCol(row, 'Адрес')),
+        workType:     strVal(findCol(row, 'ТИП РАБОТ', 'ТИП РАБОТ ', 'тип работ')),
+        tipObj:       strVal(findCol(row, 'ТИП', 'Тип объекта')),  // тип объекта (ОТДЕЛЕНИЕ/КИЦ/...)
+        gosb:         strVal(findCol(row, '№ ГОСБ', 'ГОСБ')),
+        vsp:          strVal(findCol(row, '№ВСП', '№ ВСП', 'ВСП')),
+
+        // Даты
+        dateZayavki:  parseDate(findCol(row, 'Дата заявки')),
+        deadline:     parseDate(findCol(row, 'Дата окончания работ')),
+
+        // Люди
+        manager:      strVal(findCol(row, 'Менеджер Сбера', 'Менеджер Сбера ')),
+        contact:      strVal(findCol(row, 'Контакт')),             // физлицо на объекте
+        contractor:   strVal(findCol(row, 'Подрядчик, контакты', 'Подрядчик, контакты ', 'Подрядчик')),
+
+        // Работы
+        inOrder:      parseNum(findCol(row, 'В заказе')),
+        fact:         parseNum(findCol(row, 'Факт')),
+        obsledovanie: strVal(findCol(row, 'Обследование')),
+        dostup:       strVal(findCol(row, 'Доступ')),
+        dataVyhoda:   parseDate(findCol(row, 'Дата выхода')),
+        priemka:      strVal(findCol(row, 'Приемка(фото),отпрвленно пректировщикам', 'Приёмка', 'Приемка')),
+        oplata:       strVal(findCol(row, 'Оплата подрядчику', 'Оплата')),
+        idStatus:     strVal(findCol(row, 'ИД', 'ИД ')),          // статус ИД (ГОТОВА и т.п.)
+
+        // Финансы
+        amount,
+        distanceKm,
+        pricePerUnit: parseNum(findCol(row, 'Стоимость за ед.', 'Стоимость за ед')),
+
+        // Ссылки и документы
+        techLink:     strVal(findCol(row, 'Ссылка на Тех.Информацию', 'Ссылка на Тех.Информацию ')),
+        edoNumber:    strVal(findCol(row, '№ докумета в ЭДО', '№ документа в ЭДО', '№ докумета в ЭДО ')),
+        invoiceInfo:  strVal(findCol(row, '№ счета/сумма', '№ счета/сумма ')),
+        vedoStatus:   strVal(findCol(row, 'В ЭДО')),
+        excelComment: strVal(findCol(row, 'Комментарий')),
+
+        // Системные
+        status, priority, overdueDays: overdue,
       })
     }
   }

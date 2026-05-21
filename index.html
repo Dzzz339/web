@@ -1090,15 +1090,42 @@ function pageCard() {
     (edit ? '<form id="cardForm">' : '') +
     field('Регион', 'region') +
     field('Адрес объекта', 'address') +
+    field('Тип объекта', 'tipObj') +
     field('Тип работ', 'workType') +
-    field('Менеджер Сбера', 'manager') +
+    field('№ ГОСБ', 'gosb') +
+    field('№ ВСП', 'vsp') +
+    field('Дата заявки', 'dateZayavki', 'date') +
+    field('Дата окончания работ', 'deadline', 'date') +
+    field('Дней просрочки', 'overdueDays', 'number') +
     field('Статус', 'status') +
     field('Приоритет', 'priority') +
-    field('Срок выполнения', 'deadline', 'date') +
-    field('Дней просрочки', 'overdueDays', 'number') +
+    field('Статус ИД', 'idStatus') +
     field('Сумма договора', 'amount', 'number') +
+    field('Стоимость за ед.', 'pricePerUnit', 'number') +
+    field('Удалённость, км', 'distanceKm', 'number') +
     field('В заказе (портов)', 'inOrder', 'number') +
     field('Факт', 'fact', 'number') +
+    '<div class="divider"></div>' +
+    '<div class="sec-title" style="margin-bottom:.5rem">Люди</div>' +
+    field('Менеджер Сбера', 'manager') +
+    field('Контакт на объекте', 'contact', 'textarea') +
+    field('Подрядчик', 'contractor') +
+    '<div class="divider"></div>' +
+    '<div class="sec-title" style="margin-bottom:.5rem">Ход работ</div>' +
+    field('Обследование', 'obsledovanie') +
+    field('Доступ', 'dostup') +
+    field('Дата выхода', 'dataVyhoda', 'date') +
+    field('Приёмка (фото)', 'priemka') +
+    field('Оплата подрядчику', 'oplata') +
+    '<div class="divider"></div>' +
+    '<div class="sec-title" style="margin-bottom:.5rem">Документы</div>' +
+    field('Ссылка на тех.информацию', 'techLink', 'url') +
+    field('№ документа в ЭДО', 'edoNumber') +
+    field('№ счёта / сумма', 'invoiceInfo') +
+    field('В ЭДО', 'vedoStatus') +
+    field('Комментарий (из Excel)', 'excelComment', 'textarea') +
+    '<div class="divider"></div>' +
+    '<div class="sec-title" style="margin-bottom:.5rem">Назначение</div>' +
     '<div class="divider"></div>' +
     '<div class="sec-title" style="margin-bottom:.5rem">Назначение</div>' +
     field('Этап', 'stage') +
@@ -1140,10 +1167,17 @@ function saveCard() {
   var fieldNames = {
     status:'Статус', priority:'Приоритет', stage:'Этап', assignee:'Исполнитель',
     controller:'Контролёр', comment:'Комментарий', distributedAt:'Дата распределения',
-    contact:'Контакт', techLink:'Ссылка', deadline:'Срок', fact:'Факт',
+    contact:'Контакт на объекте', techLink:'Ссылка', deadline:'Дата окончания работ',
+    dateZayavki:'Дата заявки', fact:'Факт', obsledovanie:'Обследование',
+    dostup:'Доступ', dataVyhoda:'Дата выхода', priemka:'Приёмка',
+    oplata:'Оплата подрядчику', edoNumber:'№ документа в ЭДО',
+    invoiceInfo:'№ счёта/сумма', vedoStatus:'В ЭДО',
     region:'Регион', address:'Адрес объекта', workType:'Тип работ',
+    tipObj:'Тип объекта', gosb:'№ ГОСБ', vsp:'№ ВСП',
     manager:'Менеджер Сбера', amount:'Сумма договора', inOrder:'В заказе (портов)',
-    overdueDays:'Дней просрочки', contractor:'Подрядчик'
+    overdueDays:'Дней просрочки', contractor:'Подрядчик',
+    distanceKm:'Удалённость (км)', pricePerUnit:'Стоимость за ед.',
+    idStatus:'Статус ИД', excelComment:'Комментарий (Excel)'
   };
   Object.keys(data).forEach(function(k){
     if (String(data[k]) !== String(t[k]||'')) {
