@@ -865,47 +865,7 @@ function moveTask(id, status) {
     });
 }
 
-function doUpload(file) {
-  if (!file.name.match(/\.(xlsx|xls)$/i)) { alert('Только .xlsx / .xls'); return; }
-  var st = document.getElementById('ustatus');
-  if (st) st.innerHTML = '<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Загрузка…</p></div>';
 
-  var fd = new FormData();
-  fd.append('file', file, file.name);
-
-  fetch('/api/excel/upload', { method:'POST', body: fd })
-    .then(function(r){ return r.json(); })
-    .then(function(result) {
-      if (result.error) throw new Error(result.error);
-      if (result.autoImported) {
-        return Promise.all([api('/stats'), api('/tasks'), api('/chains'), api('/import-info')])
-          .then(function(res){
-            S.stats=res[0]; S.tasks=res[1]; S.chains=res[2]; S.importInfo=res[3];
-            if (S.chains.length && !S.selChain) {
-              var firstReal = S.chains.find(function(c){ return c.id && c.id !== '(без региона)'; });
-              S.selChain = (firstReal || S.chains[0]).id;
-            }
-            if (st) st.innerHTML = '<div class="banner banner-ok"><div>' +
-              '<div class="banner-title">✅ Импорт успешен!</div>' +
-              '<div class="banner-body">Загружено <strong>' + fmtN(result.rowCount) + ' заявок</strong> из «' + file.name + '»</div>' +
-              '</div><div class="row" style="gap:.5rem">' +
-              '<button class="btn btn-sm" onclick="go(\'dashboard\')">Дашборд</button>' +
-              '<button class="btn btn-sm btn-ghost" onclick="go(\'tasks\')">Задачи</button>' +
-              '</div></div>';
-          });
-      } else {
-        if (st) st.innerHTML = '<div class="banner banner-warn"><div>' +
-          '<div class="banner-title">⚠️ Файл не распознан</div>' +
-          '<div class="banner-body">Нет листов «Заявки 20XX». Данные не изменены.</div>' +
-          '</div></div>';
-      }
-    })
-    .catch(function(e){
-      if (st) st.innerHTML = '<div class="banner" style="background:#FEE2E2;border:1px solid #FECACA">' +
-        '<div><div class="banner-title" style="color:#B91C1C">❌ Ошибка</div>' +
-        '<div class="banner-body">' + e.message + '</div></div></div>';
-    });
-}
 
 
 // ─── PAGE: CARD ───────────────────────────────────────────────────────────────
