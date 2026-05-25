@@ -5,6 +5,7 @@ import fs from 'fs'
 import { fileURLToPath } from 'url'
 import XLSX from 'xlsx'
 import pg from 'pg'
+import multer from 'multer'
 
 
 const { Pool } = pg
@@ -12,6 +13,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(__dirname, '..')
 const app = express()
 const PORT = process.env.PORT || 3000
+
+const uploadDir = path.join(ROOT, 'uploads')
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true })
+const upload = multer({ dest: uploadDir })
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
@@ -300,78 +305,57 @@ app.get('/api/excel/:filename', async (req, res) => {
   } catch(e) { res.status(500).json({error:e.message}) }
 })
 
-app.post('/api/excel/upload', async (req, res) => {
+app.post('/api/excel/upload', upload.single('file'), async (req, res) => {
   try {
-    const { file, name } = req.body
-    const dir = path.join(ROOT, 'uploads')
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, {recursive:true})
-    const filePath = path.join(dir, name||'upload.xlsx')
-    const buffer = Buffer.from(file, 'base64')
-    fs.writeFileSync(filePath, buffer)
-    console.log('Uploaded:', name, buffer.length, 'bytes')
+    if (!req.file) return res.status(400).json({ error: 'Файл не получен' })
+    const name = req.file.originalname
+    const filePath = req.file.path
+    console.log('Uploaded:', name, req.file.size, 'bytes')
 
     const workbook = XLSX.readFile(filePath, {cellDates:true, cellFormula:false, raw:false})
     const isSvodnye = workbook.SheetNames.some(n => n.startsWith('Заявки'))
     if (isSvodnye) {
-      const newRows = parseSvodnye(workbook) // Данные, которые только что распарсили из Excel
+      const newRows = parseSvodnye(workbook)
       const db = await readDB()
       const oldRows = db.rows || []
 
-      // 1. Создаем карту старых данных для быстрого поиска по ID
       const oldMap = {}
-      oldRows.forEach(row => {
-        if (row.id) oldMap[row.id] = row
-      })
+      oldRows.forEach(row => { if (row.id) oldMap[row.id] = row })
 
-      // 2. Поля, которые мы НЕ берем из Excel, а храним в своей БД (Editable)
-      // contact, techLink, excelComment, edoNumber — теперь приходят из Excel, поэтому их нет в списке
       const EDITABLE = ['assignee', 'controller', 'comment', 'distributedAt', '_history', 'stage', 'archived']
 
-      // 3. Формируем новый список (Мержим данные)
       const mergedRows = newRows.map(nr => {
         const old = oldMap[nr.id]
         if (old) {
-          // Заявка уже была: берем новые данные из Excel, но накладываем поверх старые Editable-поля
           const merged = { ...nr }
-          EDITABLE.forEach(field => {
-            if (old[field] !== undefined) merged[field] = old[field]
-          })
-          merged.archived = false // Если пришла в новом файле — значит активна
+          EDITABLE.forEach(field => { if (old[field] !== undefined) merged[field] = old[field] })
+          merged.archived = false
           if (!merged.stage) merged.stage = getInitialStage(nr.status)
           return merged
         } else {
-          // Совсем новая заявка: назначаем стадию и помечаем как не архивную
-          return { 
-            ...nr, 
-            archived: false, 
-            stage: getInitialStage(nr.status) 
-          }
+          return { ...nr, archived: false, stage: getInitialStage(nr.status) }
         }
       })
 
-      // 4. Обработка пропавших заявок (Архивация)
       const newIds = new Set(newRows.map(r => r.id))
       oldRows.forEach(oldRow => {
         if (oldRow.id && !newIds.has(oldRow.id)) {
-          // Этой заявки нет в новом файле — помечаем как архивную и добавляем в хвост
-          // Если она уже была архивная, просто оставляем как есть
-          if (!oldRow.archived) {
-            mergedRows.push({ ...oldRow, archived: true })
-          } else {
-            mergedRows.push(oldRow)
-          }
+          mergedRows.push(oldRow.archived ? oldRow : { ...oldRow, archived: true })
         }
       })
 
-      // 5. Записываем обновленный массив в БД
       db.rows = mergedRows
       db.importedFrom = name
       db.importedAt = new Date().toISOString()
       await writeDB(db)
 
+      // Удаляем временный файл multer
+      fs.unlink(filePath, () => {})
+
       console.log('Smart-imported:', newRows.length, 'new/updated,', mergedRows.length - newRows.length, 'archived')
       return res.json({success:true, name, autoImported:true, rowCount:newRows.length})
     }
+    fs.unlink(filePath, () => {})
     res.json({success:true, name, autoImported:false})
   } catch(e) { console.error('Upload error:', e.message); res.status(500).json({error:e.message}) }
 })

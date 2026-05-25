@@ -870,13 +870,10 @@ function doUpload(file) {
   var st = document.getElementById('ustatus');
   if (st) st.innerHTML = '<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Загрузка…</p></div>';
 
-  var reader = new FileReader();
-  reader.onload = function(e) {
-    var b64 = e.target.result.split(',')[1];
-    fetch('/api/excel/upload', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({file: b64, name: file.name})
-    })
+  var fd = new FormData();
+  fd.append('file', file, file.name);
+
+  fetch('/api/excel/upload', { method:'POST', body: fd })
     .then(function(r){ return r.json(); })
     .then(function(result) {
       if (result.error) throw new Error(result.error);
@@ -908,8 +905,6 @@ function doUpload(file) {
         '<div><div class="banner-title" style="color:#B91C1C">❌ Ошибка</div>' +
         '<div class="banner-body">' + e.message + '</div></div></div>';
     });
-  };
-  reader.readAsDataURL(file);
 }
 
 
