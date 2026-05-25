@@ -661,6 +661,7 @@ function pageTasks() {
     var tid = (t.id||'').replace(/'/g,"\\'");
     tableRows += '<tr>' +
       '<td><button class="btn-link" onclick="openCard(\''+tid+'\')">⇒ '+(t.id||'')+'</button></td>' +
+      '<td style="white-space:nowrap;color:var(--text-2);font-size:.8rem">'+(t.dateZayavki ? t.dateZayavki.slice(0,10).split('-').reverse().join('.') : '<span class="t3">—</span>')+'</td>' +
       '<td>'+(t.region||'')+'</td>' +
       '<td class="td-clip" title="'+(t.address||'').replace(/"/g,'&quot;')+'">'+(t.address||'').slice(0,50)+'</td>' +
       '<td class="td-clip" title="'+(t.workType||'').replace(/"/g,'&quot;')+'">'+(t.workType||'').slice(0,38)+'</td>' +
@@ -718,7 +719,7 @@ function pageTasks() {
     totals +
     '<div class="card tbl-wrap">' +
       '<table><thead><tr>' +
-        '<th>Номер</th><th>Регион</th><th>Адрес</th><th>Тип работ</th><th>Менеджер</th>' +
+        '<th>Номер</th><th>Дата</th><th>Регион</th><th>Адрес</th><th>Тип работ</th><th>Менеджер</th>' +
         '<th>Приоритет</th><th>Просрочка</th><th>Статус</th><th>Сумма</th><th></th>' +
       '</tr></thead><tbody>'+tableRows+more+'</tbody></table>' +
     '</div>';
@@ -813,6 +814,18 @@ function clientParseSvodnye(workbook) {
   var sheetNames = workbook.SheetNames.filter(function(n){ return n.startsWith('Заявки'); });
   var allRows = [];
   function normKey(s) { return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
+  function findCol(row) {
+    var variants = Array.prototype.slice.call(arguments, 1);
+    for (var i=0; i<variants.length; i++) {
+      var nv = normKey(variants[i]);
+      var keys = Object.keys(row);
+      for (var j=0; j<keys.length; j++) {
+        var k = keys[j];
+        if (normKey(k) === nv && row[k] !== null && row[k] !== undefined && String(row[k]).trim() !== '') return row[k];
+      }
+    }
+    return null;
+  }
   function strVal(v) { if (v===null||v===undefined) return ''; return String(v).replace(/\n/g,' ').trim(); }
   function parseDate(v) {
     if (!v) return null;
@@ -836,91 +849,59 @@ function clientParseSvodnye(workbook) {
     if (s==='cancelled') return null;
     return 'install';
   }
-
-  // Кэш нормализованных ключей — строится один раз на лист, не на каждую строку
-  function buildKeyMap(row) {
-    var map = {};
-    Object.keys(row).forEach(function(k){ map[normKey(k)] = k; });
-    return map;
-  }
-
-  // findCol с готовым keyMap — O(1) вместо O(keys*variants)
-  function findColFast(row, keyMap) {
-    var variants = Array.prototype.slice.call(arguments, 2);
-    for (var i = 0; i < variants.length; i++) {
-      var nv = normKey(variants[i]);
-      if (keyMap[nv] !== undefined) {
-        var v = row[keyMap[nv]];
-        if (v !== null && v !== undefined && String(v).trim() !== '') return v;
-      }
-    }
-    return null;
-  }
-
-  for (var si = 0; si < sheetNames.length; si++) {
+  for (var si=0; si<sheetNames.length; si++) {
     var shName = sheetNames[si];
     var ws = workbook.Sheets[shName];
-    var rows = XLSX.utils.sheet_to_json(ws, {defval: null, raw: false});
-
-    for (var ri = 0; ri < rows.length; ri++) {
+    var rows = XLSX.utils.sheet_to_json(ws, {defval:null, raw:false});
+    for (var ri=0; ri<rows.length; ri++) {
       var row = rows[ri];
-      // Строим keyMap один раз на строку (у всех строк листа одни ключи — можно вынести выше,
-      // но шапка может меняться, поэтому безопаснее на строку)
-      var km = ri === 0 ? buildKeyMap(row) : km; // ключи одинаковы для всех строк листа
-
-      var num = strVal(findColFast(row, km, 'Номер', 'номер')).trim();
+      var num = strVal(findCol(row,'Номер','номер')).trim();
       if (!num) continue;
-
-      var rawStatus = strVal(findColFast(row, km, 'Статус', 'статус')).toLowerCase();
+      var rawStatus = strVal(findCol(row,'Статус','статус')).toLowerCase();
       var status = 'progress';
       if (rawStatus.includes('готов')) status = 'done';
-      else if (rawStatus.includes('отмен') || rawStatus.includes('стоп')) status = 'cancelled';
-
-      var overdue = parseNum(findColFast(row, km, 'Кол-во дней просрочки', 'дней просрочки', 'просрочка'));
+      else if (rawStatus.includes('отмен')||rawStatus.includes('стоп')) status = 'cancelled';
+      var overdue = parseNum(findCol(row,'Кол-во дней просрочки','дней просрочки','просрочка'));
       var priority = overdue > 30 ? 'high' : overdue > 0 ? 'medium' : 'low';
-
-      var amount = parseNum(findColFast(row, km, 'Сумма договора', 'Сумма договора '));
+      var amount = parseNum(findCol(row,'Сумма договора','Сумма договора '));
       if (!amount) {
-        var dist2 = parseNum(findColFast(row, km, ' Удаленность', 'Удаленность', 'Удалённость'));
-        var ppu2  = parseNum(findColFast(row, km, 'Стоимость за ед.', 'Стоимость за ед'));
-        var fact2 = parseNum(findColFast(row, km, 'Факт'));
+        var dist2 = parseNum(findCol(row,' Удаленность','Удаленность','Удалённость'));
+        var ppu2  = parseNum(findCol(row,'Стоимость за ед.','Стоимость за ед'));
+        var fact2 = parseNum(findCol(row,'Факт'));
         if (ppu2 && fact2) amount = dist2 + ppu2 * fact2;
       }
-
-      var rawDist = parseNum(findColFast(row, km, ' Удаленность', 'Удаленность', 'Удалённость'));
-      var distanceKm = rawDist > 1000 ? Math.round(rawDist / 1000) : rawDist;
-      var rawRegion = strVal(findColFast(row, km, 'Регион'));
+      var rawDist = parseNum(findCol(row,' Удаленность','Удаленность','Удалённость'));
+      var distanceKm = rawDist > 1000 ? Math.round(rawDist/1000) : rawDist;
+      var rawRegion = strVal(findCol(row,'Регион'));
       var region = rawRegion.split(/[\s,\n]/)[0].trim();
-      var addr = strVal(findColFast(row, km, 'Адрес'));
-
       allRows.push({
         id: num, sheet: shName,
-        title: num + (addr ? ' — ' + addr.slice(0, 80) : ''),
-        region: region, address: addr,
-        workType:     strVal(findColFast(row, km, 'ТИП РАБОТ', 'ТИП РАБОТ ', 'тип работ')),
-        tipObj:       strVal(findColFast(row, km, 'ТИП', 'Тип объекта')),
-        gosb:         strVal(findColFast(row, km, '№ ГОСБ', 'ГОСБ')),
-        vsp:          strVal(findColFast(row, km, '№ВСП', '№ ВСП', 'ВСП')),
-        dateZayavki:  parseDate(findColFast(row, km, 'Дата заявки')),
-        deadline:     parseDate(findColFast(row, km, 'Дата окончания работ')),
-        manager:      strVal(findColFast(row, km, 'Менеджер Сбера', 'Менеджер Сбера ')),
-        contact:      strVal(findColFast(row, km, 'Контакт')),
-        contractor:   strVal(findColFast(row, km, 'Подрядчик, контакты', 'Подрядчик, контакты ', 'Подрядчик')),
-        inOrder:      parseNum(findColFast(row, km, 'В заказе')),
-        fact:         parseNum(findColFast(row, km, 'Факт')),
-        obsledovanie: strVal(findColFast(row, km, 'Обследование')),
-        dostup:       strVal(findColFast(row, km, 'Доступ')),
-        dataVyhoda:   parseDate(findColFast(row, km, 'Дата выхода')),
-        priemka:      strVal(findColFast(row, km, 'Приемка(фото),отпрвленно пректировщикам', 'Приёмка', 'Приемка')),
-        oplata:       strVal(findColFast(row, km, 'Оплата подрядчику', 'Оплата')),
-        idStatus:     strVal(findColFast(row, km, 'ИД', 'ИД ')),
+        title: num + (findCol(row,'Адрес') ? ' — ' + strVal(findCol(row,'Адрес')).slice(0,80) : ''),
+        region: region, address: strVal(findCol(row,'Адрес')),
+        workType:     strVal(findCol(row,'ТИП РАБОТ','ТИП РАБОТ ','тип работ')),
+        tipObj:       strVal(findCol(row,'ТИП','Тип объекта')),
+        gosb:         strVal(findCol(row,'№ ГОСБ','ГОСБ')),
+        vsp:          strVal(findCol(row,'№ВСП','№ ВСП','ВСП')),
+        dateZayavki:  parseDate(findCol(row,'Дата заявки')),
+        deadline:     parseDate(findCol(row,'Дата окончания работ')),
+        manager:      strVal(findCol(row,'Менеджер Сбера','Менеджер Сбера ')),
+        contact:      strVal(findCol(row,'Контакт')),
+        contractor:   strVal(findCol(row,'Подрядчик, контакты','Подрядчик, контакты ','Подрядчик')),
+        inOrder:      parseNum(findCol(row,'В заказе')),
+        fact:         parseNum(findCol(row,'Факт')),
+        obsledovanie: strVal(findCol(row,'Обследование')),
+        dostup:       strVal(findCol(row,'Доступ')),
+        dataVyhoda:   parseDate(findCol(row,'Дата выхода')),
+        priemka:      strVal(findCol(row,'Приемка(фото),отпрвленно пректировщикам','Приёмка','Приемка')),
+        oplata:       strVal(findCol(row,'Оплата подрядчику','Оплата')),
+        idStatus:     strVal(findCol(row,'ИД','ИД ')),
         amount: amount, distanceKm: distanceKm,
-        pricePerUnit: parseNum(findColFast(row, km, 'Стоимость за ед.', 'Стоимость за ед')),
-        techLink:     strVal(findColFast(row, km, 'Ссылка на Тех.Информацию', 'Ссылка на Тех.Информацию ')),
-        edoNumber:    strVal(findColFast(row, km, '№ докумета в ЭДО', '№ документа в ЭДО', '№ докумета в ЭДО ')),
-        invoiceInfo:  strVal(findColFast(row, km, '№ счета/сумма', '№ счета/сумма ')),
-        vedoStatus:   strVal(findColFast(row, km, 'В ЭДО')),
-        excelComment: strVal(findColFast(row, km, 'Комментарий')),
+        pricePerUnit: parseNum(findCol(row,'Стоимость за ед.','Стоимость за ед')),
+        techLink:     strVal(findCol(row,'Ссылка на Тех.Информацию','Ссылка на Тех.Информацию ')),
+        edoNumber:    strVal(findCol(row,'№ докумета в ЭДО','№ документа в ЭДО','№ докумета в ЭДО ')),
+        invoiceInfo:  strVal(findCol(row,'№ счета/сумма','№ счета/сумма ')),
+        vedoStatus:   strVal(findCol(row,'В ЭДО')),
+        excelComment: strVal(findCol(row,'Комментарий')),
         status: status, priority: priority, overdueDays: overdue,
         archived: false, stage: getInitialStage(status)
       });
@@ -948,56 +929,48 @@ function doUpload(file) {
   ensureXLSX(function() {
     var reader = new FileReader();
     reader.onload = function(e) {
-      // setTimeout(0) отдаёт управление браузеру — UI обновится перед тяжёлой работой
-      setTimeout(function() {
-        try {
-          setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Парсинг таблицы…</p></div>');
-          var data = new Uint8Array(e.target.result);
-          var wb = XLSX.read(data, {type:'array', cellDates:true, cellFormula:false, raw:false});
-          var hasSheets = wb.SheetNames.some(function(n){ return n.startsWith('Заявки'); });
-          if (!hasSheets) {
-            setStatus('<div class="banner banner-warn"><div><div class="banner-title">⚠️ Файл не распознан</div><div class="banner-body">Нет листов «Заявки 20XX». Данные не изменены.</div></div></div>');
-            return;
-          }
-          // Парсинг тоже тяжёлый — ещё один tick
-          setTimeout(function() {
-            try {
-              var rows = clientParseSvodnye(wb);
-              var total = rows.length;
-              var sent = 0;
-              var BATCH = 500;
-              setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Отправка на сервер… (0 / ' + total + ')</p></div>');
-              function sendBatch(isFirst) {
-                var batch = rows.slice(sent, sent + BATCH);
-                if (!batch.length) {
-                  return Promise.all([api('/stats'), api('/tasks'), api('/chains'), api('/import-info')])
-                    .then(function(res){
-                      S.stats=res[0]; S.tasks=res[1]; S.chains=res[2]; S.importInfo=res[3];
-                      if (S.chains.length && !S.selChain) {
-                        var firstReal = S.chains.find(function(c){ return c.id && c.id !== '(без региона)'; });
-                        S.selChain = (firstReal || S.chains[0]).id;
-                      }
-                      setStatus('<div class="banner banner-ok"><div><div class="banner-title">✅ Импорт успешен!</div><div class="banner-body">Загружено <strong>' + fmtN(total) + ' заявок</strong> из «' + file.name + '»</div></div><div class="row" style="gap:.5rem"><button class="btn btn-sm" onclick="go(\'dashboard\')">Дашборд</button><button class="btn btn-sm btn-ghost" onclick="go(\'tasks\')">Задачи</button></div></div>');
-                      renderApp();
-                    });
+      try {
+        setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Парсинг таблицы…</p></div>');
+        var data = new Uint8Array(e.target.result);
+        var wb = XLSX.read(data, {type:'array', cellDates:true, cellFormula:false, raw:false});
+        var hasSheets = wb.SheetNames.some(function(n){ return n.startsWith('Заявки'); });
+        if (!hasSheets) {
+          setStatus('<div class="banner banner-warn"><div><div class="banner-title">⚠️ Файл не распознан</div><div class="banner-body">Нет листов «Заявки 20XX». Данные не изменены.</div></div></div>');
+          return;
+        }
+        var rows = clientParseSvodnye(wb);
+        var total = rows.length;
+        var sent = 0;
+        var BATCH = 500;
+        setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Отправка на сервер… (0 / ' + total + ')</p></div>');
+        function sendBatch(isFirst) {
+          var batch = rows.slice(sent, sent + BATCH);
+          if (!batch.length) {
+            return Promise.all([api('/stats'), api('/tasks'), api('/chains'), api('/import-info')])
+              .then(function(res){
+                S.stats=res[0]; S.tasks=res[1]; S.chains=res[2]; S.importInfo=res[3];
+                if (S.chains.length && !S.selChain) {
+                  var firstReal = S.chains.find(function(c){ return c.id && c.id !== '(без региона)'; });
+                  S.selChain = (firstReal || S.chains[0]).id;
                 }
-                return fetch('/api/excel/import-rows', {
-                  method:'POST', headers:{'Content-Type':'application/json'},
-                  body: JSON.stringify({rows: batch, name: file.name, isFirst: isFirst, totalRows: total})
-                })
-                .then(function(r){ return r.json(); })
-                .then(function(result){
-                  if (result.error) throw new Error(result.error);
-                  sent += batch.length;
-                  setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Отправка… (' + sent + ' / ' + total + ')</p></div>');
-                  return sendBatch(false);
-                });
-              }
-              sendBatch(true).catch(function(e){ showErr(e.message); });
-            } catch(e) { showErr('Ошибка парсинга: ' + e.message); }
-          }, 50);
-        } catch(e) { showErr('Ошибка чтения файла: ' + e.message); }
-      }, 50);
+                setStatus('<div class="banner banner-ok"><div><div class="banner-title">✅ Импорт успешен!</div><div class="banner-body">Загружено <strong>' + fmtN(total) + ' заявок</strong> из «' + file.name + '»</div></div><div class="row" style="gap:.5rem"><button class="btn btn-sm" onclick="go(\'dashboard\')">Дашборд</button><button class="btn btn-sm btn-ghost" onclick="go(\'tasks\')">Задачи</button></div></div>');
+                renderApp();
+              });
+          }
+          return fetch('/api/excel/import-rows', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({rows: batch, name: file.name, isFirst: isFirst, totalRows: total})
+          })
+          .then(function(r){ return r.json(); })
+          .then(function(result){
+            if (result.error) throw new Error(result.error);
+            sent += batch.length;
+            setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Отправка… (' + sent + ' / ' + total + ')</p></div>');
+            return sendBatch(false);
+          });
+        }
+        sendBatch(true).catch(function(e){ showErr(e.message); });
+      } catch(e) { showErr('Ошибка парсинга: ' + e.message); }
     };
     reader.readAsArrayBuffer(file);
   });
@@ -1555,11 +1528,35 @@ function pageMarchDetail() {
 
   // ── Карта ──
   var mapId = 'marchmap_' + march.id;
+
+  // Кнопки 2ГИС и Яндекс — ищем по всем точкам маршрута
+  var marchMapBtns = '';
+  if (pts.length) {
+    // Для 2ГИС/Яндекс берём адрес первой точки или базовый город
+    var allAddrs = pts.map(function(p){ return p.address || ''; }).filter(Boolean);
+    var searchQuery = (march.baseCity ? march.baseCity + ' ' : '') + (allAddrs[0] || '');
+    var dgisUrl   = 'https://2gis.ru/search/' + encodeURIComponent(searchQuery);
+    // Яндекс маршрут через несколько точек
+    var yaPts = (march.baseCity ? [march.baseCity] : []).concat(allAddrs.slice(0, 5));
+    var yaUrl = 'https://yandex.ru/maps/?mode=routes&rtext=' + yaPts.map(function(a){ return encodeURIComponent(a); }).join('~');
+    marchMapBtns = '<div style="display:flex;gap:.5rem;margin-top:.6rem;flex-wrap:wrap">' +
+      '<a href="' + dgisUrl + '" target="_blank" class="btn btn-sm" style="background:#3069b0;gap:5px">' +
+        '<svg width="13" height="13" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="10" r="4"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="white"/></svg>' +
+        '2ГИС' +
+      '</a>' +
+      '<a href="' + yaUrl + '" target="_blank" class="btn btn-sm" style="background:#fc3f1d;gap:5px">' +
+        '<svg width="13" height="13" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="10" r="4"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="white"/></svg>' +
+        'Яндекс.Маршрут' +
+      '</a>' +
+    '</div>';
+  }
+
   html += '<div class="card p" style="margin-bottom:1.25rem">' +
     '<div class="sec-title" style="margin-bottom:.75rem">Карта маршрута</div>' +
     '<div id="' + mapId + '" style="height:320px;border-radius:var(--radius);background:#f0f0f0;display:flex;align-items:center;justify-content:center;color:#888;font-size:.82rem">' +
       (pts.length ? 'Загрузка карты…' : '<div style="text-align:center"><div style="font-size:2rem">🗺️</div><div>Добавьте точки — появится карта</div></div>') +
     '</div>' +
+    marchMapBtns +
   '</div>';
 
   // ── Таблица точек ──
