@@ -4,7 +4,7 @@
   "description": "Stockeasy",
   "type": "module",
   "scripts": {
-    "start": "node --max-old-space-size=512 server/index.js"
+    "start": "node --max-old-space-size=1024 server/index.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
