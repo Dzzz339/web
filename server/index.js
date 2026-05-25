@@ -311,6 +311,7 @@ app.post('/api/excel/upload', async (req, res) => {
     console.log('Uploaded:', name, buffer.length, 'bytes')
 
     const workbook = XLSX.readFile(filePath, {cellDates:true, cellFormula:false, raw:false})
+    const isSvodnye = workbook.SheetNames.some(n => n.startsWith('Заявки'))
     if (isSvodnye) {
       const newRows = parseSvodnye(workbook) // Данные, которые только что распарсили из Excel
       const db = await readDB()
