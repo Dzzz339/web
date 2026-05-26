@@ -845,7 +845,11 @@ function clientParseSvodnye(workbook) {
     }
     return null;
   }
-  function strVal(v) { if (v===null||v===undefined) return ''; return String(v).replace(/\n/g,' ').trim(); }
+  function strVal(v) {
+    if (v === null || v === undefined) return '';
+    if (v instanceof Date) return ''; // даты не конвертируем в строку через strVal
+    return String(v).replace(/\n/g, ' ').trim();
+  }
   function parseDate(v) {
     if (!v) return null;
 
@@ -916,7 +920,7 @@ function clientParseSvodnye(workbook) {
   for (var si=0; si<sheetNames.length; si++) {
     var shName = sheetNames[si];
     var ws = workbook.Sheets[shName];
-    var rows = XLSX.utils.sheet_to_json(ws, {defval:null, raw:false});
+    var rows = XLSX.utils.sheet_to_json(ws, {defval:null, raw:true});
     for (var ri=0; ri<rows.length; ri++) {
       var row = rows[ri];
       var num = strVal(findCol(row,'Номер','номер')).trim();
@@ -996,7 +1000,7 @@ function doUpload(file) {
       try {
         setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Парсинг таблицы…</p></div>');
         var data = new Uint8Array(e.target.result);
-        var wb = XLSX.read(data, {type:'array', cellDates:true, cellFormula:false, raw:false});
+        var wb = XLSX.read(data, {type:'array', cellDates:true, cellFormula:false});
         var hasSheets = wb.SheetNames.some(function(n){ return n.startsWith('Заявки'); });
         if (!hasSheets) {
           setStatus('<div class="banner banner-warn"><div><div class="banner-title">⚠️ Файл не распознан</div><div class="banner-body">Нет листов «Заявки 20XX». Данные не изменены.</div></div></div>');
