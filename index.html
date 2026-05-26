@@ -306,7 +306,7 @@ var S = {
   selChain: null, selChainStep: null,
   taskQ: '', taskSt: '', taskPr: '', taskReg: '', taskMgr: '', taskYear: '', taskOverdue: '',
   taskArch: 'no',
-  taskStage: '',
+  taskStage: '', taskSort: '',
   cardId: null, cardEdit: false,
   marches: [], marchId: null
 };
@@ -577,7 +577,7 @@ function pageKanban() {
 
 function clearFilters() {
   S.taskQ=''; S.taskSt=''; S.taskPr=''; S.taskReg=''; S.taskMgr=''; S.taskYear=''; S.taskOverdue='';
-  S.taskArch='no'; S.taskStage=''; // Сбрасываем новые фильтры
+  S.taskArch='no'; S.taskStage=''; S.taskSort=''; // Сбрасываем новые фильтры
   renderApp();
 }
 
@@ -634,6 +634,18 @@ function pageTasks() {
   var regions  = Array.from(new Set(S.tasks.map(function(t){return t.region||'';}).filter(Boolean))).sort();
   var managers = Array.from(new Set(S.tasks.map(function(t){return t.manager||'';}).filter(Boolean))).sort();
   var years    = Array.from(new Set(S.tasks.map(function(t){return t.sheet||'';}).filter(Boolean))).sort();
+
+  // Сортировка по дате заявки
+  if (S.taskSort) {
+    filtered = filtered.slice().sort(function(a, b) {
+      var da = a.dateZayavki || '';
+      var db = b.dateZayavki || '';
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      return S.taskSort === 'date_asc' ? da.localeCompare(db) : db.localeCompare(da);
+    });
+  }
   
   function mkOpts(arr,cur){return arr.map(function(v){
     var safe=v.replace(/"/g,'&quot;');
@@ -714,7 +726,12 @@ function pageTasks() {
         '<option value="acceptance"' + (S.taskStage==='acceptance'?' selected':'') + '>Приёмка</option>' +
         '<option value="payment"' + (S.taskStage==='payment'?' selected':'') + '>Оплата</option>' +
       '</select>' +
-      (hasFilter ? '<button class="btn btn-sm btn-ghost" onclick="clearFilters()">✕ Сбросить</button>' : '') +
+      '<select id="tsort">' +
+        '<option value=""'+(S.taskSort===''?' selected':'')+'>Без сортировки</option>' +
+        '<option value="date_desc"'+(S.taskSort==='date_desc'?' selected':'')+'>📅 Новые сначала</option>' +
+        '<option value="date_asc"'+(S.taskSort==='date_asc'?' selected':'')+'>📅 Старые сначала</option>' +
+      '</select>' +
+      (hasFilter||S.taskSort ? '<button class="btn btn-sm btn-ghost" onclick="clearFilters()">✕ Сбросить</button>' : '') +
     '</div>' +
     totals +
     '<div class="card tbl-wrap">' +
@@ -774,6 +791,8 @@ function bindEvents() {
   if (tarch) tarch.addEventListener('change', function(){ S.taskArch = this.value; renderApp(); });
   var tstage = document.getElementById('tstage');
   if (tstage) tstage.addEventListener('change', function(){ S.taskStage = this.value; renderApp(); });
+  var tsort = document.getElementById('tsort');
+  if (tsort) tsort.addEventListener('change', function(){ S.taskSort = this.value; renderApp(); });
   var addBtn = document.getElementById('addBtn');
   if (addBtn) addBtn.addEventListener('click', addTask);
   var ntask = document.getElementById('ntask');
