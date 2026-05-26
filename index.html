@@ -997,48 +997,56 @@ function doUpload(file) {
   ensureXLSX(function() {
     var reader = new FileReader();
     reader.onload = function(e) {
-      try {
-        setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Парсинг таблицы…</p></div>');
-        var data = new Uint8Array(e.target.result);
-        var wb = XLSX.read(data, {type:'array', cellDates:true, cellFormula:false});
-        var hasSheets = wb.SheetNames.some(function(n){ return n.startsWith('Заявки'); });
-        if (!hasSheets) {
-          setStatus('<div class="banner banner-warn"><div><div class="banner-title">⚠️ Файл не распознан</div><div class="banner-body">Нет листов «Заявки 20XX». Данные не изменены.</div></div></div>');
-          return;
-        }
-        var rows = clientParseSvodnye(wb);
-        var total = rows.length;
-        var sent = 0;
-        var BATCH = 500;
-        setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Отправка на сервер… (0 / ' + total + ')</p></div>');
-        function sendBatch(isFirst) {
-          var batch = rows.slice(sent, sent + BATCH);
-          if (!batch.length) {
-            return Promise.all([api('/stats'), api('/tasks'), api('/chains'), api('/import-info')])
-              .then(function(res){
-                S.stats=res[0]; S.tasks=res[1]; S.chains=res[2]; S.importInfo=res[3];
-                if (S.chains.length && !S.selChain) {
-                  var firstReal = S.chains.find(function(c){ return c.id && c.id !== '(без региона)'; });
-                  S.selChain = (firstReal || S.chains[0]).id;
-                }
-                setStatus('<div class="banner banner-ok"><div><div class="banner-title">✅ Импорт успешен!</div><div class="banner-body">Загружено <strong>' + fmtN(total) + ' заявок</strong> из «' + file.name + '»</div></div><div class="row" style="gap:.5rem"><button class="btn btn-sm" onclick="go(\'dashboard\')">Дашборд</button><button class="btn btn-sm btn-ghost" onclick="go(\'tasks\')">Задачи</button></div></div>');
-                renderApp();
-              });
+      // setTimeout даёт браузеру обновить UI перед тяжёлой работой
+      setTimeout(function() {
+        try {
+          setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Парсинг таблицы…</p></div>');
+          var data = new Uint8Array(e.target.result);
+          var wb = XLSX.read(data, {type:'array', cellDates:true, cellFormula:false});
+          var hasSheets = wb.SheetNames.some(function(n){ return n.startsWith('Заявки'); });
+          if (!hasSheets) {
+            setStatus('<div class="banner banner-warn"><div><div class="banner-title">⚠️ Файл не распознан</div><div class="banner-body">Нет листов «Заявки 20XX». Данные не изменены.</div></div></div>');
+            return;
           }
-          return fetch('/api/excel/import-rows', {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({rows: batch, name: file.name, isFirst: isFirst, totalRows: total})
-          })
-          .then(function(r){ return r.json(); })
-          .then(function(result){
-            if (result.error) throw new Error(result.error);
-            sent += batch.length;
-            setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Отправка… (' + sent + ' / ' + total + ')</p></div>');
-            return sendBatch(false);
-          });
-        }
-        sendBatch(true).catch(function(e){ showErr(e.message); });
-      } catch(e) { showErr('Ошибка парсинга: ' + e.message); }
+          // Парсинг тоже тяжёлый — ещё один tick чтобы UI успел показать статус
+          setTimeout(function() {
+            try {
+              var rows = clientParseSvodnye(wb);
+              var total = rows.length;
+              var sent = 0;
+              var BATCH = 500;
+              setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Отправка на сервер… (0 / ' + total + ')</p></div>');
+              function sendBatch(isFirst) {
+                var batch = rows.slice(sent, sent + BATCH);
+                if (!batch.length) {
+                  return Promise.all([api('/stats'), api('/tasks'), api('/chains'), api('/import-info')])
+                    .then(function(res){
+                      S.stats=res[0]; S.tasks=res[1]; S.chains=res[2]; S.importInfo=res[3];
+                      if (S.chains.length && !S.selChain) {
+                        var firstReal = S.chains.find(function(c){ return c.id && c.id !== '(без региона)'; });
+                        S.selChain = (firstReal || S.chains[0]).id;
+                      }
+                      setStatus('<div class="banner banner-ok"><div><div class="banner-title">✅ Импорт успешен!</div><div class="banner-body">Загружено <strong>' + fmtN(total) + ' заявок</strong> из «' + file.name + '»</div></div><div class="row" style="gap:.5rem"><button class="btn btn-sm" onclick="go(\'dashboard\')">Дашборд</button><button class="btn btn-sm btn-ghost" onclick="go(\'tasks\')">Задачи</button></div></div>');
+                      renderApp();
+                    });
+                }
+                return fetch('/api/excel/import-rows', {
+                  method:'POST', headers:{'Content-Type':'application/json'},
+                  body: JSON.stringify({rows: batch, name: file.name, isFirst: isFirst, totalRows: total})
+                })
+                .then(function(r){ return r.json(); })
+                .then(function(result){
+                  if (result.error) throw new Error(result.error);
+                  sent += batch.length;
+                  setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Отправка… (' + sent + ' / ' + total + ')</p></div>');
+                  return sendBatch(false);
+                });
+              }
+              sendBatch(true).catch(function(e){ showErr(e.message); });
+            } catch(e) { showErr('Ошибка парсинга: ' + e.message); }
+          }, 50);
+        } catch(e) { showErr('Ошибка чтения файла: ' + e.message); }
+      }, 50);
     };
     reader.readAsArrayBuffer(file);
   });
