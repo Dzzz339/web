@@ -635,28 +635,15 @@ function pageTasks() {
   var managers = Array.from(new Set(S.tasks.map(function(t){return t.manager||'';}).filter(Boolean))).sort();
   var years    = Array.from(new Set(S.tasks.map(function(t){return t.sheet||'';}).filter(Boolean))).sort();
 
-  // Сортировка по дате заявки — парсим дату в timestamp чтобы корректно сравнивать любой формат
+  // Сортировка — dateZayavki хранится в YYYY-MM-DD, localeCompare даёт правильный порядок
   if (S.taskSort) {
-    function parseDateVal(s) {
-      if (!s) return 0;
-      var d = new Date(s);
-      if (!isNaN(d.getTime())) return d.getTime();
-      // M/D/YY
-      var p = s.split(/[\/\.\-]/);
-      if (p.length === 3) {
-        var y = p[2].length <= 2 ? 2000 + parseInt(p[2]) : parseInt(p[2]);
-        d = new Date(y, parseInt(p[0]) - 1, parseInt(p[1]));
-        if (!isNaN(d.getTime())) return d.getTime();
-      }
-      return 0;
-    }
     filtered = filtered.slice().sort(function(a, b) {
-      var da = parseDateVal(a.dateZayavki);
-      var db = parseDateVal(b.dateZayavki);
+      var da = a.dateZayavki || '';
+      var db = b.dateZayavki || '';
       if (!da && !db) return 0;
       if (!da) return 1;
       if (!db) return -1;
-      return S.taskSort === 'date_asc' ? da - db : db - da;
+      return S.taskSort === 'date_asc' ? da.localeCompare(db) : db.localeCompare(da);
     });
   }
   
@@ -861,12 +848,57 @@ function clientParseSvodnye(workbook) {
   function strVal(v) { if (v===null||v===undefined) return ''; return String(v).replace(/\n/g,' ').trim(); }
   function parseDate(v) {
     if (!v) return null;
-    if (v instanceof Date) return v.toISOString().split('T')[0];
+
+    // SheetJS с cellDates:true вернул объект Date — самый надёжный случай
+    if (v instanceof Date) {
+      if (isNaN(v.getTime())) return null;
+      return v.getFullYear() + '-' +
+        String(v.getMonth() + 1).padStart(2, '0') + '-' +
+        String(v.getDate()).padStart(2, '0');
+    }
+
+    // Числовой serial date из Excel (когда cellDates не сработал)
     if (typeof v === 'number') {
       var d = XLSX.SSF.parse_date_code(v);
-      if (d) return d.y+'-'+String(d.m).padStart(2,'0')+'-'+String(d.d).padStart(2,'0');
+      if (d) return d.y + '-' + String(d.m).padStart(2, '0') + '-' + String(d.d).padStart(2, '0');
+      return null;
     }
-    return String(v).split(' ')[0] || null;
+
+    // Строка — разбираем умно
+    var s = String(v).trim().split(' ')[0]; // берём только дату без времени
+    if (!s) return null;
+
+    // YYYY-MM-DD или YYYY.MM.DD — уже ISO, просто нормализуем
+    var isoM = s.match(/^(\d{4})[-.](\d{1,2})[-.](\d{1,2})$/);
+    if (isoM) {
+      var y = parseInt(isoM[1]), mo = parseInt(isoM[2]), dy = parseInt(isoM[3]);
+      if (mo >= 1 && mo <= 12 && dy >= 1 && dy <= 31)
+        return y + '-' + String(mo).padStart(2,'0') + '-' + String(dy).padStart(2,'0');
+    }
+
+    // DD.MM.YYYY или DD.MM.YY — русский формат (точки, день первый)
+    var ruM = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/);
+    if (ruM) {
+      var d2 = parseInt(ruM[1]), m2 = parseInt(ruM[2]);
+      var y2 = parseInt(ruM[3]);
+      if (y2 < 100) y2 += 2000;
+      // Если день > 12 — точно день первый (DD.MM)
+      // Если оба ≤ 12 — считаем что DD.MM (русский формат)
+      if (m2 >= 1 && m2 <= 12 && d2 >= 1 && d2 <= 31)
+        return y2 + '-' + String(m2).padStart(2,'0') + '-' + String(d2).padStart(2,'0');
+    }
+
+    // M/D/YY или M/D/YYYY — формат SheetJS по умолчанию (месяц первый)
+    var usM = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (usM) {
+      var m3 = parseInt(usM[1]), d3 = parseInt(usM[2]);
+      var y3 = parseInt(usM[3]);
+      if (y3 < 100) y3 += 2000;
+      if (m3 >= 1 && m3 <= 12 && d3 >= 1 && d3 <= 31)
+        return y3 + '-' + String(m3).padStart(2,'0') + '-' + String(d3).padStart(2,'0');
+    }
+
+    return null; // не распознали — не показываем мусор
   }
   function parseNum(v) {
     if (v===null||v===undefined) return 0;
