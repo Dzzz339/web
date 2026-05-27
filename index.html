@@ -923,6 +923,7 @@ function clientParseSvodnye(workbook) {
         vsp:          strVal(findColFast(row, km, '№ВСП', '№ ВСП', 'ВСП')),
         dateZayavki:  parseDate(findColFast(row, km, 'Дата заявки')),
         deadline:     parseDate(findColFast(row, km, 'Дата окончания работ')),
+        currentDate:  parseDate(findColFast(row, km, 'Текущяя дата', 'Текущая дата', 'текущая дата')),
         manager:      strVal(findColFast(row, km, 'Менеджер Сбера', 'Менеджер Сбера ')),
         contact:      strVal(findColFast(row, km, 'Контакт')),
         contractor:   strVal(findColFast(row, km, 'Подрядчик, контакты', 'Подрядчик, контакты ', 'Подрядчик')),
@@ -1120,6 +1121,10 @@ function pageCard() {
       if (key === 'stage') disp = stageLabel[val] || '<span class="t3">—</span>';
       if (key === 'archived') disp = val ? '<span class="badge b-gray">Архив</span>' : '<span class="badge b-green">Активна</span>';
       if (key === 'techLink' && val) disp = '<a href="'+val+'" target="_blank" rel="noopener noreferrer">🔗 Открыть</a>';
+      // Форматируем даты YYYY-MM-DD → ДД.ММ.ГГГГ
+      if (type === 'date' && val && /^\d{4}-\d{2}-\d{2}/.test(String(val))) {
+        disp = String(val).slice(0,10).split('-').reverse().join('.');
+      }
       return '<div class="field-row"><div class="field-lbl">'+lbl+'</div><div class="field-val">'+disp+'</div></div>';
     }
     var inp = '';
@@ -1268,6 +1273,7 @@ function pageCard() {
     field('№ ВСП', 'vsp') +
     field('Дата заявки', 'dateZayavki', 'date') +
     field('Дата окончания работ', 'deadline', 'date') +
+    field('Текущая дата (внесена)', 'currentDate', 'date') +
     field('Дней просрочки', 'overdueDays', 'number') +
     field('Статус', 'status') +
     field('Приоритет', 'priority') +

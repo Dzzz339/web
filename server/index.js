@@ -37,6 +37,7 @@ async function initDB() {
       vsp         TEXT,
       date_zayavki DATE,
       deadline    DATE,
+      current_date DATE,
       manager     TEXT,
       contact     TEXT,
       contractor  TEXT,
@@ -101,6 +102,9 @@ async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_archived ON tasks(archived)`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_sheet    ON tasks(sheet)`)
 
+  // Миграции — добавляем новые колонки если их нет (безопасно для существующей БД)
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS current_date DATE`)
+
   console.log('DB initialized')
 }
 
@@ -124,8 +128,9 @@ function rowToTask(r) {
     tipObj:       r.tip_obj,
     gosb:         r.gosb,
     vsp:          r.vsp,
-    dateZayavki:  r.date_zayavki ? String(r.date_zayavki).split('T')[0] : null,
-    deadline:     r.deadline     ? String(r.deadline).split('T')[0]     : null,
+    dateZayavki:  r.date_zayavki   ? String(r.date_zayavki).split('T')[0]   : null,
+    deadline:     r.deadline       ? String(r.deadline).split('T')[0]       : null,
+    currentDate:  r.current_date   ? String(r.current_date).split('T')[0]   : null,
     manager:      r.manager,
     contact:      r.contact,
     contractor:   r.contractor,
@@ -349,18 +354,18 @@ app.post('/api/excel/import-rows', async (req, res) => {
         await client.query(`
           INSERT INTO tasks (
             id, sheet, region, address, work_type, tip_obj, gosb, vsp,
-            date_zayavki, deadline, manager, contact, contractor,
+            date_zayavki, deadline, current_date, manager, contact, contractor,
             in_order, fact, obsledovanie, dostup, data_vyhoda, priemka, oplata,
             id_status, amount, distance_km, price_per_unit,
             tech_link, edo_number, invoice_info, vedo_status, excel_comment,
             status, priority, overdue_days, stage, archived
           ) VALUES (
             $1,$2,$3,$4,$5,$6,$7,$8,
-            $9,$10,$11,$12,$13,
-            $14,$15,$16,$17,$18,$19,$20,
-            $21,$22,$23,$24,
-            $25,$26,$27,$28,$29,
-            $30,$31,$32,$33,false
+            $9,$10,$11,$12,$13,$14,
+            $15,$16,$17,$18,$19,$20,$21,
+            $22,$23,$24,$25,
+            $26,$27,$28,$29,$30,
+            $31,$32,$33,$34,false
           )
           ON CONFLICT (id) DO UPDATE SET
             -- Данные из Excel — всегда обновляем
@@ -373,6 +378,7 @@ app.post('/api/excel/import-rows', async (req, res) => {
             vsp           = EXCLUDED.vsp,
             date_zayavki  = EXCLUDED.date_zayavki,
             deadline      = EXCLUDED.deadline,
+            current_date  = EXCLUDED.current_date,
             manager       = EXCLUDED.manager,
             in_order      = EXCLUDED.in_order,
             fact          = EXCLUDED.fact,
@@ -406,7 +412,7 @@ app.post('/api/excel/import-rows', async (req, res) => {
             history       = tasks.history
         `, [
           t.id, t.sheet, t.region, t.address, t.workType, t.tipObj, t.gosb, t.vsp,
-          safeDate(t.dateZayavki), safeDate(t.deadline), t.manager, t.contact, t.contractor,
+          safeDate(t.dateZayavki), safeDate(t.deadline), safeDate(t.currentDate), t.manager, t.contact, t.contractor,
           Number(t.inOrder)||0, Number(t.fact)||0, t.obsledovanie, t.dostup,
           safeDate(t.dataVyhoda), t.priemka, t.oplata,
           t.idStatus, Number(t.amount)||0, Number(t.distanceKm)||0, Number(t.pricePerUnit)||0,
