@@ -1004,7 +1004,7 @@ function doUpload(file) {
                 }
                 return fetch('/api/excel/import-rows', {
                   method:'POST', headers:{'Content-Type':'application/json'},
-                  body: JSON.stringify({rows: batch, name: file.name, isFirst: isFirst, totalRows: total})
+                  body: JSON.stringify({rows: batch, name: file.name, isFirst: isFirst, totalRows: total, isLast: (sent + batch.length >= total)})
                 })
                 .then(function(r){ return r.json(); })
                 .then(function(result){

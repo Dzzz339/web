@@ -363,6 +363,7 @@ app.post('/api/excel/import-rows', async (req, res) => {
             $30,$31,$32,$33,false
           )
           ON CONFLICT (id) DO UPDATE SET
+            -- Данные из Excel — всегда обновляем
             sheet         = EXCLUDED.sheet,
             region        = EXCLUDED.region,
             address       = EXCLUDED.address,
@@ -373,8 +374,6 @@ app.post('/api/excel/import-rows', async (req, res) => {
             date_zayavki  = EXCLUDED.date_zayavki,
             deadline      = EXCLUDED.deadline,
             manager       = EXCLUDED.manager,
-            contact       = EXCLUDED.contact,
-            contractor    = EXCLUDED.contractor,
             in_order      = EXCLUDED.in_order,
             fact          = EXCLUDED.fact,
             obsledovanie  = EXCLUDED.obsledovanie,
@@ -394,9 +393,17 @@ app.post('/api/excel/import-rows', async (req, res) => {
             status        = EXCLUDED.status,
             priority      = EXCLUDED.priority,
             overdue_days  = EXCLUDED.overdue_days,
-            stage         = COALESCE(tasks.stage, EXCLUDED.stage),
             archived      = false,
-            updated_at    = NOW()
+            updated_at    = NOW(),
+            -- Пользовательские поля — не затираем
+            contact       = COALESCE(NULLIF(tasks.contact, ''),    EXCLUDED.contact),
+            contractor    = COALESCE(NULLIF(tasks.contractor, ''), EXCLUDED.contractor),
+            stage         = COALESCE(tasks.stage,                  EXCLUDED.stage),
+            assignee      = tasks.assignee,
+            controller    = tasks.controller,
+            comment       = tasks.comment,
+            distributed_at= tasks.distributed_at,
+            history       = tasks.history
         `, [
           t.id, t.sheet, t.region, t.address, t.workType, t.tipObj, t.gosb, t.vsp,
           safeDate(t.dateZayavki), safeDate(t.deadline), t.manager, t.contact, t.contractor,
@@ -410,7 +417,7 @@ app.post('/api/excel/import-rows', async (req, res) => {
       }
 
       // Последний батч — обновляем метаданные
-      const isDone = !totalRows || (newBatch.length < 500)
+      const isDone = req.body.isLast === true || !totalRows || (newBatch.length < 500)
       if (isDone && name) {
         const { rows: cnt } = await client.query('SELECT COUNT(*) FROM tasks WHERE archived=false')
         await client.query(`
