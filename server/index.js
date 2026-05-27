@@ -37,7 +37,7 @@ async function initDB() {
       vsp         TEXT,
       date_zayavki DATE,
       deadline    DATE,
-      current_date DATE,
+      date_vnesen DATE,
       manager     TEXT,
       contact     TEXT,
       contractor  TEXT,
@@ -103,7 +103,7 @@ async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_sheet    ON tasks(sheet)`)
 
   // Миграции — добавляем новые колонки если их нет (безопасно для существующей БД)
-  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS current_date DATE`)
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS date_vnesen DATE`)
 
   console.log('DB initialized')
 }
@@ -130,7 +130,7 @@ function rowToTask(r) {
     vsp:          r.vsp,
     dateZayavki:  r.date_zayavki   ? String(r.date_zayavki).split('T')[0]   : null,
     deadline:     r.deadline       ? String(r.deadline).split('T')[0]       : null,
-    currentDate:  r.current_date   ? String(r.current_date).split('T')[0]   : null,
+    currentDate:  r.date_vnesen   ? String(r.date_vnesen).split('T')[0]   : null,
     manager:      r.manager,
     contact:      r.contact,
     contractor:   r.contractor,
@@ -354,7 +354,7 @@ app.post('/api/excel/import-rows', async (req, res) => {
         await client.query(`
           INSERT INTO tasks (
             id, sheet, region, address, work_type, tip_obj, gosb, vsp,
-            date_zayavki, deadline, current_date, manager, contact, contractor,
+            date_zayavki, deadline, date_vnesen, manager, contact, contractor,
             in_order, fact, obsledovanie, dostup, data_vyhoda, priemka, oplata,
             id_status, amount, distance_km, price_per_unit,
             tech_link, edo_number, invoice_info, vedo_status, excel_comment,
@@ -378,7 +378,7 @@ app.post('/api/excel/import-rows', async (req, res) => {
             vsp           = EXCLUDED.vsp,
             date_zayavki  = EXCLUDED.date_zayavki,
             deadline      = EXCLUDED.deadline,
-            current_date  = EXCLUDED.current_date,
+            date_vnesen   = EXCLUDED.date_vnesen,
             manager       = EXCLUDED.manager,
             in_order      = EXCLUDED.in_order,
             fact          = EXCLUDED.fact,
