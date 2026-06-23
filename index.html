@@ -943,7 +943,18 @@ function clientParseSvodnye(workbook) {
         vedoStatus:   strVal(findColFast(row, km, 'В ЭДО')),
         excelComment: strVal(findColFast(row, km, 'Комментарий')),
         status: status, priority: priority, overdueDays: overdue,
-        archived: false, stage: getInitialStage(status)
+        archived: false, stage: getInitialStage(status),
+        rawData: (function() {
+          // Сохраняем ВСЕ колонки строки как есть — для отображения в карточке
+          var raw = {};
+          Object.keys(row).forEach(function(k) {
+            var v = row[k];
+            if (v !== null && v !== undefined && String(v).trim() !== '') {
+              raw[k.trim()] = strVal(v);
+            }
+          });
+          return raw;
+        })()
       });
     }
   }
@@ -1304,8 +1315,6 @@ function pageCard() {
     field('Комментарий (из Excel)', 'excelComment', 'textarea') +
     '<div class="divider"></div>' +
     '<div class="sec-title" style="margin-bottom:.5rem">Назначение</div>' +
-    '<div class="divider"></div>' +
-    '<div class="sec-title" style="margin-bottom:.5rem">Назначение</div>' +
     field('Этап', 'stage') +
     field('Статус записи', 'archived') +
     field('Исполнитель', 'assignee') +
@@ -1315,6 +1324,56 @@ function pageCard() {
     field('Контакт / сопровождение', 'contact', 'textarea') +
     field('Ссылка на тех.информацию', 'techLink', 'url') +
     field('Комментарий', 'comment', 'textarea') +
+    (function() {
+      // Показываем поля из rawData которые НЕ отображены выше
+      var knownKeys = [
+        'регион','адрес','тип объекта','тип работ','тип работ ','тип',
+        '№ госб','госб','№всп','№ всп','всп',
+        'дата заявки','дата окончания работ','текущяя дата','текущая дата',
+        'кол-во дней просрочки','дней просрочки','просрочка',
+        'статус','статус ','приоритет','ид','ид ',
+        'сумма договора','сумма договора ','стоимость за ед.','стоимость за ед',
+        ' удаленность','удаленность','удалённость',
+        'в заказе','факт','номер',
+        'менеджер сбера','менеджер сбера ','контакт',
+        'подрядчик, контакты','подрядчик, контакты ','подрядчик',
+        'обследование','доступ','дата выхода',
+        'приемка(фото),отпрвленно пректировщикам','приёмка','приемка',
+        'оплата подрядчику','оплата',
+        'ссылка на тех.информацию','ссылка на тех.информацию ',
+        '№ докумета в эдо','№ документа в эдо','№ докумета в эдо ',
+        '№ счета/сумма','№ счета/сумма ','в эдо','комментарий'
+      ];
+      var raw = t.rawData || {};
+      var extra = [];
+      Object.keys(raw).forEach(function(k) {
+        var nk = k.trim().toLowerCase().replace(/\s+/g,' ');
+        if (knownKeys.indexOf(nk) === -1 && raw[k] && String(raw[k]).trim() !== '') {
+          extra.push([k, raw[k]]);
+        }
+      });
+      if (!extra.length) return '';
+      // Умное форматирование значения
+      function fmtRaw(v) {
+        var s = String(v);
+        // Дата в формате ДД.ММ.ГГГГ или ГГГГ-ММ-ДД
+        if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10).split('-').reverse().join('.');
+        if (/^\d{2}\.\d{2}\.\d{4}/.test(s)) return s.slice(0,10);
+        // Ссылка
+        if (/^https?:\/\//i.test(s)) return '<a href="'+s+'" target="_blank" rel="noopener noreferrer">🔗 Открыть</a>';
+        // Число с пробелами как разделителями тысяч — форматируем
+        var n = parseFloat(s.replace(/\s/g,'').replace(',','.'));
+        if (!isNaN(n) && s.replace(/[\d\s.,]/g,'') === '') return n.toLocaleString('ru-RU');
+        return s;
+      }
+      var rows = extra.map(function(pair) {
+        return '<div class="field-row"><div class="field-lbl" style="color:var(--text-3)">'+pair[0]+'</div>' +
+          '<div class="field-val">'+fmtRaw(pair[1])+'</div></div>';
+      }).join('');
+      return '<div class="divider"></div>' +
+        '<div class="sec-title" style="margin-bottom:.5rem">Дополнительно из Excel</div>' +
+        rows;
+    })() +
     (edit ? '</form>' : '') +
   '</div>';
 

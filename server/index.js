@@ -68,7 +68,8 @@ async function initDB() {
       distributed_at DATE,
       history     JSONB DEFAULT '[]',
       created_at  TIMESTAMPTZ DEFAULT NOW(),
-      updated_at  TIMESTAMPTZ DEFAULT NOW()
+      updated_at  TIMESTAMPTZ DEFAULT NOW(),
+      raw_data    JSONB DEFAULT '{}'
     )
   `)
 
@@ -104,6 +105,7 @@ async function initDB() {
 
   // Миграции — добавляем новые колонки если их нет (безопасно для существующей БД)
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS date_vnesen DATE`)
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS raw_data JSONB DEFAULT '{}'`)
 
   console.log('DB initialized')
 }
@@ -160,6 +162,7 @@ function rowToTask(r) {
     comment:      r.comment,
     distributedAt: r.distributed_at ? String(r.distributed_at).split('T')[0] : null,
     _history:     r.history || [],
+    rawData:      r.raw_data || {},
   }
 }
 
@@ -358,14 +361,14 @@ app.post('/api/excel/import-rows', async (req, res) => {
             in_order, fact, obsledovanie, dostup, data_vyhoda, priemka, oplata,
             id_status, amount, distance_km, price_per_unit,
             tech_link, edo_number, invoice_info, vedo_status, excel_comment,
-            status, priority, overdue_days, stage, archived
+            status, priority, overdue_days, stage, archived, raw_data
           ) VALUES (
             $1,$2,$3,$4,$5,$6,$7,$8,
             $9,$10,$11,$12,$13,$14,
             $15,$16,$17,$18,$19,$20,$21,
             $22,$23,$24,$25,
             $26,$27,$28,$29,$30,
-            $31,$32,$33,$34,false
+            $31,$32,$33,$34,false,$35
           )
           ON CONFLICT (id) DO UPDATE SET
             -- Данные из Excel — всегда обновляем
@@ -401,6 +404,7 @@ app.post('/api/excel/import-rows', async (req, res) => {
             overdue_days  = EXCLUDED.overdue_days,
             archived      = false,
             updated_at    = NOW(),
+            raw_data      = EXCLUDED.raw_data,
             -- Пользовательские поля — не затираем
             contact       = COALESCE(NULLIF(tasks.contact, ''),    EXCLUDED.contact),
             contractor    = COALESCE(NULLIF(tasks.contractor, ''), EXCLUDED.contractor),
@@ -418,7 +422,8 @@ app.post('/api/excel/import-rows', async (req, res) => {
           t.idStatus, Number(t.amount)||0, Number(t.distanceKm)||0, Number(t.pricePerUnit)||0,
           t.techLink, t.edoNumber, t.invoiceInfo, t.vedoStatus, t.excelComment,
           t.status||'progress', t.priority||'low', Number(t.overdueDays)||0,
-          t.stage || getInitialStage(t.status)
+          t.stage || getInitialStage(t.status),
+          JSON.stringify(t.rawData || {})
         ])
       }
 
