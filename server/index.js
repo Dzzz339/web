@@ -168,8 +168,17 @@ function rowToTask(r) {
 
 function safeDate(v) {
   if (!v) return null
-  const s = String(v).split('T')[0]
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null
+  const s = String(v).trim()
+  // YYYY-MM-DD или YYYY-MM-DDTHH:MM:SS
+  const iso = s.split('T')[0]
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso
+  // ДД.ММ.ГГГГ
+  const ru = s.match(/^(\d{2})\.(\d{2})\.(\d{4})/)
+  if (ru) return `${ru[3]}-${ru[2]}-${ru[1]}`
+  // ДД/ММ/ГГГГ
+  const sl = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+  if (sl) return `${sl[3]}-${sl[2]}-${sl[1]}`
+  return null
 }
 
 // ─── STATS & CHAINS ───────────────────────────────────────────────────────────

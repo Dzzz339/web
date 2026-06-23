@@ -945,12 +945,14 @@ function clientParseSvodnye(workbook) {
         status: status, priority: priority, overdueDays: overdue,
         archived: false, stage: getInitialStage(status),
         rawData: (function() {
-          // Сохраняем ВСЕ колонки строки как есть — для отображения в карточке
           var raw = {};
           Object.keys(row).forEach(function(k) {
             var v = row[k];
+            var trimmed = k.trim();
+            // Пропускаем пустые ключи, __EMPTY и т.п.
+            if (!trimmed || trimmed.startsWith('__') || trimmed === '') return;
             if (v !== null && v !== undefined && String(v).trim() !== '') {
-              raw[k.trim()] = strVal(v);
+              raw[trimmed] = strVal(v);
             }
           });
           return raw;
