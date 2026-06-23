@@ -169,16 +169,25 @@ function rowToTask(r) {
 function safeDate(v) {
   if (!v) return null
   const s = String(v).trim()
+  let iso = null
   // YYYY-MM-DD или YYYY-MM-DDTHH:MM:SS
-  const iso = s.split('T')[0]
-  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso
+  const isoMatch = s.split('T')[0]
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoMatch)) iso = isoMatch
   // ДД.ММ.ГГГГ
-  const ru = s.match(/^(\d{2})\.(\d{2})\.(\d{4})/)
-  if (ru) return `${ru[3]}-${ru[2]}-${ru[1]}`
-  // ДД/ММ/ГГГГ
-  const sl = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
-  if (sl) return `${sl[3]}-${sl[2]}-${sl[1]}`
-  return null
+  else {
+    const ru = s.match(/^(\d{2})\.(\d{2})\.(\d{4})/)
+    if (ru) iso = `${ru[3]}-${ru[2]}-${ru[1]}`
+    else {
+      const sl = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+      if (sl) iso = `${sl[3]}-${sl[2]}-${sl[1]}`
+    }
+  }
+  if (!iso) return null
+  // Проверяем что дата реально существует (31 июня, 29 февраля и т.п.)
+  const [y, m, d] = iso.split('-').map(Number)
+  const dt = new Date(y, m - 1, d)
+  if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null
+  return iso
 }
 
 // ─── STATS & CHAINS ───────────────────────────────────────────────────────────
