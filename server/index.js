@@ -11,10 +11,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(__dirname, '..')
 const app = express()
 const PORT = process.env.PORT || 3000
+const connectionString = process.env.DATABASE_URL || '';
+const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-})
+  connectionString: connectionString,
+  // Если база локальная — отключаем SSL, если удаленная (Railway) — оставляем
+  ssl: isLocal ? false : { rejectUnauthorized: false }
+});
 
 app.use(cors())
 app.use(express.json({ limit: '50mb' }))
