@@ -369,9 +369,13 @@ function renderNav() {
 }
 
 // ─── RENDER ───────────────────────────────────────────────────────────────────
-function setApp(html) { document.getElementById('app').innerHTML = html; }
-
 function renderApp() {
+  // 1. ЗАПОМИНАЕМ ФОКУС: сохраняем ID элемента и позицию курсора
+  var activeId = document.activeElement ? document.activeElement.id : null;
+  var selectionStart = document.activeElement ? document.activeElement.selectionStart : null;
+  var selectionEnd = document.activeElement ? document.activeElement.selectionEnd : null;
+
+  // 2. Отрисовка страницы (твой существующий код)
   if      (S.page === 'dashboard') setApp(pageDash());
   else if (S.page === 'supply')    setApp(pageSupply());
   else if (S.page === 'kanban')    setApp(pageKanban());
@@ -380,10 +384,37 @@ function renderApp() {
   else if (S.page === 'data')      setApp(pageData());
   else if (S.page === 'marches')   setApp(pageMarches());
   else if (S.page === 'march-detail') setApp(pageMarchDetail());
+
+  // 3. Вешаем события заново
   bindEvents();
+
+  // 4. ВОЗВРАЩАЕМ ФОКУС: если мы печатали в поиске, возвращаем курсор на место
+  if (activeId) {
+    var el = document.getElementById(activeId);
+    if (el) {
+      el.focus();
+      // Это предотвратит прыжок курсора в конец строки
+      if (selectionStart !== null && el.setSelectionRange) {
+        el.setSelectionRange(selectionStart, selectionEnd);
+      }
+    }
+  }
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
+function highlight(text, query) {
+  if (!query || !text) return text;
+  // Разбиваем поиск на отдельные слова, чтобы подсвечивать каждое
+  var words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return text;
+  
+  var escapedWords = words.map(function(w) { 
+    return w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); 
+  });
+  var regex = new RegExp('(' + escapedWords.join('|') + ')', 'gi');
+  
+  return String(text).replace(regex, '<mark style="background:#ffeb3b; padding:0 2px; border-radius:2px; color:#000;">$1</mark>');
+}
 function pct(a, b)  { return b > 0 ? Math.round(a / b * 100) : 0; }
 function fmtN(n)    { return (n || 0).toLocaleString('ru'); }
 function fmtMoney(n) {
@@ -594,10 +625,26 @@ function pageTasks() {
   
   // 1. Фильтрация
   var filtered = S.tasks.filter(function(t) {
-    if (q && (t.title||'').toLowerCase().indexOf(q.toLowerCase())<0 &&
-              (t.region||'').toLowerCase().indexOf(q.toLowerCase())<0 &&
-              (t.id||'').toLowerCase().indexOf(q.toLowerCase())<0 &&
-              (t.address||'').toLowerCase().indexOf(q.toLowerCase())<0) return false;
+    // УМНЫЙ ПОИСК
+    if (q) {
+      var searchWords = q.toLowerCase().split(/\s+/).filter(Boolean);
+      // Собираем всё содержимое строки в одну кучу для поиска
+      var content = (
+        (t.id || '') + ' ' + 
+        (t.title || '') + ' ' + 
+        (t.region || '') + ' ' + 
+        (t.address || '') + ' ' + 
+        (t.manager || '')
+      ).toLowerCase();
+
+      // Проверяем, что КАЖДОЕ слово из поиска есть в этой строке
+      var isMatch = searchWords.every(function(word) {
+        return content.indexOf(word) !== -1;
+      });
+      if (!isMatch) return false;
+    }
+
+    // Остальные фильтры (статус, приоритет и т.д. — оставляем как было)
     if (st  && t.status   !== st)  return false;
     if (pr  && t.priority !== pr)  return false;
     if (reg && t.region   !== reg) return false;
@@ -605,10 +652,7 @@ function pageTasks() {
     if (yr  && t.sheet    !== yr)  return false;
     if (ovd==='yes' && !(t.overdueDays>0)) return false;
     if (ovd==='no'  && t.overdueDays>0)    return false;
-    
-    // Новые фильтры (Архив и Стадия)
     if (S.taskArch === 'no' && t.archived) return false;
-    if (S.taskArch === 'yes' && !t.archived) return false;
     if (S.taskStage && t.stage !== S.taskStage) return false;
 
     return true;
@@ -665,24 +709,45 @@ function pageTasks() {
     statBox('Остаток портов', fmtN(portBalance), 'заказ - факт', portBalance > 0 ? 'var(--orange)' : 'var(--green)') +
   '</div>';
 
-  var tableRows='';
-  filtered.slice(0,300).forEach(function(t){
-    var od = t.overdueDays>0
-      ? '<span style="color:var(--red);font-weight:600">+'+t.overdueDays+' дн</span>'
+  var tableRows = '';
+  filtered.slice(0, 300).forEach(function(t) {
+    var od = t.overdueDays > 0
+      ? '<span style="color:var(--red);font-weight:600">+' + t.overdueDays + ' дн</span>'
       : '<span class="t3">—</span>';
-    var tid = (t.id||'').replace(/'/g,"\\'");
+    
+    var tid = (t.id || '').replace(/'/g, "\\'");
+
+    // ВАЖНО: Сначала готовим текст, который будем выводить
+    var displayAddr = (t.address || '').slice(0, 50);
+    var displayWork = (t.workType || '').slice(0, 38);
+    var displayMgr  = t.manager || '—';
+
     tableRows += '<tr>' +
-      '<td><button class="btn-link" onclick="openCard(\''+tid+'\')">⇒ '+(t.id||'')+'</button></td>' +
-      '<td style="white-space:nowrap;color:var(--text-2);font-size:.8rem">'+(t.dateZayavki ? t.dateZayavki.slice(0,10).split('-').reverse().join('.') : '<span class="t3">—</span>')+'</td>' +
-      '<td>'+(t.region||'')+'</td>' +
-      '<td class="td-clip" title="'+(t.address||'').replace(/"/g,'&quot;')+'">'+(t.address||'').slice(0,50)+'</td>' +
-      '<td class="td-clip" title="'+(t.workType||'').replace(/"/g,'&quot;')+'">'+(t.workType||'').slice(0,38)+'</td>' +
-      '<td>'+(t.manager||'<span class="t3">—</span>')+'</td>' +
-      '<td>'+prBadge(t.priority)+'</td>' +
-      '<td>'+od+'</td>' +
-      '<td>'+stBadge(t.status)+'</td>' +
-      '<td style="text-align:right;white-space:nowrap">'+fmtMoney(t.amount)+'</td>' +
-      '<td><button class="btn btn-sm btn-ghost btn-icon" onclick="exportTask(\''+tid+'\')">&#x2B07;</button></td>' +
+      // Номер с подсветкой
+      '<td><button class="btn-link" onclick="openCard(\'' + tid + '\')">⇒ ' + highlight(t.id, q) + '</button></td>' +
+      
+      // Дата (тут подсвечивать нечего, формат меняется)
+      '<td style="white-space:nowrap;color:var(--text-2);font-size:.8rem">' + (t.dateZayavki ? t.dateZayavki.slice(0, 10).split('-').reverse().join('.') : '<span class="t3">—</span>') + '</td>' +
+      
+      // Регион
+      '<td>' + highlight(t.region || '', q) + '</td>' +
+      
+      // Адрес (подсвечиваем только то, что выводим на экран)
+      // В title пишем ЧИСТЫЙ текст без подсветки
+      '<td class="td-clip" title="' + (t.address || '').replace(/"/g, '&quot;') + '">' + highlight(displayAddr, q) + '</td>' +
+      
+      // Тип работ
+      '<td class="td-clip" title="' + (t.workType || '').replace(/"/g, '&quot;') + '">' + highlight(displayWork, q) + '</td>' +
+      
+      // Менеджер
+      '<td>' + highlight(displayMgr, q) + '</td>' +
+      
+      // Статусы и кнопки (тут подсветка не нужна, это бейджи)
+      '<td>' + prBadge(t.priority) + '</td>' +
+      '<td>' + od + '</td>' +
+      '<td>' + stBadge(t.status) + '</td>' +
+      '<td style="text-align:right;white-space:nowrap">' + fmtMoney(t.amount) + '</td>' +
+      '<td><button class="btn btn-sm btn-ghost btn-icon" onclick="exportTask(\'' + tid + '\')">&#x2B07;</button></td>' +
     '</tr>';
   });
 
