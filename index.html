@@ -368,14 +368,25 @@ function renderNav() {
   }
 }
 
+function setApp(html) { document.getElementById('app').innerHTML = html; }
 // ─── RENDER ───────────────────────────────────────────────────────────────────
 function renderApp() {
-  // 1. ЗАПОМИНАЕМ ФОКУС: сохраняем ID элемента и позицию курсора
-  var activeId = document.activeElement ? document.activeElement.id : null;
-  var selectionStart = document.activeElement ? document.activeElement.selectionStart : null;
-  var selectionEnd = document.activeElement ? document.activeElement.selectionEnd : null;
+  // 1. ЗАПОМИНАЕМ ФОКУС (Безопасно)
+  var activeEl = document.activeElement;
+  var activeId = (activeEl && activeEl.id) ? activeEl.id : null;
+  var start = null, end = null;
+  
+  // Проверяем, поддерживает ли элемент выделение (только для текстовых инпутов)
+  try {
+    if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+      start = activeEl.selectionStart;
+      end = activeEl.selectionEnd;
+    }
+  } catch (e) {
+    // Игнорируем, если элемент не поддерживает выбор (например, чекбоксы)
+  }
 
-  // 2. Отрисовка страницы (твой существующий код)
+  // 2. Отрисовка страницы
   if      (S.page === 'dashboard') setApp(pageDash());
   else if (S.page === 'supply')    setApp(pageSupply());
   else if (S.page === 'kanban')    setApp(pageKanban());
@@ -388,14 +399,13 @@ function renderApp() {
   // 3. Вешаем события заново
   bindEvents();
 
-  // 4. ВОЗВРАЩАЕМ ФОКУС: если мы печатали в поиске, возвращаем курсор на место
+  // 4. ВОЗВРАЩАЕМ ФОКУС
   if (activeId) {
     var el = document.getElementById(activeId);
     if (el) {
       el.focus();
-      // Это предотвратит прыжок курсора в конец строки
-      if (selectionStart !== null && el.setSelectionRange) {
-        el.setSelectionRange(selectionStart, selectionEnd);
+      if (start !== null && el.setSelectionRange) {
+        try { el.setSelectionRange(start, end); } catch(e) {}
       }
     }
   }
@@ -833,6 +843,7 @@ function pageData() {
     '</div>';
 }
 
+var searchTimeout;
 // ─── EVENTS ──────────────────────────────────────────────────────────────────
 function bindEvents() {
   // chain region rows
@@ -866,7 +877,21 @@ function bindEvents() {
   if (saveBtn) saveBtn.addEventListener('click', saveCard);
   // task filters
   var tq = document.getElementById('tq');
-  if (tq) tq.addEventListener('input', function(){ S.taskQ = this.value; renderApp(); });
+
+
+   if (tq) {
+    tq.addEventListener('input', function() {
+      var val = this.value;
+      // Очищаем старый таймер, если пользователь нажал клавишу быстрее, чем через 300мс
+      clearTimeout(searchTimeout); 
+      
+      // Ставим новый таймер
+      searchTimeout = setTimeout(function() {
+        S.taskQ = val;
+        renderApp(); 
+      }, 300);
+    });
+  }
   var tst = document.getElementById('tst');
   if (tst) tst.addEventListener('change', function(){ S.taskSt = this.value; renderApp(); });
   var tpr = document.getElementById('tpr');
@@ -894,184 +919,112 @@ function bindEvents() {
 }
 
 // ─── Парсинг Excel на стороне браузера ───────────────────────────────────────
-function clientParseSvodnye(workbook) {
-  var sheetNames = workbook.SheetNames.filter(function(n){ return n.startsWith('Заявки'); });
-  var allRows = [];
-  function normKey(s) { return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
-  function strVal(v) { if (v===null||v===undefined) return ''; return String(v).replace(/\n/g,' ').trim(); }
-  function parseDate(v) {
+function parseDate(v) {
     if (!v) return null;
-    // Date объект от SheetJS (cellDates:true)
+    // 1. Объект даты
     if (v instanceof Date) {
       if (isNaN(v.getTime())) return null;
-      var y = v.getFullYear(), mo = v.getMonth()+1, d = v.getDate();
-      if (y < 1900 || y > 2100) return null;
-      return y+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+      var y = v.getFullYear(), mo = v.getMonth() + 1, d = v.getDate();
+      return y + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0');
     }
-    // Excel serial number
+    // 2. Число Excel
     if (typeof v === 'number') {
       var parsed = XLSX.SSF.parse_date_code(v);
-      if (parsed && parsed.y >= 1900 && parsed.y <= 2100) {
-        return parsed.y+'-'+String(parsed.m).padStart(2,'0')+'-'+String(parsed.d).padStart(2,'0');
-      }
+      if (parsed) return parsed.y + '-' + String(parsed.m).padStart(2, '0') + '-' + String(parsed.d).padStart(2, '0');
       return null;
     }
+    // 3. Строка
     var s = String(v).trim();
-    if (!s || s === ' ' || s.length < 6) return null;
-    // Не похоже на дату вообще (СТОП/ОТМЕНА и т.п.)
-    if (!/\d/.test(s)) return null;
-
-    // Чистим строку: убираем лишние пробелы, двойные точки
-    s = s.replace(/\s+/g, '').replace(/\.{2,}/g, '.').replace(/\/{2,}/g, '/');
-
-    // Исправляем опечатки в годе: 20224 → 2024, 32026 → 2026, 226 → пропускаем
-    // Формат ДД.ММ.ГГГГ с возможными опечатками
-    var mRu = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{3,5})$/);
+    if (!s || s.length < 6) return null;
+    // Попытка прочитать длинную строку "Thu Apr 02..."
+    var tryNative = new Date(s);
+    if (!isNaN(tryNative.getTime())) {
+      var ny = tryNative.getFullYear(), nm = tryNative.getMonth() + 1, nd = tryNative.getDate();
+      if (ny >= 1900 && ny <= 2100) return ny + '-' + String(nm).padStart(2, '0') + '-' + String(nd).padStart(2, '0');
+    }
+    // Попытка прочитать формат 02.04.2026
+    var mRu = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})$/);
     if (mRu) {
-      var dd = parseInt(mRu[1]), mm = parseInt(mRu[2]), yStr = mRu[3];
-      // Исправляем год
-      var yy = parseInt(yStr);
-      if (yStr.length === 5) yy = parseInt(yStr.slice(0,4)); // 20224 → 2024
-      if (yStr.length === 3) return null; // 226 — непонятно
-      if (yy < 1900 || yy > 2100) return null;
-      if (mm > 12 || dd > 31 || mm < 1 || dd < 1) return null;
-      // Проверяем что дата реально существует
-      var dt = new Date(yy, mm-1, dd);
-      if (dt.getFullYear() !== yy || dt.getMonth() !== mm-1 || dt.getDate() !== dd) return null;
-      return yy+'-'+String(mm).padStart(2,'0')+'-'+String(dd).padStart(2,'0');
+      var dd = parseInt(mRu[1]), mm = parseInt(mRu[2]), yy = parseInt(mRu[3]);
+      if (yy < 100) yy += 2000;
+      return yy + '-' + String(mm).padStart(2, '0') + '-' + String(dd).padStart(2, '0');
     }
-
-    // Формат ГГГГ-ММ-ДД
-    var mIso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (mIso) {
-      var yy2 = parseInt(mIso[1]), mm2 = parseInt(mIso[2]), dd2 = parseInt(mIso[3]);
-      if (yy2 < 1900 || yy2 > 2100) return null;
-      var dt2 = new Date(yy2, mm2-1, dd2);
-      if (dt2.getFullYear() !== yy2 || dt2.getMonth() !== mm2-1 || dt2.getDate() !== dd2) return null;
-      return mIso[1]+'-'+mIso[2]+'-'+mIso[3];
-    }
-
     return null;
   }
+
   function parseNum(v) {
-    if (v===null||v===undefined) return 0;
+    if (v === null || v === undefined) return 0;
     if (typeof v === 'number') return v;
-    var s = String(v).replace(/\s/g,'').replace(',','.');
+    var s = String(v).replace(/\s/g, '').replace(',', '.');
     if (s.startsWith('=')) return 0;
     return parseFloat(s) || 0;
   }
-  function getInitialStage(status) {
-    var s = String(status||'').toLowerCase();
-    if (s==='done') return 'payment';
-    if (s==='cancelled') return null;
-    return 'install';
-  }
 
-  // Кэш нормализованных ключей — строится один раз на лист, не на каждую строку
-  function buildKeyMap(row) {
-    var map = {};
-    Object.keys(row).forEach(function(k){ map[normKey(k)] = k; });
-    return map;
-  }
+  function clientParseSvodnye(workbook) {
+    var sheetNames = workbook.SheetNames.filter(function(n){ return n.startsWith('Заявки'); });
+    var allRows = [];
+    function normKey(s) { return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
+    function strVal(v) { if (v===null||v===undefined) return ''; return String(v).replace(/\n/g,' ').trim(); }
+    function buildKeyMap(row) {
+      var map = {};
+      Object.keys(row).forEach(function(k){ map[normKey(k)] = k; });
+      return map;
+    }
+    function findColFast(row, keyMap) {
+      var variants = Array.prototype.slice.call(arguments, 2);
+      for (var i = 0; i < variants.length; i++) {
+        var nv = normKey(variants[i]);
+        if (keyMap[nv] !== undefined) {
+          var v = row[keyMap[nv]];
+          if (v !== null && v !== undefined && String(v).trim() !== '') return v;
+        }
+      }
+      return null;
+    }
 
-  // findCol с готовым keyMap — O(1) вместо O(keys*variants)
-  function findColFast(row, keyMap) {
-    var variants = Array.prototype.slice.call(arguments, 2);
-    for (var i = 0; i < variants.length; i++) {
-      var nv = normKey(variants[i]);
-      if (keyMap[nv] !== undefined) {
-        var v = row[keyMap[nv]];
-        if (v !== null && v !== undefined && String(v).trim() !== '') return v;
+    for (var si = 0; si < sheetNames.length; si++) {
+      var shName = sheetNames[si];
+      var ws = workbook.Sheets[shName];
+      var rows = XLSX.utils.sheet_to_json(ws, {defval: null, raw: true});
+      for (var ri = 0; ri < rows.length; ri++) {
+        var row = rows[ri];
+        var km = ri === 0 ? buildKeyMap(row) : km;
+        var num = strVal(findColFast(row, km, 'Номер', 'номер')).trim();
+        if (!num) continue;
+
+        var rawStatus = strVal(findColFast(row, km, 'Статус', 'статус')).toLowerCase();
+        var status = 'progress';
+        if (rawStatus.includes('готов')) status = 'done';
+        else if (rawStatus.includes('отмен') || rawStatus.includes('стоп')) status = 'cancelled';
+
+        allRows.push({
+          id: num, sheet: shName,
+          title: num + (strVal(findColFast(row, km, 'Адрес')) ? ' — ' + strVal(findColFast(row, km, 'Адрес')).slice(0, 80) : ''),
+          region: strVal(findColFast(row, km, 'Регион')).split(/[\s,\n]/)[0].trim(),
+          address: strVal(findColFast(row, km, 'Адрес')),
+          workType: strVal(findColFast(row, km, 'ТИП РАБОТ', 'тип работ')),
+          gosb: strVal(findColFast(row, km, '№ ГОСБ', 'ГОСБ')),
+          vsp: strVal(findColFast(row, km, '№ВСП', 'ВСП')),
+          dateZayavki: parseDate(findColFast(row, km, 'Дата заявки')),
+          deadline: parseDate(findColFast(row, km, 'Дата окончания работ')),
+          manager: strVal(findColFast(row, km, 'Менеджер Сбера')),
+          inOrder: parseNum(findColFast(row, km, 'В заказе')),
+          fact: parseNum(findColFast(row, km, 'Факт')),
+          amount: parseNum(findColFast(row, km, 'Сумма договора', 'Сумма договора ')),
+          status: status,
+          archived: false,
+          rawData: (function() {
+            var raw = {};
+            Object.keys(row).forEach(function(k) {
+              if (!k.trim().startsWith('__')) raw[k.trim()] = strVal(row[k]);
+            });
+            return raw;
+          })()
+        });
       }
     }
-    return null;
+    return allRows;
   }
-
-  for (var si = 0; si < sheetNames.length; si++) {
-    var shName = sheetNames[si];
-    var ws = workbook.Sheets[shName];
-    var rows = XLSX.utils.sheet_to_json(ws, {defval: null, raw: true});
-
-    for (var ri = 0; ri < rows.length; ri++) {
-      var row = rows[ri];
-      // Строим keyMap один раз на строку (у всех строк листа одни ключи — можно вынести выше,
-      // но шапка может меняться, поэтому безопаснее на строку)
-      var km = ri === 0 ? buildKeyMap(row) : km; // ключи одинаковы для всех строк листа
-
-      var num = strVal(findColFast(row, km, 'Номер', 'номер')).trim();
-      if (!num) continue;
-
-      var rawStatus = strVal(findColFast(row, km, 'Статус', 'статус')).toLowerCase();
-      var status = 'progress';
-      if (rawStatus.includes('готов')) status = 'done';
-      else if (rawStatus.includes('отмен') || rawStatus.includes('стоп')) status = 'cancelled';
-
-      var overdue = parseNum(findColFast(row, km, 'Кол-во дней просрочки', 'дней просрочки', 'просрочка'));
-      var priority = overdue > 30 ? 'high' : overdue > 0 ? 'medium' : 'low';
-
-      var amount = parseNum(findColFast(row, km, 'Сумма договора', 'Сумма договора '));
-      if (!amount) {
-        var dist2 = parseNum(findColFast(row, km, ' Удаленность', 'Удаленность', 'Удалённость'));
-        var ppu2  = parseNum(findColFast(row, km, 'Стоимость за ед.', 'Стоимость за ед'));
-        var fact2 = parseNum(findColFast(row, km, 'Факт'));
-        if (ppu2 && fact2) amount = dist2 + ppu2 * fact2;
-      }
-
-      var rawDist = parseNum(findColFast(row, km, ' Удаленность', 'Удаленность', 'Удалённость'));
-      var distanceKm = rawDist > 1000 ? Math.round(rawDist / 1000) : rawDist;
-      var rawRegion = strVal(findColFast(row, km, 'Регион'));
-      var region = rawRegion.split(/[\s,\n]/)[0].trim();
-      var addr = strVal(findColFast(row, km, 'Адрес'));
-
-      allRows.push({
-        id: num, sheet: shName,
-        title: num + (addr ? ' — ' + addr.slice(0, 80) : ''),
-        region: region, address: addr,
-        workType:     strVal(findColFast(row, km, 'ТИП РАБОТ', 'ТИП РАБОТ ', 'тип работ')),
-        tipObj:       strVal(findColFast(row, km, 'ТИП', 'Тип объекта')),
-        gosb:         strVal(findColFast(row, km, '№ ГОСБ', 'ГОСБ')),
-        vsp:          strVal(findColFast(row, km, '№ВСП', '№ ВСП', 'ВСП')),
-        dateZayavki:  parseDate(findColFast(row, km, 'Дата заявки')),
-        deadline:     parseDate(findColFast(row, km, 'Дата окончания работ')),
-        currentDate:  parseDate(findColFast(row, km, 'Текущяя дата', 'Текущая дата', 'текущая дата')),
-        manager:      strVal(findColFast(row, km, 'Менеджер Сбера', 'Менеджер Сбера ')),
-        contact:      strVal(findColFast(row, km, 'Контакт')),
-        contractor:   strVal(findColFast(row, km, 'Подрядчик, контакты', 'Подрядчик, контакты ', 'Подрядчик')),
-        inOrder:      parseNum(findColFast(row, km, 'В заказе')),
-        fact:         parseNum(findColFast(row, km, 'Факт')),
-        obsledovanie: strVal(findColFast(row, km, 'Обследование')),
-        dostup:       strVal(findColFast(row, km, 'Доступ')),
-        dataVyhoda:   parseDate(findColFast(row, km, 'Дата выхода')),
-        priemka:      strVal(findColFast(row, km, 'Приемка(фото),отпрвленно пректировщикам', 'Приёмка', 'Приемка')),
-        oplata:       strVal(findColFast(row, km, 'Оплата подрядчику', 'Оплата')),
-        idStatus:     strVal(findColFast(row, km, 'ИД', 'ИД ')),
-        amount: amount, distanceKm: distanceKm,
-        pricePerUnit: parseNum(findColFast(row, km, 'Стоимость за ед.', 'Стоимость за ед')),
-        techLink:     strVal(findColFast(row, km, 'Ссылка на Тех.Информацию', 'Ссылка на Тех.Информацию ')),
-        edoNumber:    strVal(findColFast(row, km, '№ докумета в ЭДО', '№ документа в ЭДО', '№ докумета в ЭДО ')),
-        invoiceInfo:  strVal(findColFast(row, km, '№ счета/сумма', '№ счета/сумма ')),
-        vedoStatus:   strVal(findColFast(row, km, 'В ЭДО')),
-        excelComment: strVal(findColFast(row, km, 'Комментарий')),
-        status: status, priority: priority, overdueDays: overdue,
-        archived: false, stage: getInitialStage(status),
-        rawData: (function() {
-          var raw = {};
-          Object.keys(row).forEach(function(k) {
-            var v = row[k];
-            var trimmed = k.trim();
-            // Пропускаем пустые ключи, __EMPTY и т.п.
-            if (!trimmed || trimmed.startsWith('__') || trimmed === '') return;
-            if (v !== null && v !== undefined && String(v).trim() !== '') {
-              raw[trimmed] = strVal(v);
-            }
-          });
-          return raw;
-        })()
-      });
-    }
-  }
-  return allRows;
-}
 
 
 function doUpload(file) {
@@ -1245,8 +1198,15 @@ function pageCard() {
       if (key === 'archived') disp = val ? '<span class="badge b-gray">Архив</span>' : '<span class="badge b-green">Активна</span>';
       if (key === 'techLink' && val) disp = '<a href="'+val+'" target="_blank" rel="noopener noreferrer">🔗 Открыть</a>';
       // Форматируем даты YYYY-MM-DD → ДД.ММ.ГГГГ
-      if (type === 'date' && val && /^\d{4}-\d{2}-\d{2}/.test(String(val))) {
-        disp = String(val).slice(0,10).split('-').reverse().join('.');
+      if (type === 'date' && val) {
+        // Пытаемся вытащить YYYY-MM-DD из любой строки
+        var m = String(val).match(/(\d{4})-(\d{2})-(\d{2})/);
+        if (m) {
+          disp = m[3] + '.' + m[2] + '.' + m[1];
+        } else {
+          // Если это была та самая кривая строка "Fri Jul 14... GM", выводим как есть
+          disp = val;
+        }
       }
       return '<div class="field-row"><div class="field-lbl">'+lbl+'</div><div class="field-val">'+disp+'</div></div>';
     }
