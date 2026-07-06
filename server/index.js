@@ -76,6 +76,8 @@ async function initDB() {
     )
   `)
 
+  
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS marches (
       id          TEXT PRIMARY KEY,
@@ -109,6 +111,7 @@ async function initDB() {
   // Миграции — добавляем новые колонки если их нет (безопасно для существующей БД)
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS date_vnesen DATE`)
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS raw_data JSONB DEFAULT '{}'`)
+  await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS km_rate NUMERIC DEFAULT 0')
 
   console.log('DB initialized')
 }
@@ -148,6 +151,7 @@ function rowToTask(r) {
     oplata:       r.oplata,
     idStatus:     r.id_status,
     amount:       Number(r.amount)        || 0,
+    kmRate:       Number(r.km_rate) || 0,
     distanceKm:   Number(r.distance_km)  || 0,
     pricePerUnit: Number(r.price_per_unit)|| 0,
     techLink:     r.tech_link,
@@ -294,6 +298,7 @@ app.put('/api/tasks/:id', async (req, res) => {
         invoice_info  = COALESCE($26, invoice_info),
         vedo_status   = COALESCE($27, vedo_status),
         history       = COALESCE($28::jsonb, history),
+        km_rate       = COALESCE($29::numeric, km_rate),
         updated_at    = NOW()
       WHERE id = $1
     `, [
@@ -325,6 +330,7 @@ app.put('/api/tasks/:id', async (req, res) => {
       d.invoiceInfo || null,
       d.vedoStatus  || null,
       d._history    ? JSON.stringify(d._history) : null,
+      d.kmRate      || null,
     ])
     res.json({ success: true })
   } catch(e) { console.error('PUT task error:', e.message); res.status(500).json({ error: e.message }) }

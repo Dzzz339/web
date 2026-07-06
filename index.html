@@ -40,7 +40,7 @@
     .nav-btn.active { background: rgba(255,255,255,0.2); color: #fff; }
 
     /* LAYOUT */
-    .main { padding: 1.5rem; max-width: 1440px; }
+    .main { padding: 1rem; max-width: 100%; }
     .page-title { font-size: 1.3rem; font-weight: 700; margin-bottom: 1.25rem; }
 
     /* SURFACE */
@@ -97,9 +97,15 @@
     select { cursor: pointer; }
 
     /* TABLE */
-    .tbl-wrap { overflow: auto; max-height: 68vh; border-radius: var(--radius); }
+    .tbl-wrap { 
+      overflow: auto; 
+      max-height: 80vh; /* Увеличим высоту по умолчанию */
+      border-radius: var(--radius); 
+      resize: vertical; /* Позволит тянуть окно вниз за правый нижний угол */
+      border-bottom: 2px solid var(--border); /* Чтобы было видно, за что тянуть */
+    }
     table { width: 100%; border-collapse: collapse; font-size: .82rem; }
-    thead th { background: #FAFAFA; position: sticky; top: 0; padding: 9px 11px; text-align: left; font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--text-3); border-bottom: 1px solid var(--border); white-space: nowrap; }
+    thead th { background: #FAFAFA; position: sticky; top: 0; z-index: 10; padding: 9px 11px; text-align: left; font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--text-3); border-bottom: 1px solid var(--border); white-space: nowrap; }
     tbody td { padding: 8px 11px; border-bottom: 1px solid #F4F4F5; vertical-align: middle; }
     tbody tr:hover td { background: var(--orange-bg); }
     tbody tr:last-child td { border-bottom: none; }
@@ -437,12 +443,30 @@ function bar(done, total, green) {
 }
 function badge(cls, txt) { return '<span class="badge ' + cls + '">' + txt + '</span>'; }
 function stBadge(s) {
-  var m = {done:['b-green','Готово'], progress:['b-orange','В работе'], pending:['b-gray','Ожидание'], cancelled:['b-red','Отменено']};
+  var m = {
+    pending:   ['b-gray',   'Не распределено'],
+    progress:  ['b-orange', 'В работе'],
+    done:      ['b-green',  'Готово'],
+    paid:      ['b-blue',   'Оплачен'],   // Новый статус
+    cancelled: ['b-red',    'Отменен']
+  };
   var v = m[s] || ['b-gray', s||'—']; return badge(v[0], v[1]);
 }
 function prBadge(p) {
   var m = {high:['b-red','🔴 Высокий'], medium:['b-orange','🟡 Средний'], low:['b-green','🟢 Низкий']};
   var v = m[p] || ['b-gray', p||'—']; return badge(v[0], v[1]);
+}
+function calculateTransport(km, customRate) {
+  if (!km || km <= 0) return 0;
+  if (customRate && customRate > 0) return Math.round(km * 2 * customRate);
+
+  var rate = 0;
+  if (km > 200) rate  = 35;
+  else if (km > 100) rate = 30;
+  else if (km > 50)  rate = 25;
+  else if (km > 10)  rate = 15;
+
+  return Math.round(km * 2 * rate);
 }
 function importBanner() {
   var info = S.importInfo;
@@ -731,6 +755,7 @@ function pageTasks() {
     var displayAddr = (t.address || '').slice(0, 50);
     var displayWork = (t.workType || '').slice(0, 38);
     var displayMgr  = t.manager || '—';
+    var transportSum = calculateTransport(t.distanceKm, t.kmRate);
 
     tableRows += '<tr>' +
       // Номер с подсветкой
@@ -749,12 +774,18 @@ function pageTasks() {
       // Тип работ
       '<td class="td-clip" title="' + (t.workType || '').replace(/"/g, '&quot;') + '">' + highlight(displayWork, q) + '</td>' +
       
+      '<td style="white-space:nowrap; font-weight:600">' + (t.fact || 0) + ' / ' + (t.inOrder || 0) + '</td>' +
+
       // Менеджер
       '<td>' + highlight(displayMgr, q) + '</td>' +
-      
+
       // Статусы и кнопки (тут подсветка не нужна, это бейджи)
       '<td>' + prBadge(t.priority) + '</td>' +
       '<td>' + od + '</td>' +
+      // добавил
+      '<td>' + (t.distanceKm || 0) + '</td>' +
+      '<td style="white-space:nowrap">' + fmtMoney(transportSum) + '</td>' +
+
       '<td>' + stBadge(t.status) + '</td>' +
       '<td style="text-align:right;white-space:nowrap">' + fmtMoney(t.amount) + '</td>' +
       '<td><button class="btn btn-sm btn-ghost btn-icon" onclick="exportTask(\'' + tid + '\')">&#x2B07;</button></td>' +
@@ -769,10 +800,11 @@ function pageTasks() {
     '<div style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.75rem;align-items:center">' +
       '<input id="tq" type="text" placeholder="Поиск по номеру, адресу..." style="flex:2;min-width:200px" value="'+q+'">' +
       '<select id="tst"><option value="">Все статусы</option>' +
-        '<option value="done"'+(st==='done'?' selected':'')+'>Готово</option>' +
-        '<option value="progress"'+(st==='progress'?' selected':'')+'>⏳ В работе</option>' +
-        '<option value="pending"'+(st==='pending'?' selected':'')+'>○ Ожидание</option>' +
-        '<option value="cancelled"'+(st==='cancelled'?' selected':'')+'>✕ Отменено</option>' +
+        '<option value="pending"'  + (st==='pending'?' selected':'')  + '>Не распределено</option>' +
+        '<option value="progress"' + (st==='progress'?' selected':'') + '>В работе</option>' +
+        '<option value="done"'     + (st==='done'?' selected':'')     + '>Готово</option>' +
+        '<option value="paid"'     + (st==='paid'?' selected':'')     + '>Оплачен</option>' +
+        '<option value="cancelled"'+ (st==='cancelled'?' selected':'')+ '>Отменен</option>' +
       '</select>' +
       '<select id="tpr"><option value="">Все приоритеты</option>' +
         '<option value="high"'+(pr==='high'?' selected':'')+'>🔴 Высокий</option>' +
@@ -811,8 +843,8 @@ function pageTasks() {
     totals +
     '<div class="card tbl-wrap">' +
       '<table><thead><tr>' +
-        '<th>Номер</th><th>Дата</th><th>Регион</th><th>Адрес</th><th>Тип работ</th><th>Менеджер</th>' +
-        '<th>Приоритет</th><th>Просрочка</th><th>Статус</th><th>Сумма</th><th></th>' +
+        '<th>Номер</th><th>Дата</th><th>Регион</th><th>Адрес</th><th>Тип работ</th><th>Порты</th><th>Менеджер</th>' +
+        '<th>Приоритет</th><th>Просрочка</th><th>Км</th><th>Удалёнка</th><th>Статус</th><th>Сумма</th><th></th>' +
       '</tr></thead><tbody>'+tableRows+more+'</tbody></table>' +
     '</div>';
 }
@@ -994,8 +1026,10 @@ function parseDate(v) {
 
         var rawStatus = strVal(findColFast(row, km, 'Статус', 'статус')).toLowerCase();
         var status = 'progress';
-        if (rawStatus.includes('готов')) status = 'done';
+        if (rawStatus.includes('оплачен')) status = 'paid'; // Добавили эту строку
+        else if (rawStatus.includes('готов')) status = 'done';
         else if (rawStatus.includes('отмен') || rawStatus.includes('стоп')) status = 'cancelled';
+        else if (rawStatus.includes('не распр')) status = 'pending';
 
         allRows.push({
           id: num, sheet: shName,
@@ -1177,9 +1211,14 @@ function pageCard() {
   if (!t) return '<div class="card p"><p class="t3">Заявка не найдена.</p><button class="btn" onclick="go(\'tasks\')">← Назад</button></div>';
 
   var edit = S.cardEdit;
-  var statusOpts = ['done','progress','pending','cancelled'].map(function(v){
-    var labels = {done:'Готово',progress:'В работе',pending:'Ожидание',cancelled:'Отменено'};
-    return '<option value="'+v+'"'+(t.status===v?' selected':'')+'>'+labels[v]+'</option>';
+  var statusOpts = [
+    {v: 'pending',   l: 'Не распределено'},
+    {v: 'progress',  l: 'В работе'},
+    {v: 'done',      l: 'Готово'},
+    {v: 'paid',      l: 'Оплачен'},
+    {v: 'cancelled', l: 'Отменен'}
+  ].map(function(opt) {
+    return '<option value="' + opt.v + '"' + (t.status === opt.v ? ' selected' : '') + '>' + opt.l + '</option>';
   }).join('');
   var prioOpts = ['high','medium','low'].map(function(v){
     var labels = {high:'🔴 Высокий',medium:'🟡 Средний',low:'🟢 Низкий'};
@@ -1193,6 +1232,10 @@ function pageCard() {
       if (key === 'status') disp = stBadge(val);
       if (key === 'priority') disp = prBadge(val);
       if (key === 'amount') disp = fmtMoney(val);
+      if (key === 'distanceKm' && val) {
+        var transportSum = calculateTransport(Number(val), t.kmRate);
+        disp = val + ' км &nbsp; <span class="t2" style="font-weight:600">(' + fmtMoney(transportSum) + ')</span>';
+      }
       if (key === 'overdueDays') disp = val > 0 ? '<span style="color:var(--red);font-weight:600">+'+val+' дн</span>' : '<span class="t3">0</span>';
       if (key === 'stage') disp = stageLabel[val] || '<span class="t3">—</span>';
       if (key === 'archived') disp = val ? '<span class="badge b-gray">Архив</span>' : '<span class="badge b-green">Активна</span>';
@@ -1363,6 +1406,7 @@ function pageCard() {
     field('Статус ИД', 'idStatus') +
     field('Сумма договора', 'amount', 'number') +
     field('Стоимость за ед.', 'pricePerUnit', 'number') +
+    field('Тариф (₽/км)', 'kmRate', 'number') +
     field('Удалённость, км', 'distanceKm', 'number') +
     field('В заказе (портов)', 'inOrder', 'number') +
     field('Факт', 'fact', 'number') +
