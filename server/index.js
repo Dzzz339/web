@@ -112,6 +112,11 @@ async function initDB() {
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS date_vnesen DATE`)
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS raw_data JSONB DEFAULT '{}'`)
   await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS km_rate NUMERIC DEFAULT 0')
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tmc NUMERIC DEFAULT 0`)
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS extras NUMERIC DEFAULT 0`)
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS geo_lat TEXT`)
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS geo_lon TEXT`)
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS clean_address TEXT`)
 
   console.log('DB initialized')
 }
@@ -170,6 +175,8 @@ function rowToTask(r) {
     distributedAt: r.distributed_at ? new Date(r.distributed_at).toISOString('en-CA') : null,
     _history:     r.history || [],
     rawData:      r.raw_data || {},
+    tmc:          Number(r.tmc) || 0,
+    extras:       Number(r.extras) || 0,
   }
 }
 
@@ -235,7 +242,31 @@ function buildChainsFromRows(tasks) {
     }
   }).sort((a,b) => b.totalTasks - a.totalTasks)
 }
-
+async function cleanAddressDaData(address) {
+  if (!process.env.DADATA_API_KEY || !address) return null;
+  try {
+    const response = await fetch("https://cleaner.dadata.ru/api/v1/clean/address", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Token ${process.env.DADATA_API_KEY}`,
+        "X-Secret": process.env.DADATA_SECRET_KEY
+      },
+      body: JSON.stringify([address])
+    });
+    const result = await response.json();
+    if (result && result[0]) {
+      return {
+        lat: result[0].geo_lat,
+        lon: result[0].geo_lon,
+        address: result[0].result
+      };
+    }
+  } catch (e) {
+    console.error("DaData error:", e.message);
+  }
+  return null;
+}
 // ─── API: STATS ───────────────────────────────────────────────────────────────
 app.get('/api/stats', async (req, res) => {
   try {
@@ -299,6 +330,8 @@ app.put('/api/tasks/:id', async (req, res) => {
         vedo_status   = COALESCE($27, vedo_status),
         history       = COALESCE($28::jsonb, history),
         km_rate       = COALESCE($29::numeric, km_rate),
+        tmc           = COALESCE($30::numeric, tmc), 
+        extras        = COALESCE($31::numeric, extras),
         updated_at    = NOW()
       WHERE id = $1
     `, [
@@ -331,6 +364,8 @@ app.put('/api/tasks/:id', async (req, res) => {
       d.vedoStatus  || null,
       d._history    ? JSON.stringify(d._history) : null,
       d.kmRate      || null,
+      d.tmc         || null, 
+      d.extras      || null
     ])
     res.json({ success: true })
   } catch(e) { console.error('PUT task error:', e.message); res.status(500).json({ error: e.message }) }
