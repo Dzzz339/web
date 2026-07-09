@@ -1,3 +1,4 @@
+import { spawn } from 'child_process';
 import express from 'express'
 import cors from 'cors'
 import path from 'path'
@@ -6,6 +7,8 @@ import { fileURLToPath } from 'url'
 import XLSX from 'xlsx'
 import pg from 'pg'
 
+
+const sleep = ms => new Promise(res => setTimeout(res, ms));
 const { Pool } = pg
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(__dirname, '..')
@@ -122,6 +125,20 @@ async function initDB() {
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
+function runPythonCleaner(data) {
+  return new Promise((resolve, reject) => {
+    const pythonCommand = 'py';
+    const python = spawn(pythonCommand, [path.join(__dirname, 'cleaner.py')]);
+    let result = '';
+
+    python.stdin.write(JSON.stringify(data));
+    python.stdin.end();
+
+    python.stdout.on('data', (data) => { result += data.toString(); });
+    python.stderr.on('data', (data) => { console.error(`Python Error: ${data}`); });
+    python.on('close', () => { resolve(JSON.parse(result)); });
+  });
+}
 function getInitialStage(status) {
   const s = String(status || '').toLowerCase()
   if (s === 'done') return 'payment'
@@ -242,28 +259,47 @@ function buildChainsFromRows(tasks) {
     }
   }).sort((a,b) => b.totalTasks - a.totalTasks)
 }
-async function cleanAddressDaData(address) {
-  if (!process.env.DADATA_API_KEY || !address) return null;
+function stripAddressNoise(s) {
+  if (!s) return '';
+  return s
+    .split(/ этаж| оф| кв| каб| корп|строение| клиентский| вход| пом/i)[0] // Отрезаем по ключевым словам
+    .replace(/[^а-яёa-z0-9\s.,-]/gi, '') // Удаляем спецсимволы
+    .trim();
+}
+async function cleanAddressDaData(address, region) {
+  if (!process.env.DADATA_API_KEY || !address || address.length < 5) return null;
+
+  const query = (region ? region + ', ' : '') + address;
+
   try {
-    const response = await fetch("https://cleaner.dadata.ru/api/v1/clean/address", {
+    // Используем метод Подсказок (Suggestions API) - 10к в день бесплатно
+    const response = await fetch("https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Token ${process.env.DADATA_API_KEY}`,
-        "X-Secret": process.env.DADATA_SECRET_KEY
+        "Accept": "application/json",
+        "Authorization": `Token ${process.env.DADATA_API_KEY}`
       },
-      body: JSON.stringify([address])
+      body: JSON.stringify({ query: query, count: 1 })
     });
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.log(`[DaData Error] Status: ${response.status} | ${err}`);
+      return null;
+    }
+
     const result = await response.json();
-    if (result && result[0]) {
+    if (result && result.suggestions && result.suggestions[0]) {
+      const s = result.suggestions[0];
       return {
-        lat: result[0].geo_lat,
-        lon: result[0].geo_lon,
-        address: result[0].result
+        lat: s.data.geo_lat,
+        lon: s.data.geo_lon,
+        address: s.value
       };
     }
   } catch (e) {
-    console.error("DaData error:", e.message);
+    console.error("DaData connection error:", e.message);
   }
   return null;
 }
@@ -400,7 +436,8 @@ app.get('/api/import-info', async (req, res) => {
 // ─── API: IMPORT ROWS (батчи от браузера) ────────────────────────────────────
 app.post('/api/excel/import-rows', async (req, res) => {
   try {
-    const { rows: newBatch, name, isFirst, totalRows } = req.body
+    let { rows: newBatch, name, isFirst, totalRows } = req.body
+    newBatch = await runPythonCleaner(newBatch);
     if (!Array.isArray(newBatch)) return res.status(400).json({ error: 'rows must be array' })
 
     const client = await pool.connect()
@@ -416,6 +453,31 @@ app.post('/api/excel/import-rows', async (req, res) => {
 
       // Upsert каждой заявки из батча
       for (const t of newBatch) {
+        const existing = await client.query('SELECT geo_lat FROM tasks WHERE id = $1', [t.id]);
+        let geoData = null;
+
+        // Если координат в базе нет
+        if (existing.rowCount === 0 || !existing.rows[0].geo_lat) {
+          // Попытка №1: Ищем как есть (Регион + Адрес)
+          geoData = await cleanAddressDaData(t.address, t.region);
+          await sleep(200);
+
+          // Попытка №2: Если не нашли, чистим от "этажей" и пробуем снова
+          if (!geoData) {
+            const cleanerAddr = stripAddressNoise(t.address);
+            if (cleanerAddr !== t.address) {
+              geoData = await cleanAddressDaData(cleanerAddr, t.region);
+              await sleep(200);
+            }
+          }
+
+          if (geoData) {
+            console.log(`[OK] Найдено: ${t.id} -> ${geoData.address}`);
+          } else {
+            console.log(`[SKIP] Не найдено: ${t.id} (${t.address})`);
+          }
+        }
+
         await client.query(`
           INSERT INTO tasks (
             id, sheet, region, address, work_type, tip_obj, gosb, vsp,
@@ -423,14 +485,14 @@ app.post('/api/excel/import-rows', async (req, res) => {
             in_order, fact, obsledovanie, dostup, data_vyhoda, priemka, oplata,
             id_status, amount, distance_km, price_per_unit,
             tech_link, edo_number, invoice_info, vedo_status, excel_comment,
-            status, priority, overdue_days, stage, archived, raw_data
+            status, priority, overdue_days, stage, archived, raw_data, geo_lat, geo_lon, clean_address
           ) VALUES (
             $1,$2,$3,$4,$5,$6,$7,$8,
             $9,$10,$11,$12,$13,$14,
             $15,$16,$17,$18,$19,$20,$21,
             $22,$23,$24,$25,
             $26,$27,$28,$29,$30,
-            $31,$32,$33,$34,false,$35
+            $31,$32,$33,$34,false,$35,$36,$37,$38
           )
           ON CONFLICT (id) DO UPDATE SET
             -- Данные из Excel — всегда обновляем
@@ -475,7 +537,10 @@ app.post('/api/excel/import-rows', async (req, res) => {
             controller    = tasks.controller,
             comment       = tasks.comment,
             distributed_at= tasks.distributed_at,
-            history       = tasks.history
+            history       = tasks.history,
+            geo_lat = COALESCE(EXCLUDED.geo_lat, tasks.geo_lat),
+            geo_lon = COALESCE(EXCLUDED.geo_lon, tasks.geo_lon),
+            clean_address = COALESCE(EXCLUDED.clean_address, tasks.clean_address)
         `, [
           t.id, t.sheet, t.region, t.address, t.workType, t.tipObj, t.gosb, t.vsp,
           safeDate(t.dateZayavki), safeDate(t.deadline), safeDate(t.currentDate), t.manager, t.contact, t.contractor,
@@ -484,8 +549,14 @@ app.post('/api/excel/import-rows', async (req, res) => {
           t.idStatus, Number(t.amount)||0, Number(t.distanceKm)||0, Number(t.pricePerUnit)||0,
           t.techLink, t.edoNumber, t.invoiceInfo, t.vedoStatus, t.excelComment,
           t.status||'progress', t.priority||'low', Number(t.overdueDays)||0,
+          
           t.stage || getInitialStage(t.status),
-          JSON.stringify(t.rawData || {})
+          
+          JSON.stringify(t.rawData || {}),
+
+          geoData ? geoData.lat : null,
+          geoData ? geoData.lon : null,
+          geoData ? geoData.address : null
         ])
       }
 

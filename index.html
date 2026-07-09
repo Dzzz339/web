@@ -418,6 +418,46 @@ function renderApp() {
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
+function levenshtein(a, b) {
+  var tmp;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  if (a.length > b.length) { tmp = a; a = b; b = tmp; }
+  var row = Array.from({length: a.length + 1}, (_, i) => i);
+  for (var i = 1; i <= b.length; i++) {
+    var prev = i;
+    for (var j = 1; j <= a.length; j++) {
+      var val = b[i-1] === a[j-1] ? row[j-1] : Math.min(row[j-1] + 1, prev + 1, row[j] + 1);
+      row[j-1] = prev; prev = val;
+    }
+    row[a.length] = prev;
+  }
+  return row[a.length];
+}
+
+// Ищет колонку, наиболее похожую на искомую
+function findColFuzzy(row, targetName) {
+  var keys = Object.keys(row);
+  var bestMatch = null;
+  var minDistance = 3; // Порог точности (3 опечатки максимум)
+
+  var normTarget = targetName.toLowerCase().replace(/[^а-яёa-z0-9]/g, '');
+
+  for (var key of keys) {
+    var normKey = key.toLowerCase().replace(/[^а-яёa-z0-9]/g, '');
+    // Если есть точное вхождение подстроки (например, "адрес" в "адрес объекта")
+    if (normKey.includes(normTarget) || normTarget.includes(normKey)) return row[key];
+
+    // Иначе считаем расстояние Левенштейна
+    var dist = levenshtein(normKey, normTarget);
+    if (dist < minDistance) {
+      minDistance = dist;
+      bestMatch = row[key];
+    }
+  }
+  return bestMatch;
+}
+
 function highlight(text, query) {
   if (!query || !text) return text;
   // Разбиваем поиск на отдельные слова, чтобы подсвечивать каждое
@@ -1015,59 +1055,94 @@ function parseDate(v) {
   }
 
   function clientParseSvodnye(workbook) {
-    var sheetNames = workbook.SheetNames.filter(function(n){ return n.startsWith('Заявки'); });
+    var sheetNames = workbook.SheetNames.filter(function(n) { return n.startsWith('Заявки'); });
     var allRows = [];
-    function normKey(s) { return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
-    function strVal(v) { if (v===null||v===undefined) return ''; return String(v).replace(/\n/g,' ').trim(); }
-    function buildKeyMap(row) {
-      var map = {};
-      Object.keys(row).forEach(function(k){ map[normKey(k)] = k; });
-      return map;
-    }
-    function findColFast(row, keyMap) {
-      var variants = Array.prototype.slice.call(arguments, 2);
-      for (var i = 0; i < variants.length; i++) {
-        var nv = normKey(variants[i]);
-        if (keyMap[nv] !== undefined) {
-          var v = row[keyMap[nv]];
-          if (v !== null && v !== undefined && String(v).trim() !== '') return v;
-        }
-      }
-      return null;
-    }
+    function strVal(v) { if (v === null || v === undefined) return ''; return String(v).replace(/\n/g, ' ').trim(); }
 
     for (var si = 0; si < sheetNames.length; si++) {
       var shName = sheetNames[si];
       var ws = workbook.Sheets[shName];
-      var rows = XLSX.utils.sheet_to_json(ws, {defval: null, raw: true});
+      var rows = XLSX.utils.sheet_to_json(ws, { defval: null, raw: true });
+      if (!rows.length) continue;
+
+      // --- ШАГ 1: ОПРЕДЕЛЯЕМ КОЛОНКИ (ОДИН РАЗ НА ЛИСТ) ---
+      var firstRow = rows[0];
+      var keys = Object.keys(firstRow);
+      
+      // Создаем карту соответствия: наше имя -> реальное имя в Excel
+      var colMap = {};
+      var targets = ['Номер', 'Статус', 'Регион', 'Адрес', 'ТИП РАБОТ', 'Тип объекта', '№ ГОСБ', '№ ВСП', 
+                     'Дата заявки', 'Дата окончания работ', 'Текущая дата', 'Менеджер Сбера', 
+                     'Контакт', 'Подрядчик', 'В заказе', 'Факт', 'Обследование', 'Доступ', 
+                     'Дата выхода', 'Приёмка', 'Оплата подрядчику', 'ИД', 'Сумма договора', 
+                     'Стоимость за ед.', 'Ссылка на Тех.Информацию', '№ документа в ЭДО', 
+                     '№ счета/сумма', 'В ЭДО', 'Комментарий', 'дней просрочки'];
+
+      targets.forEach(function(target) {
+        var bestMatch = null;
+        var minDistance = 3;
+        var normTarget = target.toLowerCase().replace(/[^а-яёa-z0-9]/g, '');
+
+        for (var key of keys) {
+          var normKey = key.toLowerCase().replace(/[^а-яёa-z0-9]/g, '');
+          if (normKey.includes(normTarget) || normTarget.includes(normKey)) {
+            bestMatch = key; break; 
+          }
+          var dist = levenshtein(normKey, normTarget);
+          if (dist < minDistance) { minDistance = dist; bestMatch = key; }
+        }
+        colMap[target] = bestMatch;
+      });
+
+      // --- ШАГ 2: БЫСТРЫЙ ПАРСИНГ СТРОК ---
       for (var ri = 0; ri < rows.length; ri++) {
         var row = rows[ri];
-        var km = ri === 0 ? buildKeyMap(row) : km;
-        var num = strVal(findColFast(row, km, 'Номер', 'номер')).trim();
+        
+        // Берем данные по заранее найденным ключам
+        var num = strVal(row[colMap['Номер']]).trim();
         if (!num) continue;
 
-        var rawStatus = strVal(findColFast(row, km, 'Статус', 'статус')).toLowerCase();
+        var rawStatus = strVal(row[colMap['Статус']]).toLowerCase();
         var status = 'progress';
-        if (rawStatus.includes('оплачен')) status = 'paid'; // Добавили эту строку
+        if (rawStatus.includes('оплачен')) status = 'paid';
         else if (rawStatus.includes('готов')) status = 'done';
         else if (rawStatus.includes('отмен') || rawStatus.includes('стоп')) status = 'cancelled';
-        else if (rawStatus.includes('не распр')) status = 'pending';
+
+        var overdue = parseNum(row[colMap['дней просрочки']]);
+        var addr = strVal(row[colMap['Адрес']]);
 
         allRows.push({
           id: num, sheet: shName,
-          title: num + (strVal(findColFast(row, km, 'Адрес')) ? ' — ' + strVal(findColFast(row, km, 'Адрес')).slice(0, 80) : ''),
-          region: strVal(findColFast(row, km, 'Регион')).split(/[\s,\n]/)[0].trim(),
-          address: strVal(findColFast(row, km, 'Адрес')),
-          workType: strVal(findColFast(row, km, 'ТИП РАБОТ', 'тип работ')),
-          gosb: strVal(findColFast(row, km, '№ ГОСБ', 'ГОСБ')),
-          vsp: strVal(findColFast(row, km, '№ВСП', 'ВСП')),
-          dateZayavki: parseDate(findColFast(row, km, 'Дата заявки')),
-          deadline: parseDate(findColFast(row, km, 'Дата окончания работ')),
-          manager: strVal(findColFast(row, km, 'Менеджер Сбера')),
-          inOrder: parseNum(findColFast(row, km, 'В заказе')),
-          fact: parseNum(findColFast(row, km, 'Факт')),
-          amount: parseNum(findColFast(row, km, 'Сумма договора', 'Сумма договора ')),
-          status: status,
+          title: num + (addr ? ' — ' + addr.slice(0, 80) : ''),
+          region: strVal(row[colMap['Регион']]).split(/[\s,\n]/)[0].trim(),
+          address: addr,
+          workType:     strVal(row[colMap['ТИП РАБОТ']]),
+          tipObj:       strVal(row[colMap['Тип объекта']]),
+          gosb:         strVal(row[colMap['№ ГОСБ']]),
+          vsp:          strVal(row[colMap['№ ВСП']]),
+          dateZayavki:  parseDate(row[colMap['Дата заявки']]),
+          deadline:     parseDate(row[colMap['Дата окончания работ']]),
+          currentDate:  parseDate(row[colMap['Текущая дата']]),
+          manager:      strVal(row[colMap['Менеджер Сбера']]),
+          contact:      strVal(row[colMap['Контакт']]),
+          contractor:   strVal(row[colMap['Подрядчик']]),
+          inOrder:      parseNum(row[colMap['В заказе']]),
+          fact:         parseNum(row[colMap['Факт']]),
+          obsledovanie: strVal(row[colMap['Обследование']]),
+          dostup:       strVal(row[colMap['Доступ']]),
+          dataVyhoda:   parseDate(row[colMap['Дата выхода']]),
+          priemka:      strVal(row[colMap['Приёмка']]),
+          oplata:       strVal(row[colMap['Оплата подрядчику']]),
+          idStatus:     strVal(row[colMap['ИД']]),
+          amount:       parseNum(row[colMap['Сумма договора']]),
+          pricePerUnit: parseNum(row[colMap['Стоимость за ед.']]),
+          techLink:     strVal(row[colMap['Ссылка на Тех.Информацию']]),
+          edoNumber:    strVal(row[colMap['№ документа в ЭДО']]),
+          invoiceInfo:  strVal(row[colMap['№ счета/сумма']]),
+          vedoStatus:   strVal(row[colMap['В ЭДО']]),
+          excelComment: strVal(row[colMap['Комментарий']]),
+          status: status, 
+          overdueDays: overdue,
           archived: false,
           rawData: (function() {
             var raw = {};
@@ -1119,7 +1194,7 @@ function doUpload(file) {
               var rows = clientParseSvodnye(wb);
               var total = rows.length;
               var sent = 0;
-              var BATCH = 500;
+              var BATCH = 100;
               setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Отправка на сервер… (0 / ' + total + ')</p></div>');
               function sendBatch(isFirst) {
                 var batch = rows.slice(sent, sent + BATCH);
@@ -1310,12 +1385,18 @@ function pageCard() {
   var cityParts = addrParts.slice(-2).join(', ');   // последние 2 части
 
   var mapQueries = [
-    'Россия, ' + cleanAddr(mapAddress),                              // просто адрес без региона
-    'Россия, ' + cleanAddr(lastParts),                               // последние части адреса
-    'Россия, ' + cleanAddr(cityParts),                               // улица/номер
-    'Россия, ' + mapRegion + ', ' + cleanAddr(lastParts),            // с регионом если без не нашли
-    'Россия, ' + mapRegion                                           // только регион — заглушка
-  ].filter(function(q, i, arr){ return arr.indexOf(q) === i; });    // дедупликация
+    // 1. Самый точный поиск: Страна + Регион + Полный адрес
+    'Россия, ' + mapRegion + ', ' + cleanAddr(mapAddress),           
+    
+    // 2. Если полный адрес сложный, ищем: Страна + Регион + Улица/Дом
+    'Россия, ' + mapRegion + ', ' + cleanAddr(lastParts),            
+    
+    // 3. Запасной вариант (если в Excel регион написан с ошибкой): просто адрес
+    'Россия, ' + cleanAddr(mapAddress),                              
+    
+    // 4. Крайний случай: если ничего не нашли, просто ткнуть в центр региона
+    'Россия, ' + mapRegion                                           
+  ].filter(function(q, i, arr){ return arr.indexOf(q) === i; });
 
   var mapId = 'leafmap' + Date.now();
   var dgisUrl  = 'https://2gis.ru/search/' + encodeURIComponent('Россия, ' + mapFullAddr);
@@ -1353,6 +1434,14 @@ function pageCard() {
     }
 
     function renderLeaflet() {
+      if (t.geoLat && t.geoLon) {
+        var lat = parseFloat(t.geoLat), lng = parseFloat(t.geoLon);
+        el.innerHTML = '';
+        var map = L.map(el).setView([lat, lng], 16);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OSM' }).addTo(map);
+        L.marker([lat, lng]).addTo(map).bindPopup(t.cleanAddress || t.address).openPopup();
+        return;
+      }
       tryGeocode(mapQueries, function(result, matchedQuery) {
         if (!result) {
           // Геокодирование не удалось — показываем заглушку, кнопки уже есть под картой

@@ -34,6 +34,8 @@ echo.
 start "" cmd /c "timeout /t 2 >nul && start http://localhost:3000"
 
 set DATABASE_URL=postgres://postgres@localhost:5432/stockeasy_db
+set DADATA_API_KEY=5312de9ffa05f9a68cc381ddbb8484385f032bd8
+set DADATA_SECRET_KEY=710ce98120d857761c5d1843eac9c04fa6944ee7
 node server/index.js
 
 pause
