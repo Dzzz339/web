@@ -748,9 +748,9 @@ function pageTasks() {
   });
 
   // 2. Расчеты (добавляем Number() для защиты от склеивания строк)
-  var sumAll     = filtered.reduce(function(s,t){return s + Number(t.amount || 0);}, 0);
-  var sumDone    = filtered.filter(function(t){return t.status==='done';}).reduce(function(s,t){return s + Number(t.amount || 0);}, 0);
-  var sumAct     = filtered.filter(function(t){return t.status==='progress';}).reduce(function(s,t){return s + Number(t.amount || 0);}, 0);
+  var sumAll     = filtered.reduce(function(s,t){ return s + Number(t.amount || 0); }, 0);
+  var sumDone    = filtered.filter(function(t){return t.status==='done';}).reduce(function(s,t){ return s + Number(t.amount || 0); }, 0);
+  var sumAct     = filtered.filter(function(t){return t.status==='progress';}).reduce(function(s,t){ return s + Number(t.amount || 0); }, 0);
   
   var cntOvd     = filtered.filter(function(t){return t.overdueDays > 0;}).length;
   
@@ -1057,7 +1057,29 @@ function parseDate(v) {
   function clientParseSvodnye(workbook) {
     var sheetNames = workbook.SheetNames.filter(function(n) { return n.startsWith('Заявки'); });
     var allRows = [];
+    function normKey(s) { return String(s || '').trim().toLowerCase().replace(/\s+/g, ' '); }
     function strVal(v) { if (v === null || v === undefined) return ''; return String(v).replace(/\n/g, ' ').trim(); }
+
+
+
+    function findCol(row, keyMap, variants) {
+      for (var i = 0; i < variants.length; i++) {
+        var nv = normKey(variants[i]);
+        if (keyMap[nv] !== undefined) {
+          var v = row[keyMap[nv]];
+          if (v !== null && v !== undefined && String(v).trim() !== '') return v;
+        }
+      }
+      return null;
+    }
+
+
+    function buildKeyMap(row) {
+      var map = {};
+      Object.keys(row).forEach(function(k) { map[normKey(k)] = k; });
+      return map;
+    }
+
 
     for (var si = 0; si < sheetNames.length; si++) {
       var shName = sheetNames[si];
@@ -1079,21 +1101,32 @@ function parseDate(v) {
                      '№ счета/сумма', 'В ЭДО', 'Комментарий', 'дней просрочки'];
 
       targets.forEach(function(target) {
-        var bestMatch = null;
-        var minDistance = 3;
         var normTarget = target.toLowerCase().replace(/[^а-яёa-z0-9]/g, '');
+        
+        // 1. Сначала ищем ИДЕАЛЬНОЕ совпадение (без учета пробелов и регистра)
+        var exactMatch = keys.find(function(k) {
+          return k.toLowerCase().replace(/[^а-яёa-z0-9]/g, '') === normTarget;
+        });
+        
+        if (exactMatch) {
+          colMap[target] = exactMatch;
+          return;
+        }
+
+        // 2. Если точного нет, ищем Левенштейном, но ОЧЕНЬ строго
+        var bestMatch = null;
+        var minDistance = 2; // Уменьшили порог до 2 опечаток
 
         for (var key of keys) {
           var normKey = key.toLowerCase().replace(/[^а-яёa-z0-9]/g, '');
-          if (normKey.includes(normTarget) || normTarget.includes(normKey)) {
-            bestMatch = key; break; 
-          }
           var dist = levenshtein(normKey, normTarget);
-          if (dist < minDistance) { minDistance = dist; bestMatch = key; }
+          if (dist < minDistance) {
+            minDistance = dist;
+            bestMatch = key;
+          }
         }
         colMap[target] = bestMatch;
       });
-
       // --- ШАГ 2: БЫСТРЫЙ ПАРСИНГ СТРОК ---
       for (var ri = 0; ri < rows.length; ri++) {
         var row = rows[ri];
@@ -1112,8 +1145,10 @@ function parseDate(v) {
         var addr = strVal(row[colMap['Адрес']]);
 
         allRows.push({
-          id: num, sheet: shName,
+          id: num, 
+          sheet: shName,
           title: num + (addr ? ' — ' + addr.slice(0, 80) : ''),
+          // Используем colMap, который мы подготовили в Шаге 1
           region: strVal(row[colMap['Регион']]).split(/[\s,\n]/)[0].trim(),
           address: addr,
           workType:     strVal(row[colMap['ТИП РАБОТ']]),
@@ -1135,7 +1170,12 @@ function parseDate(v) {
           oplata:       strVal(row[colMap['Оплата подрядчику']]),
           idStatus:     strVal(row[colMap['ИД']]),
           amount:       parseNum(row[colMap['Сумма договора']]),
+          
+          distanceKm:   parseNum(row[colMap['Удаленность']]),
           pricePerUnit: parseNum(row[colMap['Стоимость за ед.']]),
+          tmc:          parseNum(row[colMap['ТМЦ']]),
+          extras:       parseNum(row[colMap['Допы']]),
+
           techLink:     strVal(row[colMap['Ссылка на Тех.Информацию']]),
           edoNumber:    strVal(row[colMap['№ документа в ЭДО']]),
           invoiceInfo:  strVal(row[colMap['№ счета/сумма']]),
