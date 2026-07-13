@@ -1,4 +1,6 @@
 import { spawn } from 'child_process';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import express from 'express'
 import cors from 'cors'
 import path from 'path'
@@ -14,6 +16,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(__dirname, '..')
 const app = express()
 const PORT = process.env.PORT || 3000
+const JWT_SECRET = process.env.JWT_SECRET || 'hahahksdjscndufn4738';
+
+//проерка токена
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // Достаем токен из "Bearer <TOKEN>"
+
+  if (!token) return res.status(401).json({ error: 'Требуется авторизация' });
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: 'Невалидный токен' });
+    req.user = user; // Записываем данные пользователя (id, role, fullName) в объект запроса
+    next();
+  });
+}
+
+
 const connectionString = process.env.DATABASE_URL || '';
 const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
 const pool = new Pool({
@@ -27,11 +46,51 @@ app.use(express.json({ limit: '50mb' }))
 app.use(express.urlencoded({ limit: '50mb', extended: true }))
 app.use(express.static(ROOT))
 
-app.get('/', (req, res) => res.sendFile(path.join(ROOT, 'index.html')))
+app.get('/', authenticateToken, (req, res) => res.sendFile(path.join(ROOT, 'index.html')))
+
+
+app.post('/api/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const { rows } = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+    const user = rows[0];
+
+    if (!user) return res.status(401).json({ error: 'Пользователь не найден' });
+
+    const validPassword = await bcrypt.compare(password, user.password_hash);
+    if (!validPassword) return res.status(401).json({ error: 'Неверный пароль' });
+
+    // Создаем токен (в него упаковываем ID, роль и ФИО)
+    const token = jwt.sign(
+      { id: user.id, role: user.role, fullName: user.full_name },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.json({ token, user: { username: user.username, role: user.role, fullName: user.full_name } });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // ─── ИНИЦИАЛИЗАЦИЯ БД ────────────────────────────────────────────────────────
 async function initDB() {
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id            SERIAL PRIMARY KEY,
+      username      TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      role          TEXT NOT NULL DEFAULT 'worker', 
+      full_name     TEXT,                           
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Индекс для быстрого поиска при логине
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)`);
+
+  await pool.query(`
+    
     CREATE TABLE IF NOT EXISTS tasks (
       id          TEXT PRIMARY KEY,
       sheet       TEXT,
@@ -121,6 +180,21 @@ async function initDB() {
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS geo_lon TEXT`)
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS clean_address TEXT`)
 
+
+  const userCount = await pool.query('SELECT COUNT(*) FROM users');
+  if (parseInt(userCount.rows[0].count) === 0) {
+    const bcrypt = await import('bcryptjs');
+    const salt = await bcrypt.default.genSalt(10);
+    // Хешируем пароль перед сохранением
+    const hash = await bcrypt.default.hash('chaykaxxx228', salt); 
+    
+    await pool.query(
+      'INSERT INTO users (username, password_hash, role, full_name) VALUES ($1, $2, $3, $4)',
+      ['nikita', hash, 'admin', 'Администратор']
+    );
+    console.log('Default admin user created');
+  }
+
   console.log('DB initialized')
 }
 
@@ -158,9 +232,9 @@ function rowToTask(r) {
     tipObj:       r.tip_obj,
     gosb:         r.gosb,
     vsp:          r.vsp,
-    dateZayavki:  r.date_zayavki   ? new Date(r.date_zayavki).toISOString().split('T')[0] : null,
-    deadline:     r.deadline       ? new Date(r.deadline).toISOString().split('T')[0] : null,
-    currentDate:  r.date_vnesen   ? new Date(r.date_vnesen).toISOString().split('T')[0] : null,
+    dateZayavki:  r.date_zayavki   ? new Date(r.date_zayavki).toLocaleDateString('en-CA') : null,
+    deadline:     r.deadline       ? new Date(r.deadline).toLocaleDateString('en-CA') : null,
+    currentDate:  r.date_vnesen   ? new Date(r.date_vnesen).toLocaleDateString('en-CA') : null,
     manager:      r.manager,
     contact:      r.contact,
     contractor:   r.contractor,
@@ -168,7 +242,7 @@ function rowToTask(r) {
     fact:         Number(r.fact)          || 0,
     obsledovanie: r.obsledovanie,
     dostup:       r.dostup,
-    dataVyhoda:   r.data_vyhoda  ? new Date(r.data_vyhoda).toISOString().split('T')[0] : null,
+    dataVyhoda:   r.data_vyhoda  ? new Date(r.data_vyhoda).toLocaleDateString('en-CA') : null,
     priemka:      r.priemka,
     oplata:       r.oplata,
     idStatus:     r.id_status,
@@ -189,7 +263,7 @@ function rowToTask(r) {
     assignee:     r.assignee,
     controller:   r.controller,
     comment:      r.comment,
-    distributedAt: r.distributed_at ? new Date(r.distributed_at).toISOString().split('T')[0] : null,
+    distributedAt: r.distributed_at ? new Date(r.distributed_at).toLocaleDateString('en-CA') : null,
     _history:     r.history || [],
     rawData:      r.raw_data || {},
     tmc:          Number(r.tmc) || 0,
@@ -303,8 +377,44 @@ async function cleanAddressDaData(address, region) {
   }
   return null;
 }
+
+
+// Получить список всех пользователей (только для админа)
+app.get('/api/users', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
+  try {
+    const { rows } = await pool.query('SELECT id, username, role, full_name, created_at FROM users ORDER BY created_at DESC');
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Создать нового пользователя (только для админа)
+app.post('/api/users', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
+  try {
+    const { username, password, role, fullName } = req.body;
+    const salt = await bcrypt.genSalt(10);
+    const hash = await bcrypt.hash(password, salt);
+    
+    await pool.query(
+      'INSERT INTO users (username, password_hash, role, full_name) VALUES ($1, $2, $3, $4)',
+      [username, hash, role, fullName]
+    );
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Удалить пользователя
+app.delete('/api/users/:id', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
+  try {
+    await pool.query('DELETE FROM users WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ─── API: STATS ───────────────────────────────────────────────────────────────
-app.get('/api/stats', async (req, res) => {
+app.get('/api/stats', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM tasks WHERE archived = false')
     if (!rows.length) return res.json({ tasks:{total:0,done:0,pending:0,cancelled:0}, orders:{total:0,pending:0}, supply:{steps:6,completed:0,overdue:0}, revenue:{total:0,month:0} })
@@ -313,12 +423,34 @@ app.get('/api/stats', async (req, res) => {
 })
 
 // ─── API: TASKS ───────────────────────────────────────────────────────────────
-app.get('/api/tasks', async (req, res) => {
+app.get('/api/tasks', authenticateToken, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM tasks ORDER BY created_at')
-    res.json(rows.map(rowToTask))
+    let query = 'SELECT * FROM tasks';
+    let params = [];
+
+    // Если зашел рабочий (worker), показываем только ЕГО задачи
+    if (req.user.role === 'worker') {
+      query += ' WHERE assignee = $1';
+      params.push(req.user.fullName);
+    }
+
+    query += ' ORDER BY created_at';
+    const { rows } = await pool.query(query, params);
+    
+    // Если рабочий — удаляем финансовую информацию из ответа, чтобы он её не видел
+    const tasks = rows.map(r => {
+      const task = rowToTask(r);
+      if (req.user.role === 'worker') {
+        task.amount = 0;
+        task.tmc = 0;
+        task.extras = 0;
+      }
+      return task;
+    });
+
+    res.json(tasks);
   } catch(e) { res.status(500).json({ error: e.message }) }
-})
+});
 
 app.post('/api/tasks', async (req, res) => {
   try {
@@ -333,7 +465,7 @@ app.post('/api/tasks', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }) }
 })
 
-app.put('/api/tasks/:id', async (req, res) => {
+app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
   try {
     const d = req.body
     await pool.query(`
@@ -415,17 +547,17 @@ app.delete('/api/tasks/:id', async (req, res) => {
 })
 
 // ─── API: CHAINS ──────────────────────────────────────────────────────────────
-app.get('/api/chains', async (req, res) => {
+app.get('/api/chains', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM tasks WHERE archived = false')
     if (!rows.length) return res.json([])
     res.json(buildChainsFromRows(rows.map(rowToTask)))
   } catch(e) { res.status(500).json({ error: e.message }) }
 })
-app.put('/api/chains/:id', (req, res) => res.json({ success: true }))
+app.put('/api/chains/:id', authenticateToken, (req, res) => res.json({ success: true }))
 
 // ─── API: IMPORT META ─────────────────────────────────────────────────────────
-app.get('/api/import-info', async (req, res) => {
+app.get('/api/import-info', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM import_meta WHERE id=1')
     const m = rows[0] || {}
@@ -450,14 +582,19 @@ app.post('/api/excel/import-rows', async (req, res) => {
         // а при вставке новых данных снимем флаг
         await client.query(`UPDATE tasks SET archived = true WHERE archived = false`)
       }
+      
+      const batchIds = newBatch.map(t => t.id);
+      const { rows: existingRows } = await client.query('SELECT id, geo_lat FROM tasks WHERE id = ANY($1)', [batchIds]);
+      const geoMap = new Map(existingRows.map(r => [r.id, r.geo_lat]));
+
 
       // Upsert каждой заявки из батча
       for (const t of newBatch) {
-        const existing = await client.query('SELECT geo_lat FROM tasks WHERE id = $1', [t.id]);
+        const existingLat = geoMap.get(t.id);
         let geoData = null;
 
         // Если координат в базе нет
-        if (existing.rowCount === 0 || !existing.rows[0].geo_lat) {
+        if (existingLat === undefined || !existingLat) {
           // Попытка №1: Ищем как есть (Регион + Адрес)
           geoData = await cleanAddressDaData(t.address, t.region);
           await sleep(200);
@@ -507,28 +644,42 @@ app.post('/api/excel/import-rows', async (req, res) => {
             deadline      = EXCLUDED.deadline,
             date_vnesen   = EXCLUDED.date_vnesen,
             manager       = EXCLUDED.manager,
-            in_order      = EXCLUDED.in_order,
-            fact          = EXCLUDED.fact,
+
+            -- ПОРТЫ И ФИНАНСЫ: Если в базе уже вписано число > 0, Excel не затирает его
+            in_order       = COALESCE(NULLIF(tasks.in_order, 0), EXCLUDED.in_order),
+            fact           = COALESCE(NULLIF(tasks.fact, 0), EXCLUDED.fact),
+            amount         = COALESCE(NULLIF(tasks.amount, 0), EXCLUDED.amount),
+            distance_km    = COALESCE(NULLIF(tasks.distance_km, 0), EXCLUDED.distance_km),
+            price_per_unit = COALESCE(NULLIF(tasks.price_per_unit, 0), EXCLUDED.price_per_unit),
+            
+            -- ТМЦ и ДОПЫ: Защищаем ручной ввод (даже если их нет в Excel)
+            tmc           = COALESCE(NULLIF(tasks.tmc, 0), tasks.tmc),
+            extras        = COALESCE(NULLIF(tasks.extras, 0), tasks.extras),
+
             obsledovanie  = EXCLUDED.obsledovanie,
             dostup        = EXCLUDED.dostup,
             data_vyhoda   = EXCLUDED.data_vyhoda,
             priemka       = EXCLUDED.priemka,
             oplata        = EXCLUDED.oplata,
             id_status     = EXCLUDED.id_status,
-            amount        = EXCLUDED.amount,
-            distance_km   = EXCLUDED.distance_km,
-            price_per_unit= EXCLUDED.price_per_unit,
             tech_link     = EXCLUDED.tech_link,
             edo_number    = EXCLUDED.edo_number,
             invoice_info  = EXCLUDED.invoice_info,
             vedo_status   = EXCLUDED.vedo_status,
             excel_comment = EXCLUDED.excel_comment,
-            status        = EXCLUDED.status,
+
+            -- СТАТУС: Если заявка уже Готова/Оплачена/Отменена, не возвращаем её в "В работе" из Excel
+            status        = CASE 
+                              WHEN tasks.status IN ('done', 'paid', 'cancelled') THEN tasks.status 
+                              ELSE EXCLUDED.status 
+                            END,
+
             priority      = EXCLUDED.priority,
             overdue_days  = EXCLUDED.overdue_days,
             archived      = false,
             updated_at    = NOW(),
             raw_data      = EXCLUDED.raw_data,
+
             -- Пользовательские поля — не затираем
             contact       = COALESCE(NULLIF(tasks.contact, ''),    EXCLUDED.contact),
             contractor    = COALESCE(NULLIF(tasks.contractor, ''), EXCLUDED.contractor),
@@ -538,9 +689,11 @@ app.post('/api/excel/import-rows', async (req, res) => {
             comment       = tasks.comment,
             distributed_at= tasks.distributed_at,
             history       = tasks.history,
-            geo_lat = COALESCE(EXCLUDED.geo_lat, tasks.geo_lat),
-            geo_lon = COALESCE(EXCLUDED.geo_lon, tasks.geo_lon),
-            clean_address = COALESCE(EXCLUDED.clean_address, tasks.clean_address)
+            
+            -- Координаты: сохраняем старые, если Excel прислал пустые
+            geo_lat = COALESCE(tasks.geo_lat, EXCLUDED.geo_lat),
+            geo_lon = COALESCE(tasks.geo_lon, EXCLUDED.geo_lon),
+            clean_address = COALESCE(tasks.clean_address, EXCLUDED.clean_address)
         `, [
           t.id, t.sheet, t.region, t.address, t.workType, t.tipObj, t.gosb, t.vsp,
           safeDate(t.dateZayavki), safeDate(t.deadline), safeDate(t.currentDate), t.manager, t.contact, t.contractor,
@@ -584,7 +737,7 @@ app.post('/api/excel/import-rows', async (req, res) => {
 })
 
 // ─── API: MARCHES ─────────────────────────────────────────────────────────────
-app.get('/api/marches', async (req, res) => {
+app.get('/api/marches', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM marches ORDER BY created_at')
     res.json(rows.map(r => ({
@@ -606,7 +759,7 @@ app.post('/api/marches', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }) }
 })
 
-app.put('/api/marches/:id', async (req, res) => {
+app.put('/api/marches/:id', authenticateToken, async (req, res) => {
   try {
     const d = req.body
     await pool.query(`
@@ -630,7 +783,7 @@ app.delete('/api/marches/:id', async (req, res) => {
 })
 
 // ─── API: ГЕОКОДИРОВАНИЕ ──────────────────────────────────────────────────────
-app.get('/api/geocode', async (req, res) => {
+app.get('/api/geocode', authenticateToken, async (req, res) => {
   const q = req.query.q
   if (!q) return res.json([])
   res.setHeader('Cache-Control', 'no-store')
@@ -642,7 +795,7 @@ app.get('/api/geocode', async (req, res) => {
 })
 
 // ─── API: OSRM МАРШРУТ ───────────────────────────────────────────────────────
-app.get('/api/route', async (req, res) => {
+app.get('/api/route', authenticateToken, async (req, res) => {
   const coords = req.query.coords
   if (!coords) return res.status(400).json({ error: 'coords required' })
   res.setHeader('Cache-Control', 'no-store')
@@ -746,7 +899,7 @@ function buildAct(task) {
   XLSX.utils.book_append_sheet(wb,ws,'АКТ'); return wb
 }
 
-app.get('/api/export/:type/:id', async (req, res) => {
+app.get('/api/export/:type/:id', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM tasks WHERE id=$1', [req.params.id])
     if (!rows.length) return res.status(404).json({ error: 'Заявка не найдена' })
@@ -764,12 +917,12 @@ app.get('/api/export/:type/:id', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }) }
 })
 
-app.get('/api/export/:id', (req, res) => res.redirect('/api/export/app2/'+req.params.id))
+app.get('/api/export/:id', authenticateToken, (req, res) => res.redirect('/api/export/app2/'+req.params.id))
 
 // ─── СТАРЫЕ ЭНДПОИНТЫ (для совместимости) ───────────────────────────────────
-app.get('/api/files', (req, res) => res.json([]))
-app.post('/api/excel/upload', (req, res) => res.json({ success: false, error: 'Use /api/excel/import-rows' }))
-app.get('/api/excel/:filename', (req, res) => res.status(404).json({ error: 'not found' }))
+app.get('/api/files', authenticateToken, (req, res) => res.json([]))
+app.post('/api/excel/upload', authenticateToken, (req, res) => res.json({ success: false, error: 'Use /api/excel/import-rows' }))
+app.get('/api/excel/:filename', authenticateToken, (req, res) => res.status(404).json({ error: 'not found' }))
 
 // ─── СТАРТ ───────────────────────────────────────────────────────────────────
 initDB().then(() => {

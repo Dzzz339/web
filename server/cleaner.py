@@ -30,11 +30,13 @@ def clean_data(json_input):
             df['region'] = df['region'].astype(str).str.capitalize()
         
         # 3. Чистим поле amount (оставляем только цифры и точку)
-        if 'amount' in df.columns:
-            df['amount'] = pd.to_numeric(
-                df['amount'].astype(str).replace(r'[^0-9.]', '', regex=True), 
-                errors='coerce'
-            ).fillna(0)
+        numeric_fields = ['amount', 'distanceKm', 'pricePerUnit', 'tmc', 'extras', 'overdueDays', 'inOrder', 'fact']
+        for field in numeric_fields:
+            if field in df.columns:
+                df[field] = pd.to_numeric(
+                    df[field].astype(str).replace(r'[^0-9.-]', '', regex=True).replace('', '0'), 
+                    errors='coerce'
+                ).fillna(0)
 
         # force_ascii=True (по умолчанию) превратит кириллицу в \u коды, 
         # это САМЫЙ надежный способ передачи данных обратно в Node.js без ошибок кодировки

@@ -307,6 +307,8 @@
 <script>
 // ─── STATE ───────────────────────────────────────────────────────────────────
 var S = {
+  user: JSON.parse(localStorage.getItem('user')) || null,
+  token: localStorage.getItem('token') || null,
   page: 'dashboard',
   tasks: [], chains: [], stats: {}, importInfo: null,
   selChain: null, selChainStep: null,
@@ -318,6 +320,7 @@ var S = {
 };
 
 var NAV = [
+  {id:'users',     icon:'👥', label:'Команда'},
   {id:'dashboard', icon:'📊', label:'Обзор'},
   {id:'supply',    icon:'🔗', label:'Цепи'},
   {id:'kanban',    icon:'📋', label:'Канбан'},
@@ -328,12 +331,27 @@ var NAV = [
 
 // ─── API ──────────────────────────────────────────────────────────────────────
 function api(url, opts) {
-  return fetch('/api' + url, opts).then(function(r){ return r.json(); });
+  opts = opts || {};
+  opts.headers = opts.headers || {};
+  if (S.token) {
+    opts.headers['Authorization'] = 'Bearer ' + S.token;
+  }
+  return fetch('/api' + url, opts).then(function(r){ 
+    if (r.status === 401) { // Если токен протух
+      localStorage.clear();
+      location.reload();
+    }
+    return r.json(); 
+  });
 }
 
 // ─── BOOT ─────────────────────────────────────────────────────────────────────
 function init() {
   renderNav();
+  if (!S.token) {
+    renderApp();
+    return;
+  }
   setApp('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.75rem">Загрузка…</p></div>');
   Promise.all([api('/stats'), api('/tasks'), api('/chains'), api('/import-info'), api('/marches')])
     .then(function(res) {
@@ -353,12 +371,29 @@ function renderNav() {
   var nav = document.getElementById('nav');
   nav.innerHTML = '';
   NAV.forEach(function(item) {
+    
+    if (S.user && S.user.role === 'worker' && (item.id === 'dashboard' || item.id === 'data' || item.id === 'supply')) {
+    return;
+    }
+  
+  if (item.id === 'users' && (!S.user || S.user.role !== 'admin')) {
+    return;
+    }
     var b = document.createElement('button');
     b.className = 'nav-btn' + (S.page === item.id ? ' active' : '');
     b.innerHTML = item.icon + ' ' + item.label;
     b.onclick = function() { go(item.id); };
     nav.appendChild(b);
   });
+
+  var logoutBtn = document.createElement('button');
+  logoutBtn.className = 'nav-btn';
+  logoutBtn.innerHTML = '🚪 Выход';
+  logoutBtn.onclick = function() {
+    localStorage.clear();
+    location.reload();
+  };
+  nav.appendChild(logoutBtn);
 
   // Мобильная нижняя навигация
   var mobNav = document.getElementById('mob-nav');
@@ -377,6 +412,10 @@ function renderNav() {
 function setApp(html) { document.getElementById('app').innerHTML = html; }
 // ─── RENDER ───────────────────────────────────────────────────────────────────
 function renderApp() {
+  if (!S.token) {
+    setApp(pageLogin());
+    return;
+  }
   // 1. ЗАПОМИНАЕМ ФОКУС (Безопасно)
   var activeEl = document.activeElement;
   var activeId = (activeEl && activeEl.id) ? activeEl.id : null;
@@ -394,6 +433,7 @@ function renderApp() {
 
   // 2. Отрисовка страницы
   if      (S.page === 'dashboard') setApp(pageDash());
+  else if (S.page === 'users')     setApp(pageUsers());
   else if (S.page === 'supply')    setApp(pageSupply());
   else if (S.page === 'kanban')    setApp(pageKanban());
   else if (S.page === 'tasks')     setApp(pageTasks());
@@ -539,6 +579,67 @@ function importBanner() {
 }
 
 // ─── PAGE: DASHBOARD ─────────────────────────────────────────────────────────
+
+
+function pageUsers() {
+  api('/users').then(users => {
+    var rows = users.map(u => `
+      <tr>
+        <td>${u.username}</td>
+        <td>${badge(u.role === 'admin' ? 'b-red' : 'b-gray', u.role)}</td>
+        <td>${u.full_name || '—'}</td>
+        <td>${new Date(u.created_at).toLocaleDateString('ru')}</td>
+        <td>
+          ${u.username !== S.user.username ? `<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteUser(${u.id})">✕</button>` : ''}
+        </td>
+      </tr>
+    `).join('');
+
+    document.getElementById('users-table').innerHTML = rows;
+  });
+
+  return `
+    <h1 class="page-title">Управление командой</h1>
+    <div class="card p mb">
+      <div class="sec-title">Добавить сотрудника</div>
+      <div style="display:flex; gap:.5rem; flex-wrap:wrap">
+        <input id="nu_name" type="text" placeholder="Логин">
+        <input id="nu_pass" type="password" placeholder="Пароль">
+        <input id="nu_full" type="text" placeholder="ФИО (как в Excel)">
+        <select id="nu_role">
+          <option value="worker">Монтажник (Worker)</option>
+          <option value="admin">Администратор (Admin)</option>
+        </select>
+        <button class="btn" onclick="addUser()">+ Добавить</button>
+      </div>
+    </div>
+    <div class="card tbl-wrap">
+      <table>
+        <thead>
+          <tr><th>Логин</th><th>Роль</th><th>ФИО</th><th>Дата создания</th><th></th></tr>
+        </thead>
+        <tbody id="users-table">
+          <tr><td colspan="5" style="text-align:center">Загрузка...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function pageLogin() {
+  return `
+    <div style="display:flex;align-items:center;justify-content:center;min-height:80vh">
+      <div class="card p" style="width:100%;max-width:320px;text-align:center">
+        <h1 class="page-title">Вход в Stockeasy</h1>
+        <div id="lerr" style="color:var(--red);font-size:.8rem;margin-bottom:1rem"></div>
+        <input id="luser" type="text" placeholder="Логин" style="width:100%;margin-bottom:.75rem">
+        <input id="lpass" type="password" placeholder="Пароль" style="width:100%;margin-bottom:1.25rem">
+        <button class="btn" style="width:100%" onclick="doLogin()">Войти</button>
+      </div>
+    </div>
+  `;
+}
+
 function pageDash() {
   var s = S.stats;
   var total   = s.tasks   && s.tasks.total    || 0;
@@ -1047,11 +1148,12 @@ function parseDate(v) {
   }
 
   function parseNum(v) {
-    if (v === null || v === undefined) return 0;
+    if (v === null || v === undefined || v === '') return 0;
     if (typeof v === 'number') return v;
-    var s = String(v).replace(/\s/g, '').replace(',', '.');
-    if (s.startsWith('=')) return 0;
-    return parseFloat(s) || 0;
+    // Удаляем любые буквы, пробелы (в т.ч. неразрывные) и символы валют
+    var s = String(v).replace(/[^0-9.,-]/g, '').replace(',', '.');
+    var n = parseFloat(s);
+    return isNaN(n) ? 0 : n;
   }
 
   function clientParseSvodnye(workbook) {
@@ -1089,43 +1191,67 @@ function parseDate(v) {
 
       // --- ШАГ 1: ОПРЕДЕЛЯЕМ КОЛОНКИ (ОДИН РАЗ НА ЛИСТ) ---
       var firstRow = rows[0];
-      var keys = Object.keys(firstRow);
+      var range = XLSX.utils.decode_range(ws['!ref']);
+      var keys = [];
+      for(var C = range.s.c; C <= range.e.c; ++C) {
+        var cell = ws[XLSX.utils.encode_cell({r:range.s.r, c:C})];
+        if(cell) keys.push(String(cell.v));
+      }
       
       // Создаем карту соответствия: наше имя -> реальное имя в Excel
       var colMap = {};
+      var usedCols = new Set();
       var targets = ['Номер', 'Статус', 'Регион', 'Адрес', 'ТИП РАБОТ', 'Тип объекта', '№ ГОСБ', '№ ВСП', 
                      'Дата заявки', 'Дата окончания работ', 'Текущая дата', 'Менеджер Сбера', 
                      'Контакт', 'Подрядчик', 'В заказе', 'Факт', 'Обследование', 'Доступ', 
                      'Дата выхода', 'Приёмка', 'Оплата подрядчику', 'ИД', 'Сумма договора', 
                      'Стоимость за ед.', 'Ссылка на Тех.Информацию', '№ документа в ЭДО', 
-                     '№ счета/сумма', 'В ЭДО', 'Комментарий', 'дней просрочки'];
+                     '№ счета/сумма', 'В ЭДО', 'Комментарий', 'дней просрочки', 'Удаленность', 'ТМЦ', 'Допы'];
 
+      
+      // --- ШАГ 1: УЛУЧШЕННЫЙ ПОИСК КОЛОНОК ---
+      var usedCols = new Set(); // Хранилище занятых колонок
       targets.forEach(function(target) {
         var normTarget = target.toLowerCase().replace(/[^а-яёa-z0-9]/g, '');
         
-        // 1. Сначала ищем ИДЕАЛЬНОЕ совпадение (без учета пробелов и регистра)
+        // 1. Ищем идеальное совпадение
         var exactMatch = keys.find(function(k) {
-          return k.toLowerCase().replace(/[^а-яёa-z0-9]/g, '') === normTarget;
+          return k.toLowerCase().replace(/[^а-яёa-z0-9]/g, '') === normTarget && !usedCols.has(k);
         });
         
         if (exactMatch) {
           colMap[target] = exactMatch;
+          usedCols.add(exactMatch);
           return;
         }
 
-        // 2. Если точного нет, ищем Левенштейном, но ОЧЕНЬ строго
+        // 2. Ищем мягкое совпадение
         var bestMatch = null;
-        var minDistance = 2; // Уменьшили порог до 2 опечаток
+        var minDistance = 2;
 
-        for (var key of keys) {
+        for (var i = 0; i < keys.length; i++) {
+          var key = String(keys[i]);
+          if (usedCols.has(key)) continue; // Пропускаем уже занятые колонки!
+
           var normKey = key.toLowerCase().replace(/[^а-яёa-z0-9]/g, '');
+          
+          // Проверяем прямое вхождение (если слова длинные)
+          if ((normKey.includes(normTarget) || normTarget.includes(normKey)) && normTarget.length > 2) {
+            bestMatch = key;
+            break;
+          }
+
           var dist = levenshtein(normKey, normTarget);
           if (dist < minDistance) {
             minDistance = dist;
             bestMatch = key;
           }
         }
-        colMap[target] = bestMatch;
+        
+        if (bestMatch) {
+          colMap[target] = bestMatch;
+          usedCols.add(bestMatch);
+        }
       });
       // --- ШАГ 2: БЫСТРЫЙ ПАРСИНГ СТРОК ---
       for (var ri = 0; ri < rows.length; ri++) {
@@ -1175,6 +1301,7 @@ function parseDate(v) {
           pricePerUnit: parseNum(row[colMap['Стоимость за ед.']]),
           tmc:          parseNum(row[colMap['ТМЦ']]),
           extras:       parseNum(row[colMap['Допы']]),
+          overdueDays:  parseNum(row[colMap['дней просрочки']]),
 
           techLink:     strVal(row[colMap['Ссылка на Тех.Информацию']]),
           edoNumber:    strVal(row[colMap['№ документа в ЭДО']]),
@@ -1234,7 +1361,7 @@ function doUpload(file) {
               var rows = clientParseSvodnye(wb);
               var total = rows.length;
               var sent = 0;
-              var BATCH = 100;
+              var BATCH = 500;
               setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Отправка на сервер… (0 / ' + total + ')</p></div>');
               function sendBatch(isFirst) {
                 var batch = rows.slice(sent, sent + BATCH);
@@ -1274,6 +1401,55 @@ function doUpload(file) {
 
 
 // ─── ACTIONS ─────────────────────────────────────────────────────────────────
+
+
+function addUser() {
+  var data = {
+    username: document.getElementById('nu_name').value,
+    password: document.getElementById('nu_pass').value,
+    fullName: document.getElementById('nu_full').value,
+    role:     document.getElementById('nu_role').value
+  };
+  if(!data.username || !data.password) return alert('Заполните логин и пароль');
+
+  api('/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  }).then(() => renderApp());
+}
+
+function deleteUser(id) {
+  if(!confirm('Удалить пользователя?')) return;
+  api('/users/' + id, { method: 'DELETE' }).then(() => renderApp());
+}
+
+function doLogin() {
+  var u = document.getElementById('luser').value;
+  var p = document.getElementById('lpass').value;
+  if(!u || !p) return;
+
+  fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: u, password: p })
+  })
+  .then(r => r.json().then(data => ({ status: r.status, data })))
+  .then(res => {
+    if (res.status !== 200) {
+      document.getElementById('lerr').textContent = res.data.error;
+    } else {
+      S.token = res.data.token;
+      S.user = res.data.user;
+      localStorage.setItem('token', S.token);
+      localStorage.setItem('user', JSON.stringify(S.user));
+      location.reload();
+       // Перезагружаем данные уже с токеном
+    }
+  });
+}
+
+
 function exportDoc(type, id) {
   fetch('/api/export/' + type + '/' + encodeURIComponent(id))
     .then(function(r) {
