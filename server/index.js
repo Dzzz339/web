@@ -229,36 +229,39 @@ async function initDB() {
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 function runPythonCleaner(data) {
   return new Promise((resolve, reject) => {
-    // Определяем команду: на Windows 'py', на Linux (Railway) 'python3'
-    const isWin = process.platform === 'win32';
     const pythonCommand = process.platform === 'win32' ? 'py' : 'python3';
-    
     const python = spawn(pythonCommand, [path.join(__dirname, 'cleaner.py')]);
     let result = '';
     let errorOutput = '';
 
-    // Обязательно ловим ошибку запуска (чтобы сервер не крашился при ENOENT)
     python.on('error', (err) => {
-      console.error('Failed to start Python process:', err);
-      reject(new Error(`Python не найден (${pythonCommand}). Проверьте окружение.`));
+      reject(new Error(`Не удалось запустить Python: ${err.message}`));
     });
 
-    python.stdin.write(JSON.stringify(data));
-    python.stdin.end();
+    // ВОТ ОН, ФИКС EPIPE: Ловим ошибку обрыва канала
+    python.stdin.on('error', (err) => {
+      console.error('Ошибка передачи данных в Python (EPIPE):', err.message);
+    });
+
+    try {
+      python.stdin.write(JSON.stringify(data));
+      python.stdin.end();
+    } catch (e) {
+      console.error('Ошибка записи stdin:', e);
+    }
 
     python.stdout.on('data', (data) => { result += data.toString(); });
     python.stderr.on('data', (data) => { errorOutput += data.toString(); });
 
     python.on('close', (code) => {
       if (code !== 0) {
-        console.error(`Python process exited with code ${code}. Error: ${errorOutput}`);
-        return reject(new Error('Ошибка при очистке данных в Python'));
+        console.error(`Python упал с кодом ${code}. Ошибка: ${errorOutput}`);
+        return reject(new Error('Python не справился с объемом данных (нехватка памяти)'));
       }
       try {
         resolve(JSON.parse(result));
       } catch (e) {
-        console.error('Failed to parse Python output:', result);
-        reject(new Error('Python вернул некорректный формат данных'));
+        reject(new Error('Python вернул битый ответ'));
       }
     });
   });
@@ -765,12 +768,7 @@ app.post('/api/excel/import-rows', async (req, res) => {
     try {
       await client.query('BEGIN')
 
-      if (isFirst) {
-        // Помечаем все существующие активные заявки как "кандидаты на архивацию"
-        // через временную колонку — просто выставим archived=true всем,
-        // а при вставке новых данных снимем флаг
-        await client.query(`UPDATE tasks SET archived = true WHERE archived = false`)
-      }
+      
       
       const batchIds = newBatch.map(t => t.id);
       const { rows: existingRows } = await client.query('SELECT id, geo_lat FROM tasks WHERE id = ANY($1)', [batchIds]);

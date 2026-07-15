@@ -1532,7 +1532,7 @@ function doUpload(file) {
               var rows = clientParseSvodnye(wb);
               var total = rows.length;
               var sent = 0;
-              var BATCH = 500;
+              var BATCH = 150;
               setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Отправка на сервер… (0 / ' + total + ')</p></div>');
               function sendBatch(isFirst) {
                 var batch = rows.slice(sent, sent + BATCH);
