@@ -2,7 +2,13 @@
 nixPkgs = ["nodejs", "python3", "gcc"]
 
 [phases.install]
-cmds = ["npm install", "pip install -r requirements.txt"]
+cmds = [
+    "npm install",
+    "python3 -m pip install -r requirements.txt"
+]
+
+[phases.build]
+cmds = ["npm run build"]
 
 [start]
-cmd = "node server/index.js"
+cmd = "npm start"
