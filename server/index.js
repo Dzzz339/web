@@ -231,7 +231,7 @@ function runPythonCleaner(data) {
   return new Promise((resolve, reject) => {
     // Определяем команду: на Windows 'py', на Linux (Railway) 'python3'
     const isWin = process.platform === 'win32';
-    const pythonCommand = 'win32' ? 'py' : 'python3';
+    const pythonCommand = process.platform === 'win32' ? 'py' : 'python3';
     
     const python = spawn(pythonCommand, [path.join(__dirname, 'cleaner.py')]);
     let result = '';

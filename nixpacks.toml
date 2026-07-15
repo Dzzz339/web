@@ -1,14 +1,11 @@
 [phases.setup]
-nixPkgs = ["nodejs", "python3", "python312Packages.pip", "gcc"]
+# Ставим Node.js, Python и готовую библиотеку Pandas
+nixPkgs = ["nodejs", "python3", "python3Packages.pandas"]
 
 [phases.install]
-cmds = [
-    "npm install",
-    "python3 -m pip install -r requirements.txt"
-]
-
-[phases.build]
-cmds = ["npm run build"]
+# Устанавливаем только пакеты для Node.js
+cmds = ["npm install"]
 
 [start]
-cmd = "npm start"
+# Запускаем сервер
+cmd = "node server/index.js"
