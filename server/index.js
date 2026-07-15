@@ -229,16 +229,37 @@ async function initDB() {
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 function runPythonCleaner(data) {
   return new Promise((resolve, reject) => {
-    const pythonCommand = 'py';
+    // Определяем команду: на Windows 'py', на Linux (Railway) 'python3'
+    const pythonCommand = process.platform === 'win32' ? 'py' : 'python3';
+    
     const python = spawn(pythonCommand, [path.join(__dirname, 'cleaner.py')]);
     let result = '';
+    let errorOutput = '';
+
+    // Обязательно ловим ошибку запуска (чтобы сервер не крашился при ENOENT)
+    python.on('error', (err) => {
+      console.error('Failed to start Python process:', err);
+      reject(new Error(`Python не найден (${pythonCommand}). Проверьте окружение.`));
+    });
 
     python.stdin.write(JSON.stringify(data));
     python.stdin.end();
 
     python.stdout.on('data', (data) => { result += data.toString(); });
-    python.stderr.on('data', (data) => { console.error(`Python Error: ${data}`); });
-    python.on('close', () => { resolve(JSON.parse(result)); });
+    python.stderr.on('data', (data) => { errorOutput += data.toString(); });
+
+    python.on('close', (code) => {
+      if (code !== 0) {
+        console.error(`Python process exited with code ${code}. Error: ${errorOutput}`);
+        return reject(new Error('Ошибка при очистке данных в Python'));
+      }
+      try {
+        resolve(JSON.parse(result));
+      } catch (e) {
+        console.error('Failed to parse Python output:', result);
+        reject(new Error('Python вернул некорректный формат данных'));
+      }
+    });
   });
 }
 function getInitialStage(status) {
