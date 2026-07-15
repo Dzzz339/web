@@ -1,11 +1,10 @@
-# Говорим, что это проект на Node.js
 [project]
 type = "node"
 
 [build]
-# Устанавливаем и npm пакеты, и python библиотеки
+# Устанавливаем зависимости для Node и для Python
 command = "npm install && pip install -r requirements.txt"
 
 [start]
-# Главная команда запуска — твой сервер
+# Команда должна в точности повторять путь из твоей структуры
 command = "node server/index.js"
