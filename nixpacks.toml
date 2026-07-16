@@ -1,6 +1,6 @@
 [phases.setup]
 # Ставим Node.js, Python и готовую библиотеку Pandas
-nixPkgs = ["nodejs", "python3", "python3Packages.pandas"]
+nixPkgs = ["nodejs", "python3"]
 
 [phases.install]
 # Устанавливаем только пакеты для Node.js

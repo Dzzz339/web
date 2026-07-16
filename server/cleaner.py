@@ -1,8 +1,8 @@
 import sys
 import json
-import pandas as pd
+import re
 
-# Принудительно настраиваем стандартный ввод и вывод на UTF-8
+# Настройка кодировки для Windows/Linux
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stdin.reconfigure(encoding='utf-8')
@@ -10,40 +10,41 @@ if sys.platform == 'win32':
 def clean_data(json_input):
     try:
         data = json.loads(json_input)
-        df = pd.DataFrame(data)
-
-        # Функция для очистки строк от "суррогатных" (битых) символов
-        def fix_encoding(val):
-            if isinstance(val, str):
-                # Кодируем в utf-8 с игнорированием ошибок и декодируем обратно
-                return val.encode('utf-8', 'ignore').decode('utf-8')
-            return val
-
-        # Применяем очистку ко всем ячейкам
-        df = df.map(fix_encoding)
-
-        # 1. Удаляем лишние пробелы
-        df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
-
-        # 2. Нормализация регистра для регионов
-        if 'region' in df.columns:
-            df['region'] = df['region'].astype(str).str.capitalize()
+        cleaned_rows = []
         
-        # 3. Чистим поле amount (оставляем только цифры и точку)
+        # Список полей, которые должны стать числами
         numeric_fields = ['amount', 'distanceKm', 'pricePerUnit', 'tmc', 'extras', 'overdueDays', 'inOrder', 'fact']
-        for field in numeric_fields:
-            if field in df.columns:
-                df[field] = pd.to_numeric(
-                    df[field].astype(str).replace(r'[^0-9.-]', '', regex=True).replace('', '0'), 
-                    errors='coerce'
-                ).fillna(0)
-
-        # force_ascii=True (по умолчанию) превратит кириллицу в \u коды, 
-        # это САМЫЙ надежный способ передачи данных обратно в Node.js без ошибок кодировки
-        return df.to_json(orient='records', force_ascii=True)
+        
+        for row in data:
+            new_row = {}
+            for key, val in row.items():
+                # 1. Очистка строк от битых символов и лишних пробелов
+                if isinstance(val, str):
+                    val = val.encode('utf-8', 'ignore').decode('utf-8').strip()
+                    
+                    # 2. Нормализация региона
+                    if key == 'region':
+                        val = val.capitalize()
+                    
+                    # 3. Преобразование строк в числа для финансовых полей
+                    if key in numeric_fields:
+                        # Убираем всё, кроме цифр, точки и минуса
+                        num_str = re.sub(r'[^0-9.-]', '', val.replace(',', '.'))
+                        try:
+                            val = float(num_str) if num_str else 0.0
+                        except:
+                            val = 0.0
+                
+                # Если значение None, а поле числовое - ставим 0.0
+                elif val is None and key in numeric_fields:
+                    val = 0.0
+                
+                new_row[key] = val
+            cleaned_rows.append(new_row)
+            
+        return json.dumps(cleaned_rows, ensure_ascii=False)
         
     except Exception as e:
-        # Если всё совсем плохо, возвращаем ошибку в JSON
         return json.dumps({"error": str(e)})
 
 if __name__ == "__main__":
