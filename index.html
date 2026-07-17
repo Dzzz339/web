@@ -554,7 +554,8 @@ function stBadge(s) {
 }
 function getTaskFinance(t) {
   var work = Math.round((Number(t.fact) || 0) * (Number(t.pricePerUnit) || 0));
-  var transport = typeof calculateTransport === 'function' ? calculateTransport(t.distanceKm, t.kmRate) : 0;
+  // Берем готовые рубли прямо из базы (без умножения на тарифы)
+  var transport = Number(t.distanceKm) || 0; 
   var extras = Number(t.extras) || 0;
   
   var po = work + transport + extras;
@@ -1082,7 +1083,7 @@ function pageTasks() {
     var displayAddr = (t.address || '').slice(0, 50);
     var displayWork = (t.workType || '').slice(0, 38);
     var displayMgr  = t.manager || '—';
-    var transportSum = calculateTransport(t.distanceKm, t.kmRate);
+    var transportSum = Number(t.distanceKm) || 0;
     var fin = getTaskFinance(t);
 
     tableRows += '<tr>' +
@@ -1111,8 +1112,8 @@ function pageTasks() {
       '<td>' + prBadge(t.priority) + '</td>' +
       '<td>' + od + '</td>' +
       // добавил
-      '<td>' + (t.distanceKm || 0) + '</td>' +
-      '<td style="white-space:nowrap">' + fmtMoney(transportSum) + '</td>' +
+      '<td class="t3">—</td>' +
+      '<td style="white-space:nowrap; color:var(--text); font-weight:600">' + fmtMoney(transportSum) + '</td>' +
 
       '<td>' + stBadge(t.status) + '</td>' +
 
@@ -1808,8 +1809,7 @@ function pageCard() {
       if (key === 'priority') disp = prBadge(val);
       if (key === 'amount') disp = fmtMoney(val);
       if (key === 'distanceKm' && val) {
-        var transportSum = calculateTransport(Number(val), t.kmRate);
-        disp = val + ' км &nbsp; <span class="t2" style="font-weight:600">(' + fmtMoney(transportSum) + ')</span>';
+        disp = fmtMoney(val);
       }
       if (key === 'overdueDays') disp = val > 0 ? '<span style="color:var(--red);font-weight:600">+'+val+' дн</span>' : '<span class="t3">0</span>';
       if (key === 'stage') disp = stageLabel[val] || '<span class="t3">—</span>';
@@ -1996,8 +1996,7 @@ function pageCard() {
     field('№ ВСП', 'vsp') +
     field('Сумма договора', 'amount', 'number') +
     field('Стоимость за ед.', 'pricePerUnit', 'number') +
-    field('Тариф (₽/км)', 'kmRate', 'number') +
-    field('Удалённость, км', 'distanceKm', 'number') +
+    field('Транспорт / Удалёнка (₽)', 'distanceKm', 'number') +
     field('Доп. расходы (₽)', 'extras', 'number') +
     field('ТМЦ — Материалы (₽)', 'tmc', 'number') +
     (edit ? '' : '<div class="field-row"><div class="field-lbl">Итого платит Сбер</div><div class="field-val" style="font-weight:700; color:var(--blue)">' + fmtMoney(getTaskFinance(t).total) + '</div></div>') +
