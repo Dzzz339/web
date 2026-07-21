@@ -293,6 +293,7 @@
       .stat-val { font-size: 1.6rem; }
     }
   </style>
+<script src="xlsx.full.min.js"></script>
 </head>
 <body>
 <header class="hdr">
@@ -1533,7 +1534,7 @@ function doUpload(file) {
               var rows = clientParseSvodnye(wb);
               var total = rows.length;
               var sent = 0;
-              var BATCH = 500;
+              var BATCH = 300;
               setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Отправка на сервер… (0 / ' + total + ')</p></div>');
               function sendBatch(isFirst) {
                 var batch = rows.slice(sent, sent + BATCH);
@@ -1689,7 +1690,9 @@ function deleteContractor(id) {
 }
 
 function exportDoc(type, id) {
-  fetch('/api/export/' + type + '/' + encodeURIComponent(id))
+  fetch('/api/export/' + type + '/' + encodeURIComponent(id), {
+    headers: { 'Authorization': 'Bearer ' + S.token } // ДОБАВИЛИ КЛЮЧ
+  })
     .then(function(r) {
       if (!r.ok) return r.json().then(function(e){ throw new Error(e.error); });
       return r.blob();
@@ -1708,7 +1711,9 @@ function exportDoc(type, id) {
 }
 
 function exportTask(id) {
-  fetch('/api/export/' + encodeURIComponent(id))
+  fetch('/api/export/' + encodeURIComponent(id), {
+    headers: { 'Authorization': 'Bearer ' + S.token } // ДОБАВИЛИ КЛЮЧ
+  })
     .then(function(r) {
       if (!r.ok) return r.json().then(function(e){ throw new Error(e.error); });
       return r.blob();
