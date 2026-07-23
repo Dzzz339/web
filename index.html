@@ -39,8 +39,12 @@
     .nav-btn:hover { background: rgba(255,255,255,0.14); color: #fff; }
     .nav-btn.active { background: rgba(255,255,255,0.2); color: #fff; }
 
-    #mob-burger, #mob-menu-overlay {
+    /* По умолчанию скрываем мобильные элементы на ПК */
+    #mob-burger {
       display: none !important;
+    }
+    #mob-menu-overlay {
+      display: none; /* Убрали !important, чтобы JS мог его открывать */
     }
     /* LAYOUT */
     .main { padding: 1rem; max-width: 100%; }
