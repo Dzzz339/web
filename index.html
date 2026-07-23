@@ -388,7 +388,24 @@ function go(page) { S.page = page; renderNav(); renderApp(); }
 // ─── NAV ─────────────────────────────────────────────────────────────────────
 function renderNav() {
   var nav = document.getElementById('nav');
-  nav.innerHTML = '';
+  if (nav) nav.innerHTML = '';
+
+  var mobNav = document.getElementById('mob-nav');
+  if (mobNav) {
+    mobNav.innerHTML = '';
+    mobNav.style.display = 'none'; // По умолчанию скрываем нижнее меню на мобильных
+  }
+
+  // ЕСЛИ ПОЛЬЗОВАТЕЛЬ НЕ ЛОГИНЕН — ПРЕРЫВАЕМ СБОРКУ МЕНЮ
+  if (!S.token) {
+    return; // В шапке останется только логотип и название, кнопок не будет
+  }
+
+  // Если вошли — показываем мобильное меню обратно
+  if (mobNav) {
+    mobNav.style.display = ''; 
+  }
+
   NAV.forEach(function(item) {
     
     if (S.user && S.user.role === 'worker' && (item.id === 'dashboard' || item.id === 'data' || item.id === 'supply')) {
