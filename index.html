@@ -182,6 +182,30 @@
 
     /* === МОБИЛЬНЫЙ === */
     @media (max-width: 640px) {
+      /* Показываем бургер только на мобильных */
+    #mob-burger { display: block !important; }
+    
+    /* Стили для ссылок внутри выпадающего меню мобилки */
+    .mob-menu-item {
+      padding: 12px 18px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text-2);
+      border-bottom: 1px solid #F4F4F5;
+      text-align: left;
+      background: none;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .mob-menu-item:active { background: var(--orange-bg); color: var(--orange-dark); }
+    .mob-menu-item.active { color: var(--orange); background: var(--orange-bg); }
+    
+    /* Корректируем отступ сверху у контента, чтобы меню его не перекрывало */
+    .main { padding-top: 1rem !important; padding-bottom: 2rem !important; }
+
       /* Запрет горизонтального скролла */
       html, body { overflow-x: hidden; max-width: 100vw; }
 
@@ -301,9 +325,18 @@
     <img src="images/logo.jpg" alt="" onerror="this.style.display='none'">
     Stockeasy
   </div>
+  <!-- Обычное меню для ПК -->
   <nav class="nav" id="nav"></nav>
+  
+  <!-- Кнопка бургер для мобилок -->
+  <button id="mob-burger" onclick="toggleMobileMenu()" style="display:none; background:none; border:none; color:#fff; font-size:1.6rem; cursor:pointer; padding: 4px 8px; line-height: 1;">☰</button>
 </header>
-<nav class="mob-bottom-nav" id="mob-nav"></nav>
+
+<!-- Выпадающее меню для мобилок (по умолчанию скрыто) -->
+<div id="mob-menu-overlay" style="display:none; position:fixed; top:54px; left:0; right:0; background:#fff; z-index:150; border-bottom:1px solid var(--border); box-shadow:0 4px 12px rgba(0,0,0,0.1); padding: 0.5rem 0;">
+  <div id="mob-menu-list" style="display:flex; flex-direction:column;"></div>
+</div>
+
 <main class="main" id="app"></main>
 <script>
 // ─── STATE ───────────────────────────────────────────────────────────────────
@@ -386,42 +419,72 @@ function init() {
 function go(page) { S.page = page; renderNav(); renderApp(); }
 
 // ─── NAV ─────────────────────────────────────────────────────────────────────
+
+function toggleMobileMenu() {
+  var menu = document.getElementById('mob-menu-overlay');
+  var burger = document.getElementById('mob-burger');
+  if (!menu || !burger) return;
+  
+  var isHidden = menu.style.display === 'none';
+  menu.style.display = isHidden ? 'block' : 'none';
+  burger.innerHTML = isHidden ? '✕' : '☰'; // Меняем три полоски на крестик
+}
+
 function renderNav() {
   var nav = document.getElementById('nav');
   if (nav) nav.innerHTML = '';
 
-  var mobNav = document.getElementById('mob-nav');
-  if (mobNav) {
-    mobNav.innerHTML = '';
-    mobNav.style.display = 'none'; // По умолчанию скрываем нижнее меню на мобильных
-  }
+  // Новые элементы для мобильного меню (вместо старого mob-nav)
+  var mobBurger = document.getElementById('mob-burger');
+  var mobMenuList = document.getElementById('mob-menu-list');
+  var mobMenuOverlay = document.getElementById('mob-menu-overlay');
+
+  // По умолчанию скрываем всё мобильное на старте
+  if (mobBurger) mobBurger.style.display = 'none';
+  if (mobMenuList) mobMenuList.innerHTML = '';
+  if (mobMenuOverlay) mobMenuOverlay.style.display = 'none';
 
   // ЕСЛИ ПОЛЬЗОВАТЕЛЬ НЕ ЛОГИНЕН — ПРЕРЫВАЕМ СБОРКУ МЕНЮ
   if (!S.token) {
     return; // В шапке останется только логотип и название, кнопок не будет
   }
 
-  // Если вошли — показываем мобильное меню обратно
-  if (mobNav) {
-    mobNav.style.display = ''; 
+  // Если вошли — показываем кнопку-бургер
+  if (mobBurger) {
+    mobBurger.style.display = ''; 
   }
 
+  // Обходим элементы навигации
   NAV.forEach(function(item) {
-    
+    // ТВОИ УСЛОВИЯ ФИЛЬТРАЦИИ РОЛЕЙ (сохранены без изменений)
     if (S.user && S.user.role === 'worker' && (item.id === 'dashboard' || item.id === 'data' || item.id === 'supply')) {
-    return;
+      return;
     }
-  
-  if ((item.id === 'users' || item.id === 'logs' || item.id === 'contractors') && (!S.user || S.user.role !== 'admin')) {
-    return;
-  }
+    if ((item.id === 'users' || item.id === 'logs' || item.id === 'contractors') && (!S.user || S.user.role !== 'admin')) {
+      return;
+    }
+
+    // Кнопка для ПК (сохранена без изменений)
     var b = document.createElement('button');
     b.className = 'nav-btn' + (S.page === item.id ? ' active' : '');
     b.innerHTML = item.icon + ' ' + item.label;
     b.onclick = function() { go(item.id); };
-    nav.appendChild(b);
+    if (nav) nav.appendChild(b);
+
+    // Кнопка для мобильного выпадающего меню
+    if (mobMenuList) {
+      var mb = document.createElement('button');
+      mb.className = 'mob-menu-item' + (S.page === item.id ? ' active' : '');
+      mb.innerHTML = '<span>' + item.icon + '</span>' + item.label;
+      mb.onclick = function() { 
+        go(item.id); 
+        toggleMobileMenu(); // Закрываем меню после клика!
+      };
+      mobMenuList.appendChild(mb);
+    }
   });
 
+  // Кнопка Выход для ПК (сохранена без изменений)
   var logoutBtn = document.createElement('button');
   logoutBtn.className = 'nav-btn';
   logoutBtn.innerHTML = '🚪 Выход';
@@ -429,19 +492,19 @@ function renderNav() {
     localStorage.clear();
     location.reload();
   };
-  nav.appendChild(logoutBtn);
+  if (nav) nav.appendChild(logoutBtn);
 
-  // Мобильная нижняя навигация
-  var mobNav = document.getElementById('mob-nav');
-  if (mobNav) {
-    mobNav.innerHTML = '';
-    NAV.forEach(function(item) {
-      var b = document.createElement('button');
-      b.className = (S.page === item.id ? 'active' : '');
-      b.innerHTML = '<span class="mbn-icon">' + item.icon + '</span>' + item.label;
-      b.onclick = function() { go(item.id); };
-      mobNav.appendChild(b);
-    });
+  // Кнопка Выход для мобильного меню
+  if (mobMenuList) {
+    var mLogoutBtn = document.createElement('button');
+    mLogoutBtn.className = 'mob-menu-item';
+    mLogoutBtn.style.color = 'var(--red)';
+    mLogoutBtn.innerHTML = '<span>🚪</span> Выйти из аккаунта';
+    mLogoutBtn.onclick = function() {
+      localStorage.clear();
+      location.reload();
+    };
+    mobMenuList.appendChild(mLogoutBtn);
   }
 }
 
