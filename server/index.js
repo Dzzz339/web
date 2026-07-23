@@ -576,6 +576,42 @@ app.get('/api/dadata/party', authenticateToken, async (req, res) => {
   }
 });
 
+// Запрос к DaData по БИК банка
+app.get('/api/dadata/bank', authenticateToken, async (req, res) => {
+  const bik = req.query.bik;
+  if (!bik || !process.env.DADATA_API_KEY) return res.json(null);
+  
+  try {
+    const response = await fetch("https://suggestions.dadata.ru/suggestions/api/4_1/rs/findById/bank", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": `Token ${process.env.DADATA_API_KEY}`
+      },
+      body: JSON.stringify({ query: bik, count: 1 })
+    });
+
+    if (!response.ok) throw new Error(await response.text());
+    
+    const result = await response.json();
+    if (result && result.suggestions && result.suggestions[0]) {
+      const s = result.suggestions[0].data;
+      res.json({
+        bank_name: result.suggestions[0].value, // Название банка
+        bik: s.bik,
+        account_corr: s.correspondent_account || '' // Корр. счет
+      });
+    } else {
+      res.json(null);
+    }
+  } catch (e) {
+    console.error("DaData Bank error:", e.message);
+    res.json(null);
+  }
+});
+
+
 // ─── API: STATS ───────────────────────────────────────────────────────────────
 app.get('/api/stats', authenticateToken, async (req, res) => {
   try {

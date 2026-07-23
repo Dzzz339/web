@@ -322,7 +322,7 @@ var S = {
 
 var NAV = [
   {id:'logs',      icon:'📖', label:'Журнал'},
-  {id:'contractors', icon:'🏢', label:'Подрядчики'},
+  {id:'contractors', icon:'🏢', label:'Контрагенты'},
   {id:'users',     icon:'👥', label:'Команда'},
   {id:'dashboard', icon:'📊', label:'Обзор'},
   {id:'supply',    icon:'🔗', label:'Цепи'},
@@ -693,12 +693,19 @@ function pageContractors() {
       <div>
         <div class="sec-title">Банк и Контакты</div>
         <div class="mb"><input id="nc_kpp" type="text" placeholder="КПП (если есть)" style="width:100%"></div>
-        <div class="mb"><input id="nc_bank" type="text" placeholder="Банк" style="width:100%"></div>
-        <div class="g2 mb">
-          <input id="nc_bik" type="text" placeholder="БИК">
-          <input id="nc_acc_pay" type="text" placeholder="Расчетный счет">
+        <div class="mb">
+          <input id="nc_bank" type="text" placeholder="Название Банка" style="width:100%">
         </div>
-        <div class="mb"><input id="nc_acc_corr" type="text" placeholder="Корр. счет" style="width:100%"></div>
+        <div class="row mb">
+          <input id="nc_bik" type="text" placeholder="БИК" style="flex:1">
+          <button class="btn btn-sm btn-ghost" onclick="fillBankFromDaData()" title="Найти банк по БИК">🔍 Найти по БИК</button>
+        </div>
+        <div class="mb">
+          <input id="nc_acc_corr" type="text" placeholder="Корр. счет" style="width:100%">
+        </div>
+        <div class="mb">
+          <input id="nc_acc_pay" type="text" placeholder="Расчетный счет (ручной ввод)" style="width:100%">
+        </div>
         <div class="g2 mb">
           <input id="nc_phone" type="text" placeholder="Телефон">
           <input id="nc_email" type="text" placeholder="Email">
@@ -706,10 +713,9 @@ function pageContractors() {
         
         <div style="text-align:right; margin-top:1rem">
           <span id="nc_status" style="margin-right:1rem; color:var(--text-3); font-size:.8rem"></span>
-          <button class="btn" onclick="addContractor()">+ Сохранить Подрядчика</button>
+          <button class="btn" onclick="addContractor()">+ Сохранить Контрагента</button>
         </div>
       </div>
-    </div>
 
     <!-- Таблица -->
     <div class="card tbl-wrap">
@@ -1654,6 +1660,33 @@ function fillContractorFromDaData() {
   });
 }
 
+function fillBankFromDaData() {
+  var bik = document.getElementById('nc_bik').value.trim();
+  if (!bik) return alert('Введите БИК для поиска');
+  
+  document.getElementById('nc_status').textContent = 'Ищем банк...';
+  
+  api('/dadata/party?inn=').then(() => {}); // Пустая заглушка для разогрева (необязательно)
+
+  api('/dadata/bank?bik=' + encodeURIComponent(bik)).then(data => {
+    if (!data) {
+      document.getElementById('nc_status').textContent = '❌ Банк не найден';
+      return;
+    }
+    document.getElementById('nc_status').textContent = '✅ Банк найден';
+    
+    // Заполняем поля банка
+    document.getElementById('nc_bank').value = data.bank_name;
+    document.getElementById('nc_acc_corr').value = data.account_corr;
+    
+    // Подсвечиваем
+    ['nc_bank', 'nc_acc_corr'].forEach(id => {
+      var el = document.getElementById(id);
+      if(el) { el.style.background = '#e3f2fd'; setTimeout(()=>el.style.background='#fff', 1500); }
+    });
+  });
+}
+
 function addContractor() {
   var data = {
     inn:           document.getElementById('nc_inn').value.trim(),
@@ -2017,7 +2050,7 @@ function pageCard() {
     field('Статус заявки', 'status') +
     field('Приоритет', 'priority') +
     field('Менеджер Сбера', 'manager') +
-    field('Подрядчик (Excel)', 'contractor') +
+    field('Контрагент', 'contractor') +
     field('Исполнитель (Наш)', 'assignee') + 
     field('Контролёр', 'controller') +
     field('Контакт на объекте', 'contact', 'textarea') +
