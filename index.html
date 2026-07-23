@@ -39,6 +39,9 @@
     .nav-btn:hover { background: rgba(255,255,255,0.14); color: #fff; }
     .nav-btn.active { background: rgba(255,255,255,0.2); color: #fff; }
 
+    #mob-burger, #mob-menu-overlay {
+      display: none !important;
+    }
     /* LAYOUT */
     .main { padding: 1rem; max-width: 100%; }
     .page-title { font-size: 1.3rem; font-weight: 700; margin-bottom: 1.25rem; }
@@ -183,7 +186,9 @@
     /* === МОБИЛЬНЫЙ === */
     @media (max-width: 640px) {
       /* Показываем бургер только на мобильных */
-    #mob-burger { display: block !important; }
+    #mob-burger { 
+      display: block !important; 
+    }
     
     /* Стили для ссылок внутри выпадающего меню мобилки */
     .mob-menu-item {
