@@ -1640,7 +1640,7 @@ function doUpload(file) {
             var rows = clientParseSvodnye(wb);
             var total = rows.length;
             var sent = 0;
-            var BATCH = 300; // Стабильный размер пачки для Railway
+            var BATCH = 1000; // Стабильный размер пачки для Railway
             
             setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Отправка на сервер… (0 / ' + total + ')</p></div>');
 
