@@ -3,11 +3,15 @@ name: Build and Push Docker Image
 on:
   push:
     branches:
-      - dev  # Срабатывает при пуше в ветку dev (или измени на main/master)
+      - dev
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # Даем скрипту право записывать пакеты
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -24,4 +28,4 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/web:latest
+          tags: ghcr.io/dzzz339/web:latest # Прописали строго строчными буквами!
