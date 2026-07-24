@@ -34,7 +34,7 @@ function authenticateToken(req, res, next) {
 
 
 const connectionString = process.env.DATABASE_URL || '';
-const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
+const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1') || connectionString.includes('@db:') || connectionString.includes('stockeasy-db');
 const pool = new Pool({
   connectionString: connectionString,
   // Если база локальная — отключаем SSL, если удаленная (Railway) — оставляем
