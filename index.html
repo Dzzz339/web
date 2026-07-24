@@ -757,12 +757,11 @@ function pageContractors() {
     `;
   }).join('');
 
-
   return `
-    <h1 class="page-title">Справочник Подрядчиков</h1>
+    <h1 class="page-title">Справочник Контрагентов</h1>
     
     <div class="card p mb" style="display:grid; grid-template-columns: 1fr 1fr; gap: 1.5rem">
-      <!-- Левая колонка: Базовые данные -->
+      <!-- Левая колонка: Поиск и Базовые данные -->
       <div>
         <div class="sec-title">Поиск и Основные данные</div>
         
@@ -798,7 +797,6 @@ function pageContractors() {
       <!-- Правая колонка: Реквизиты и Контакты -->
       <div>
         <div class="sec-title">Банк и Контакты</div>
-        <div class="mb"><input id="nc_kpp" type="text" placeholder="КПП (если есть)" style="width:100%"></div>
         <div class="mb">
           <input id="nc_bank" type="text" placeholder="Название Банка" style="width:100%">
         </div>
@@ -822,6 +820,7 @@ function pageContractors() {
           <button class="btn" onclick="addContractor()">+ Сохранить Контрагента</button>
         </div>
       </div>
+    </div>
 
     <!-- Таблица -->
     <div class="card tbl-wrap">
