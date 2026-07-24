@@ -612,6 +612,45 @@ app.get('/api/dadata/bank', authenticateToken, async (req, res) => {
 });
 
 
+// Живой поиск компаний по Названию или ИНН через DaData Suggestions
+app.get('/api/dadata/suggest-party', authenticateToken, async (req, res) => {
+  const query = req.query.query;
+  if (!query || query.trim().length < 3 || !process.env.DADATA_API_KEY) return res.json([]);
+
+  try {
+    const response = await fetch("https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/party", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": `Token ${process.env.DADATA_API_KEY}`
+      },
+      body: JSON.stringify({ query: query, count: 5 }) // Возвращаем 5 лучших совпадений
+    });
+
+    if (!response.ok) throw new Error(await response.text());
+
+    const result = await response.json();
+    const suggestions = (result.suggestions || []).map(s => {
+      const d = s.data || {};
+      return {
+        value: s.value, // Полная строка (название + ИНН)
+        inn: d.inn || '',
+        kpp: d.kpp || '',
+        name_short: (d.name && (d.name.short_with_opf || d.name.short)) || s.value,
+        name_full: (d.name && (d.name.full_with_opf || d.name.full)) || '',
+        address_legal: d.address ? d.address.value : '',
+        director: d.management ? d.management.name : ''
+      };
+    });
+
+    res.json(suggestions);
+  } catch (e) {
+    console.error("DaData Suggest Party error:", e.message);
+    res.json([]);
+  }
+});
+
 // ─── API: STATS ───────────────────────────────────────────────────────────────
 app.get('/api/stats', authenticateToken, async (req, res) => {
   try {

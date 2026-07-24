@@ -762,24 +762,36 @@ function pageContractors() {
     <h1 class="page-title">Справочник Подрядчиков</h1>
     
     <div class="card p mb" style="display:grid; grid-template-columns: 1fr 1fr; gap: 1.5rem">
-      <!-- Левая колонка: Базовые данные (ИНН) -->
+      <!-- Левая колонка: Базовые данные -->
       <div>
-        <div class="sec-title">Основные данные</div>
-        <div class="row mb">
-          <input id="nc_inn" type="text" placeholder="ИНН (Введите для поиска)" style="flex:1">
-          <button class="btn" onclick="fillContractorFromDaData()" title="Автозаполнение по ИНН">🔍 Найти по ИНН</button>
+        <div class="sec-title">Поиск и Основные данные</div>
+        
+        <!-- Живая поисковая строка с выпадающим списком -->
+        <div class="mb" style="position:relative">
+          <input id="nc_search_input" type="text" 
+                 placeholder="Начните вводить Название компании или ИНН..." 
+                 style="width:100%; font-weight:600; border-color:var(--orange)" 
+                 oninput="onContractorSearchInput(this.value)">
+                 
+          <!-- Выпадающий список вариантов -->
+          <div id="nc_suggestions_box" style="display:none; position:absolute; top:100%; left:0; right:0; background:#fff; border:1.5px solid var(--orange); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.15); z-index:100; max-height:250px; overflow-y:auto; margin-top:4px"></div>
+        </div>
+
+        <div class="g2 mb">
+          <input id="nc_inn" type="text" placeholder="ИНН">
+          <input id="nc_kpp" type="text" placeholder="КПП (если есть)">
         </div>
         <div class="mb">
-          <input id="nc_name_short" type="text" placeholder="Краткое название (ИП Иванов И.И.)" style="width:100%; font-weight:600">
+          <input id="nc_name_short" type="text" placeholder="Краткое название (ИП / ООО)">
         </div>
         <div class="mb">
-          <textarea id="nc_name_full" placeholder="Полное наименование" style="width:100%; resize:vertical; min-height:60px"></textarea>
+          <textarea id="nc_name_full" placeholder="Полное наименование" style="width:100%; resize:vertical; min-height:50px"></textarea>
         </div>
         <div class="mb">
-          <input id="nc_director" type="text" placeholder="ФИО Руководителя" style="width:100%">
+          <input id="nc_director" type="text" placeholder="ФИО Руководителя">
         </div>
         <div class="mb">
-          <textarea id="nc_address" placeholder="Юридический адрес" style="width:100%; resize:vertical; min-height:60px"></textarea>
+          <textarea id="nc_address" placeholder="Юридический адрес" style="width:100%; resize:vertical; min-height:50px"></textarea>
         </div>
       </div>
 
@@ -1888,6 +1900,88 @@ function moveTask(id, status) {
       renderApp();
     });
 }
+
+var contractorSearchTimeout = null;
+
+// Обработка ввода в поисковую строку
+function onContractorSearchInput(val) {
+  var box = document.getElementById('nc_suggestions_box');
+  if (!box) return;
+
+  clearTimeout(contractorSearchTimeout);
+
+  if (!val || val.trim().length < 3) {
+    box.style.display = 'none';
+    box.innerHTML = '';
+    return;
+  }
+
+  // Задержка 300мс, чтобы не спамить запросами при быстром наборе
+  contractorSearchTimeout = setTimeout(function() {
+    api('/dadata/suggest-party?query=' + encodeURIComponent(val.trim())).then(function(list) {
+      if (!list || !list.length) {
+        box.style.display = 'none';
+        box.innerHTML = '';
+        return;
+      }
+
+      // Формируем выпадающий список
+      var itemsHtml = list.map(function(item, idx) {
+        var safeJson = encodeURIComponent(JSON.stringify(item));
+        return `
+          <div onclick="selectContractorSuggestion('${safeJson}')" 
+               style="padding:10px 14px; border-bottom:1px solid #f4f4f5; cursor:pointer; transition:background .12s" 
+               onmouseover="this.style.background='var(--orange-bg)'" 
+               onmouseout="this.style.background='#fff'">
+            <div style="font-weight:600; font-size:.85rem; color:var(--text)">${item.name_short}</div>
+            <div style="font-size:.75rem; color:var(--text-3); margin-top:2px">
+              ИНН: <strong>${item.inn || '—'}</strong> ${item.address_legal ? '· ' + item.address_legal.slice(0, 45) + '...' : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      box.innerHTML = itemsHtml;
+      box.style.display = 'block';
+    });
+  }, 300);
+}
+
+// Выбор варианта из выпадающего списка
+function selectContractorSuggestion(encodedJson) {
+  var data = JSON.parse(decodeURIComponent(encodedJson));
+  var box = document.getElementById('nc_suggestions_box');
+  if (box) box.style.display = 'none';
+
+  // Очищаем поисковую строку
+  document.getElementById('nc_search_input').value = data.name_short;
+
+  // Автозаполняем все формы
+  if(data.inn) document.getElementById('nc_inn').value = data.inn;
+  if(data.kpp) document.getElementById('nc_kpp').value = data.kpp;
+  if(data.name_short) document.getElementById('nc_name_short').value = data.name_short;
+  if(data.name_full) document.getElementById('nc_name_full').value = data.name_full;
+  if(data.address_legal) document.getElementById('nc_address').value = data.address_legal;
+  if(data.director) document.getElementById('nc_director').value = data.director;
+
+  // Подсвечиваем поля зеленым для наглядности
+  ['nc_inn', 'nc_kpp', 'nc_name_short', 'nc_name_full', 'nc_address', 'nc_director'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if(el && el.value) { 
+      el.style.background = '#e8f5e9'; 
+      setTimeout(function(){ el.style.background='#fff'; }, 1500); 
+    }
+  });
+}
+
+// Закрываем выпадающий список при клике в любое другое место экрана
+document.addEventListener('click', function(e) {
+  var box = document.getElementById('nc_suggestions_box');
+  var input = document.getElementById('nc_search_input');
+  if (box && e.target !== input && !box.contains(e.target)) {
+    box.style.display = 'none';
+  }
+});
 
 
 
