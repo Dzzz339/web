@@ -209,6 +209,10 @@ async function initDB() {
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS clean_address TEXT`)
 
 
+  // Миграция: добавляем email для пользователей
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`);
+
+
   const userCount = await pool.query('SELECT COUNT(*) FROM users');
   if (parseInt(userCount.rows[0].count) === 0) {
     const bcrypt = await import('bcryptjs');
@@ -433,26 +437,26 @@ async function cleanAddressDaData(address, region) {
 }
 
 
-// Получить список всех пользователей (только для админа)
+// Получить список всех пользователей
 app.get('/api/users', authenticateToken, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
   try {
-    const { rows } = await pool.query('SELECT id, username, role, full_name, created_at FROM users ORDER BY created_at DESC');
+    const { rows } = await pool.query('SELECT id, username, role, full_name, email, created_at FROM users ORDER BY created_at DESC');
     res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Создать нового пользователя (только для админа)
+// Создать нового пользователя
 app.post('/api/users', authenticateToken, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
   try {
-    const { username, password, role, fullName } = req.body;
+    const { username, password, role, fullName, email } = req.body;
     const salt = await bcrypt.genSalt(10);
     const hash = await bcrypt.hash(password, salt);
     
     await pool.query(
-      'INSERT INTO users (username, password_hash, role, full_name) VALUES ($1, $2, $3, $4)',
-      [username, hash, role, fullName]
+      'INSERT INTO users (username, password_hash, role, full_name, email) VALUES ($1, $2, $3, $4, $5)',
+      [username, hash, role, fullName, email || null]
     );
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -712,6 +716,34 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }) }
 })
 
+// Универсальная функция отправки писем через Resend
+async function sendEmail({ to, subject, html }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey || !to) return;
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'Stockeasy <robot@stockeasy.ru>',
+        to: [to],
+        subject: subject,
+        html: html
+      })
+    });
+    const data = await res.json();
+    console.log('[Email Sent]:', data);
+    return data;
+  } catch (e) {
+    console.error('[Email Error]:', e.message);
+  }
+}
+
+
 // ─── API: TASKS ───────────────────────────────────────────────────────────────
 app.get('/api/tasks', authenticateToken, async (req, res) => {
   try {
@@ -854,6 +886,29 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
       d.tmc         || null, 
       d.extras      || null
     ])
+
+    if (d.assignee) {
+      pool.query('SELECT email FROM users WHERE full_name = $1 AND email IS NOT NULL AND email != \'\'', [d.assignee])
+        .then(({ rows }) => {
+          if (rows.length > 0 && rows[0].email) {
+            sendEmail({
+              to: rows[0].email,
+              subject: `📋 Новая заявка: ${req.params.id}`,
+              html: `
+                <div style="font-family: 'Golos Text', sans-serif, Arial; max-width: 500px; padding: 24px; background: #FFF4EE; border-radius: 12px; border: 1px solid #FFEDD5;">
+                  <h2 style="color: #FF6200; margin-top: 0;">Вам назначена заявка ${req.params.id}</h2>
+                  <p style="font-size: 14px; color: #333;"><b>Адрес объекта:</b> ${d.address || 'Указан в системе'}</p>
+                  <p style="font-size: 14px; color: #333;"><b>Тип работ:</b> ${d.workType || '—'}</p>
+                  <p style="font-size: 14px; color: #333;"><b>Контакт на объекте:</b> ${d.contact || '—'}</p>
+                  <br>
+                  <a href="https://app.stockeasy.ru" style="display: inline-block; background: #FF6200; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px;">Открыть в Stockeasy</a>
+                </div>
+              `
+            });
+          }
+        }).catch(err => console.error('Email lookup error:', err));
+    }
+    
     res.json({ success: true })
   } catch(e) { console.error('PUT task error:', e.message); res.status(500).json({ error: e.message }) }
 })

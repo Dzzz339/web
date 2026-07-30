@@ -704,6 +704,7 @@ function pageUsers() {
         <td>${u.username}</td>
         <td>${badge(u.role === 'admin' ? 'b-red' : 'b-gray', u.role)}</td>
         <td>${u.full_name || '—'}</td>
+        <td>${u.email || '—'}</td>
         <td>${new Date(u.created_at).toLocaleDateString('ru')}</td>
         <td>
           ${u.username !== S.user.username ? `<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteUser(${u.id})">✕</button>` : ''}
@@ -722,6 +723,7 @@ function pageUsers() {
         <input id="nu_name" type="text" placeholder="Логин">
         <input id="nu_pass" type="password" placeholder="Пароль">
         <input id="nu_full" type="text" placeholder="ФИО (как в Excel)">
+        <input id="nu_email" type="email" placeholder="Email для писем">
         <select id="nu_role">
           <option value="worker">Монтажник (Worker)</option>
           <option value="admin">Администратор (Admin)</option>
@@ -1694,6 +1696,7 @@ function addUser() {
     username: document.getElementById('nu_name').value,
     password: document.getElementById('nu_pass').value,
     fullName: document.getElementById('nu_full').value,
+    email:    document.getElementById('nu_email').value, // ДОБАВИЛИ
     role:     document.getElementById('nu_role').value
   };
   if(!data.username || !data.password) return alert('Заполните логин и пароль');
