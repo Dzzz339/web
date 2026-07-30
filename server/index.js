@@ -222,8 +222,9 @@ async function initDB() {
     );
     console.log('Default admin user created');
   }
-
+  runBackgroundGeocoding();
   console.log('DB initialized')
+  
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -651,6 +652,57 @@ app.get('/api/dadata/suggest-party', authenticateToken, async (req, res) => {
   }
 });
 
+// --- ФОНОВЫЙ РОБОТ ГЕОКОДИРОВАНИЯ ---
+let isGeocodingRunning = false;
+
+async function runBackgroundGeocoding() {
+  if (isGeocodingRunning) return;
+  isGeocodingRunning = true;
+  console.log('[GeoWorker] Фоновый робот геокодирования запущен...');
+
+  try {
+    while (true) {
+      // Находим 5 заявок без координат (у которых geo_lat пустой)
+      const { rows } = await pool.query(
+        "SELECT id, address, region FROM tasks WHERE (geo_lat IS NULL OR geo_lat = '') AND address IS NOT NULL AND length(trim(address)) > 3 AND archived = false LIMIT 5"
+      );
+
+      if (!rows.length) {
+        console.log('[GeoWorker] Все адреса успешно обработаны!');
+        break;
+      }
+
+      for (const task of rows) {
+        let geoData = await cleanAddressDaData(task.address, task.region);
+        await sleep(250);
+
+        if (!geoData) {
+          const cleanerAddr = stripAddressNoise(task.address);
+          if (cleanerAddr !== task.address) {
+            geoData = await cleanAddressDaData(cleanerAddr, task.region);
+            await sleep(250);
+          }
+        }
+
+        if (geoData) {
+          await pool.query(
+            "UPDATE tasks SET geo_lat = $1, geo_lon = $2, clean_address = $3 WHERE id = $4",
+            [geoData.lat, geoData.lon, geoData.address, task.id]
+          );
+          console.log(`[GeoWorker] Найдено: ${task.id} -> ${geoData.address}`);
+        } else {
+          // Чтобы не мучать DaData по 100 раз ненайденным адресом, ставим пометку NONE
+          await pool.query("UPDATE tasks SET geo_lat = 'NONE' WHERE id = $1", [task.id]);
+        }
+      }
+    }
+  } catch (e) {
+    console.error("[GeoWorker Error]:", e.message);
+  } finally {
+    isGeocodingRunning = false;
+  }
+}
+
 // ─── API: STATS ───────────────────────────────────────────────────────────────
 app.get('/api/stats', authenticateToken, async (req, res) => {
   try {
@@ -851,32 +903,8 @@ app.post('/api/excel/import-rows', async (req, res) => {
 
 
       // Upsert каждой заявки из батча
+      // Молниеносная вставка каждой заявки из батча
       for (const t of newBatch) {
-        const existingLat = geoMap.get(t.id);
-        let geoData = null;
-
-        // Если координат в базе нет
-        if (existingLat === undefined || !existingLat) {
-          // Попытка №1: Ищем как есть (Регион + Адрес)
-          geoData = await cleanAddressDaData(t.address, t.region);
-          await sleep(200);
-
-          // Попытка №2: Если не нашли, чистим от "этажей" и пробуем снова
-          if (!geoData) {
-            const cleanerAddr = stripAddressNoise(t.address);
-            if (cleanerAddr !== t.address) {
-              geoData = await cleanAddressDaData(cleanerAddr, t.region);
-              await sleep(200);
-            }
-          }
-
-          if (geoData) {
-            console.log(`[OK] Найдено: ${t.id} -> ${geoData.address}`);
-          } else {
-            console.log(`[SKIP] Не найдено: ${t.id} (${t.address})`);
-          }
-        }
-
         await client.query(`
           INSERT INTO tasks (
             id, sheet, region, address, work_type, tip_obj, gosb, vsp,
@@ -884,17 +912,16 @@ app.post('/api/excel/import-rows', async (req, res) => {
             in_order, fact, obsledovanie, dostup, data_vyhoda, priemka, oplata,
             id_status, amount, distance_km, price_per_unit,
             tech_link, edo_number, invoice_info, vedo_status, excel_comment,
-            status, priority, overdue_days, stage, archived, raw_data, geo_lat, geo_lon, clean_address
+            status, priority, overdue_days, stage, archived, raw_data
           ) VALUES (
             $1,$2,$3,$4,$5,$6,$7,$8,
             $9,$10,$11,$12,$13,$14,
             $15,$16,$17,$18,$19,$20,$21,
             $22,$23,$24,$25,
             $26,$27,$28,$29,$30,
-            $31,$32,$33,$34,false,$35,$36,$37,$38
+            $31,$32,$33,$34,false,$35
           )
           ON CONFLICT (id) DO UPDATE SET
-            -- Данные из Excel — всегда обновляем
             sheet         = EXCLUDED.sheet,
             region        = EXCLUDED.region,
             address       = EXCLUDED.address,
@@ -906,18 +933,13 @@ app.post('/api/excel/import-rows', async (req, res) => {
             deadline      = EXCLUDED.deadline,
             date_vnesen   = EXCLUDED.date_vnesen,
             manager       = EXCLUDED.manager,
-
-            -- ПОРТЫ И ФИНАНСЫ: Если в базе уже вписано число > 0, Excel не затирает его
             in_order       = COALESCE(NULLIF(tasks.in_order, 0), EXCLUDED.in_order),
             fact           = COALESCE(NULLIF(tasks.fact, 0), EXCLUDED.fact),
             amount         = COALESCE(NULLIF(tasks.amount, 0), EXCLUDED.amount),
             distance_km    = COALESCE(NULLIF(tasks.distance_km, 0), EXCLUDED.distance_km),
             price_per_unit = COALESCE(NULLIF(tasks.price_per_unit, 0), EXCLUDED.price_per_unit),
-            
-            -- ТМЦ и ДОПЫ: Защищаем ручной ввод (даже если их нет в Excel)
             tmc           = COALESCE(NULLIF(tasks.tmc, 0), tasks.tmc),
             extras        = COALESCE(NULLIF(tasks.extras, 0), tasks.extras),
-
             obsledovanie  = EXCLUDED.obsledovanie,
             dostup        = EXCLUDED.dostup,
             data_vyhoda   = EXCLUDED.data_vyhoda,
@@ -929,20 +951,12 @@ app.post('/api/excel/import-rows', async (req, res) => {
             invoice_info  = EXCLUDED.invoice_info,
             vedo_status   = EXCLUDED.vedo_status,
             excel_comment = EXCLUDED.excel_comment,
-
-            -- СТАТУС: Если заявка уже Готова/Оплачена/Отменена, не возвращаем её в "В работе" из Excel
-            status        = CASE 
-                              WHEN tasks.status IN ('done', 'paid', 'cancelled') THEN tasks.status 
-                              ELSE EXCLUDED.status 
-                            END,
-
+            status        = CASE WHEN tasks.status IN ('done', 'paid', 'cancelled') THEN tasks.status ELSE EXCLUDED.status END,
             priority      = EXCLUDED.priority,
             overdue_days  = EXCLUDED.overdue_days,
             archived      = false,
             updated_at    = NOW(),
             raw_data      = EXCLUDED.raw_data,
-
-            -- Пользовательские поля — не затираем
             contact       = COALESCE(NULLIF(tasks.contact, ''),    EXCLUDED.contact),
             contractor    = COALESCE(NULLIF(tasks.contractor, ''), EXCLUDED.contractor),
             stage         = COALESCE(tasks.stage,                  EXCLUDED.stage),
@@ -950,12 +964,7 @@ app.post('/api/excel/import-rows', async (req, res) => {
             controller    = tasks.controller,
             comment       = tasks.comment,
             distributed_at= tasks.distributed_at,
-            history       = tasks.history,
-            
-            -- Координаты: сохраняем старые, если Excel прислал пустые
-            geo_lat = COALESCE(tasks.geo_lat, EXCLUDED.geo_lat),
-            geo_lon = COALESCE(tasks.geo_lon, EXCLUDED.geo_lon),
-            clean_address = COALESCE(tasks.clean_address, EXCLUDED.clean_address)
+            history       = tasks.history
         `, [
           t.id, t.sheet, t.region, t.address, t.workType, t.tipObj, t.gosb, t.vsp,
           safeDate(t.dateZayavki), safeDate(t.deadline), safeDate(t.currentDate), t.manager, t.contact, t.contractor,
@@ -964,15 +973,9 @@ app.post('/api/excel/import-rows', async (req, res) => {
           t.idStatus, Number(t.amount)||0, Number(t.distanceKm)||0, Number(t.pricePerUnit)||0,
           t.techLink, t.edoNumber, t.invoiceInfo, t.vedoStatus, t.excelComment,
           t.status||'progress', t.priority||'low', Number(t.overdueDays)||0,
-          
           t.stage || getInitialStage(t.status),
-          
-          JSON.stringify(t.rawData || {}),
-
-          geoData ? geoData.lat : null,
-          geoData ? geoData.lon : null,
-          geoData ? geoData.address : null
-        ])
+          JSON.stringify(t.rawData || {})
+        ]);
       }
 
       // Последний батч — обновляем метаданные
@@ -981,7 +984,8 @@ app.post('/api/excel/import-rows', async (req, res) => {
         const { rows: cnt } = await client.query('SELECT COUNT(*) FROM tasks WHERE archived=false')
         await client.query(`
           UPDATE import_meta SET imported_from=$1, imported_at=NOW(), row_count=$2 WHERE id=1
-        `, [name, Number(cnt[0].count)])
+        `, [name, Number(cnt[0].count)]);
+        runBackgroundGeocoding();
       }
 
       await client.query('COMMIT')
