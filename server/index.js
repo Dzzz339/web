@@ -509,6 +509,30 @@ app.post('/api/users', authenticateToken, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Обновить данные пользователя (только для Админа)
+app.put('/api/users/:id', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
+  try {
+    const { username, password, role, fullName, email } = req.body;
+    let query = 'UPDATE users SET username = $1, role = $2, full_name = $3, email = $4';
+    let params = [username, role, fullName, email || null];
+
+    // Если передан новый пароль — хешируем и обновляем его
+    if (password && password.trim() !== '') {
+      const salt = await bcrypt.genSalt(10);
+      const hash = await bcrypt.hash(password, salt);
+      query += ', password_hash = $' + (params.length + 1);
+      params.push(hash);
+    }
+
+    query += ' WHERE id = $' + (params.length + 1);
+    params.push(req.params.id);
+
+    await pool.query(query, params);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Удалить пользователя
 app.delete('/api/users/:id', authenticateToken, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
@@ -957,7 +981,7 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
 
     // --- УВЕДОМЛЕНИЯ И EMAIL ДЛЯ ИСПОЛНИТЕЛЯ ---
     if (d.assignee) {
-      pool.query('SELECT id, email FROM users WHERE full_name = $1', [d.assignee])
+      pool.query('SELECT id, email FROM users WHERE LOWER(TRIM(full_name)) = LOWER($1) OR LOWER(TRIM(username)) = LOWER($1) OR id::text = $1', [d.assignee])
         .then(({ rows }) => {
           if (rows.length > 0) {
             const targetUser = rows[0];

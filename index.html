@@ -788,14 +788,16 @@ function importBanner() {
 function pageUsers() {
   api('/users').then(users => {
     var rows = users.map(u => `
-      <tr>
-        <td>${u.username}</td>
-        <td>${badge(u.role === 'admin' ? 'b-red' : 'b-gray', u.role)}</td>
-        <td>${u.full_name || '—'}</td>
-        <td>${u.email || '—'}</td>
-        <td>${new Date(u.created_at).toLocaleDateString('ru')}</td>
-        <td>
-          ${u.username !== S.user.username ? `<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteUser(${u.id})">✕</button>` : ''}
+      <tr style="border-bottom: 1px solid var(--border)">
+        <td style="padding: 10px 12px"><b>#${u.id}</b></td>
+        <td style="padding: 10px 12px; font-weight:600">${u.username}</td>
+        <td style="padding: 10px 12px">${badge(u.role === 'admin' ? 'b-red' : 'b-gray', u.role)}</td>
+        <td style="padding: 10px 12px">${u.full_name || '—'}</td>
+        <td style="padding: 10px 12px; color:var(--text-2)">${u.email || '—'}</td>
+        <td style="padding: 10px 12px; color:var(--text-3); font-size:.75rem">${new Date(u.created_at).toLocaleDateString('ru')}</td>
+        <td style="padding: 10px 12px; text-align:right">
+          <button class="btn btn-sm btn-ghost" onclick="editUser(${u.id})" title="Редактировать">✏️</button>
+          ${u.username !== S.user.username ? `<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteUser(${u.id})" title="Удалить">✕</button>` : ''}
         </td>
       </tr>
     `).join('');
@@ -822,10 +824,18 @@ function pageUsers() {
     <div class="card tbl-wrap">
       <table>
         <thead>
-          <tr><th>Логин</th><th>Роль</th><th>ФИО</th><th>Дата создания</th><th></th></tr>
+          <tr style="background:var(--bg)">
+            <th>ID</th>
+            <th>Логин</th>
+            <th>Роль</th>
+            <th>ФИО</th>
+            <th>Email</th>
+            <th>Дата создания</th>
+            <th></th>
+          </tr>
         </thead>
         <tbody id="users-table">
-          <tr><td colspan="5" style="text-align:center">Загрузка...</td></tr>
+          <tr><td colspan="7" style="text-align:center; padding:2rem">Загрузка...</td></tr>
         </tbody>
       </table>
     </div>
@@ -1779,6 +1789,32 @@ function doUpload(file) {
 // ─── ACTIONS ─────────────────────────────────────────────────────────────────
 
 
+function editUser(id) {
+  var user = (S.users || []).find(u => u.id === id);
+  if (!user) return;
+
+  showModal('✏️ Редактировать пользователя #' + id, [
+    { key: 'username', label: 'Логин', value: user.username, required: true },
+    { key: 'password', label: 'Новый пароль (оставьте пустым, если не меняется)', type: 'password', value: '' },
+    { key: 'fullName', label: 'ФИО (как в Excel)', value: user.full_name || '' },
+    { key: 'email',    label: 'Email для писем', value: user.email || '' },
+    { key: 'role',     label: 'Роль', type: 'select', value: user.role, options: [
+        { value: 'worker', label: 'Монтажник (Worker)' },
+        { value: 'admin',  label: 'Администратор (Admin)' }
+      ]
+    }
+  ], function(d) {
+    api('/users/' + id, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(d)
+    }).then(function(res) {
+      if (res.error) return alert(res.error);
+      api('/users').then(list => { S.users = list; renderApp(); });
+    });
+  });
+}
+
 function addUser() {
   var data = {
     username: document.getElementById('nu_name').value,
@@ -2107,7 +2143,7 @@ function pageCard() {
 
   var assigneeOpts = '<option value="">— (Не назначен) —</option>' + (S.users || []).map(function(u) {
     if (!u.full_name) return '';
-    return '<option value="' + u.full_name + '"' + (t.assignee === u.full_name ? ' selected' : '') + '>' + u.full_name + '</option>';
+    return '<option value="' + u.full_name + '"' + (t.assignee === u.full_name ? ' selected' : '') + '>#' + u.id + ' — ' + u.full_name + '</option>';
   }).join('');
 
   var contractorOpts = '<option value="">— (Не указан) —</option>' + (S.contractors || []).map(function(c) {
