@@ -339,11 +339,28 @@
     <img src="images/logo.jpg" alt="" onerror="this.style.display='none'">
     Stockeasy
   </div>
-  <!-- Обычное меню для ПК -->
-  <nav class="nav" id="nav"></nav>
   
-  <!-- Кнопка бургер для мобилок -->
-  <button id="mob-burger" onclick="toggleMobileMenu()" style="display:none; background:none; border:none; color:#fff; font-size:1.6rem; cursor:pointer; padding: 4px 8px; line-height: 1;">☰</button>
+  <div style="display:flex; align-items:center; gap:10px">
+    <!-- Колокольчик с красным бейджем -->
+    <div id="notif-container" style="position:relative; display:none;">
+      <button id="notif-btn" onclick="toggleNotifications()" style="background:none; border:none; color:#fff; font-size:1.3rem; cursor:pointer; padding:4px 8px; position:relative;">
+        🔔<span id="notif-badge" style="display:none; position:absolute; top:0; right:2px; background:var(--red); color:#fff; font-size:.65rem; font-weight:700; border-radius:10px; padding:1px 5px; line-height:1;">0</span>
+      </button>
+      
+      <!-- Выпадающее окно с уведомлениями -->
+      <div id="notif-dropdown" style="display:none; position:absolute; top:100%; right:0; width:300px; background:#fff; border:1px solid var(--border); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.15); z-index:200; max-height:350px; overflow-y:auto; color:var(--text)">
+        <div style="padding:10px 14px; border-bottom:1px solid var(--border); font-weight:700; font-size:.85rem; display:flex; justify-content:space-between; align-items:center;">
+          <span>Уведомления</span>
+          <button onclick="markNotifsRead()" class="btn-link" style="font-size:.75rem">Прочитать все</button>
+        </div>
+        <div id="notif-list" style="font-size:.8rem"></div>
+      </div>
+    </div>
+
+    <!-- Обычное меню ПК -->
+    <nav class="nav" id="nav"></nav>
+    <button id="mob-burger" onclick="toggleMobileMenu()" style="display:none; background:none; border:none; color:#fff; font-size:1.6rem; cursor:pointer; padding: 4px 8px; line-height: 1;">☰</button>
+  </div>
 </header>
 
 <!-- Выпадающее меню для мобилок (по умолчанию скрыто) -->
@@ -358,7 +375,7 @@ var S = {
   user: JSON.parse(localStorage.getItem('user')) || null,
   token: localStorage.getItem('token') || null,
   page: 'dashboard',
-  tasks: [], chains: [], stats: {}, importInfo: null, users: [], contractors: [],
+  tasks: [], chains: [], stats: {}, importInfo: null, users: [], contractors: [], notifications: [],
   selChain: null, selChainStep: null,
   taskQ: '', taskSt: '', taskPr: '', taskReg: '', taskMgr: '', taskYear: '', taskOverdue: '',
   taskArch: 'no',
@@ -401,6 +418,8 @@ function api(url, opts) {
 
 // ─── BOOT ─────────────────────────────────────────────────────────────────────
 function init() {
+  loadNotifications();
+  setInterval(loadNotifications, 30000);
   renderNav();
   if (!S.token) {
     renderApp();
@@ -573,6 +592,75 @@ function renderApp() {
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
+// Загрузка и показ уведомлений
+function loadNotifications() {
+  if (!S.token) return;
+  api('/notifications').then(function(list) {
+    if (!Array.isArray(list)) return;
+    S.notifications = list;
+    
+    var unreadCount = list.filter(n => !n.is_read).length;
+    var badge = document.getElementById('notif-badge');
+    var container = document.getElementById('notif-container');
+
+    if (container) container.style.display = 'block';
+    
+    if (badge) {
+      if (unreadCount > 0) {
+        badge.textContent = unreadCount;
+        badge.style.display = 'inline-block';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+  });
+}
+
+function toggleNotifications() {
+  var box = document.getElementById('notif-dropdown');
+  if (!box) return;
+  var isHidden = box.style.display === 'none';
+  box.style.display = isHidden ? 'block' : 'none';
+
+  if (isHidden) {
+    var items = (S.notifications || []).map(function(n) {
+      var bg = n.is_read ? '#fff' : 'var(--orange-bg)';
+      return `
+        <div style="padding:10px 14px; border-bottom:1px solid #f4f4f5; background:${bg}; cursor:pointer" onclick="openNotifLink('${n.link || ''}')">
+          <div style="font-weight:600; color:var(--text); margin-bottom:2px">${n.title}</div>
+          <div style="color:var(--text-2); font-size:.75rem">${n.body || ''}</div>
+          <div style="color:var(--text-3); font-size:.65rem; margin-top:4px">${new Date(n.created_at).toLocaleString('ru')}</div>
+        </div>
+      `;
+    }).join('');
+    
+    document.getElementById('notif-list').innerHTML = items || '<div style="padding:15px; text-align:center; color:var(--text-3)">Нет уведомлений</div>';
+  }
+}
+
+function markNotifsRead() {
+  api('/notifications/read-all', { method: 'PUT' }).then(function() {
+    loadNotifications();
+    var box = document.getElementById('notif-dropdown');
+    if (box) box.style.display = 'none';
+  });
+}
+
+function openNotifLink(link) {
+  var box = document.getElementById('notif-dropdown');
+  if (box) box.style.display = 'none';
+  if (link) openCard(link); // Если в ссылке был ID заявки - открываем её
+}
+
+// Закрытие выпадашки при клике мимо
+document.addEventListener('click', function(e) {
+  var container = document.getElementById('notif-container');
+  var box = document.getElementById('notif-dropdown');
+  if (box && container && !container.contains(e.target)) {
+    box.style.display = 'none';
+  }
+});
+
 function levenshtein(a, b) {
   var tmp;
   if (a.length === 0) return b.length;

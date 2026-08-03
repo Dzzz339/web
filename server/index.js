@@ -212,6 +212,53 @@ async function initDB() {
   // Миграция: добавляем email для пользователей
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`);
 
+  // 1. Таблицы для будущего Чата
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS chat_rooms (
+      id         SERIAL PRIMARY KEY,
+      name       TEXT,                                   -- Название (для групп)
+      type       TEXT NOT NULL DEFAULT 'direct',         -- 'direct', 'group', 'task'
+      task_id    TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS chat_members (
+      id        SERIAL PRIMARY KEY,
+      room_id   INTEGER REFERENCES chat_rooms(id) ON DELETE CASCADE,
+      user_id   INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      joined_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(room_id, user_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id           SERIAL PRIMARY KEY,
+      room_id      INTEGER REFERENCES chat_rooms(id) ON DELETE CASCADE,
+      sender_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      message_text TEXT NOT NULL,
+      attachments  JSONB DEFAULT '[]',
+      created_at   TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // 2. Таблица для Уведомлений (Колокольчик)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id         SERIAL PRIMARY KEY,
+      user_id    INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      title      TEXT NOT NULL,
+      body       TEXT,
+      link       TEXT,                                  -- Ссылка на задачу (например, ID заявки)
+      is_read    BOOLEAN DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, is_read)`);
+
 
   const userCount = await pool.query('SELECT COUNT(*) FROM users');
   if (parseInt(userCount.rows[0].count) === 0) {
@@ -469,6 +516,26 @@ app.delete('/api/users/:id', authenticateToken, async (req, res) => {
     await pool.query('DELETE FROM users WHERE id = $1', [req.params.id]);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
+// Получить список уведомлений текущего пользователя
+app.get('/api/notifications', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20',
+      [req.user.id]
+    );
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Пометить все как прочитанные
+app.put('/api/notifications/read-all', authenticateToken, async (req, res) => {
+  try {
+    await pool.query('UPDATE notifications SET is_read = true WHERE user_id = $1', [req.user.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // ==========================================
@@ -812,6 +879,7 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
         d.stage = 'payment'; // Логично, что если оплачено, то это этап оплаты
       }
     }
+
     await pool.query(`
       UPDATE tasks SET
         region        = COALESCE($2, region),
@@ -885,33 +953,47 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
       d.kmRate      || null,
       d.tmc         || null, 
       d.extras      || null
-    ])
+    ]);
 
+    // --- УВЕДОМЛЕНИЯ И EMAIL ДЛЯ ИСПОЛНИТЕЛЯ ---
     if (d.assignee) {
-      pool.query('SELECT email FROM users WHERE full_name = $1 AND email IS NOT NULL AND email != \'\'', [d.assignee])
+      pool.query('SELECT id, email FROM users WHERE full_name = $1', [d.assignee])
         .then(({ rows }) => {
-          if (rows.length > 0 && rows[0].email) {
-            sendEmail({
-              to: rows[0].email,
-              subject: `📋 Новая заявка: ${req.params.id}`,
-              html: `
-                <div style="font-family: 'Golos Text', sans-serif, Arial; max-width: 500px; padding: 24px; background: #FFF4EE; border-radius: 12px; border: 1px solid #FFEDD5;">
-                  <h2 style="color: #FF6200; margin-top: 0;">Вам назначена заявка ${req.params.id}</h2>
-                  <p style="font-size: 14px; color: #333;"><b>Адрес объекта:</b> ${d.address || 'Указан в системе'}</p>
-                  <p style="font-size: 14px; color: #333;"><b>Тип работ:</b> ${d.workType || '—'}</p>
-                  <p style="font-size: 14px; color: #333;"><b>Контакт на объекте:</b> ${d.contact || '—'}</p>
-                  <br>
-                  <a href="https://app.stockeasy.ru" style="display: inline-block; background: #FF6200; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px;">Открыть в Stockeasy</a>
-                </div>
-              `
-            });
+          if (rows.length > 0) {
+            const targetUser = rows[0];
+
+            // 1. Создаем уведомление для колокольчика в системе
+            createNotification(
+              targetUser.id,
+              `📋 Новая заявка: ${req.params.id}`,
+              `Вам назначена заявка по адресу: ${d.address || 'Указан в системе'}`,
+              req.params.id
+            );
+
+            // 2. Если есть email — отправляем письмо
+            if (targetUser.email) {
+              sendEmail({
+                to: targetUser.email,
+                subject: `📋 Новая заявка: ${req.params.id}`,
+                html: `
+                  <div style="font-family: 'Golos Text', sans-serif, Arial; max-width: 500px; padding: 24px; background: #FFF4EE; border-radius: 12px; border: 1px solid #FFEDD5;">
+                    <h2 style="color: #FF6200; margin-top: 0;">Вам назначена заявка ${req.params.id}</h2>
+                    <p style="font-size: 14px; color: #333;"><b>Адрес объекта:</b> ${d.address || 'Указан в системе'}</p>
+                    <p style="font-size: 14px; color: #333;"><b>Тип работ:</b> ${d.workType || '—'}</p>
+                    <p style="font-size: 14px; color: #333;"><b>Контакт на объекте:</b> ${d.contact || '—'}</p>
+                    <br>
+                    <a href="https://app.stockeasy.ru" style="display: inline-block; background: #FF6200; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px;">Открыть в Stockeasy</a>
+                  </div>
+                `
+              });
+            }
           }
-        }).catch(err => console.error('Email lookup error:', err));
+        }).catch(err => console.error('Notification / Email lookup error:', err));
     }
-    
-    res.json({ success: true })
+
+    res.json({ success: true });
   } catch(e) { console.error('PUT task error:', e.message); res.status(500).json({ error: e.message }) }
-})
+});
 
 app.delete('/api/tasks/:id', async (req, res) => {
   try {
