@@ -244,21 +244,19 @@ async function initDB() {
     )
   `);
 
-  // 2. Таблица для Уведомлений (Колокольчик)
+  // Таблица для Уведомлений (Колокольчик)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS notifications (
       id         SERIAL PRIMARY KEY,
       user_id    INTEGER REFERENCES users(id) ON DELETE CASCADE,
       title      TEXT NOT NULL,
       body       TEXT,
-      link       TEXT,                                  -- Ссылка на задачу (например, ID заявки)
+      link       TEXT,
       is_read    BOOLEAN DEFAULT false,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
-
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, is_read)`);
-
 
   const userCount = await pool.query('SELECT COUNT(*) FROM users');
   if (parseInt(userCount.rows[0].count) === 0) {
@@ -542,6 +540,15 @@ app.delete('/api/users/:id', authenticateToken, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+
+async function createNotification(userId, title, body, link) {
+  try {
+    await pool.query(
+      'INSERT INTO notifications (user_id, title, body, link) VALUES ($1, $2, $3, $4)',
+      [userId, title, body || '', link || null]
+    );
+  } catch(e) { console.error('Notification creation error:', e.message); }
+}
 
 // Получить список уведомлений текущего пользователя
 app.get('/api/notifications', authenticateToken, async (req, res) => {
