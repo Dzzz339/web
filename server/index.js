@@ -2,6 +2,8 @@ import { spawn } from 'child_process';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import express from 'express'
+import { createServer } from 'http';
+import { Server } from 'socker.io';
 import cors from 'cors'
 import path from 'path'
 import fs from 'fs'
@@ -15,6 +17,10 @@ const { Pool } = pg
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(__dirname, '..')
 const app = express()
+const server = createServer(app);
+const io = new Server(server, {
+  cors: { origin: '*' }
+});
 const PORT = process.env.PORT || 3000
 const JWT_SECRET = process.env.JWT_SECRET || 'hahahksdjscndufn4738';
 
@@ -272,6 +278,7 @@ async function initDB() {
     console.log('Default admin user created');
   }
   runBackgroundGeocoding();
+  ensureGeneralChat();
   console.log('DB initialized')
   
 }
@@ -804,6 +811,110 @@ async function runBackgroundGeocoding() {
     isGeocodingRunning = false;
   }
 }
+
+// ==========================================
+// API & WEBSOCKETS: ЕДИНЫЙ МЕССЕНДЖЕР
+// ==========================================
+
+// Авто-создание «Общего чата» компании при старте
+async function ensureGeneralChat() {
+  try {
+    const { rows } = await pool.query("SELECT id FROM chat_rooms WHERE type = 'group' AND name = 'Общий чат'");
+    if (rows.length === 0) {
+      await pool.query("INSERT INTO chat_rooms (name, type) VALUES ('Общий чат', 'group')");
+      console.log('[Chat] Создан Общий чат компании');
+    }
+  } catch(e) { console.error('General chat error:', e.message); }
+}
+
+// Получить список всех диалогов текущего пользователя
+app.get('/api/chats', authenticateToken, async (req, res) => {
+  try {
+    // 1. Все пользователи (для создания ЛС 1-на-1)
+    const { rows: users } = await pool.query('SELECT id, username, role, full_name FROM users WHERE id != $1', [req.user.id]);
+    
+    // 2. Общий чат
+    const { rows: general } = await pool.query("SELECT id, name, type FROM chat_rooms WHERE type = 'group' LIMIT 1");
+    
+    res.json({ users, generalChat: general[0] || null });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Получить сообщения комнаты
+app.get('/api/chats/:roomId/messages', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT m.id, m.room_id, m.sender_id, m.message_text, m.created_at, u.full_name, u.username
+      FROM chat_messages m
+      LEFT JOIN users u ON u.id = m.sender_id
+      WHERE m.room_id = $1
+      ORDER BY m.created_at ASC
+      LIMIT 100
+    `, [req.params.roomId]);
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Получить или создать ЛС с конкретным пользователем
+app.post('/api/chats/direct', authenticateToken, async (req, res) => {
+  try {
+    const { targetUserId } = req.body;
+    
+    // Ищем существующую комнату 1-на-1 между этими пользователями
+    const { rows: existing } = await pool.query(`
+      SELECT r.id 
+      FROM chat_rooms r
+      JOIN chat_members m1 ON m1.room_id = r.id AND m1.user_id = $1
+      JOIN chat_members m2 ON m2.room_id = r.id AND m2.user_id = $2
+      WHERE r.type = 'direct'
+      LIMIT 1
+    `, [req.user.id, targetUserId]);
+
+    if (existing.length > 0) {
+      return res.json({ roomId: existing[0].id });
+    }
+
+    // Если комнаты нет — создаем
+    const { rows: newRoom } = await pool.query("INSERT INTO chat_rooms (type) VALUES ('direct') RETURNING id");
+    const roomId = newRoom[0].id;
+
+    await pool.query('INSERT INTO chat_members (room_id, user_id) VALUES ($1, $2), ($1, $3)', [roomId, req.user.id, targetUserId]);
+    res.json({ roomId });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// WebSockets подсоединение
+io.on('connection', (socket) => {
+  // Подключение к комнате
+  socket.on('join-room', (roomId) => {
+    socket.join(`room_${roomId}`);
+  });
+
+  // Отправка сообщения
+  socket.on('send-message', async (data) => {
+    // { roomId, senderId, text }
+    if (!data.text || !data.roomId || !data.senderId) return;
+
+    try {
+      const { rows } = await pool.query(
+        'INSERT INTO chat_messages (room_id, sender_id, message_text) VALUES ($1, $2, $3) RETURNING *',
+        [data.roomId, data.senderId, data.text]
+      );
+      
+      const { rows: userRows } = await pool.query('SELECT full_name, username FROM users WHERE id = $1', [data.senderId]);
+      const msg = {
+        ...rows[0],
+        full_name: userRows[0] ? userRows[0].full_name : 'Пользователь',
+        username: userRows[0] ? userRows[0].username : ''
+      };
+
+      // Рассылаем всем в этой комнате в реальном времени!
+      io.to(`room_${data.roomId}`).emit('new-message', msg);
+    } catch(e) { console.error('Socket message error:', e.message); }
+  });
+});
+
+
 
 // ─── API: STATS ───────────────────────────────────────────────────────────────
 app.get('/api/stats', authenticateToken, async (req, res) => {
@@ -1360,7 +1471,7 @@ app.get('/api/excel/:filename', authenticateToken, (req, res) => res.status(404)
 
 // ─── СТАРТ ───────────────────────────────────────────────────────────────────
 initDB().then(() => {
-  app.listen(PORT, () => console.log(`Stockeasy: http://localhost:${PORT}`))
+  server.listen(PORT, () => console.log(`Stockeasy: http://localhost:${PORT}`))
 }).catch(err => {
   console.error('DB init failed:', err)
   process.exit(1)
