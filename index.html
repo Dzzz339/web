@@ -936,7 +936,7 @@ function pageChat() {
 
         <!-- Поле ввода -->
         <div id="chat-input-area" style="padding:12px 16px; border-top:1px solid var(--border); display:none; gap:10px; background:#fff">
-          <input id="chat_text_input" type="text" placeholder="Напишите сообщение..." style="flex:1" onkeypress="if(e.key==='Enter') sendChatMessage()">
+          <input id="chat_text_input" type="text" placeholder="Напишите сообщение..." style="flex:1" onkeypress="if(event.key==='Enter') sendChatMessage()">
           <button class="btn" onclick="sendChatMessage()">Отправить ➔</button>
         </div>
       </div>
@@ -1982,10 +1982,12 @@ function sendChatMessage() {
   var text = input.value.trim();
   if (!text || !S.activeRoomId || !S.socket) return;
 
+  var currentUserId = S.user ? (S.user.id || S.user.username) : null;
+
   // Отправляем по WebSocket
   S.socket.emit('send-message', {
     roomId: S.activeRoomId,
-    senderId: S.user.id,
+    senderId: currentUserId,
     text: text
   });
 

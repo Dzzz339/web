@@ -73,7 +73,7 @@ app.post('/api/login', async (req, res) => {
       { expiresIn: '24h' }
     );
 
-    res.json({ token, user: { username: user.username, role: user.role, fullName: user.full_name } });
+    res.json({ token, user: { id: user.id, username: user.username, role: user.role, fullName: user.full_name } });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
