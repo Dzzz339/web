@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import express from 'express'
 import { createServer } from 'http';
-import { Server } from 'socker.io';
+import { Server } from 'socket.io';
 import cors from 'cors'
 import path from 'path'
 import fs from 'fs'
