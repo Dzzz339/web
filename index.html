@@ -1907,9 +1907,13 @@ function initChatSocket() {
 
   S.socket.on('new-message', function(msg) {
     if (String(msg.room_id) === String(S.activeRoomId)) {
-      (S.chatMessages = S.chatMessages || []).push(msg);
-      renderChatMessages();
-      scrollChatToBottom();
+      S.chatMessages = S.chatMessages || [];
+      // Защита: добавляем только если такого сообщения еще нет в списке
+      if (!S.chatMessages.some(m => m.id === msg.id)) {
+        S.chatMessages.push(msg);
+        renderChatMessages();
+        scrollChatToBottom();
+      }
     }
   });
 }
