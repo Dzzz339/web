@@ -332,6 +332,7 @@
     }
   </style>
 <script src="xlsx.full.min.js"></script>
+<script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
 <header class="hdr">
@@ -385,6 +386,7 @@ var S = {
 };
 
 var NAV = [
+  {id:'chat',      icon:'💬', label:'Чат'},
   {id:'logs',      icon:'📖', label:'Журнал'},
   {id:'contractors', icon:'🏢', label:'Контрагенты'},
   {id:'users',     icon:'👥', label:'Команда'},
@@ -571,6 +573,7 @@ function renderApp() {
   if      (S.page === 'dashboard') setApp(pageDash());
   else if (S.page === 'users')     setApp(pageUsers());
   else if (S.page === 'logs')      setApp(pageLogs());
+  else if (S.page === 'chat')      setApp(pageChat());
   else if (S.page === 'contractors') setApp(pageContractors());
   else if (S.page === 'supply')    setApp(pageSupply());
   else if (S.page === 'kanban')    setApp(pageKanban());
@@ -863,6 +866,85 @@ function pageUsers() {
     </div>
   `;
 }
+
+function pageChat() {
+  // Запускаем подключение WebSockets если ещё не подключены
+  initChatSocket();
+
+  // Запрашиваем списки чатов с сервера
+  api('/chats').then(function(res) {
+    if (!res) return;
+    S.chatList = res;
+
+    // Генерируем список личек
+    var usersHtml = (res.users || []).map(function(u) {
+      return `
+        <div onclick="openDirectChat(${u.id}, '${escHtml(u.full_name || u.username)}')" 
+             style="padding:10px 14px; border-bottom:1px solid var(--border); cursor:pointer; display:flex; align-items:center; gap:10px;"
+             onmouseover="this.style.background='var(--orange-bg)'" onmouseout="this.style.background='#fff'">
+          <div style="background:var(--orange); color:#fff; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.8rem">
+            ${(u.full_name || u.username).charAt(0).toUpperCase()}
+          </div>
+          <div>
+            <div style="font-weight:600; font-size:.85rem">${escHtml(u.full_name || u.username)}</div>
+            <div style="font-size:.7rem; color:var(--text-3)">${u.role === 'admin' ? 'Администратор' : 'Монтажник'}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    var sidebar = document.getElementById('chat-sidebar-users');
+    if (sidebar) sidebar.innerHTML = usersHtml || '<div class="p t3">Нет других пользователей</div>';
+  });
+
+  return `
+    <h1 class="page-title">Мессенджер</h1>
+    <div class="card" style="display:grid; grid-template-columns: 280px 1fr; height:70vh; overflow:hidden">
+      
+      <!-- Левая колонка: Диалоги -->
+      <div style="border-right:1px solid var(--border); display:flex; flex-direction:column; background:#fafafa">
+        <div style="padding:12px 14px; border-bottom:1px solid var(--border); font-weight:700" class="sec-title">Чаты</div>
+        <div style="overflow-y:auto; flex:1">
+          
+          <!-- Общий чат -->
+          <div onclick="openGeneralChat()" 
+               style="padding:12px 14px; border-bottom:1px solid var(--border); cursor:pointer; display:flex; align-items:center; gap:10px; background:#fff"
+               onmouseover="this.style.background='var(--orange-bg)'" onmouseout="this.style.background='#fff'">
+            <div style="background:#2563eb; color:#fff; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:1.1rem">📢</div>
+            <div>
+              <div style="font-weight:700; font-size:.9rem">Общий чат компании</div>
+              <div style="font-size:.72rem; color:var(--text-3)">Все сотрудники</div>
+            </div>
+          </div>
+
+          <div style="padding:8px 14px; font-size:.7rem; font-weight:700; color:var(--text-3); text-transform:uppercase; margin-top:8px">Личные сообщения</div>
+          <div id="chat-sidebar-users">Загрузка...</div>
+        </div>
+      </div>
+
+      <!-- Правая колонка: Окно переписки -->
+      <div style="display:flex; flex-direction:column; background:#fff">
+        <!-- Шапка активного чата -->
+        <div style="padding:12px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between">
+          <div style="font-weight:700; font-size:1rem" id="chat-title">Выберите чат слева</div>
+        </div>
+
+        <!-- Сообщения -->
+        <div id="chat-messages" style="flex:1; padding:16px; overflow-y:auto; display:flex; flex-direction:column; gap:10px; background:var(--bg)">
+          <div style="text-align:center; color:var(--text-3); margin-top:2rem">Выберите собеседника слева, чтобы начать переписку</div>
+        </div>
+
+        <!-- Поле ввода -->
+        <div id="chat-input-area" style="padding:12px 16px; border-top:1px solid var(--border); display:none; gap:10px; background:#fff">
+          <input id="chat_text_input" type="text" placeholder="Напишите сообщение..." style="flex:1" onkeypress="if(e.key==='Enter') sendChatMessage()">
+          <button class="btn" onclick="sendChatMessage()">Отправить ➔</button>
+        </div>
+      </div>
+
+    </div>
+  `;
+}
+
 
 function pageContractors() {
   var rows = (S.contractors || []).map(function(c) {
@@ -1810,6 +1892,111 @@ function doUpload(file) {
 
 // ─── ACTIONS ─────────────────────────────────────────────────────────────────
 
+
+// --- ЛОГИКА МЕССЕНДЖЕРА ---
+function initChatSocket() {
+  if (S.socket) return; // Уже подключены
+  
+  if (typeof io === 'undefined') return console.error('Socket.io client script not loaded');
+
+  S.socket = io();
+
+  // Прилетел 'new-message' от сервера
+  S.socket.on('new-message', function(msg) {
+    if (String(msg.room_id) === String(S.activeRoomId)) {
+      (S.chatMessages = S.chatMessages || []).push(msg);
+      renderChatMessages();
+      scrollChatToBottom();
+    }
+  });
+}
+
+function openGeneralChat() {
+  if (!S.chatList || !S.chatList.generalChat) return;
+  openChatRoom(S.chatList.generalChat.id, '📢 Общий чат компании');
+}
+
+function openDirectChat(targetUserId, targetName) {
+  api('/chats/direct', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetUserId: targetUserId })
+  }).then(function(res) {
+    if (res && res.roomId) {
+      openChatRoom(res.roomId, '💬 ' + targetName);
+    }
+  });
+}
+
+function openChatRoom(roomId, title) {
+  S.activeRoomId = roomId;
+  document.getElementById('chat-title').textContent = title;
+  document.getElementById('chat-input-area').style.display = 'flex';
+
+  // Входим в комнату на сервере по WebSocket
+  if (S.socket) S.socket.emit('join-room', roomId);
+
+  // Качаем историю сообщений
+  api('/chats/' + roomId + '/messages').then(function(messages) {
+    S.chatMessages = messages || [];
+    renderChatMessages();
+    scrollChatToBottom();
+  });
+}
+
+function renderChatMessages() {
+  var box = document.getElementById('chat-messages');
+  if (!box) return;
+
+  if (!S.chatMessages || !S.chatMessages.length) {
+    box.innerHTML = '<div style="text-align:center; color:var(--text-3); margin-top:2rem">Нет сообщений. Напишите первым!</div>';
+    return;
+  }
+
+  var currentUserId = S.user ? S.user.id : null;
+
+  var html = S.chatMessages.map(function(m) {
+    var isMe = (m.sender_id === currentUserId || (S.user && m.username === S.user.username));
+    var bg = isMe ? 'var(--orange-bg)' : '#fff';
+    var align = isMe ? 'flex-end' : 'flex-start';
+    var border = isMe ? '1px solid #fed7aa' : '1px solid var(--border)';
+    var time = new Date(m.created_at).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+
+    return `
+      <div style="align-self:${align}; max-width:70%; background:${bg}; border:${border}; border-radius:10px; padding:8px 12px; box-shadow:var(--shadow)">
+        <div style="font-size:.7rem; font-weight:700; color:${isMe ? 'var(--orange-dark)' : 'var(--blue)'}; margin-bottom:3px">
+          ${isMe ? 'Вы' : escHtml(m.full_name || m.username || 'Пользователь')}
+        </div>
+        <div style="font-size:.85rem; color:var(--text); word-break:break-word">${escHtml(m.message_text)}</div>
+        <div style="font-size:.65rem; color:var(--text-3); text-align:right; margin-top:4px">${time}</div>
+      </div>
+    `;
+  }).join('');
+
+  box.innerHTML = html;
+}
+
+function sendChatMessage() {
+  var input = document.getElementById('chat_text_input');
+  if (!input) return;
+  var text = input.value.trim();
+  if (!text || !S.activeRoomId || !S.socket) return;
+
+  // Отправляем по WebSocket
+  S.socket.emit('send-message', {
+    roomId: S.activeRoomId,
+    senderId: S.user.id,
+    text: text
+  });
+
+  input.value = '';
+  input.focus();
+}
+
+function scrollChatToBottom() {
+  var box = document.getElementById('chat-messages');
+  if (box) setTimeout(function(){ box.scrollTop = box.scrollHeight; }, 50);
+}
 
 function editUser(id) {
   var user = (S.users || []).find(u => u.id === id);
