@@ -922,21 +922,21 @@ function pageChat() {
         </div>
       </div>
 
-      <!-- Правая колонка: Окно переписки -->
-      <div style="display:flex; flex-direction:column; background:#fff">
+      <!-- Правая колонка: Окно переписки (Зафиксировали высоту) -->
+      <div style="display:flex; flex-direction:column; background:#fff; height:100%; min-height:0; overflow:hidden">
         <!-- Шапка активного чата -->
         <div style="padding:12px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between">
           <div style="font-weight:700; font-size:1rem" id="chat-title">Выберите чат слева</div>
         </div>
 
-        <!-- Сообщения -->
-        <div id="chat-messages" style="flex:1; padding:16px; overflow-y:auto; display:flex; flex-direction:column; gap:10px; background:var(--bg)">
+        <!-- Сообщения (скроллится ТОЛЬКО этот блок) -->
+        <div id="chat-messages" style="flex:1; min-height:0; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; background:var(--bg)">
           <div style="text-align:center; color:var(--text-3); margin-top:2rem">Выберите собеседника слева, чтобы начать переписку</div>
         </div>
 
-        <!-- Поле ввода -->
+        <!-- Поле ввода (ВСЕГДА прижато к низу) -->
         <div id="chat-input-area" style="padding:12px 16px; border-top:1px solid var(--border); display:none; gap:10px; background:#fff">
-          <input id="chat_text_input" type="text" placeholder="Напишите сообщение..." style="flex:1" onkeypress="if(event.key==='Enter') sendChatMessage()">
+          <input id="chat_text_input" type="text" placeholder="Напишите сообщение..." style="flex:1" onkeydown="if(event.key==='Enter') sendChatMessage()">
           <button class="btn" onclick="sendChatMessage()">Отправить ➔</button>
         </div>
       </div>
@@ -1895,13 +1895,16 @@ function doUpload(file) {
 
 // --- ЛОГИКА МЕССЕНДЖЕРА ---
 function initChatSocket() {
-  if (S.socket) return; // Уже подключены
-  
+  if (S.socket) return;
   if (typeof io === 'undefined') return console.error('Socket.io client script not loaded');
 
   S.socket = io();
 
-  // Прилетел 'new-message' от сервера
+  // При входе регистрируем ID нашего пользователя на сервере
+  if (S.user && S.user.id) {
+    S.socket.emit('init-user', S.user.id);
+  }
+
   S.socket.on('new-message', function(msg) {
     if (String(msg.room_id) === String(S.activeRoomId)) {
       (S.chatMessages = S.chatMessages || []).push(msg);

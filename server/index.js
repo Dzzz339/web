@@ -883,16 +883,31 @@ app.post('/api/chats/direct', authenticateToken, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// WebSockets подсоединение
+// WebSockets подсоединение и умная адресация
 io.on('connection', (socket) => {
-  // Подключение к комнате
+  
+  // При подключении привязываем сокет к персональному каналу пользователя
+  socket.on('init-user', async (userId) => {
+    if (!userId) return;
+    socket.userId = userId;
+    socket.join(`user_${userId}`); // Личный канал пользователя (например, user_3)
+
+    // Автоматически подключаем пользователя ко всем его комнатам
+    try {
+      const { rows } = await pool.query('SELECT room_id FROM chat_members WHERE user_id = $1', [userId]);
+      rows.forEach(r => socket.join(`room_${r.room_id}`));
+      
+      const { rows: gen } = await pool.query("SELECT id FROM chat_rooms WHERE type = 'group' LIMIT 1");
+      if (gen.length) socket.join(`room_${gen[0].id}`);
+    } catch(e) {}
+  });
+
   socket.on('join-room', (roomId) => {
-    socket.join(`room_${roomId}`);
+    if (roomId) socket.join(`room_${roomId}`);
   });
 
   // Отправка сообщения
   socket.on('send-message', async (data) => {
-    // { roomId, senderId, text }
     if (!data.text || !data.roomId || !data.senderId) return;
 
     try {
@@ -908,8 +923,14 @@ io.on('connection', (socket) => {
         username: userRows[0] ? userRows[0].username : ''
       };
 
-      // Рассылаем всем в этой комнате в реальном времени!
+      // 1. Отправляем в саму комнату чата
       io.to(`room_${data.roomId}`).emit('new-message', msg);
+
+      // 2. Персонально доставляем всем участникам этой комнаты (чтобы дошло, даже если у них открыта другая страница)
+      const { rows: members } = await pool.query('SELECT user_id FROM chat_members WHERE room_id = $1', [data.roomId]);
+      members.forEach(m => {
+        io.to(`user_${m.user_id}`).emit('new-message', msg);
+      });
     } catch(e) { console.error('Socket message error:', e.message); }
   });
 });
