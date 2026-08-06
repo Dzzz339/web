@@ -418,13 +418,17 @@ function api(url, opts) {
 
 // ─── BOOT ─────────────────────────────────────────────────────────────────────
 function init() {
-  loadNotifications();
-  setInterval(loadNotifications, 30000);
   renderNav();
   if (!S.token) {
     renderApp();
     return;
   }
+
+  loadNotifications();
+  if (!window.notifInterval) {
+    window.notifInterval = setInterval(loadNotifications, 30000);
+  }
+  
   setApp('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.75rem">Загрузка…</p></div>');
   var requests = [api('/stats'), api('/tasks'), api('/chains'), api('/import-info'), api('/marches')];
   // Загружаем список пользователей только если зашел Админ
@@ -620,21 +624,39 @@ function toggleNotifications() {
   var box = document.getElementById('notif-dropdown');
   if (!box) return;
   var isHidden = box.style.display === 'none';
-  box.style.display = isHidden ? 'block' : 'none';
 
   if (isHidden) {
-    var items = (S.notifications || []).map(function(n) {
-      var bg = n.is_read ? '#fff' : 'var(--orange-bg)';
-      return `
-        <div style="padding:10px 14px; border-bottom:1px solid #f4f4f5; background:${bg}; cursor:pointer" onclick="openNotifLink('${n.link || ''}')">
-          <div style="font-weight:600; color:var(--text); margin-bottom:2px">${n.title}</div>
-          <div style="color:var(--text-2); font-size:.75rem">${n.body || ''}</div>
-          <div style="color:var(--text-3); font-size:.65rem; margin-top:4px">${new Date(n.created_at).toLocaleString('ru')}</div>
-        </div>
-      `;
-    }).join('');
-    
-    document.getElementById('notif-list').innerHTML = items || '<div style="padding:15px; text-align:center; color:var(--text-3)">Нет уведомлений</div>';
+    // 1. Сначала запрашиваем СВЕЖИЕ уведомления с сервера
+    api('/notifications').then(function(list) {
+      if (Array.isArray(list)) {
+        S.notifications = list;
+        
+        // Обновляем бейдж с цифрой
+        var unreadCount = list.filter(n => !n.is_read).length;
+        var badge = document.getElementById('notif-badge');
+        if (badge) {
+          badge.textContent = unreadCount;
+          badge.style.display = unreadCount > 0 ? 'inline-block' : 'none';
+        }
+
+        // Рендерим список
+        var items = list.map(function(n) {
+          var bg = n.is_read ? '#fff' : 'var(--orange-bg)';
+          return `
+            <div style="padding:10px 14px; border-bottom:1px solid #f4f4f5; background:${bg}; cursor:pointer" onclick="openNotifLink('${n.link || ''}')">
+              <div style="font-weight:600; color:var(--text); margin-bottom:2px">${n.title}</div>
+              <div style="color:var(--text-2); font-size:.75rem">${n.body || ''}</div>
+              <div style="color:var(--text-3); font-size:.65rem; margin-top:4px">${new Date(n.created_at).toLocaleString('ru')}</div>
+            </div>
+          `;
+        }).join('');
+        
+        document.getElementById('notif-list').innerHTML = items || '<div style="padding:15px; text-align:center; color:var(--text-3)">Нет уведомлений</div>';
+      }
+      box.style.display = 'block';
+    });
+  } else {
+    box.style.display = 'none';
   }
 }
 
