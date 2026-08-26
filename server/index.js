@@ -1712,10 +1712,14 @@ app.post('/api/tasks/:id/invoices', authenticateToken, async (req, res) => {
     )
     const nextVersion = Number(verRows[0].maxv) + 1
 
+    const ports = task.fact || task.inOrder || 0
+    const km = Number(task.distanceKm) || 0
+    const total = calcTotal(ports, km)
+
     const { rows } = await pool.query(
       `INSERT INTO invoices (task_id, doc_type, version, status, amount, snapshot, issued_by, issued_at)
        VALUES ($1,$2,$3,'issued',$4,$5,$6,NOW()) RETURNING *`,
-      [req.params.id, docType, nextVersion, getTaskFinance(task).total, JSON.stringify(task), req.user.id]
+      [req.params.id, docType, nextVersion, total, JSON.stringify(task), req.user.id]
     )
     res.json(rows[0])
   } catch(e) { res.status(500).json({ error: e.message }) }
