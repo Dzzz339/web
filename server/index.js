@@ -9,6 +9,8 @@ import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
 import XLSX from 'xlsx'
+import multer from 'multer'
+import crypto from 'crypto'
 import pg from 'pg'
 
 
@@ -16,6 +18,20 @@ const sleep = ms => new Promise(res => setTimeout(res, ms));
 const { Pool } = pg
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(__dirname, '..')
+const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(ROOT, 'uploads')
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true })
+
+const attachmentStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOADS_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname) || ''
+    cb(null, crypto.randomUUID() + ext)
+  }
+})
+const uploadAttachment = multer({
+  storage: attachmentStorage,
+  limits: { fileSize: 15 * 1024 * 1024 } // 15МБ на файл
+})
 const app = express()
 const server = createServer(app);
 const io = new Server(server, {
@@ -213,6 +229,9 @@ async function initDB() {
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS geo_lat TEXT`)
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS geo_lon TEXT`)
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS clean_address TEXT`)
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS supplier_order_signed BOOLEAN DEFAULT false`)
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS supplier_id_uploaded BOOLEAN DEFAULT false`)
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS overdue_reason TEXT`)
 
 
   // Миграция: добавляем email для пользователей
@@ -263,6 +282,41 @@ async function initDB() {
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, is_read)`);
+
+    // Таблица для вложений (фото, схемы, акты, чеки)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS task_attachments (
+      id            SERIAL PRIMARY KEY,
+      task_id       TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+      type          TEXT NOT NULL,          -- 'photo_report' | 'scheme' | 'act' | 'receipt'
+      file_path     TEXT NOT NULL,
+      original_name TEXT,
+      mime_type     TEXT,
+      size_bytes    INTEGER,
+      uploaded_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      comment       TEXT,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_attachments_task_id ON task_attachments(task_id)`);
+  
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS invoices (
+      id            SERIAL PRIMARY KEY,
+      task_id       TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+      doc_type      TEXT NOT NULL DEFAULT 'invoice',  -- 'invoice' | 'act'
+      version       INTEGER NOT NULL DEFAULT 1,
+      status        TEXT NOT NULL DEFAULT 'draft',    -- draft | issued | approved | paid
+      amount        NUMERIC,
+      snapshot      JSONB,        -- копия данных задачи на момент выпуска (для истории)
+      issued_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      issued_at     TIMESTAMPTZ,
+      approved_at   TIMESTAMPTZ,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_invoices_task_id ON invoices(task_id)`);
 
   const userCount = await pool.query('SELECT COUNT(*) FROM users');
   if (parseInt(userCount.rows[0].count) === 0) {
@@ -378,6 +432,9 @@ function rowToTask(r) {
     rawData:      r.raw_data || {},
     tmc:          Number(r.tmc) || 0,
     extras:       Number(r.extras) || 0,
+    supplierOrderSigned: r.supplier_order_signed || false,
+    supplierIdUploaded:  r.supplier_id_uploaded || false,
+    overdueReason: r.overdue_reason,
   }
 }
 
@@ -984,6 +1041,28 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }) }
 })
 
+
+app.get('/api/tasks/:id/payment-readiness', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM tasks WHERE id=$1', [req.params.id])
+    if (!rows.length) return res.status(404).json({ error: 'Не найдено' })
+    const t = rowToTask(rows[0])
+    const { rows: photoRows } = await pool.query(
+      `SELECT 1 FROM task_attachments WHERE task_id=$1 AND type='photo_report' LIMIT 1`, [req.params.id]
+    )
+    const { rows: notifRows } = await pool.query(
+      `SELECT 1 FROM notifications WHERE link=$1 LIMIT 1`, [req.params.id]
+    )
+    res.json({
+      photoReport: photoRows.length > 0,
+      notificationSent: notifRows.length > 0,
+      supplierOrderSigned: t.supplierOrderSigned,
+      supplierIdUploaded: t.supplierIdUploaded,
+      overdueReasonProvided: t.overdueDays > 0 ? !!t.overdueReason : true // причина нужна, только если есть просрочка
+    })
+  } catch(e) { res.status(500).json({ error: e.message }) }
+});
+
 // Универсальная функция отправки писем через Resend
 async function sendEmail({ to, subject, html }) {
   const apiKey = process.env.RESEND_API_KEY;
@@ -1081,6 +1160,13 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
       }
     }
 
+    if (d.status === 'paid') {
+      pool.query(
+        `UPDATE invoices SET status='paid' WHERE task_id=$1 AND status IN ('issued','approved')`,
+        [req.params.id]
+      ).catch(err => console.error('Invoice auto-paid sync error:', err.message));
+    }
+
     await pool.query(`
       UPDATE tasks SET
         region        = COALESCE($2, region),
@@ -1116,6 +1202,9 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
         km_rate       = COALESCE($29::numeric, km_rate),
         tmc           = COALESCE($30::numeric, tmc), 
         extras        = COALESCE($31::numeric, extras),
+        supplier_order_signed = COALESCE($32::boolean, supplier_order_signed),
+        supplier_id_uploaded  = COALESCE($33::boolean, supplier_id_uploaded),
+        overdue_reason        = COALESCE($34, overdue_reason),
         updated_at    = NOW()
       WHERE id = $1
     `, [
@@ -1153,7 +1242,10 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
       d._history    ? JSON.stringify(d._history) : null,
       d.kmRate      || null,
       d.tmc         || null, 
-      d.extras      || null
+      d.extras      || null,
+      d.supplierOrderSigned !== undefined ? d.supplierOrderSigned : null,
+      d.supplierIdUploaded  !== undefined ? d.supplierIdUploaded  : null,
+      d.overdueReason       || null
     ]);
 
     // --- УВЕДОМЛЕНИЯ И EMAIL ДЛЯ ИСПОЛНИТЕЛЯ ---
@@ -1202,6 +1294,80 @@ app.delete('/api/tasks/:id', async (req, res) => {
     res.json({ success: true })
   } catch(e) { res.status(500).json({ error: e.message }) }
 })
+
+// ─── API: ВЛОЖЕНИЯ ЗАЯВКИ ────────────────────────────────────────────────────
+
+// Хелпер: может ли этот пользователь трогать вложения этой заявки
+async function canAccessTaskAttachments(user, taskId) {
+  if (user.role === 'admin') return true
+  const { rows } = await pool.query('SELECT assignee FROM tasks WHERE id = $1', [taskId])
+  if (!rows[0]) return false
+  return rows[0].assignee === user.fullName
+}
+
+app.get('/api/tasks/:id/attachments', authenticateToken, async (req, res) => {
+  try {
+    if (!(await canAccessTaskAttachments(req.user, req.params.id))) {
+      return res.status(403).json({ error: 'Нет доступа к этой заявке' })
+    }
+    const { rows } = await pool.query(
+      'SELECT id, type, original_name, mime_type, size_bytes, comment, created_at FROM task_attachments WHERE task_id = $1 ORDER BY created_at DESC',
+      [req.params.id]
+    )
+    res.json(rows)
+  } catch(e) { res.status(500).json({ error: e.message }) }
+});
+
+app.post('/api/tasks/:id/attachments', authenticateToken, uploadAttachment.array('files', 10), async (req, res) => {
+  try {
+    if (!(await canAccessTaskAttachments(req.user, req.params.id))) {
+      return res.status(403).json({ error: 'Нет доступа к этой заявке' })
+    }
+    const type = req.body.type
+    if (!['photo_report', 'scheme', 'act', 'receipt'].includes(type)) {
+      return res.status(400).json({ error: 'Некорректный тип вложения' })
+    }
+    const inserted = []
+    for (const file of req.files) {
+      const { rows } = await pool.query(
+        `INSERT INTO task_attachments (task_id, type, file_path, original_name, mime_type, size_bytes, uploaded_by, comment)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, type, original_name, mime_type, size_bytes, comment, created_at`,
+        [req.params.id, type, file.filename, file.originalname, file.mimetype, file.size, req.user.id, req.body.comment || null]
+      )
+      inserted.push(rows[0])
+    }
+    res.json(inserted)
+  } catch(e) { res.status(500).json({ error: e.message }) }
+});
+
+app.get('/api/attachments/:attachmentId/file', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM task_attachments WHERE id = $1', [req.params.attachmentId])
+    const att = rows[0]
+    if (!att) return res.status(404).json({ error: 'Файл не найден' })
+    if (!(await canAccessTaskAttachments(req.user, att.task_id))) {
+      return res.status(403).json({ error: 'Нет доступа' })
+    }
+    res.sendFile(path.join(UPLOADS_DIR, att.file_path), {
+      headers: { 'Content-Disposition': `inline; filename="${encodeURIComponent(att.original_name || att.file_path)}"` }
+    })
+  } catch(e) { res.status(500).json({ error: e.message }) }
+});
+
+app.delete('/api/attachments/:attachmentId', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM task_attachments WHERE id = $1', [req.params.attachmentId])
+    const att = rows[0]
+    if (!att) return res.status(404).json({ error: 'Файл не найден' })
+    // Удалять может админ, или сам загрузивший — реши по своему усмотрению
+    if (req.user.role !== 'admin' && att.uploaded_by !== req.user.id) {
+      return res.status(403).json({ error: 'Нет доступа' })
+    }
+    await pool.query('DELETE FROM task_attachments WHERE id = $1', [req.params.attachmentId])
+    fs.unlink(path.join(UPLOADS_DIR, att.file_path), () => {}) // не блокируем ответ, если файла вдруг нет
+    res.json({ success: true })
+  } catch(e) { res.status(500).json({ error: e.message }) }
+});
 
 // ─── API: CHAINS ──────────────────────────────────────────────────────────────
 app.get('/api/chains', authenticateToken, async (req, res) => {
@@ -1520,6 +1686,57 @@ app.get('/api/export/:type/:id', authenticateToken, async (req, res) => {
     res.send(buf)
   } catch(e) { res.status(500).json({ error: e.message }) }
 })
+
+// Получить все версии счетов/актов по заявке
+app.get('/api/tasks/:id/invoices', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM invoices WHERE task_id = $1 ORDER BY doc_type, version DESC',
+      [req.params.id]
+    )
+    res.json(rows)
+  } catch(e) { res.status(500).json({ error: e.message }) }
+});
+
+// Выпустить новую версию счёта или акта (замораживает текущие данные заявки)
+app.post('/api/tasks/:id/invoices', authenticateToken, async (req, res) => {
+  try {
+    const docType = req.body.docType === 'act' ? 'act' : 'invoice'
+    const { rows: taskRows } = await pool.query('SELECT * FROM tasks WHERE id=$1', [req.params.id])
+    if (!taskRows.length) return res.status(404).json({ error: 'Заявка не найдена' })
+    const task = rowToTask(taskRows[0])
+
+    const { rows: verRows } = await pool.query(
+      'SELECT COALESCE(MAX(version),0) as maxv FROM invoices WHERE task_id=$1 AND doc_type=$2',
+      [req.params.id, docType]
+    )
+    const nextVersion = Number(verRows[0].maxv) + 1
+
+    const { rows } = await pool.query(
+      `INSERT INTO invoices (task_id, doc_type, version, status, amount, snapshot, issued_by, issued_at)
+       VALUES ($1,$2,$3,'issued',$4,$5,$6,NOW()) RETURNING *`,
+      [req.params.id, docType, nextVersion, getTaskFinance(task).total, JSON.stringify(task), req.user.id]
+    )
+    res.json(rows[0])
+  } catch(e) { res.status(500).json({ error: e.message }) }
+});
+
+// Сменить статус конкретной версии счёта/акта
+app.put('/api/invoices/:invId', authenticateToken, async (req, res) => {
+  try {
+    const status = req.body.status
+    if (!['draft','issued','approved','paid'].includes(status)) {
+      return res.status(400).json({ error: 'Некорректный статус' })
+    }
+    const approvedAtSql = status === 'approved' ? 'NOW()' : 'approved_at'
+    const { rows } = await pool.query(
+      `UPDATE invoices SET status=$2, approved_at=${approvedAtSql} WHERE id=$1 RETURNING *`,
+      [req.params.invId, status]
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Не найдено' })
+    res.json(rows[0])
+  } catch(e) { res.status(500).json({ error: e.message }) }
+});
 
 app.get('/api/export/:id', authenticateToken, (req, res) => res.redirect('/api/export/app2/'+req.params.id))
 

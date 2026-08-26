@@ -418,6 +418,27 @@ function api(url, opts) {
   });
 }
 
+function uploadAttachments(taskId, type, files, comment) {
+  var fd = new FormData();
+  for (var i = 0; i < files.length; i++) fd.append('files', files[i]);
+  fd.append('type', type);
+  if (comment) fd.append('comment', comment);
+  return fetch('/api/tasks/' + taskId + '/attachments', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + S.token }, // без Content-Type — браузер сам поставит multipart boundary
+    body: fd
+  }).then(function(r){ return r.json(); });
+}
+
+function loadAttachments(taskId) {
+  return api('/tasks/' + taskId + '/attachments');
+}
+
+function deleteAttachment(attId) {
+  return api('/attachments/' + attId, { method: 'DELETE' });
+}
+
+
 // ─── BOOT ─────────────────────────────────────────────────────────────────────
 function init() {
   renderNav();
@@ -2338,6 +2359,7 @@ function openCard(id) {
   renderNav();
   renderApp();
   window.scrollTo(0,0);
+  refreshAttachmentsList(id);
 }
 
 function pageCard() {
@@ -2374,7 +2396,7 @@ function pageCard() {
   }
 
   function field(lbl, key, type) {
-    var val = t[key] || '';
+    var val = type === 'checkbox' ? !!t[key] : (t[key] || '');
     if (!edit) {
       var disp = val || '<span class="t3">—</span>';
       if (key === 'status') disp = stBadge(val);
@@ -2398,6 +2420,7 @@ function pageCard() {
           disp = val;
         }
       }
+      if (type === 'checkbox') disp = val ? '✅ Да' : '⬜ Нет';
       return '<div class="field-row"><div class="field-lbl">'+lbl+'</div><div class="field-val">'+disp+'</div></div>';
     }
     var inp = '';
@@ -2408,6 +2431,7 @@ function pageCard() {
     else if (key === 'assignee' && S.user.role === 'admin') inp = '<select name="assignee">' + assigneeOpts + '</select>';
     else if (key === 'contractor' && S.user.role === 'admin') inp = '<select name="contractor" style="width:100%">' + contractorOpts + '</select>';
     else if (type === 'textarea') inp = '<textarea name="'+key+'">'+val+'</textarea>';
+    else if (type === 'checkbox') inp = '<input type="checkbox" name="'+key+'"'+(val ? ' checked' : '')+'>';
     else inp = '<input type="'+(type||'text')+'" name="'+key+'" value="'+String(val).replace(/"/g,'&quot;')+'">';
     return '<div class="field-row"><div class="field-lbl">'+lbl+'</div><div class="field-val">'+inp+'</div></div>';
   }
@@ -2609,6 +2633,9 @@ function pageCard() {
     field('Ссылка на тех.инфо', 'techLink', 'url') +
     field('№ документа в ЭДО', 'edoNumber') +
     field('№ счёта / сумма', 'invoiceInfo') +
+    field('Заказ подписан на портале поставщика', 'supplierOrderSigned', 'checkbox') +
+    field('ИД загружена на портал поставщика', 'supplierIdUploaded', 'checkbox') +
+    field('Причина просрочки', 'overdueReason', 'textarea') +
     field('В ЭДО', 'vedoStatus') +
     field('Внутренний комментарий', 'comment', 'textarea') + // Твой внутренний коммент
     field('Комментарий из Excel', 'excelComment', 'textarea') + // Коммент из файла
@@ -2668,6 +2695,14 @@ function pageCard() {
 
   var rightCol = '<div style="display:flex;flex-direction:column;gap:1rem">' +
     '<div class="card p"><div class="sec-title" style="margin-bottom:.5rem">Карта объекта</div>' + mapHtml + '</div>' +
+    '<div class="card p" id="attachmentsBlock"><div class="sec-title" style="margin-bottom:.5rem">Вложения</div><div id="attachmentsList" class="t3">Загрузка…</div>' +
+      '<div style="display:flex;gap:.4rem;margin-top:.6rem;flex-wrap:wrap">' +
+        '<label class="btn btn-sm btn-ghost">📷 Фото<input type="file" multiple accept="image/*" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'photo_report\',this.files)"></label>' +
+        '<label class="btn btn-sm btn-ghost">🗺️ Схема<input type="file" accept="image/*,.pdf" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'scheme\',this.files)"></label>' +
+        '<label class="btn btn-sm btn-ghost">📄 Акт<input type="file" accept="image/*,.pdf" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'act\',this.files)"></label>' +
+        '<label class="btn btn-sm btn-ghost">🧾 Чек<input type="file" accept="image/*,.pdf" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'receipt\',this.files)"></label>' +
+      '</div>' +
+    '</div>' +
     '<div class="card p"><div class="sec-title" style="margin-bottom:.5rem">История изменений</div>' + histHtml + '</div>' +
   '</div>';
 
@@ -2675,6 +2710,44 @@ function pageCard() {
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start">' +
       leftCol + rightCol +
     '</div>';
+}
+
+
+function refreshAttachmentsList(taskId) {
+  var el = document.getElementById('attachmentsList');
+  if (!el) return;
+  loadAttachments(taskId).then(function(list) {
+    if (!Array.isArray(list) || !list.length) {
+      el.innerHTML = '<span class="t3">Пока ничего не загружено</span>';
+      return;
+    }
+    var typeLabels = { photo_report: '📷 Фото', scheme: '🗺️ Схема', act: '📄 Акт', receipt: '🧾 Чек' };
+    el.innerHTML = list.map(function(a) {
+      return '<div class="field-row">' +
+        '<div class="field-lbl">' + (typeLabels[a.type] || a.type) + '</div>' +
+        '<div class="field-val"><a href="/api/attachments/' + a.id + '/file?token=' + '' + '" onclick="event.preventDefault();openAttachment(' + a.id + ')">' + escHtml(a.original_name || 'файл') + '</a>' +
+        ' <button class="btn btn-sm btn-ghost" onclick="handleAttachmentDelete(' + a.id + ',\'' + taskId + '\')" title="Удалить">✖</button></div>' +
+      '</div>';
+    }).join('');
+  });
+}
+
+function openAttachment(id) {
+  fetch('/api/attachments/' + id + '/file', { headers: { 'Authorization': 'Bearer ' + S.token } })
+    .then(function(r){ return r.blob(); })
+    .then(function(blob){ window.open(URL.createObjectURL(blob), '_blank'); });
+}
+
+function handleAttachmentUpload(taskId, type, files) {
+  if (!files || !files.length) return;
+  uploadAttachments(taskId, type, files).then(function() {
+    refreshAttachmentsList(taskId);
+  });
+}
+
+function handleAttachmentDelete(attId, taskId) {
+  if (!confirm('Удалить файл?')) return;
+  deleteAttachment(attId).then(function() { refreshAttachmentsList(taskId); });
 }
 
 function saveCard() {
@@ -2685,7 +2758,8 @@ function saveCard() {
 
   var data = {};
   form.querySelectorAll('input,select,textarea').forEach(function(el){
-    if (el.name) data[el.name] = el.value;
+    if (!el.name) return;
+    data[el.name] = (el.type === 'checkbox') ? el.checked : el.value;
   });
 
   var now = new Date().toLocaleString('ru');
@@ -2704,11 +2778,18 @@ function saveCard() {
     manager:'Менеджер Сбера', amount:'Сумма договора', inOrder:'В заказе (портов)',
     overdueDays:'Дней просрочки', contractor:'Подрядчик',
     distanceKm:'Удалённость (км)', pricePerUnit:'Стоимость за ед.',
-    idStatus:'Статус ИД', excelComment:'Комментарий (Excel)'
+    idStatus:'Статус ИД', excelComment:'Комментарий (Excel)',
+    supplierOrderSigned:'Заказ подписан на портале', supplierIdUploaded:'ИД загружена на портал',
+    overdueReason:'Причина просрочки'
   };
   Object.keys(data).forEach(function(k){
-    if (String(data[k]) !== String(t[k]||'')) {
-      hist.push({date:now, author:author, field:fieldNames[k]||k, old:t[k]||'', new:data[k]});
+    var oldVal = t[k];
+    var newVal = data[k];
+    var isBool = typeof newVal === 'boolean';
+    var oldStr = isBool ? (!!oldVal ? 'Да' : 'Нет') : String(oldVal||'');
+    var newStr = isBool ? (newVal ? 'Да' : 'Нет') : String(newVal);
+    if (oldStr !== newStr) {
+      hist.push({date:now, author:author, field:fieldNames[k]||k, old:oldStr, new:newStr});
     }
   });
   data._history = hist;
