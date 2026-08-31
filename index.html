@@ -65,6 +65,21 @@
     .row { display: flex; align-items: center; gap: .75rem; }
     .mb { margin-bottom: 1rem; }
 
+    .unsaved-bar {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 500;
+      background: var(--surface); border-top: 1px solid var(--orange);
+      padding: .75rem 1.5rem; display: flex; align-items: center; gap: 1rem;
+      justify-content: center;
+    }
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 600;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .modal-box {
+      background: var(--surface); border-radius: 8px; padding: 1.5rem;
+      max-width: 480px; width: 90%; max-height: 80vh; overflow-y: auto;
+    }
+
     /* STAT */
     .stat { padding: 1.1rem 1.25rem; }
     .stat-lbl { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--text-3); margin-bottom: .4rem; }
@@ -381,7 +396,8 @@ var S = {
   taskQ: '', taskSt: '', taskPr: '', taskReg: '', taskMgr: '', taskYear: '', taskOverdue: '',
   taskArch: 'no',
   taskStage: '', taskSort: '',
-  cardId: null, cardEdit: false,
+  cardId: null, cardDraft: {}, cardConfirmOpen: false,
+  cpTaskId: null, cpMode: 'search', cpQuery: '',
   marches: [], marchId: null
 };
 
@@ -1415,12 +1431,6 @@ function pageTasks() {
       : '<span class="t3">—</span>';
     
     var tid = (t.id || '').replace(/'/g, "\\'");
-
-    // ВАЖНО: Сначала готовим текст, который будем выводить
-    var displayAddr = (t.address || '').slice(0, 50);
-    var displayWork = (t.workType || '').slice(0, 38);
-    var displayMgr  = t.manager || '—';
-    var transportSum = Number(t.distanceKm) || 0;
     var fin = getTaskFinance(t);
 
     tableRows += '<tr>' +
@@ -1433,29 +1443,19 @@ function pageTasks() {
       // Регион
       '<td>' + highlight(t.region || '', q) + '</td>' +
       
-      // Адрес (подсвечиваем только то, что выводим на экран)
-      // В title пишем ЧИСТЫЙ текст без подсветки
-      '<td class="td-clip" title="' + (t.address || '').replace(/"/g, '&quot;') + '">' + highlight(displayAddr, q) + '</td>' +
-      
-      // Тип работ
-      '<td class="td-clip" title="' + (t.workType || '').replace(/"/g, '&quot;') + '">' + highlight(displayWork, q) + '</td>' +
-      
       '<td style="white-space:nowrap; font-weight:600">' + (t.fact || 0) + ' / ' + (t.inOrder || 0) + '</td>' +
 
-      // Менеджер
-      '<td>' + highlight(displayMgr, q) + '</td>' +
+      // Контрагент — кликабельная ячейка, открывает попап выбора/добавления
+      '<td><button class="btn-link" onclick="openContractorPicker(\'' + tid + '\')">' +
+        (t.contractor ? escHtml(t.contractor) : '<span class="t3">+ Добавить</span>') +
+      '</button></td>' +
 
       // Статусы и кнопки (тут подсветка не нужна, это бейджи)
       '<td>' + prBadge(t.priority) + '</td>' +
       '<td>' + od + '</td>' +
-      // добавил
-      '<td class="t3">—</td>' +
-      '<td style="white-space:nowrap; color:var(--text); font-weight:600">' + fmtMoney(transportSum) + '</td>' +
 
       '<td>' + stBadge(t.status) + '</td>' +
 
-      '<td style="white-space:nowrap" title="' + fin.details + '">' + fmtMoney(fin.po) + '</td>' +
-      '<td style="white-space:nowrap">' + fmtMoney(fin.tmc) + '</td>' +
       '<td style="white-space:nowrap; font-weight:700; color:var(--blue)">' + fmtMoney(fin.total) + '</td>' +
       '<td style="white-space:nowrap; color:var(--text-3)">' + fmtMoney(t.amount) + '</td>' +
       '<td><button class="btn btn-sm btn-ghost btn-icon" onclick="exportTask(\'' + tid + '\')">&#x2B07;</button></td>' +
@@ -1513,12 +1513,140 @@ function pageTasks() {
     totals +
     '<div class="card tbl-wrap">' +
       '<table><thead><tr>' +
-        '<th>Номер</th><th>Дата</th><th>Регион</th><th>Адрес</th><th>Тип работ</th><th>Порты</th><th>Менеджер</th>' +
-        '<th>Приоритет</th><th>Просрочка</th><th>Км</th><th>Удалёнка</th><th>Статус</th>' +
-        '<th title="Работа + Удалёнка + Допы">Оплата ПО</th><th title="Материалы">ТМЦ</th>' +
+        '<th>Номер</th><th>Дата</th><th>Регион</th><th>Порты</th><th>Контрагент</th>' +
+        '<th>Приоритет</th><th>Просрочка</th><th>Статус</th>' +
         '<th title="Итого: ПО + ТМЦ">Платит Сбер</th><th title="Сумма из Excel">Сумма (спр.)</th><th></th>' +
       '</tr></thead><tbody>'+tableRows+more+'</tbody></table>' +
-    '</div>';
+    '</div>' +
+    renderContractorPicker();
+}
+
+function renderContractorPicker() {
+  if (!S.cpTaskId) return '';
+  var t = S.tasks.find(function(x){ return String(x.id) === String(S.cpTaskId); });
+  if (!t) return '';
+
+  var body = '';
+  if (S.cpMode === 'new') {
+    body =
+      '<div class="g2 mb">' +
+        '<input id="pc_inn" type="text" placeholder="ИНН" oninput="onContractorSearchInput(this.value,\'pc\')">' +
+        '<input id="pc_kpp" type="text" placeholder="КПП (если есть)">' +
+      '</div>' +
+      '<div style="position:relative">' +
+        '<div id="pc_suggestions_box" style="display:none; position:absolute; top:0; left:0; right:0; background:#fff; border:1.5px solid var(--orange); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.15); z-index:700; max-height:250px; overflow-y:auto"></div>' +
+      '</div>' +
+      '<div class="mb"><input id="pc_name_short" type="text" placeholder="Краткое название (ИП / ООО)" oninput="onContractorSearchInput(this.value,\'pc\')"></div>' +
+      '<div class="mb"><textarea id="pc_name_full" placeholder="Полное наименование" style="width:100%; resize:vertical; min-height:50px"></textarea></div>' +
+      '<div class="mb"><input id="pc_director" type="text" placeholder="ФИО Руководителя"></div>' +
+      '<div class="mb"><textarea id="pc_address" placeholder="Юридический адрес" style="width:100%; resize:vertical; min-height:50px"></textarea></div>' +
+      '<div class="mb"><input id="pc_bank" type="text" placeholder="Название Банка" style="width:100%"></div>' +
+      '<div class="row mb">' +
+        '<input id="pc_bik" type="text" placeholder="БИК" style="flex:1">' +
+        '<button class="btn btn-sm btn-ghost" onclick="fillBankFromDaData(\'pc\')">🔍 Найти по БИК</button>' +
+      '</div>' +
+      '<div class="mb"><input id="pc_acc_corr" type="text" placeholder="Корр. счет" style="width:100%"></div>' +
+      '<div class="mb"><input id="pc_acc_pay" type="text" placeholder="Расчетный счет" style="width:100%"></div>' +
+      '<div class="g2 mb">' +
+        '<input id="pc_phone" type="text" placeholder="Телефон">' +
+        '<input id="pc_email" type="text" placeholder="Email">' +
+      '</div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem">' +
+        '<button class="btn btn-sm btn-ghost" onclick="S.cpMode=\'search\';renderApp()">← Назад к поиску</button>' +
+        '<span><span id="pc_status" style="margin-right:1rem;color:var(--text-3);font-size:.8rem"></span>' +
+        '<button class="btn" onclick="addContractorFromPicker(\'' + S.cpTaskId.replace(/'/g,"\\'") + '\')">+ Сохранить и назначить</button></span>' +
+      '</div>';
+  } else {
+    var qy = (S.cpQuery || '').toLowerCase();
+    var matches = (S.contractors || []).filter(function(c) {
+      if (!qy) return true;
+      return (c.name_short||'').toLowerCase().indexOf(qy) !== -1 ||
+             (c.name_full||'').toLowerCase().indexOf(qy) !== -1 ||
+             (c.inn||'').toLowerCase().indexOf(qy) !== -1;
+    }).slice(0, 30);
+
+    var list = matches.length
+      ? matches.map(function(c) {
+          return '<div class="field-row" style="cursor:pointer" onclick="assignContractorToTask(\'' + S.cpTaskId.replace(/'/g,"\\'") + '\',\'' + (c.name_short||'').replace(/'/g,"\\'") + '\')">' +
+            '<div class="field-lbl">' + escHtml(c.name_short) + '</div>' +
+            '<div class="field-val t3">ИНН ' + (c.inn||'—') + '</div>' +
+          '</div>';
+        }).join('')
+      : '<div class="t3" style="padding:.5rem 0">Ничего не найдено</div>';
+
+    body =
+      '<input type="text" placeholder="Поиск по названию или ИНН..." value="' + (S.cpQuery||'').replace(/"/g,'&quot;') + '" ' +
+        'oninput="S.cpQuery=this.value;renderApp()" style="width:100%;margin-bottom:.75rem" autofocus>' +
+      '<div style="max-height:300px;overflow-y:auto">' + list + '</div>' +
+      '<div style="text-align:right;margin-top:1rem">' +
+        '<button class="btn btn-sm" onclick="S.cpMode=\'new\';renderApp()">+ Добавить нового</button>' +
+      '</div>';
+  }
+
+  return '<div class="modal-overlay" onclick="if(event.target===this) closeContractorPicker()">' +
+    '<div class="modal-box">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">' +
+        '<h3>Контрагент — заявка ' + escHtml(t.id) + '</h3>' +
+        '<button class="btn btn-sm btn-ghost" onclick="closeContractorPicker()">✕</button>' +
+      '</div>' +
+      body +
+    '</div>' +
+  '</div>';
+}
+
+function openContractorPicker(taskId) {
+  S.cpTaskId = taskId;
+  S.cpMode = 'search';
+  S.cpQuery = '';
+  renderApp();
+}
+
+function closeContractorPicker() {
+  S.cpTaskId = null;
+  renderApp();
+}
+
+function assignContractorToTask(taskId, nameShort) {
+  var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+  var now = new Date().toLocaleString('ru');
+  var author = S.user ? (S.user.full_name || S.user.username) : 'Система';
+  var hist = t._history || [];
+  if ((t.contractor||'') !== nameShort) {
+    hist.push({date:now, author:author, field:'Подрядчик', old:t.contractor||'', new:nameShort});
+  }
+  api('/tasks/' + taskId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({contractor: nameShort, _history: hist})})
+    .then(function(){
+      t.contractor = nameShort;
+      t._history = hist;
+      closeContractorPicker();
+    })
+    .catch(function(e){ alert('Ошибка: ' + e.message); });
+}
+
+function addContractorFromPicker(taskId) {
+  var data = {
+    inn:           document.getElementById('pc_inn').value.trim(),
+    kpp:           document.getElementById('pc_kpp').value.trim(),
+    name_short:    document.getElementById('pc_name_short').value.trim(),
+    name_full:     document.getElementById('pc_name_full').value.trim(),
+    director:      document.getElementById('pc_director').value.trim(),
+    address_legal: document.getElementById('pc_address').value.trim(),
+    bank_name:     document.getElementById('pc_bank').value.trim(),
+    bik:           document.getElementById('pc_bik').value.trim(),
+    account_pay:   document.getElementById('pc_acc_pay').value.trim(),
+    account_corr:  document.getElementById('pc_acc_corr').value.trim(),
+    phone:         document.getElementById('pc_phone').value.trim(),
+    email:         document.getElementById('pc_email').value.trim()
+  };
+  if (!data.inn || !data.name_short) return alert('ИНН и Краткое название обязательны!');
+
+  api('/contractors', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})
+    .then(function(res){
+      if (res.error) { alert(res.error); return; }
+      S.contractors.push(res);
+      assignContractorToTask(taskId, data.name_short);
+    });
 }
 
 // ─── PAGE: DATA ───────────────────────────────────────────────────────────────
@@ -1577,8 +1705,34 @@ function bindEvents() {
   if (addBtn) addBtn.addEventListener('click', addTask);
   var ntask = document.getElementById('ntask');
   if (ntask) ntask.addEventListener('keypress', function(e){ if(e.key==='Enter') addTask(); });
-    var saveBtn = document.getElementById('saveCardBtn');
-  if (saveBtn) saveBtn.addEventListener('click', saveCard);
+    // Живое редактирование карточки заявки
+  var cardForm = document.getElementById('cardForm');
+  if (cardForm) {
+    cardForm.addEventListener('change', function(e) {
+      var el = e.target;
+      if (!el.name) return;
+      var newVal = (el.type === 'checkbox') ? el.checked : el.value;
+      var t = S.tasks.find(function(x){ return String(x.id) === String(S.cardId); });
+      if (!t) return;
+      var origVal = t[el.name];
+      var isBool = typeof newVal === 'boolean';
+      var same = isBool ? (!!origVal === newVal) : (String(origVal||'') === String(newVal));
+      if (same) {
+        delete S.cardDraft[el.name];
+      } else {
+        S.cardDraft[el.name] = newVal;
+      }
+      renderApp();
+    });
+  }
+  var cardSaveBtn = document.getElementById('cardSaveBtn');
+  if (cardSaveBtn) cardSaveBtn.addEventListener('click', function(){ S.cardConfirmOpen = true; renderApp(); });
+  var cardResetBtn = document.getElementById('cardResetBtn');
+  if (cardResetBtn) cardResetBtn.addEventListener('click', function(){ S.cardDraft = {}; S.cardConfirmOpen = false; renderApp(); });
+  var cardConfirmCancelBtn = document.getElementById('cardConfirmCancelBtn');
+  if (cardConfirmCancelBtn) cardConfirmCancelBtn.addEventListener('click', function(){ S.cardConfirmOpen = false; renderApp(); });
+  var cardConfirmOkBtn = document.getElementById('cardConfirmOkBtn');
+  if (cardConfirmOkBtn) cardConfirmOkBtn.addEventListener('click', saveCard);
   // task filters
   var tq = document.getElementById('tq');
 
@@ -2131,27 +2285,26 @@ function fillContractorFromDaData() {
   });
 }
 
-function fillBankFromDaData() {
-  var bik = document.getElementById('nc_bik').value.trim();
+function fillBankFromDaData(prefix) {
+  prefix = prefix || 'nc';
+  var bik = document.getElementById(prefix + '_bik').value.trim();
   if (!bik) return alert('Введите БИК для поиска');
   
-  document.getElementById('nc_status').textContent = 'Ищем банк...';
+  document.getElementById(prefix + '_status').textContent = 'Ищем банк...';
   
   api('/dadata/party?inn=').then(() => {}); // Пустая заглушка для разогрева (необязательно)
 
   api('/dadata/bank?bik=' + encodeURIComponent(bik)).then(data => {
     if (!data) {
-      document.getElementById('nc_status').textContent = '❌ Банк не найден';
+      document.getElementById(prefix + '_status').textContent = '❌ Банк не найден';
       return;
     }
-    document.getElementById('nc_status').textContent = '✅ Банк найден';
+    document.getElementById(prefix + '_status').textContent = '✅ Банк найден';
     
-    // Заполняем поля банка
-    document.getElementById('nc_bank').value = data.bank_name;
-    document.getElementById('nc_acc_corr').value = data.account_corr;
+    document.getElementById(prefix + '_bank').value = data.bank_name;
+    document.getElementById(prefix + '_acc_corr').value = data.account_corr;
     
-    // Подсвечиваем
-    ['nc_bank', 'nc_acc_corr'].forEach(id => {
+    [prefix + '_bank', prefix + '_acc_corr'].forEach(id => {
       var el = document.getElementById(id);
       if(el) { el.style.background = '#e3f2fd'; setTimeout(()=>el.style.background='#fff', 1500); }
     });
@@ -2269,8 +2422,9 @@ function moveTask(id, status) {
 var contractorSearchTimeout = null;
 
 // Обработка ввода в поисковую строку
-function onContractorSearchInput(val) {
-  var box = document.getElementById('nc_suggestions_box');
+function onContractorSearchInput(val, prefix) {
+  prefix = prefix || 'nc';
+  var box = document.getElementById(prefix + '_suggestions_box');
   if (!box) return;
 
   clearTimeout(contractorSearchTimeout);
@@ -2281,7 +2435,6 @@ function onContractorSearchInput(val) {
     return;
   }
 
-  // Задержка 300мс, чтобы не спамить запросами при быстром наборе
   contractorSearchTimeout = setTimeout(function() {
     api('/dadata/suggest-party?query=' + encodeURIComponent(val.trim())).then(function(list) {
       if (!list || !list.length) {
@@ -2289,12 +2442,10 @@ function onContractorSearchInput(val) {
         box.innerHTML = '';
         return;
       }
-
-      // Формируем выпадающий список
-      var itemsHtml = list.map(function(item, idx) {
+      var itemsHtml = list.map(function(item) {
         var safeJson = encodeURIComponent(JSON.stringify(item));
         return `
-          <div onclick="selectContractorSuggestion('${safeJson}')" 
+          <div onclick="selectContractorSuggestion('${safeJson}','${prefix}')" 
                style="padding:10px 14px; border-bottom:1px solid #f4f4f5; cursor:pointer; transition:background .12s" 
                onmouseover="this.style.background='var(--orange-bg)'" 
                onmouseout="this.style.background='#fff'">
@@ -2305,7 +2456,6 @@ function onContractorSearchInput(val) {
           </div>
         `;
       }).join('');
-
       box.innerHTML = itemsHtml;
       box.style.display = 'block';
     });
@@ -2313,24 +2463,23 @@ function onContractorSearchInput(val) {
 }
 
 // Выбор варианта из выпадающего списка
-function selectContractorSuggestion(encodedJson) {
+function selectContractorSuggestion(encodedJson, prefix) {
+  prefix = prefix || 'nc';
   var data = JSON.parse(decodeURIComponent(encodedJson));
-  var box = document.getElementById('nc_suggestions_box');
+  var box = document.getElementById(prefix + '_suggestions_box');
   if (box) box.style.display = 'none';
 
-  // Очищаем поисковую строку
-  document.getElementById('nc_search_input').value = data.name_short;
+  var searchInput = document.getElementById(prefix + '_search_input');
+  if (searchInput) searchInput.value = data.name_short;
 
-  // Автозаполняем все формы
-  if(data.inn) document.getElementById('nc_inn').value = data.inn;
-  if(data.kpp) document.getElementById('nc_kpp').value = data.kpp;
-  if(data.name_short) document.getElementById('nc_name_short').value = data.name_short;
-  if(data.name_full) document.getElementById('nc_name_full').value = data.name_full;
-  if(data.address_legal) document.getElementById('nc_address').value = data.address_legal;
-  if(data.director) document.getElementById('nc_director').value = data.director;
+  if(data.inn) document.getElementById(prefix + '_inn').value = data.inn;
+  if(data.kpp) document.getElementById(prefix + '_kpp').value = data.kpp;
+  if(data.name_short) document.getElementById(prefix + '_name_short').value = data.name_short;
+  if(data.name_full) document.getElementById(prefix + '_name_full').value = data.name_full;
+  if(data.address_legal) document.getElementById(prefix + '_address').value = data.address_legal;
+  if(data.director) document.getElementById(prefix + '_director').value = data.director;
 
-  // Подсвечиваем поля зеленым для наглядности
-  ['nc_inn', 'nc_kpp', 'nc_name_short', 'nc_name_full', 'nc_address', 'nc_director'].forEach(function(id) {
+  [prefix+'_inn', prefix+'_kpp', prefix+'_name_short', prefix+'_name_full', prefix+'_address', prefix+'_director'].forEach(function(id) {
     var el = document.getElementById(id);
     if(el && el.value) { 
       el.style.background = '#e8f5e9'; 
@@ -2341,11 +2490,12 @@ function selectContractorSuggestion(encodedJson) {
 
 // Закрываем выпадающий список при клике в любое другое место экрана
 document.addEventListener('click', function(e) {
-  var box = document.getElementById('nc_suggestions_box');
-  var input = document.getElementById('nc_search_input');
-  if (box && e.target !== input && !box.contains(e.target)) {
-    box.style.display = 'none';
-  }
+  ['nc', 'pc'].forEach(function(prefix) {
+    var box = document.getElementById(prefix + '_suggestions_box');
+    if (box && !box.contains(e.target)) {
+      box.style.display = 'none';
+    }
+  });
 });
 
 
@@ -2354,7 +2504,8 @@ document.addEventListener('click', function(e) {
 // ─── PAGE: CARD ───────────────────────────────────────────────────────────────
 function openCard(id) {
   S.cardId = id;
-  S.cardEdit = false;
+  S.cardDraft = {};
+  S.cardConfirmOpen = false;
   S.page = 'card';
   renderNav();
   renderApp();
@@ -2366,7 +2517,6 @@ function pageCard() {
   var t = S.tasks.find(function(x){ return String(x.id) === String(S.cardId); });
   if (!t) return '<div class="card p"><p class="t3">Заявка не найдена.</p><button class="btn" onclick="go(\'tasks\')">← Назад</button></div>';
 
-  var edit = S.cardEdit;
   var statusOpts = [
     {v: 'pending',   l: 'Не распределено'},
     {v: 'progress',  l: 'В работе'},
@@ -2374,21 +2524,25 @@ function pageCard() {
     {v: 'paid',      l: 'Оплачен'},
     {v: 'cancelled', l: 'Отменен'}
   ].map(function(opt) {
-    return '<option value="' + opt.v + '"' + (t.status === opt.v ? ' selected' : '') + '>' + opt.l + '</option>';
+    var curStatus = Object.prototype.hasOwnProperty.call(S.cardDraft,'status') ? S.cardDraft.status : t.status;
+    return '<option value="' + opt.v + '"' + (curStatus === opt.v ? ' selected' : '') + '>' + opt.l + '</option>';
   }).join('');
   var prioOpts = ['high','medium','low'].map(function(v){
     var labels = {high:'🔴 Высокий',medium:'🟡 Средний',low:'🟢 Низкий'};
-    return '<option value="'+v+'"'+(t.priority===v?' selected':'')+'>'+labels[v]+'</option>';
+    var curPriority = Object.prototype.hasOwnProperty.call(S.cardDraft,'priority') ? S.cardDraft.priority : t.priority;
+    return '<option value="'+v+'"'+(curPriority===v?' selected':'')+'>'+labels[v]+'</option>';
   }).join('');
 
   var assigneeOpts = '<option value="">— (Не назначен) —</option>' + (S.users || []).map(function(u) {
+    var curAssignee = Object.prototype.hasOwnProperty.call(S.cardDraft,'assignee') ? S.cardDraft.assignee : t.assignee;
     if (!u.full_name) return '';
-    return '<option value="' + u.full_name + '"' + (t.assignee === u.full_name ? ' selected' : '') + '>#' + u.id + ' — ' + u.full_name + '</option>';
+    return '<option value="' + u.full_name + '"' + (curAssignee === u.full_name ? ' selected' : '') + '>#' + u.id + ' — ' + u.full_name + '</option>';
   }).join('');
 
   var contractorOpts = '<option value="">— (Не указан) —</option>' + (S.contractors || []).map(function(c) {
+    var curContractor = Object.prototype.hasOwnProperty.call(S.cardDraft,'contractor') ? S.cardDraft.contractor : (t.contractor||'');
     if (!c.name_short) return '';
-    return '<option value="' + c.name_short + '"' + ((t.contractor||'').trim() === c.name_short ? ' selected' : '') + '>' + c.name_short + '</option>';
+    return '<option value="' + c.name_short + '"' + (curContractor.trim() === c.name_short ? ' selected' : '') + '>' + c.name_short + '</option>';
   }).join('');
 
   if (t.contractor && !(S.contractors || []).some(c => c.name_short === t.contractor.trim())) {
@@ -2396,44 +2550,19 @@ function pageCard() {
   }
 
   function field(lbl, key, type) {
-    var val = type === 'checkbox' ? !!t[key] : (t[key] || '');
-    if (!edit) {
-      var disp = val || '<span class="t3">—</span>';
-      if (key === 'status') disp = stBadge(val);
-      if (key === 'priority') disp = prBadge(val);
-      if (key === 'amount') disp = fmtMoney(val);
-      if (key === 'distanceKm' && val) {
-        disp = fmtMoney(val);
-      }
-      if (key === 'overdueDays') disp = val > 0 ? '<span style="color:var(--red);font-weight:600">+'+val+' дн</span>' : '<span class="t3">0</span>';
-      if (key === 'stage') disp = stageLabel[val] || '<span class="t3">—</span>';
-      if (key === 'archived') disp = val ? '<span class="badge b-gray">Архив</span>' : '<span class="badge b-green">Активна</span>';
-      if (key === 'techLink' && val) disp = '<a href="'+val+'" target="_blank" rel="noopener noreferrer">🔗 Открыть</a>';
-      // Форматируем даты YYYY-MM-DD → ДД.ММ.ГГГГ
-      if (type === 'date' && val) {
-        // Пытаемся вытащить YYYY-MM-DD из любой строки
-        var m = String(val).match(/(\d{4})-(\d{2})-(\d{2})/);
-        if (m) {
-          disp = m[3] + '.' + m[2] + '.' + m[1];
-        } else {
-          // Если это была та самая кривая строка "Fri Jul 14... GM", выводим как есть
-          disp = val;
-        }
-      }
-      if (type === 'checkbox') disp = val ? '✅ Да' : '⬜ Нет';
-      return '<div class="field-row"><div class="field-lbl">'+lbl+'</div><div class="field-val">'+disp+'</div></div>';
-    }
+    var isDirty = Object.prototype.hasOwnProperty.call(S.cardDraft, key);
+    var val = isDirty ? S.cardDraft[key] : (t[key] || '');
     var inp = '';
-    if (key === 'status') inp = '<select name="status">'+statusOpts+'</select>';
-    else if (key === 'priority') inp = '<select name="priority">'+prioOpts+'</select>';
-    else if (key === 'stage') inp = '<select name="stage"><option value="">—</option>'+stageOpts+'</select>';
-    // Если поле "Исполнитель" и мы Админ — рисуем select, иначе просто текст
-    else if (key === 'assignee' && S.user.role === 'admin') inp = '<select name="assignee">' + assigneeOpts + '</select>';
-    else if (key === 'contractor' && S.user.role === 'admin') inp = '<select name="contractor" style="width:100%">' + contractorOpts + '</select>';
-    else if (type === 'textarea') inp = '<textarea name="'+key+'">'+val+'</textarea>';
-    else if (type === 'checkbox') inp = '<input type="checkbox" name="'+key+'"'+(val ? ' checked' : '')+'>';
-    else inp = '<input type="'+(type||'text')+'" name="'+key+'" value="'+String(val).replace(/"/g,'&quot;')+'">';
-    return '<div class="field-row"><div class="field-lbl">'+lbl+'</div><div class="field-val">'+inp+'</div></div>';
+    if (key === 'status') inp = '<select name="'+key+'" data-key="'+key+'">'+statusOpts+'</select>';
+    else if (key === 'priority') inp = '<select name="'+key+'" data-key="'+key+'">'+prioOpts+'</select>';
+    else if (key === 'stage') inp = '<select name="'+key+'" data-key="'+key+'"><option value="">—</option>'+stageOpts+'</select>';
+    else if (key === 'assignee' && S.user.role === 'admin') inp = '<select name="'+key+'" data-key="'+key+'">' + assigneeOpts + '</select>';
+    else if (key === 'contractor' && S.user.role === 'admin') inp = '<select name="'+key+'" data-key="'+key+'" style="width:100%">' + contractorOpts + '</select>';
+    else if (type === 'textarea') inp = '<textarea name="'+key+'" data-key="'+key+'">'+val+'</textarea>';
+    else if (type === 'checkbox') inp = '<input type="checkbox" name="'+key+'" data-key="'+key+'"'+(val ? ' checked' : '')+'>';
+    else inp = '<input type="'+(type||'text')+'" name="'+key+'" data-key="'+key+'" value="'+String(val).replace(/"/g,'&quot;')+'">';
+    var dirtyMark = isDirty ? ' <span class="badge b-orange" style="font-size:10px;padding:1px 5px">изменено</span>' : '';
+    return '<div class="field-row"><div class="field-lbl">'+lbl+dirtyMark+'</div><div class="field-val">'+inp+'</div></div>';
   }
 
   // История изменений
@@ -2559,7 +2688,8 @@ function pageCard() {
   var eid = t.id.replace(/'/g, "\\'");
   var stageLabel = {request:'\u0417\u0430\u044f\u0432\u043a\u0430',survey:'\u041e\u0431\u0441\u043b\u0435\u0434\u043e\u0432\u0430\u043d\u0438\u0435',install:'\u041c\u043e\u043d\u0442\u0430\u0436',control:'\u041a\u043e\u043d\u0442\u0440\u043e\u043b\u044c',acceptance:'\u041f\u0440\u0438\u0451\u043c\u043a\u0430',payment:'\u041e\u043f\u043b\u0430\u0442\u0430'};
   var stageOpts = ['request','survey','install','control','acceptance','payment'].map(function(v){
-    return '<option value="'+v+'"'+(t.stage===v?' selected':'')+'>'+stageLabel[v]+'</option>';
+    var curStage = Object.prototype.hasOwnProperty.call(S.cardDraft,'stage') ? S.cardDraft.stage : t.stage;
+    return '<option value="'+v+'"'+(curStage===v?' selected':'')+'>'+stageLabel[v]+'</option>';
   }).join('');
   var docBtns =
     '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'app2\',\''+eid+'\')" title="\u041f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u0435 \u21162">&#x2B07; \u041f\u0440\u0438\u043b. \u21162</button>' +
@@ -2570,10 +2700,7 @@ function pageCard() {
   var hdr = '<div class="card-hdr">' +
     '<button class="btn btn-sm btn-ghost" onclick="go(\'tasks\')">← Заявки</button>' +
     '<h1>'+t.id+'</h1>' +
-    (edit
-      ? '<button class="btn btn-sm" id="saveCardBtn">💾 Сохранить</button><button class="btn btn-sm btn-ghost" onclick="S.cardEdit=false;renderApp()">Отмена</button>'
-      : '<button class="btn btn-sm" onclick="S.cardEdit=true;renderApp()">✏️ Редактировать</button>' + docBtns
-    ) +
+    docBtns +
   '</div>';
 
   var leftCol = '<div class="card p">' +
@@ -2581,7 +2708,7 @@ function pageCard() {
       '<div class="sec-title" style="margin:0">Основные данные</div>' +
       field('', 'archived') + // Статус записи (Активна/Архив) теперь компактно в углу
     '</div>' +
-    (edit ? '<form id="cardForm">' : '') +
+    '<form id="cardForm">' +
     
     // БЛОК 1: ОБЪЕКТ И ФИНАНСЫ
     field('Регион', 'region') +
@@ -2595,7 +2722,7 @@ function pageCard() {
     field('Транспорт / Удалёнка (₽)', 'distanceKm', 'number') +
     field('Доп. расходы (₽)', 'extras', 'number') +
     field('ТМЦ — Материалы (₽)', 'tmc', 'number') +
-    (edit ? '' : '<div class="field-row"><div class="field-lbl">Итого платит Сбер</div><div class="field-val" style="font-weight:700; color:var(--blue)">' + fmtMoney(getTaskFinance(t).total) + '</div></div>') +
+    '<div class="field-row"><div class="field-lbl">Итого платит Сбер</div><div class="field-val" style="font-weight:700; color:var(--blue)">' + fmtMoney(getTaskFinance(t).total) + '</div></div>' +
     field('В заказе (портов)', 'inOrder', 'number') +
     field('Факт', 'fact', 'number') +
 
@@ -2690,7 +2817,7 @@ function pageCard() {
         '<div class="sec-title" style="margin-bottom:.5rem">Дополнительно из Excel</div>' +
         rows;
     })() +
-    (edit ? '</form>' : '') +
+    '</form>' +
   '</div>';
 
   var rightCol = '<div style="display:flex;flex-direction:column;gap:1rem">' +
@@ -2706,10 +2833,41 @@ function pageCard() {
     '<div class="card p"><div class="sec-title" style="margin-bottom:.5rem">История изменений</div>' + histHtml + '</div>' +
   '</div>';
 
+  var hasDraft = Object.keys(S.cardDraft).length > 0;
+  var unsavedBar = hasDraft
+    ? '<div class="unsaved-bar">' +
+        '<span>У вас есть несохранённые изменения</span>' +
+        '<button class="btn btn-sm" id="cardSaveBtn">Сохранить</button>' +
+        '<button class="btn btn-sm btn-ghost" id="cardResetBtn">Сбросить</button>' +
+      '</div>'
+    : '';
+
+  var confirmModal = S.cardConfirmOpen
+    ? '<div class="modal-overlay" id="cardConfirmOverlay">' +
+        '<div class="modal-box">' +
+          '<h3>Подтвердите изменения</h3>' +
+          Object.keys(S.cardDraft).map(function(k){
+            var oldV = t[k];
+            var newV = S.cardDraft[k];
+            var isBool = typeof newV === 'boolean';
+            var oldStr = isBool ? (oldV ? 'Да' : 'Нет') : String(oldV || '—');
+            var newStr = isBool ? (newV ? 'Да' : 'Нет') : String(newV || '—');
+            return '<div class="field-row"><div class="field-lbl">'+(fieldLabels[k]||k)+'</div>' +
+              '<div class="field-val"><span style="text-decoration:line-through;color:var(--red)">'+oldStr+'</span> &rarr; <b>'+newStr+'</b></div></div>';
+          }).join('') +
+          '<div style="display:flex;gap:.5rem;margin-top:1rem;justify-content:flex-end">' +
+            '<button class="btn btn-sm btn-ghost" id="cardConfirmCancelBtn">Отмена</button>' +
+            '<button class="btn btn-sm" id="cardConfirmOkBtn">Подтвердить и сохранить</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>'
+    : '';
+
   return hdr +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start">' +
       leftCol + rightCol +
-    '</div>';
+    '</div>' +
+    unsavedBar + confirmModal;
 }
 
 
@@ -2750,46 +2908,40 @@ function handleAttachmentDelete(attId, taskId) {
   deleteAttachment(attId).then(function() { refreshAttachmentsList(taskId); });
 }
 
+var fieldLabels = {
+  status:'Статус', priority:'Приоритет', stage:'Этап', assignee:'Исполнитель',
+  controller:'Контролёр', comment:'Комментарий', distributedAt:'Дата распределения',
+  contact:'Контакт на объекте', techLink:'Ссылка', deadline:'Дата окончания работ',
+  dateZayavki:'Дата заявки', fact:'Факт', obsledovanie:'Обследование',
+  dostup:'Доступ', dataVyhoda:'Дата выхода', priemka:'Приёмка',
+  oplata:'Оплата подрядчику', edoNumber:'№ документа в ЭДО',
+  invoiceInfo:'№ счёта/сумма', vedoStatus:'В ЭДО',
+  region:'Регион', address:'Адрес объекта', workType:'Тип работ',
+  tipObj:'Тип объекта', gosb:'№ ГОСБ', vsp:'№ ВСП',
+  manager:'Менеджер Сбера', amount:'Сумма договора', inOrder:'В заказе (портов)',
+  overdueDays:'Дней просрочки', contractor:'Подрядчик',
+  distanceKm:'Удалённость (км)', pricePerUnit:'Стоимость за ед.',
+  idStatus:'Статус ИД', excelComment:'Комментарий (Excel)',
+  supplierOrderSigned:'Заказ подписан на портале', supplierIdUploaded:'ИД загружена на портал',
+  overdueReason:'Причина просрочки'
+};
+
 function saveCard() {
-  var form = document.getElementById('cardForm');
-  if (!form) return;
   var t = S.tasks.find(function(x){ return String(x.id) === String(S.cardId); });
   if (!t) return;
-
-  var data = {};
-  form.querySelectorAll('input,select,textarea').forEach(function(el){
-    if (!el.name) return;
-    data[el.name] = (el.type === 'checkbox') ? el.checked : el.value;
-  });
+  var data = Object.assign({}, S.cardDraft);
+  if (!Object.keys(data).length) { S.cardConfirmOpen = false; renderApp(); return; }
 
   var now = new Date().toLocaleString('ru');
-  var author = S.user ? (S.user.full_name || S.user.username) : 'Система'; // Достаем имя
+  var author = S.user ? (S.user.full_name || S.user.username) : 'Система';
   var hist = t._history || [];
-  var fieldNames = {
-    status:'Статус', priority:'Приоритет', stage:'Этап', assignee:'Исполнитель',
-    controller:'Контролёр', comment:'Комментарий', distributedAt:'Дата распределения',
-    contact:'Контакт на объекте', techLink:'Ссылка', deadline:'Дата окончания работ',
-    dateZayavki:'Дата заявки', fact:'Факт', obsledovanie:'Обследование',
-    dostup:'Доступ', dataVyhoda:'Дата выхода', priemka:'Приёмка',
-    oplata:'Оплата подрядчику', edoNumber:'№ документа в ЭДО',
-    invoiceInfo:'№ счёта/сумма', vedoStatus:'В ЭДО',
-    region:'Регион', address:'Адрес объекта', workType:'Тип работ',
-    tipObj:'Тип объекта', gosb:'№ ГОСБ', vsp:'№ ВСП',
-    manager:'Менеджер Сбера', amount:'Сумма договора', inOrder:'В заказе (портов)',
-    overdueDays:'Дней просрочки', contractor:'Подрядчик',
-    distanceKm:'Удалённость (км)', pricePerUnit:'Стоимость за ед.',
-    idStatus:'Статус ИД', excelComment:'Комментарий (Excel)',
-    supplierOrderSigned:'Заказ подписан на портале', supplierIdUploaded:'ИД загружена на портал',
-    overdueReason:'Причина просрочки'
-  };
   Object.keys(data).forEach(function(k){
-    var oldVal = t[k];
-    var newVal = data[k];
-    var isBool = typeof newVal === 'boolean';
-    var oldStr = isBool ? (!!oldVal ? 'Да' : 'Нет') : String(oldVal||'');
-    var newStr = isBool ? (newVal ? 'Да' : 'Нет') : String(newVal);
+    var oldV = t[k], newV = data[k];
+    var isBool = typeof newV === 'boolean';
+    var oldStr = isBool ? (!!oldV ? 'Да' : 'Нет') : String(oldV||'');
+    var newStr = isBool ? (newV ? 'Да' : 'Нет') : String(newV);
     if (oldStr !== newStr) {
-      hist.push({date:now, author:author, field:fieldNames[k]||k, old:oldStr, new:newStr});
+      hist.push({date:now, author:author, field:fieldLabels[k]||k, old:oldStr, new:newStr});
     }
   });
   data._history = hist;
@@ -2797,12 +2949,12 @@ function saveCard() {
   api('/tasks/' + S.cardId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})
     .then(function(){
       Object.assign(t, data);
-      S.cardEdit = false;
+      S.cardDraft = {};
+      S.cardConfirmOpen = false;
       renderApp();
     })
     .catch(function(e){ alert('Ошибка сохранения: ' + e.message); });
 }
-
 // ─── PAGE: МАРШИ ─────────────────────────────────────────────────────────────
 function calcMarchFinance(point) {
   var km      = Number(point.km) || 0;
