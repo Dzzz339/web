@@ -853,7 +853,7 @@ function pageUsers() {
       <tr style="border-bottom: 1px solid var(--border)">
         <td style="padding: 10px 12px"><b>#${u.id}</b></td>
         <td style="padding: 10px 12px; font-weight:600">${u.username}</td>
-        <td style="padding: 10px 12px">${badge(u.role === 'admin' ? 'b-red' : 'b-gray', u.role)}</td>
+        <td style="padding: 10px 12px">${badge(u.role === 'admin' ? 'b-red' : 'b-gray', u.role)}${u.contractor_name ? '<div style="font-size:.72rem;color:var(--text-3);margin-top:2px">' + escHtml(u.contractor_name) + '</div>' : ''}</td>
         <td style="padding: 10px 12px">${u.full_name || '—'}</td>
         <td style="padding: 10px 12px; color:var(--text-2)">${u.email || '—'}</td>
         <td style="padding: 10px 12px; color:var(--text-3); font-size:.75rem">${new Date(u.created_at).toLocaleDateString('ru')}</td>
@@ -879,6 +879,10 @@ function pageUsers() {
         <select id="nu_role">
           <option value="worker">Монтажник (Worker)</option>
           <option value="admin">Администратор (Admin)</option>
+        </select>
+        <select id="nu_contractor">
+          <option value="">— Без контрагента —</option>
+          ${(S.contractors || []).map(function(c) { return '<option value="' + c.id + '">' + escHtml(c.name_short) + '</option>'; }).join('')}
         </select>
         <button class="btn" onclick="addUser()">+ Добавить</button>
       </div>
@@ -1623,6 +1627,26 @@ function assignContractorToTask(taskId, nameShort) {
     })
     .catch(function(e){ alert('Ошибка: ' + e.message); });
 }
+function acceptTask(taskId) {
+  api('/tasks/' + taskId + '/accept', { method: 'POST' }).then(function(res) {
+    if (res.error) return alert(res.error);
+    var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
+    if (t) t.assignmentStatus = 'accepted';
+    renderApp();
+  });
+}
+
+function declineTask(taskId) {
+  if (!confirm('Отказаться от заявки? Она станет неназначенной.')) return;
+  api('/tasks/' + taskId + '/decline', { method: 'POST' }).then(function(res) {
+    if (res.error) return alert(res.error);
+    var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
+    if (t) { t.assignmentStatus = 'declined'; t.assignee = ''; t.contractor = ''; }
+    S.page = 'tasks';
+    renderNav();
+    renderApp();
+  });
+}
 
 function addContractorFromPicker(taskId) {
   var data = {
@@ -2195,6 +2219,9 @@ function editUser(id) {
         { value: 'worker', label: 'Монтажник (Worker)' },
         { value: 'admin',  label: 'Администратор (Admin)' }
       ]
+    },
+    { key: 'contractorId', label: 'Контрагент', type: 'select', value: user.contractor_id || '', options:
+        [{ value: '', label: '— Без контрагента —' }].concat((S.contractors || []).map(function(c) { return { value: c.id, label: c.name_short }; }))
     }
   ], function(d) {
     api('/users/' + id, {
@@ -2213,8 +2240,9 @@ function addUser() {
     username: document.getElementById('nu_name').value,
     password: document.getElementById('nu_pass').value,
     fullName: document.getElementById('nu_full').value,
-    email:    document.getElementById('nu_email').value, // ДОБАВИЛИ
-    role:     document.getElementById('nu_role').value
+    email:    document.getElementById('nu_email').value,
+    role:     document.getElementById('nu_role').value,
+    contractorId: document.getElementById('nu_contractor').value || null
   };
   if(!data.username || !data.password) return alert('Заполните логин и пароль');
 
@@ -2734,7 +2762,18 @@ function pageCard() {
     field('Приоритет', 'priority') +
     field('Менеджер Сбера', 'manager') +
     field('Контрагент', 'contractor') +
-    field('Исполнитель (Наш)', 'assignee') + 
+    field('Исполнитель (Наш)', 'assignee') +
+    (t.assignee && t.assignmentStatus ? '<div class="field-row"><div class="field-lbl">Статус назначения</div><div class="field-val">' +
+      (t.assignmentStatus === 'accepted' ? '<span class="badge b-green">Принял</span>' :
+      t.assignmentStatus === 'declined' ? '<span class="badge b-red">Отказался</span>' :
+      '<span class="badge b-gray">Ожидает подтверждения</span>') +
+    '</div></div>' : '') +
+    (t.assignee === (S.user.fullName || '') && t.assignmentStatus === 'pending'
+      ? '<div class="field-row"><div class="field-lbl"></div><div class="field-val" style="display:flex;gap:.5rem">' +
+          '<button class="btn btn-sm" onclick="acceptTask(\'' + t.id.replace(/'/g,"\\'") + '\')">✅ Принять заявку</button>' +
+          '<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="declineTask(\'' + t.id.replace(/'/g,"\\'") + '\')">❌ Отказаться</button>' +
+        '</div></div>'
+      : '') +
     field('Контролёр', 'controller') +
     field('Контакт на объекте', 'contact', 'textarea') +
 

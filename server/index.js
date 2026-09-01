@@ -84,7 +84,7 @@ app.post('/api/login', async (req, res) => {
 
     // Создаем токен (в него упаковываем ID, роль и ФИО)
     const token = jwt.sign(
-      { id: user.id, role: user.role, fullName: user.full_name },
+      { id: user.id, role: user.role, fullName: user.full_name, contractorId: user.contractor_id },
       JWT_SECRET,
       { expiresIn: '24h' }
     );
@@ -232,7 +232,7 @@ async function initDB() {
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS supplier_order_signed BOOLEAN DEFAULT false`)
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS supplier_id_uploaded BOOLEAN DEFAULT false`)
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS overdue_reason TEXT`)
-
+  await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignment_status TEXT DEFAULT NULL')
 
   // Миграция: добавляем email для пользователей
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`);
@@ -425,6 +425,7 @@ function rowToTask(r) {
     stage:        r.stage,
     archived:     r.archived,
     assignee:     r.assignee,
+    assignmentStatus: r.assignment_status,
     controller:   r.controller,
     comment:      r.comment,
     distributedAt: r.distributed_at ? new Date(r.distributed_at).toLocaleDateString('en-CA') : null,
@@ -550,7 +551,12 @@ async function cleanAddressDaData(address, region) {
 app.get('/api/users', authenticateToken, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
   try {
-    const { rows } = await pool.query('SELECT id, username, role, full_name, email, created_at FROM users ORDER BY created_at DESC');
+    const { rows } = await pool.query(`
+      SELECT u.id, u.username, u.role, u.full_name, u.email, u.contractor_id, u.created_at, c.name_short AS contractor_name
+      FROM users u
+      LEFT JOIN contractors c ON c.id = u.contractor_id
+      ORDER BY u.created_at DESC
+    `);
     res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -559,13 +565,13 @@ app.get('/api/users', authenticateToken, async (req, res) => {
 app.post('/api/users', authenticateToken, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
   try {
-    const { username, password, role, fullName, email } = req.body;
+    const { username, password, role, fullName, email, contractorId } = req.body;
     const salt = await bcrypt.genSalt(10);
     const hash = await bcrypt.hash(password, salt);
     
     await pool.query(
-      'INSERT INTO users (username, password_hash, role, full_name, email) VALUES ($1, $2, $3, $4, $5)',
-      [username, hash, role, fullName, email || null]
+      'INSERT INTO users (username, password_hash, role, full_name, email, contractorId) VALUES ($1, $2, $3, $4, $5, $6)',
+      [username, hash, role, fullName, email || null, contractorId || null]
     );
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -575,9 +581,9 @@ app.post('/api/users', authenticateToken, async (req, res) => {
 app.put('/api/users/:id', authenticateToken, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
   try {
-    const { username, password, role, fullName, email } = req.body;
-    let query = 'UPDATE users SET username = $1, role = $2, full_name = $3, email = $4';
-    let params = [username, role, fullName, email || null];
+    const { username, password, role, fullName, email, contractorID } = req.body;
+    let query = 'UPDATE users SET username = $1, role = $2, full_name = $3, email = $4, contractorId = $5';
+    let params = [username, role, fullName, email || null, contractorID = null];
 
     // Если передан новый пароль — хешируем и обновляем его
     if (password && password.trim() !== '') {
@@ -1167,6 +1173,20 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
       ).catch(err => console.error('Invoice auto-paid sync error:', err.message));
     }
 
+        // Если меняется исполнитель — подтягиваем организацию, к которой он привязан
+    if (d.assignee !== undefined && d.assignee) {
+      try {
+        const { rows: workerRows } = await pool.query(
+          `SELECT c.name_short FROM users u JOIN contractors c ON c.id = u.contractor_id WHERE u.full_name = $1 AND u.role = 'worker' LIMIT 1`,
+          [d.assignee]
+        );
+        if (workerRows[0]) d.contractor = workerRows[0].name_short;
+      } catch(e) { console.error('Auto-contractor lookup error:', e.message); }
+    }
+    if (d.assignee !== undefined && d.assignee) {
+      d.assignmentStatus = 'pending';
+    }
+
     await pool.query(`
       UPDATE tasks SET
         region        = COALESCE($2, region),
@@ -1205,6 +1225,7 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
         supplier_order_signed = COALESCE($32::boolean, supplier_order_signed),
         supplier_id_uploaded  = COALESCE($33::boolean, supplier_id_uploaded),
         overdue_reason        = COALESCE($34, overdue_reason),
+        assignment_status     = COALESCE($35, assignment_status),
         updated_at    = NOW()
       WHERE id = $1
     `, [
@@ -1245,7 +1266,8 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
       d.extras      || null,
       d.supplierOrderSigned !== undefined ? d.supplierOrderSigned : null,
       d.supplierIdUploaded  !== undefined ? d.supplierIdUploaded  : null,
-      d.overdueReason       || null
+      d.overdueReason       || null,
+      d.assignmentStatus || null
     ]);
 
     // --- УВЕДОМЛЕНИЯ И EMAIL ДЛЯ ИСПОЛНИТЕЛЯ ---
@@ -1286,6 +1308,44 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
 
     res.json({ success: true });
   } catch(e) { console.error('PUT task error:', e.message); res.status(500).json({ error: e.message }) }
+});
+
+// ─── ПРИНЯЛ / ОТКАЗАЛСЯ ───────────────────────────────────────────────────────
+app.post('/api/tasks/:id/accept', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT assignee, assignment_status FROM tasks WHERE id=$1', [req.params.id]);
+    const task = rows[0];
+    if (!task) return res.status(404).json({ error: 'Заявка не найдена' });
+    if (task.assignee !== req.user.fullName) return res.status(403).json({ error: 'Эта заявка назначена не вам' });
+
+    await pool.query(`UPDATE tasks SET assignment_status='accepted' WHERE id=$1`, [req.params.id]);
+
+    pool.query('SELECT id FROM users WHERE role=$1', ['admin']).then(({ rows: admins }) => {
+      admins.forEach(a => createNotification(a.id, `✅ Заявка принята: ${req.params.id}`, `${req.user.fullName} принял заявку в работу`, req.params.id));
+    }).catch(err => console.error('Admin notify error:', err.message));
+
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }) }
+});
+
+app.post('/api/tasks/:id/decline', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT assignee, _history FROM tasks WHERE id=$1', [req.params.id]);
+    const task = rows[0];
+    if (!task) return res.status(404).json({ error: 'Заявка не найдена' });
+    if (task.assignee !== req.user.fullName) return res.status(403).json({ error: 'Эта заявка назначена не вам' });
+
+    await pool.query(
+      `UPDATE tasks SET assignment_status='declined', assignee='', contractor=NULL WHERE id=$1`,
+      [req.params.id]
+    );
+
+    pool.query('SELECT id FROM users WHERE role=$1', ['admin']).then(({ rows: admins }) => {
+      admins.forEach(a => createNotification(a.id, `❌ Заявка отклонена: ${req.params.id}`, `${req.user.fullName} отказался от заявки — нужно назначить другого исполнителя`, req.params.id));
+    }).catch(err => console.error('Admin notify error:', err.message));
+
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }) }
 });
 
 app.delete('/api/tasks/:id', async (req, res) => {
