@@ -301,6 +301,7 @@ async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_attachments_task_id ON task_attachments(task_id)`);
   
 
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS invoices (
       id            SERIAL PRIMARY KEY,
@@ -317,6 +318,20 @@ async function initDB() {
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_invoices_task_id ON invoices(task_id)`);
+  // Таблица строк протокола измерений (КЖ/ПИ)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS task_ports (
+      id            SERIAL PRIMARY KEY,
+      task_id       TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+      port_number   TEXT,
+      patch_panel   TEXT,
+      room          TEXT,
+      marking       TEXT,
+      cable_length  NUMERIC,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_ports_task_id ON task_ports(task_id)`);
 
   const userCount = await pool.query('SELECT COUNT(*) FROM users');
   if (parseInt(userCount.rows[0].count) === 0) {
@@ -1384,7 +1399,7 @@ app.post('/api/tasks/:id/attachments', authenticateToken, uploadAttachment.array
       return res.status(403).json({ error: 'Нет доступа к этой заявке' })
     }
     const type = req.body.type
-    if (!['photo_report', 'scheme', 'act', 'receipt'].includes(type)) {
+    if (!['photo_report', 'scheme', 'act', 'receipt', 'pi_excel'].includes(type)) {
       return res.status(400).json({ error: 'Некорректный тип вложения' })
     }
     const inserted = []
@@ -1426,6 +1441,69 @@ app.delete('/api/attachments/:attachmentId', authenticateToken, async (req, res)
     await pool.query('DELETE FROM task_attachments WHERE id = $1', [req.params.attachmentId])
     fs.unlink(path.join(UPLOADS_DIR, att.file_path), () => {}) // не блокируем ответ, если файла вдруг нет
     res.json({ success: true })
+  } catch(e) { res.status(500).json({ error: e.message }) }
+});
+
+// ─── API: ПРОТОКОЛ ИЗМЕРЕНИЙ (КЖ/ПИ) ─────────────────────────────────────────
+app.get('/api/tasks/:id/ports', authenticateToken, async (req, res) => {
+  try {
+    if (!(await canAccessTaskAttachments(req.user, req.params.id))) {
+      return res.status(403).json({ error: 'Нет доступа к этой заявке' })
+    }
+    const { rows } = await pool.query(
+      'SELECT * FROM task_ports WHERE task_id = $1 ORDER BY id ASC',
+      [req.params.id]
+    )
+    res.json(rows)
+  } catch(e) { res.status(500).json({ error: e.message }) }
+});
+
+app.post('/api/tasks/:id/ports', authenticateToken, async (req, res) => {
+  try {
+    if (!(await canAccessTaskAttachments(req.user, req.params.id))) {
+      return res.status(403).json({ error: 'Нет доступа к этой заявке' })
+    }
+    const { portNumber, patchPanel, room, marking, cableLength } = req.body;
+    const { rows } = await pool.query(
+      `INSERT INTO task_ports (task_id, port_number, patch_panel, room, marking, cable_length)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [req.params.id, portNumber || null, patchPanel || null, room || null, marking || null, cableLength || null]
+    )
+    res.json(rows[0])
+  } catch(e) { res.status(500).json({ error: e.message }) }
+});
+
+app.put('/api/ports/:rowId', authenticateToken, async (req, res) => {
+  try {
+    const { rows: existing } = await pool.query('SELECT task_id FROM task_ports WHERE id=$1', [req.params.rowId]);
+    if (!existing[0]) return res.status(404).json({ error: 'Строка не найдена' });
+    if (!(await canAccessTaskAttachments(req.user, existing[0].task_id))) {
+      return res.status(403).json({ error: 'Нет доступа' })
+    }
+    const { portNumber, patchPanel, room, marking, cableLength } = req.body;
+    const { rows } = await pool.query(
+      `UPDATE task_ports SET
+        port_number = COALESCE($2, port_number),
+        patch_panel = COALESCE($3, patch_panel),
+        room = COALESCE($4, room),
+        marking = COALESCE($5, marking),
+        cable_length = COALESCE($6, cable_length)
+       WHERE id=$1 RETURNING *`,
+      [req.params.rowId, portNumber, patchPanel, room, marking, cableLength]
+    )
+    res.json(rows[0])
+  } catch(e) { res.status(500).json({ error: e.message }) }
+});
+
+app.delete('/api/ports/:rowId', authenticateToken, async (req, res) => {
+  try {
+    const { rows: existing } = await pool.query('SELECT task_id FROM task_ports WHERE id=$1', [req.params.rowId]);
+    if (!existing[0]) return res.status(404).json({ error: 'Строка не найдена' });
+    if (!(await canAccessTaskAttachments(req.user, existing[0].task_id))) {
+      return res.status(403).json({ error: 'Нет доступа' })
+    }
+    await pool.query('DELETE FROM task_ports WHERE id=$1', [req.params.rowId]);
+    res.json({ success: true });
   } catch(e) { res.status(500).json({ error: e.message }) }
 });
 

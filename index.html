@@ -2539,6 +2539,7 @@ function openCard(id) {
   renderApp();
   window.scrollTo(0,0);
   refreshAttachmentsList(id);
+  refreshPortsList(id);
 }
 
 function pageCard() {
@@ -2867,8 +2868,13 @@ function pageCard() {
         '<label class="btn btn-sm btn-ghost">🗺️ Схема<input type="file" accept="image/*,.pdf" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'scheme\',this.files)"></label>' +
         '<label class="btn btn-sm btn-ghost">📄 Акт<input type="file" accept="image/*,.pdf" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'act\',this.files)"></label>' +
         '<label class="btn btn-sm btn-ghost">🧾 Чек<input type="file" accept="image/*,.pdf" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'receipt\',this.files)"></label>' +
+        '<label class="btn btn-sm btn-ghost">📊 Excel ПИ<input type="file" accept=".xlsx,.xls" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'pi_excel\',this.files)"></label>' +
       '</div>' +
     '</div>' +
+    '<div class="card p" id="portsBlock"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
+      '<div class="sec-title" style="margin:0">КЖ / Протокол измерений</div>' +
+      '<button class="btn btn-sm btn-ghost" onclick="addPortRow(\''+t.id+'\')">+ Порт</button>' +
+    '</div><div id="portsList" class="t3">Загрузка…</div></div>' +
     '<div class="card p"><div class="sec-title" style="margin-bottom:.5rem">История изменений</div>' + histHtml + '</div>' +
   '</div>';
 
@@ -2928,6 +2934,7 @@ function refreshAttachmentsList(taskId) {
     }).join('');
   });
 }
+var typeLabels = { photo_report: '📷 Фото', scheme: '🗺️ Схема', act: '📄 Акт', receipt: '🧾 Чек', pi_excel: '📊 Excel ПИ' };
 
 function openAttachment(id) {
   fetch('/api/attachments/' + id + '/file', { headers: { 'Authorization': 'Bearer ' + S.token } })
@@ -2945,6 +2952,54 @@ function handleAttachmentUpload(taskId, type, files) {
 function handleAttachmentDelete(attId, taskId) {
   if (!confirm('Удалить файл?')) return;
   deleteAttachment(attId).then(function() { refreshAttachmentsList(taskId); });
+}
+
+function refreshPortsList(taskId) {
+  var el = document.getElementById('portsList');
+  if (!el) return;
+  api('/tasks/' + taskId + '/ports').then(function(rows) {
+    if (!Array.isArray(rows) || !rows.length) {
+      el.innerHTML = '<span class="t3">Строк пока нет</span>';
+      return;
+    }
+    el.innerHTML = '<table style="width:100%;font-size:.8rem"><thead><tr>' +
+      '<th style="text-align:left">Порт</th><th style="text-align:left">Патч-панель</th><th style="text-align:left">Помещение</th><th style="text-align:left">Маркировка</th><th style="text-align:left">Длина, м</th><th></th>' +
+    '</tr></thead><tbody>' +
+    rows.map(function(r) {
+      return '<tr>' +
+        '<td><input value="' + (r.port_number||'').replace(/"/g,'&quot;') + '" onchange="savePortRow(' + r.id + ',\'' + taskId + '\')" data-field="portNumber" id="pr_' + r.id + '_port" style="width:60px"></td>' +
+        '<td><input value="' + (r.patch_panel||'').replace(/"/g,'&quot;') + '" onchange="savePortRow(' + r.id + ',\'' + taskId + '\')" id="pr_' + r.id + '_patch" style="width:80px"></td>' +
+        '<td><input value="' + (r.room||'').replace(/"/g,'&quot;') + '" onchange="savePortRow(' + r.id + ',\'' + taskId + '\')" id="pr_' + r.id + '_room" style="width:100px"></td>' +
+        '<td><input value="' + (r.marking||'').replace(/"/g,'&quot;') + '" onchange="savePortRow(' + r.id + ',\'' + taskId + '\')" id="pr_' + r.id + '_marking" style="width:100px"></td>' +
+        '<td><input type="number" value="' + (r.cable_length||'') + '" onchange="savePortRow(' + r.id + ',\'' + taskId + '\')" id="pr_' + r.id + '_len" style="width:70px"></td>' +
+        '<td><button class="btn btn-sm btn-ghost" onclick="deletePortRow(' + r.id + ',\'' + taskId + '\')">✖</button></td>' +
+      '</tr>';
+    }).join('') +
+    '</tbody></table>';
+  });
+}
+
+function addPortRow(taskId) {
+  api('/tasks/' + taskId + '/ports', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ portNumber:'', patchPanel:'', room:'', marking:'', cableLength:null })
+  }).then(function() { refreshPortsList(taskId); });
+}
+
+function savePortRow(rowId, taskId) {
+  var data = {
+    portNumber: document.getElementById('pr_' + rowId + '_port').value,
+    patchPanel: document.getElementById('pr_' + rowId + '_patch').value,
+    room:       document.getElementById('pr_' + rowId + '_room').value,
+    marking:    document.getElementById('pr_' + rowId + '_marking').value,
+    cableLength: document.getElementById('pr_' + rowId + '_len').value || null
+  };
+  api('/ports/' + rowId, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) });
+}
+
+function deletePortRow(rowId, taskId) {
+  if (!confirm('Удалить строку?')) return;
+  api('/ports/' + rowId, { method:'DELETE' }).then(function() { refreshPortsList(taskId); });
 }
 
 var fieldLabels = {
