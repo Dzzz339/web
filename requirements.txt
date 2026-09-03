@@ -2,3 +2,5 @@ pandas
 numpy
 PyMuPDF
 requests
+easyocr
+opencv-python-headless
