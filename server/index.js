@@ -1443,7 +1443,17 @@ app.post('/api/ai/parse-pdf', authenticateToken, uploadAttachment.single('file')
     }
 
     try {
-      const parsedData = JSON.parse(result);
+      // БРОНЕЖИЛЕТ ДЛЯ JSON: отрезаем любые Warning'и от Питона
+      const jsonStart = result.indexOf('{');
+      const jsonEnd = result.lastIndexOf('}');
+      
+      if (jsonStart === -1 || jsonEnd === -1) {
+        throw new Error('JSON не найден в ответе');
+      }
+      
+      const cleanJson = result.substring(jsonStart, jsonEnd + 1);
+      const parsedData = JSON.parse(cleanJson);
+      
       if (parsedData.error) return res.status(400).json({ error: parsedData.error });
       
       if (!res.headersSent) res.json(parsedData);

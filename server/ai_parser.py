@@ -1,6 +1,6 @@
 import sys
 import json
-import pymupdf as fitz
+import fitz
 import requests
 import re
 
