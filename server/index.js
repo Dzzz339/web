@@ -1416,7 +1416,7 @@ app.post('/api/ai/parse-pdf', authenticateToken, uploadAttachment.single('file')
 
   const filePath = req.file.path; // Куда multer сохранил файл
   // ИСПРАВЛЕННЫЙ ПУТЬ: /opt/venv/bin/python3
-  const pythonCommand = process.platform === 'win32' ? 'py' : '/opt/venv/bin/python3';
+  const pythonCommand = process.platform === 'win32' ? 'py' : 'python3';
 
   const python = spawn(pythonCommand, [path.join(__dirname, 'ai_parser.py'), filePath]);
   
