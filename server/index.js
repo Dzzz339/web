@@ -1414,7 +1414,7 @@ app.post('/api/ai/parse-pdf', authenticateToken, uploadAttachment.single('file')
   if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
 
   const filePath = req.file.path; // Куда multer сохранил файл
-  const pythonCommand = process.platform === 'win32' ? 'py' : 'python3';
+  const pythonCommand = process.platform === 'win32' ? 'py' : '/opt/venv/bun/python3';
 
   // Запускаем наш ai_parser.py и передаем ему путь к файлу
   const python = spawn(pythonCommand, [path.join(__dirname, 'ai_parser.py'), filePath]);
