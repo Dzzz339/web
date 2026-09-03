@@ -2161,21 +2161,48 @@ function createSingleTask() {
     return alert('Пожалуйста, укажите Номер заявки!');
   }
 
+  // Меняем текст кнопки, чтобы показать процесс
+  var btn = event.target;
+  var originalBtnText = btn.innerHTML;
+  btn.innerHTML = 'Создание...';
+  btn.disabled = true;
+
   api('/tasks', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   }).then(function(res) {
+    btn.innerHTML = originalBtnText;
+    btn.disabled = false;
+
     if (res.error) {
       alert('Ошибка: ' + res.error);
       return;
     }
     
-    // Заявка успешно создана. Перезагружаем список задач и открываем её!
+    // 1. Очищаем все поля формы
+    var fieldsToClear = ['nt_id', 'nt_region', 'nt_address', 'nt_workType', 'nt_amount', 'nt_pricePerUnit', 'nt_inOrder', 'nt_fact', 'nt_dateZayavki', 'nt_deadline', 'nt_techLink', 'nt_invoiceInfo', 'nt_comment'];
+    fieldsToClear.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+
+    // 2. Показываем всплывающее уведомление (Toast) об успехе
+    var toast = document.createElement('div');
+    toast.innerHTML = '✅ Заявка ' + res.id + ' успешно создана!';
+    toast.style.cssText = 'position:fixed; bottom:20px; right:20px; background:var(--green); color:#fff; padding:12px 24px; border-radius:8px; box-shadow:var(--shadow); z-index:9999; font-weight:600; transition:opacity 0.3s;';
+    document.body.appendChild(toast);
+    setTimeout(function() { toast.style.opacity = '0'; setTimeout(function(){ toast.remove(); }, 300); }, 3000);
+
+    // 3. Обновляем список задач с сервера и открываем карточку новой заявки
     api('/tasks').then(function(tasksList) {
       S.tasks = tasksList;
-      openCard(res.id); // Сразу открываем карточку новой заявки
+      openCard(res.id);
     });
+  }).catch(function(e) {
+    btn.innerHTML = originalBtnText;
+    btn.disabled = false;
+    alert('Системная ошибка: ' + e.message);
   });
 }
 
