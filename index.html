@@ -1711,7 +1711,7 @@ function pageData() {
             '<input type="file" id="ai_pdf_upload" accept=".pdf" style="display:none" onchange="processPdfWithAi(this)">' +
             '<button class="btn btn-sm btn-ghost" style="color:var(--blue); border-color:var(--blue)" onclick="document.getElementById(\'ai_pdf_upload\').click()" title="Извлечь данные из PDF">✨ Заполнить через ИИ</button>' +
           '</div>' +
-          
+
         '</div>' +
         
         '<div style="display:flex; flex-direction:column; gap:.6rem; font-size:.85rem">' +
@@ -2159,10 +2159,15 @@ function processPdfWithAi(inputEl) {
 
   fetch('/api/ai/parse-pdf', {
     method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + S.token }, // Content-Type браузер выставит сам для FormData
+    headers: { 'Authorization': 'Bearer ' + S.token },
     body: fd
   })
-  .then(function(r) { return r.json(); })
+  .then(function(r) { 
+    if (!r.ok) {
+      return r.text().then(text => { throw new Error('Ошибка сервера ' + r.status); });
+    }
+    return r.json(); 
+  })
   .then(function(data) {
     btn.innerHTML = originalText;
     btn.disabled = false;
