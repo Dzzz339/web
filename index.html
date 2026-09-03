@@ -2183,14 +2183,19 @@ function processPdfWithAi(inputEl) {
     if (data.region) document.getElementById('nt_region').value = data.region;
     if (data.address) document.getElementById('nt_address').value = data.address;
     if (data.workType) document.getElementById('nt_workType').value = data.workType;
+    
     if (data.inOrder) {
       document.getElementById('nt_inOrder').value = data.inOrder;
-      document.getElementById('nt_fact').value = data.inOrder; // По умолчанию ставим Факт = Заказ
+      document.getElementById('nt_fact').value = data.inOrder;
     }
-    if (data.deadline) document.getElementById('nt_deadline').value = data.deadline;
+    
+    // НОВЫЕ ПОЛЯ, КОТОРЫЕ НАШЕЛ ИИ:
+    if (data.dateZayavki) document.getElementById('nt_dateZayavki').value = data.dateZayavki;
+    if (data.amount) document.getElementById('nt_amount').value = data.amount;
+    if (data.contact) document.getElementById('nt_comment').value = 'Контакт на объекте: ' + data.contact;
 
     // Подсвечиваем заполненные поля зеленым
-    ['nt_id', 'nt_region', 'nt_address', 'nt_workType', 'nt_inOrder', 'nt_deadline'].forEach(function(id) {
+    ['nt_id', 'nt_region', 'nt_address', 'nt_workType', 'nt_inOrder', 'nt_dateZayavki', 'nt_amount', 'nt_comment'].forEach(function(id) {
       var el = document.getElementById(id);
       if (el && el.value) {
         el.style.backgroundColor = '#e8f5e9';
