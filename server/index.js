@@ -585,7 +585,7 @@ app.post('/api/users', authenticateToken, async (req, res) => {
     const hash = await bcrypt.hash(password, salt);
     
     await pool.query(
-      'INSERT INTO users (username, password_hash, role, full_name, email, contractorId) VALUES ($1, $2, $3, $4, $5, $6)',
+      'INSERT INTO users (username, password_hash, role, full_name, email, contractor_id) VALUES ($1, $2, $3, $4, $5, $6)',
       [username, hash, role, fullName, email || null, contractorId || null]
     );
     res.json({ success: true });
@@ -596,9 +596,9 @@ app.post('/api/users', authenticateToken, async (req, res) => {
 app.put('/api/users/:id', authenticateToken, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
   try {
-    const { username, password, role, fullName, email, contractorID } = req.body;
-    let query = 'UPDATE users SET username = $1, role = $2, full_name = $3, email = $4, contractorId = $5';
-    let params = [username, role, fullName, email || null, contractorID = null];
+    const { username, password, role, fullName, email, contractorId } = req.body;
+    let query = 'UPDATE users SET username = $1, role = $2, full_name = $3, email = $4, contractor_id = $5';
+    let params = [username, role, fullName, email || null, contractorId || null];
 
     // Если передан новый пароль — хешируем и обновляем его
     if (password && password.trim() !== '') {
@@ -1142,18 +1142,55 @@ app.get('/api/tasks', authenticateToken, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }) }
 });
 
-app.post('/api/tasks', async (req, res) => {
+// Создание одиночной заявки вручную (или через ИИ)
+app.post('/api/tasks', authenticateToken, async (req, res) => {
   try {
-    const t = req.body
-    const id = 'manual_' + Date.now()
-    await pool.query(
-      `INSERT INTO tasks (id, status, priority, comment, assignee) VALUES ($1,$2,$3,$4,$5)`,
-      [id, t.status||'pending', t.priority||'medium', t.comment||t.title||'', t.assignee||'']
-    )
-    const { rows } = await pool.query('SELECT * FROM tasks WHERE id=$1', [id])
-    res.json(rowToTask(rows[0]))
-  } catch(e) { res.status(500).json({ error: e.message }) }
-})
+    const t = req.body;
+    
+    // Проверка обязательного поля
+    if (!t.id || t.id.trim() === '') {
+      return res.status(400).json({ error: 'Номер заявки обязателен' });
+    }
+
+    const cleanId = t.id.trim();
+
+    // Проверяем, нет ли уже такой заявки в базе
+    const { rows: existing } = await pool.query('SELECT id FROM tasks WHERE id=$1', [cleanId]);
+    if (existing.length > 0) {
+      return res.status(400).json({ error: `Заявка с номером ${cleanId} уже существует в базе` });
+    }
+
+    await pool.query(`
+      INSERT INTO tasks (
+        id, region, address, work_type, amount, price_per_unit,
+        in_order, fact, date_zayavki, deadline, tech_link, invoice_info, comment,
+        status, priority, archived, stage
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending', 'medium', false, 'request')
+    `, [
+      cleanId, 
+      t.region || null, 
+      t.address || null, 
+      t.workType || null,
+      Number(t.amount) || 0, 
+      Number(t.pricePerUnit) || 0,
+      Number(t.inOrder) || 0, 
+      Number(t.fact) || 0,
+      safeDate(t.dateZayavki), 
+      safeDate(t.deadline),
+      t.techLink || null, 
+      t.invoiceInfo || null, 
+      t.comment || null
+    ]);
+
+    // Сразу после создания пробуем найти координаты в фоне
+    runBackgroundGeocoding();
+
+    res.json({ success: true, id: cleanId });
+  } catch(e) { 
+    console.error('POST task error:', e.message); 
+    res.status(500).json({ error: e.message }); 
+  }
+});
 
 app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
   try {
@@ -1345,7 +1382,7 @@ app.post('/api/tasks/:id/accept', authenticateToken, async (req, res) => {
 
 app.post('/api/tasks/:id/decline', authenticateToken, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT assignee, _history FROM tasks WHERE id=$1', [req.params.id]);
+    const { rows } = await pool.query('SELECT assignee FROM tasks WHERE id=$1', [req.params.id]);
     const task = rows[0];
     if (!task) return res.status(404).json({ error: 'Заявка не найдена' });
     if (task.assignee !== req.user.fullName) return res.status(403).json({ error: 'Эта заявка назначена не вам' });

@@ -1678,24 +1678,72 @@ function pageData() {
   var info = S.importInfo;
   var curBanner = '';
   if (info && info.importedFrom) {
-    curBanner = '<div class="banner banner-ok">' +
+    curBanner = '<div class="banner banner-ok" style="margin-bottom:1.5rem">' +
       '<div><div class="banner-title">✅ Активный источник</div>' +
       '<div class="banner-body"><strong>' + info.importedFrom + '</strong> · ' + new Date(info.importedAt).toLocaleString('ru') + ' · <strong>' + fmtN(info.rowCount) + ' заявок</strong>' +
       '<br><span style="font-size:.78rem">Загрузите новый файл — всё обновится автоматически.</span></div></div>' +
     '</div>';
   }
-  return '<h1 class="page-title">Данные из таблиц</h1>' +
+
+  return '<h1 class="page-title">Данные системы</h1>' +
     curBanner +
-    '<div class="card p">' +
-      '<div class="fw7 mb" style="font-size:.95rem">📤 Загрузить Сводные таблицы</div>' +
-      '<p class="t2 mb" style="font-size:.82rem">Файл с листами «Заявки 2023 / 2024 / 2025 / 2026». После загрузки дашборд, цепи и задачи обновятся автоматически.</p>' +
-      '<div class="upload-zone" id="uzone" onclick="document.getElementById(\'ufile\').click()">' +
-        '<input type="file" id="ufile" accept=".xlsx,.xls">' +
-        '<div style="font-size:2rem;margin-bottom:.4rem">📂</div>' +
-        '<div class="fw6">Нажмите или перетащите файл</div>' +
-        '<div class="t3" style="font-size:.78rem;margin-top:3px">.xlsx / .xls</div>' +
+    '<div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start;">' +
+      
+      // ЛЕВАЯ КОЛОНКА: МАССОВАЯ ЗАГРУЗКА
+      '<div class="card p">' +
+        '<div class="fw7 mb" style="font-size:1.05rem; display:flex; align-items:center; gap:8px">📊 Массовая загрузка (Excel)</div>' +
+        '<p class="t2 mb" style="font-size:.82rem">Файл с листами «Заявки 2023-2026». Данные обновятся автоматически.</p>' +
+        '<div class="upload-zone" id="uzone" onclick="document.getElementById(\'ufile\').click()">' +
+          '<input type="file" id="ufile" accept=".xlsx,.xls">' +
+          '<div style="font-size:2rem;margin-bottom:.4rem">📂</div>' +
+          '<div class="fw6">Нажмите или перетащите файл .xlsx</div>' +
+        '</div>' +
+        '<div id="ustatus" style="margin-top:1rem"></div>' +
       '</div>' +
-      '<div id="ustatus" style="margin-top:1rem"></div>' +
+
+      // ПРАВАЯ КОЛОНКА: ОДИНОЧНАЯ ЗАЯВКА И ИИ
+      '<div class="card p">' +
+        '<div class="fw7 mb" style="font-size:1.05rem; display:flex; align-items:center; justify-content:space-between">' +
+          '<span>📝 Одиночная заявка</span>' +
+          // Кнопка для будущего ИИ-парсера
+          '<button class="btn btn-sm btn-ghost" style="color:var(--blue); border-color:var(--blue)" onclick="alert(\'Функция ИИ-разбора PDF находится в разработке!\')" title="Извлечь данные из PDF">✨ Заполнить через ИИ</button>' +
+        '</div>' +
+        
+        '<div style="display:flex; flex-direction:column; gap:.6rem; font-size:.85rem">' +
+          '<input id="nt_id" type="text" placeholder="Номер заявки (Обязательно)*" style="font-weight:700; border-color:var(--orange)">' +
+          
+          '<div class="g2">' +
+            '<input id="nt_region" type="text" placeholder="Регион">' +
+            '<input id="nt_address" type="text" placeholder="Адрес объекта">' +
+          '</div>' +
+          
+          '<input id="nt_workType" type="text" placeholder="Тип работ">' +
+          
+          '<div class="g2">' +
+            '<div><label class="t3" style="font-size:.7rem">Сумма договора (₽)</label><input id="nt_amount" type="number" style="width:100%"></div>' +
+            '<div><label class="t3" style="font-size:.7rem">Стоимость за ед. (₽)</label><input id="nt_pricePerUnit" type="number" style="width:100%"></div>' +
+          '</div>' +
+
+          '<div class="g2">' +
+            '<div><label class="t3" style="font-size:.7rem">В заказе (портов)</label><input id="nt_inOrder" type="number" style="width:100%"></div>' +
+            '<div><label class="t3" style="font-size:.7rem">Факт (портов)</label><input id="nt_fact" type="number" style="width:100%"></div>' +
+          '</div>' +
+
+          '<div class="g2">' +
+            '<div><label class="t3" style="font-size:.7rem">Дата заявки</label><input id="nt_dateZayavki" type="date" style="width:100%"></div>' +
+            '<div><label class="t3" style="font-size:.7rem">Дедлайн (план)</label><input id="nt_deadline" type="date" style="width:100%"></div>' +
+          '</div>' +
+
+          '<input id="nt_techLink" type="url" placeholder="Ссылка на тех.информацию">' +
+          '<input id="nt_invoiceInfo" type="text" placeholder="№ счёта / сумма">' +
+          '<textarea id="nt_comment" placeholder="Комментарий" style="resize:vertical; min-height:60px"></textarea>' +
+        '</div>' +
+
+        '<div style="text-align:right; margin-top:1rem">' +
+          '<button class="btn" onclick="createSingleTask()" style="width:100%; justify-content:center">+ Создать заявку</button>' +
+        '</div>' +
+      '</div>' +
+
     '</div>';
 }
 
@@ -2091,6 +2139,45 @@ function doUpload(file) {
 
 // ─── ACTIONS ─────────────────────────────────────────────────────────────────
 
+// Создание одиночной заявки с вкладки Данные
+function createSingleTask() {
+  var data = {
+    id:           document.getElementById('nt_id').value.trim(),
+    region:       document.getElementById('nt_region').value.trim(),
+    address:      document.getElementById('nt_address').value.trim(),
+    workType:     document.getElementById('nt_workType').value.trim(),
+    amount:       document.getElementById('nt_amount').value,
+    pricePerUnit: document.getElementById('nt_pricePerUnit').value,
+    inOrder:      document.getElementById('nt_inOrder').value,
+    fact:         document.getElementById('nt_fact').value,
+    dateZayavki:  document.getElementById('nt_dateZayavki').value,
+    deadline:     document.getElementById('nt_deadline').value,
+    techLink:     document.getElementById('nt_techLink').value.trim(),
+    invoiceInfo:  document.getElementById('nt_invoiceInfo').value.trim(),
+    comment:      document.getElementById('nt_comment').value.trim()
+  };
+
+  if (!data.id) {
+    return alert('Пожалуйста, укажите Номер заявки!');
+  }
+
+  api('/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  }).then(function(res) {
+    if (res.error) {
+      alert('Ошибка: ' + res.error);
+      return;
+    }
+    
+    // Заявка успешно создана. Перезагружаем список задач и открываем её!
+    api('/tasks').then(function(tasksList) {
+      S.tasks = tasksList;
+      openCard(res.id); // Сразу открываем карточку новой заявки
+    });
+  });
+}
 
 // --- ЛОГИКА МЕССЕНДЖЕРА ---
 function initChatSocket() {
@@ -2250,7 +2337,10 @@ function addUser() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
-  }).then(() => renderApp());
+  }).then(function(res) {
+    if (res && res.error) return alert(res.error);
+    renderApp();
+  });
 }
 
 function deleteUser(id) {
@@ -2737,7 +2827,7 @@ function pageCard() {
       '<div class="sec-title" style="margin:0">Основные данные</div>' +
       field('', 'archived') + // Статус записи (Активна/Архив) теперь компактно в углу
     '</div>' +
-    '<form id="cardForm">' +
+    '<form id="cardForm" onsubmit="return false;">' +
     
     // БЛОК 1: ОБЪЕКТ И ФИНАНСЫ
     field('Регион', 'region') +
