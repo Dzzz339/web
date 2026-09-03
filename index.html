@@ -1705,8 +1705,13 @@ function pageData() {
       '<div class="card p">' +
         '<div class="fw7 mb" style="font-size:1.05rem; display:flex; align-items:center; justify-content:space-between">' +
           '<span>📝 Одиночная заявка</span>' +
-          // Кнопка для будущего ИИ-парсера
-          '<button class="btn btn-sm btn-ghost" style="color:var(--blue); border-color:var(--blue)" onclick="alert(\'Функция ИИ-разбора PDF находится в разработке!\')" title="Извлечь данные из PDF">✨ Заполнить через ИИ</button>' +
+          
+          // ИСПРАВЛЕННЫЙ БЛОК: Кнопка для ИИ-парсера (добавлены кавычки и плюсы)
+          '<div>' +
+            '<input type="file" id="ai_pdf_upload" accept=".pdf" style="display:none" onchange="processPdfWithAi(this)">' +
+            '<button class="btn btn-sm btn-ghost" style="color:var(--blue); border-color:var(--blue)" onclick="document.getElementById(\'ai_pdf_upload\').click()" title="Извлечь данные из PDF">✨ Заполнить через ИИ</button>' +
+          '</div>' +
+          
         '</div>' +
         
         '<div style="display:flex; flex-direction:column; gap:.6rem; font-size:.85rem">' +
@@ -2138,7 +2143,63 @@ function doUpload(file) {
 
 
 // ─── ACTIONS ─────────────────────────────────────────────────────────────────
+// Отправка PDF в нейросеть и автозаполнение формы
+function processPdfWithAi(inputEl) {
+  var file = inputEl.files[0];
+  if (!file) return;
 
+  var fd = new FormData();
+  fd.append('file', file);
+
+  // Показываем спиннер прямо над формой
+  var btn = inputEl.nextElementSibling;
+  var originalText = btn.innerHTML;
+  btn.innerHTML = '⏳ Нейросеть думает... (10-20 сек)';
+  btn.disabled = true;
+
+  fetch('/api/ai/parse-pdf', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + S.token }, // Content-Type браузер выставит сам для FormData
+    body: fd
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+    inputEl.value = ''; // Сбрасываем инпут файла
+
+    if (data.error) {
+      alert('Ошибка ИИ: ' + data.error);
+      return;
+    }
+
+    // МАГИЯ АВТОЗАПОЛНЕНИЯ
+    if (data.id) document.getElementById('nt_id').value = data.id;
+    if (data.region) document.getElementById('nt_region').value = data.region;
+    if (data.address) document.getElementById('nt_address').value = data.address;
+    if (data.workType) document.getElementById('nt_workType').value = data.workType;
+    if (data.inOrder) {
+      document.getElementById('nt_inOrder').value = data.inOrder;
+      document.getElementById('nt_fact').value = data.inOrder; // По умолчанию ставим Факт = Заказ
+    }
+    if (data.deadline) document.getElementById('nt_deadline').value = data.deadline;
+
+    // Подсвечиваем заполненные поля зеленым
+    ['nt_id', 'nt_region', 'nt_address', 'nt_workType', 'nt_inOrder', 'nt_deadline'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el && el.value) {
+        el.style.backgroundColor = '#e8f5e9';
+        setTimeout(function(){ el.style.backgroundColor = '#fff'; }, 2000);
+      }
+    });
+
+  }).catch(function(e) {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+    inputEl.value = '';
+    alert('Ошибка сети: ' + e.message);
+  });
+}
 // Создание одиночной заявки с вкладки Данные
 function createSingleTask() {
   var data = {

@@ -1409,6 +1409,43 @@ app.delete('/api/tasks/:id', async (req, res) => {
 
 // ─── API: ВЛОЖЕНИЯ ЗАЯВКИ ────────────────────────────────────────────────────
 
+// --- ИИ ПАРСЕР PDF ЗАЯВОК ---
+app.post('/api/ai/parse-pdf', authenticateToken, uploadAttachment.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
+
+  const filePath = req.file.path; // Куда multer сохранил файл
+  const pythonCommand = process.platform === 'win32' ? 'py' : 'python3';
+
+  // Запускаем наш ai_parser.py и передаем ему путь к файлу
+  const python = spawn(pythonCommand, [path.join(__dirname, 'ai_parser.py'), filePath]);
+  
+  let result = '';
+  let errorOutput = '';
+
+  python.stdout.on('data', (data) => { result += data.toString(); });
+  python.stderr.on('data', (data) => { errorOutput += data.toString(); });
+
+  python.on('close', (code) => {
+    // Удаляем временный файл, чтобы не засорять диск
+    fs.unlink(filePath, () => {});
+
+    if (code !== 0) {
+      console.error('AI Parser Error:', errorOutput);
+      return res.status(500).json({ error: 'Ошибка при обработке PDF' });
+    }
+
+    try {
+      const parsedData = JSON.parse(result);
+      if (parsedData.error) return res.status(400).json({ error: parsedData.error });
+      
+      res.json(parsedData);
+    } catch (e) {
+      console.error('AI Parser JSON Error:', result);
+      res.status(500).json({ error: 'Нейросеть вернула невалидный ответ' });
+    }
+  });
+});
+
 // Хелпер: может ли этот пользователь трогать вложения этой заявки
 async function canAccessTaskAttachments(user, taskId) {
   if (user.role === 'admin') return true
