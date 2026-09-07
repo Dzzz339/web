@@ -682,11 +682,20 @@ function toggleNotifications() {
         // Рендерим список
         var items = list.map(function(n) {
           var bg = n.is_read ? '#fff' : 'var(--orange-bg)';
+          var relatedTask = n.link ? S.tasks.find(function(x){ return String(x.id) === String(n.link); }) : null;
+          var showActions = relatedTask && relatedTask.assignmentStatus === 'pending' && relatedTask.assignee === (S.user.fullName || '');
+          var actionsHtml = showActions
+            ? '<div style="display:flex;gap:.4rem;margin-top:6px" onclick="event.stopPropagation()">' +
+                '<button class="btn btn-sm" onclick="acceptTaskFromNotif(\'' + n.link + '\')">✅ Принять</button>' +
+                '<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="declineTaskFromNotif(\'' + n.link + '\')">❌ Отказаться</button>' +
+              '</div>'
+            : '';
           return `
             <div style="padding:10px 14px; border-bottom:1px solid #f4f4f5; background:${bg}; cursor:pointer" onclick="openNotifLink('${n.link || ''}')">
               <div style="font-weight:600; color:var(--text); margin-bottom:2px">${n.title}</div>
               <div style="color:var(--text-2); font-size:.75rem">${n.body || ''}</div>
               <div style="color:var(--text-3); font-size:.65rem; margin-top:4px">${new Date(n.created_at).toLocaleString('ru')}</div>
+              ${actionsHtml}
             </div>
           `;
         }).join('');
@@ -1373,6 +1382,7 @@ function pageTasks() {
     if (ovd==='no'  && t.overdueDays>0)    return false;
     if (S.taskArch === 'no' && t.archived) return false;
     if (S.taskStage && t.stage !== S.taskStage) return false;
+    if (S.user.role === 'worker' && t.assignmentStatus === 'pending') return false;
 
     return true;
   });
@@ -1646,6 +1656,17 @@ function declineTask(taskId) {
     renderNav();
     renderApp();
   });
+}
+function acceptTaskFromNotif(taskId) {
+  var box = document.getElementById('notif-dropdown');
+  if (box) box.style.display = 'none';
+  acceptTask(taskId);
+}
+
+function declineTaskFromNotif(taskId) {
+  var box = document.getElementById('notif-dropdown');
+  if (box) box.style.display = 'none';
+  declineTask(taskId);
 }
 
 function addContractorFromPicker(taskId) {
