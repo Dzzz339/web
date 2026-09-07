@@ -8,8 +8,7 @@ import easyocr
 
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
-
-OLLAMA_URL = "http://stockeasy-ollama:11434/api/chat"
+OLLAMA_URL = "http://host.docker.internal:11434/api/chat"
 
 # Промпт (Инструкция для нейросети)
 SYSTEM_PROMPT = """
@@ -59,7 +58,7 @@ def extract_text_via_ocr(pdf_path):
 
 def ask_ollama(text):
     payload = {
-        "model": "qwen2.5:3b",
+        "model": "qwen2.5:14b",
         "stream": False,
         "options": { "temperature": 0.0 }, # Жесткая логика без фантазий
         "messages": [
