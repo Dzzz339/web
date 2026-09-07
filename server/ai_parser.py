@@ -58,10 +58,10 @@ def extract_text_via_ocr(pdf_path):
 
 def ask_ollama(text):
     payload = {
-        "model": "qwen2.5:14b", # Используем мощную модель твоего друга
+        "model": "qwen2.5:14b",
         "stream": False,
         "format": "json",
-        "options": { "temperature": 0.0 }, 
+        "options": { "temperature": 0.0 },
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": f"Текст документа:\n\n{text}"}
@@ -69,18 +69,21 @@ def ask_ollama(text):
     }
     
     try:
-        # host.docker.internal - это адрес Windows-машины изнутри Докера
+        # Стучимся ТОЛЬКО в виндовую Ollama. Ждем ответа до 180 секунд.
         url = "http://host.docker.internal:11434/api/chat"
         
-        resp = requests.post(url, json=payload, timeout=90)
+        resp = requests.post(url, json=payload, timeout=180)
         resp.raise_for_status()
         
         return resp.json()["message"]["content"]
 
+    except requests.exceptions.ReadTimeout:
+        return json.dumps({"error": "Нейросеть думала слишком долго (больше 3 минут). Попробуйте еще раз."}, ensure_ascii=False)
     except requests.exceptions.ConnectionError:
-        return json.dumps({"error": "Докер не может достучаться до Ollama на Windows. Проверь переменную OLLAMA_HOST=0.0.0.0"}, ensure_ascii=False)
+        return json.dumps({"error": "Докер не может достучаться до Ollama на Windows. Проверь OLLAMA_HOST=0.0.0.0"}, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": f"Ошибка Ollama: {str(e)}"}, ensure_ascii=False)
+    
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(json.dumps({"error": "Не передан путь к файлу"}))
