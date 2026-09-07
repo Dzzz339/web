@@ -2170,9 +2170,9 @@ function processPdfWithAi(inputEl) {
   if (!file) return;
 
   var fd = new FormData();
+  // ВАЖНО: Имя поля должно быть строго 'file', как ожидает multer на сервере
   fd.append('file', file);
 
-  // Показываем спиннер прямо над формой
   var btn = inputEl.nextElementSibling;
   var originalText = btn.innerHTML;
   btn.innerHTML = '⏳ Нейросеть думает... (10-20 сек)';
@@ -2180,12 +2180,15 @@ function processPdfWithAi(inputEl) {
 
   fetch('/api/ai/parse-pdf', {
     method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + S.token },
+    headers: { 
+      'Authorization': 'Bearer ' + S.token
+      // ВНИМАНИЕ: Не добавляем Content-Type вручную! Браузер должен сделать это сам для FormData.
+    },
     body: fd
   })
   .then(function(r) { 
     if (!r.ok) {
-      return r.text().then(text => { throw new Error('Ошибка сервера ' + r.status); });
+      return r.json().then(data => { throw new Error(data.error || 'Ошибка сервера ' + r.status); });
     }
     return r.json(); 
   })

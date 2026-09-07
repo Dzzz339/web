@@ -1412,6 +1412,9 @@ app.delete('/api/tasks/:id', async (req, res) => {
 
 // --- ИИ ПАРСЕР PDF ЗАЯВОК ---
 app.post('/api/ai/parse-pdf', authenticateToken, uploadAttachment.single('file'), async (req, res) => {
+  
+  console.log('[AI Parser] Запрос получен. req.file:', req.file ? 'Присутствует' : 'ОТСУТСТВУЕТ');
+  console.log('[AI Parser] req.body:', req.body);
   if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
 
   const filePath = req.file.path; // Куда multer сохранил файл
