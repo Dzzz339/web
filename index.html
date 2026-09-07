@@ -2165,74 +2165,39 @@ function doUpload(file) {
 
 // ─── ACTIONS ─────────────────────────────────────────────────────────────────
 // Отправка PDF в нейросеть и автозаполнение формы
+// Отправка PDF в нейросеть (Асинхронно)
 function processPdfWithAi(inputEl) {
   var file = inputEl.files[0];
   if (!file) return;
 
   var fd = new FormData();
-  // ВАЖНО: Имя поля должно быть строго 'file', как ожидает multer на сервере
   fd.append('file', file);
 
   var btn = inputEl.nextElementSibling;
-  var originalText = btn.innerHTML;
-  btn.innerHTML = '⏳ Нейросеть думает... (10-20 сек)';
+  S.aiParserBtnText = btn.innerHTML; // Запоминаем текст кнопки
+  S.aiParserBtn = btn;
+  S.aiParserInput = inputEl;
+  
+  btn.innerHTML = '⏳ ИИ читает документ (1-3 мин)...';
   btn.disabled = true;
 
   fetch('/api/ai/parse-pdf', {
     method: 'POST',
-    headers: { 
-      'Authorization': 'Bearer ' + S.token
-      // ВНИМАНИЕ: Не добавляем Content-Type вручную! Браузер должен сделать это сам для FormData.
-    },
+    headers: { 'Authorization': 'Bearer ' + S.token },
     body: fd
   })
   .then(function(r) { 
-    if (!r.ok) {
-      return r.json().then(data => { throw new Error(data.error || 'Ошибка сервера ' + r.status); });
-    }
+    if (!r.ok) return r.text().then(text => { throw new Error(text); });
     return r.json(); 
   })
-  .then(function(data) {
-    btn.innerHTML = originalText;
-    btn.disabled = false;
-    inputEl.value = ''; // Сбрасываем инпут файла
-
-    if (data.error) {
-      alert('Ошибка ИИ: ' + data.error);
-      return;
-    }
-
-    // МАГИЯ АВТОЗАПОЛНЕНИЯ
-    if (data.id) document.getElementById('nt_id').value = data.id;
-    if (data.region) document.getElementById('nt_region').value = data.region;
-    if (data.address) document.getElementById('nt_address').value = data.address;
-    if (data.workType) document.getElementById('nt_workType').value = data.workType;
-    
-    if (data.inOrder) {
-      document.getElementById('nt_inOrder').value = data.inOrder;
-      document.getElementById('nt_fact').value = data.inOrder;
-    }
-    
-    // НОВЫЕ ПОЛЯ, КОТОРЫЕ НАШЕЛ ИИ:
-    if (data.dateZayavki) document.getElementById('nt_dateZayavki').value = data.dateZayavki;
-    if (data.amount) document.getElementById('nt_amount').value = data.amount;
-    if (data.contact) document.getElementById('nt_comment').value = 'Контакт на объекте: ' + data.contact;
-
-    // Подсвечиваем заполненные поля зеленым
-    ['nt_id', 'nt_region', 'nt_address', 'nt_workType', 'nt_inOrder', 'nt_dateZayavki', 'nt_amount', 'nt_comment'].forEach(function(id) {
-      var el = document.getElementById(id);
-      if (el && el.value) {
-        el.style.backgroundColor = '#e8f5e9';
-        setTimeout(function(){ el.style.backgroundColor = '#fff'; }, 2000);
-      }
-    });
-
-  }).catch(function(e) {
-    btn.innerHTML = originalText;
+  .catch(function(e) {
+    // Сброс кнопки только если ошибка сети
+    btn.innerHTML = S.aiParserBtnText;
     btn.disabled = false;
     inputEl.value = '';
-    alert('Ошибка сети: ' + e.message);
+    alert('Ошибка загрузки файла: ' + e.message);
   });
+  // Важно: мы не ждем данных здесь. Мы просто загрузили файл.
 }
 // Создание одиночной заявки с вкладки Данные
 function createSingleTask() {
@@ -2323,6 +2288,45 @@ function initChatSocket() {
         scrollChatToBottom();
       }
     }
+  });
+  S.socket.on('ai-parse-result', function(data) {
+    var btn = S.aiParserBtn;
+    var inputEl = S.aiParserInput;
+    
+    if (btn) {
+      btn.innerHTML = S.aiParserBtnText || '✨ Заполнить через ИИ';
+      btn.disabled = false;
+    }
+    if (inputEl) inputEl.value = '';
+
+    if (data.error) {
+      alert('Ошибка ИИ: ' + data.error);
+      return;
+    }
+
+    // МАГИЯ АВТОЗАПОЛНЕНИЯ (Теперь срабатывает из сокета)
+    if (data.id) document.getElementById('nt_id').value = data.id;
+    if (data.region) document.getElementById('nt_region').value = data.region;
+    if (data.address) document.getElementById('nt_address').value = data.address;
+    if (data.workType) document.getElementById('nt_workType').value = data.workType;
+    
+    if (data.inOrder) {
+      document.getElementById('nt_inOrder').value = data.inOrder;
+      document.getElementById('nt_fact').value = data.inOrder;
+    }
+    
+    if (data.dateZayavki) document.getElementById('nt_dateZayavki').value = data.dateZayavki;
+    if (data.amount) document.getElementById('nt_amount').value = data.amount;
+    if (data.contact) document.getElementById('nt_comment').value = 'Контакт на объекте: ' + data.contact;
+
+    // Подсвечиваем заполненные поля зеленым
+    ['nt_id', 'nt_region', 'nt_address', 'nt_workType', 'nt_inOrder', 'nt_dateZayavki', 'nt_amount', 'nt_comment'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el && el.value) {
+        el.style.backgroundColor = '#e8f5e9';
+        setTimeout(function(){ el.style.backgroundColor = '#fff'; }, 2000);
+      }
+    });
   });
 }
 

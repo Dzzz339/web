@@ -1411,58 +1411,62 @@ app.delete('/api/tasks/:id', async (req, res) => {
 
 
 // --- ИИ ПАРСЕР PDF ЗАЯВОК ---
+// --- ИИ ПАРСЕР PDF ЗАЯВОК (Асинхронный через WebSockets) ---
 app.post('/api/ai/parse-pdf', authenticateToken, uploadAttachment.single('file'), async (req, res) => {
-  
-  console.log('[AI Parser] Запрос получен. req.file:', req.file ? 'Присутствует' : 'ОТСУТСТВУЕТ');
-  console.log('[AI Parser] req.body:', req.body);
-  if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
+  console.log('[AI Parser] Запрос получен. Файл:', req.file ? 'Присутствует' : 'ОТСУТСТВУЕТ');
 
-  const filePath = req.file.path; // Куда multer сохранил файл
-  // ИСПРАВЛЕННЫЙ ПУТЬ: /opt/venv/bin/python3
+  if (!req.file) return res.status(400).json({ error: 'Файл не загружен или имеет неверный формат' });
+
+  const filePath = req.file.path;
+  const userId = req.user.id; // Запоминаем, кто отправил файл
+
+  // Мгновенно отвечаем браузеру, чтобы Cloudflare не выдал таймаут 524
+  res.json({ success: true, message: 'Файл принят. ИИ начал обработку.' });
+
+  // --- ФОНОВАЯ ОБРАБОТКА (Node.js продолжает работу после ответа) ---
   const pythonCommand = process.platform === 'win32' ? 'py' : 'python3';
-
   const python = spawn(pythonCommand, [path.join(__dirname, 'ai_parser.py'), filePath]);
   
   let result = '';
   let errorOutput = '';
 
-  // ЗАЩИТА ОТ КРАША СЕРВЕРА
   python.on('error', (err) => {
     console.error('Не удалось запустить ai_parser.py:', err);
-    fs.unlink(filePath, () => {}); // удаляем файл
-    if (!res.headersSent) res.status(500).json({ error: `Ошибка запуска Питона: ${err.message}` });
+    fs.unlink(filePath, () => {});
+    // Сообщаем юзеру об ошибке через WebSocket
+    io.to(`user_${userId}`).emit('ai-parse-result', { error: `Ошибка запуска Питона: ${err.message}` });
   });
 
   python.stdout.on('data', (data) => { result += data.toString(); });
   python.stderr.on('data', (data) => { errorOutput += data.toString(); });
 
   python.on('close', (code) => {
-    fs.unlink(filePath, () => {}); // удаляем временный файл
+    fs.unlink(filePath, () => {}); // Удаляем временный файл
 
     if (code !== 0) {
       console.error('AI Parser Error:', errorOutput);
-      if (!res.headersSent) res.status(500).json({ error: `Сбой Python (код ${code}): ${errorOutput}` });
+      io.to(`user_${userId}`).emit('ai-parse-result', { error: `Сбой Python: нейросеть не смогла обработать файл.` });
       return;
     }
 
     try {
-      // БРОНЕЖИЛЕТ ДЛЯ JSON: отрезаем любые Warning'и от Питона
+      // Ищем начало и конец JSON-объекта (защита от ворнингов Питона)
       const jsonStart = result.indexOf('{');
       const jsonEnd = result.lastIndexOf('}');
       
       if (jsonStart === -1 || jsonEnd === -1) {
-        throw new Error('JSON не найден в ответе');
+        throw new Error('JSON не найден в ответе ИИ');
       }
       
       const cleanJson = result.substring(jsonStart, jsonEnd + 1);
       const parsedData = JSON.parse(cleanJson);
       
-      if (parsedData.error) return res.status(400).json({ error: parsedData.error });
-      
-      if (!res.headersSent) res.json(parsedData);
+      // ОТПРАВЛЯЕМ УСПЕШНЫЙ РЕЗУЛЬТАТ ЧЕРЕЗ WEBSOCKETS ЛИЧНО ЮЗЕРУ
+      io.to(`user_${userId}`).emit('ai-parse-result', parsedData);
+
     } catch (e) {
       console.error('AI Parser JSON Error:', result);
-      if (!res.headersSent) res.status(500).json({ error: 'Нейросеть вернула невалидный ответ' });
+      io.to(`user_${userId}`).emit('ai-parse-result', { error: 'Нейросеть вернула невалидный ответ (не JSON).' });
     }
   });
 });
