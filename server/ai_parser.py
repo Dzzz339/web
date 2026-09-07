@@ -61,7 +61,11 @@ def ask_ollama(text):
         "model": "qwen2.5:14b",
         "stream": False,
         "format": "json",
-        "options": { "temperature": 0.0 },
+        "options": {
+            "temperature": 0.0,
+            "num_predict": 300,
+            "num_ctx": 2048
+        },
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": f"Текст документа:\n\n{text}"}
