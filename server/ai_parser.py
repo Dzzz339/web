@@ -76,9 +76,9 @@ def extract_text_via_ocr(pdf_path):
         return err
 
 def ask_ollama(text):
-    log("Формируем запрос в Ollama (модель qwen2.5:14b)...")
+    log("Формируем запрос в Ollama (модель qwen2.5:7b)...")
     payload = {
-        "model": "qwen2.5:14b",
+        "model": "qwen2.5:7b",
         "stream": False,
         "format": "json",
         "options": {

@@ -1433,7 +1433,7 @@ app.post('/api/ai/parse-pdf', authenticateToken, uploadAttachment.single('file')
 
   // --- ФОНОВАЯ ОБРАБОТКА (Node.js продолжает работу после ответа) ---
   const pythonCommand = process.platform === 'win32' ? 'py' : 'python3';
-  const python = spawn(pythonCommand, [path.join(__dirname, 'ai_parser.py'), filePath]);
+  const python = spawn(pythonCommand, ['-u', path.join(__dirname, 'ai_parser.py'), filePath]);
   
   let result = '';
   let errorOutput = '';
