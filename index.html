@@ -467,6 +467,8 @@ function init() {
   if (!window.notifInterval) {
     window.notifInterval = setInterval(loadNotifications, 30000);
   }
+
+  initChatSocket();
   
   setApp('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.75rem">Загрузка…</p></div>');
   var requests = [api('/stats'), api('/tasks'), api('/chains'), api('/import-info'), api('/marches')];
