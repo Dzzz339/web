@@ -376,8 +376,16 @@ function runPythonCleaner(data) {
       console.error('Ошибка записи stdin:', e);
     }
 
-    python.stdout.on('data', (data) => { result += data.toString(); });
-    python.stderr.on('data', (data) => { errorOutput += data.toString(); });
+    python.stdout.on('data', (data) => { 
+        result += data.toString(); 
+      });
+
+      // В реальном времени транслируем логи Питона прямо в консоль сервера
+      python.stderr.on('data', (data) => { 
+        const lines = data.toString().split('\n').filter(Boolean);
+        lines.forEach(l => console.log(l));
+        errorOutput += data.toString(); 
+      });
 
     python.on('close', (code) => {
       if (code !== 0) {
