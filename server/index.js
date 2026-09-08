@@ -1426,12 +1426,12 @@ app.post('/api/ai/parse-pdf', authenticateToken, uploadAttachment.single('file')
   if (!req.file) return res.status(400).json({ error: 'Файл не загружен или имеет неверный формат' });
 
   const filePath = req.file.path;
-  const userId = req.user.id; // Запоминаем, кто отправил файл
+  const userId = req.user.id;
 
-  // Мгновенно отвечаем браузеру, чтобы Cloudflare не выдал таймаут 524
+  // Мгновенно отвечаем браузеру
   res.json({ success: true, message: 'Файл принят. ИИ начал обработку.' });
 
-  // --- ФОНОВАЯ ОБРАБОТКА (Node.js продолжает работу после ответа) ---
+  // Запуск с флагом -u (без буферизации)
   const pythonCommand = process.platform === 'win32' ? 'py' : 'python3';
   const python = spawn(pythonCommand, ['-u', path.join(__dirname, 'ai_parser.py'), filePath]);
   
@@ -1441,24 +1441,41 @@ app.post('/api/ai/parse-pdf', authenticateToken, uploadAttachment.single('file')
   python.on('error', (err) => {
     console.error('Не удалось запустить ai_parser.py:', err);
     fs.unlink(filePath, () => {});
-    // Сообщаем юзеру об ошибке через WebSocket
-    io.to(`user_${userId}`).emit('ai-parse-result', { error: `Ошибка запуска Питона: ${err.message}` });
+    io.to(`user_${userId}`).emit('ai-parse-result', { error: `Ошибка запуска: ${err.message}` });
   });
 
-  python.stdout.on('data', (data) => { result += data.toString(); });
-  python.stderr.on('data', (data) => { errorOutput += data.toString(); });
+  // Ловим вывод построчно: логи шлем в браузер, результат копим
+  python.stdout.on('data', (data) => {
+    const lines = data.toString().split('\n');
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
+
+      if (line.startsWith('LOG:')) {
+        const text = line.replace('LOG:', '').trim();
+        io.to(`user_${userId}`).emit('ai-log', { message: text });
+      } else if (line.startsWith('RESULT:')) {
+        result = line.replace('RESULT:', '').trim();
+      } else {
+        result += line;
+      }
+    }
+  });
+
+  python.stderr.on('data', (data) => { 
+    errorOutput += data.toString(); 
+  });
 
   python.on('close', (code) => {
-    fs.unlink(filePath, () => {}); // Удаляем временный файл
+    fs.unlink(filePath, () => {});
 
     if (code !== 0) {
       console.error('AI Parser Error:', errorOutput);
-      io.to(`user_${userId}`).emit('ai-parse-result', { error: `Сбой Python: нейросеть не смогла обработать файл.` });
+      io.to(`user_${userId}`).emit('ai-parse-result', { error: 'Сбой обработки файла' });
       return;
     }
 
     try {
-      // Ищем начало и конец JSON-объекта (защита от ворнингов Питона)
       const jsonStart = result.indexOf('{');
       const jsonEnd = result.lastIndexOf('}');
       
@@ -1469,12 +1486,12 @@ app.post('/api/ai/parse-pdf', authenticateToken, uploadAttachment.single('file')
       const cleanJson = result.substring(jsonStart, jsonEnd + 1);
       const parsedData = JSON.parse(cleanJson);
       
-      // ОТПРАВЛЯЕМ УСПЕШНЫЙ РЕЗУЛЬТАТ ЧЕРЕЗ WEBSOCKETS ЛИЧНО ЮЗЕРУ
+      // Отправляем финальный JSON в браузер
       io.to(`user_${userId}`).emit('ai-parse-result', parsedData);
 
     } catch (e) {
       console.error('AI Parser JSON Error:', result);
-      io.to(`user_${userId}`).emit('ai-parse-result', { error: 'Нейросеть вернула невалидный ответ (не JSON).' });
+      io.to(`user_${userId}`).emit('ai-parse-result', { error: 'Не удалось прочитать ответ нейросети' });
     }
   });
 });

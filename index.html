@@ -1728,13 +1728,15 @@ function pageData() {
       '<div class="card p">' +
         '<div class="fw7 mb" style="font-size:1.05rem; display:flex; align-items:center; justify-content:space-between">' +
           '<span>📝 Одиночная заявка</span>' +
-          
-          // ИСПРАВЛЕННЫЙ БЛОК: Кнопка для ИИ-парсера (добавлены кавычки и плюсы)
           '<div>' +
             '<input type="file" id="ai_pdf_upload" accept=".pdf" style="display:none" onchange="processPdfWithAi(this)">' +
             '<button class="btn btn-sm btn-ghost" style="color:var(--blue); border-color:var(--blue)" onclick="document.getElementById(\'ai_pdf_upload\').click()" title="Извлечь данные из PDF">✨ Заполнить через ИИ</button>' +
           '</div>' +
-
+        '</div>' +
+        
+        // ТЕРМИНАЛ ЛОГОВ (НА ВСЮ ШИРИНУ, АККУРАТНО ПОД ШАПКОЙ)
+        '<div id="ai_log_box" style="display:none; background:#18181b; color:#22c55e; font-family:monospace; font-size:.75rem; padding:8px 12px; border-radius:6px; max-height:110px; overflow-y:auto; margin-bottom:12px; border:1px solid #27272a;">' +
+          '<div id="ai_log_content"></div>' +
         '</div>' +
         
         '<div style="display:flex; flex-direction:column; gap:.6rem; font-size:.85rem">' +
@@ -2174,7 +2176,7 @@ function processPdfWithAi(inputEl) {
 
   var fd = new FormData();
   fd.append('file', file);
-
+  
   var btn = inputEl.nextElementSibling;
   S.aiParserBtnText = btn.innerHTML; // Запоминаем текст кнопки
   S.aiParserBtn = btn;
@@ -2183,6 +2185,12 @@ function processPdfWithAi(inputEl) {
   btn.innerHTML = '⏳ ИИ читает документ (1-3 мин)...';
   btn.disabled = true;
 
+  var logBox = document.getElementById('ai_log_box');
+  var logContent = document.getElementById('ai_log_content');
+  if (logBox && logContent) {
+    logContent.innerHTML = '';
+    logBox.style.display = 'block';
+  }
   fetch('/api/ai/parse-pdf', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + S.token },
@@ -2289,6 +2297,18 @@ function initChatSocket() {
         renderChatMessages();
         scrollChatToBottom();
       }
+    }
+  });
+  S.socket.on('ai-log', function(data) {
+    var content = document.getElementById('ai_log_content');
+    var box = document.getElementById('ai_log_box');
+    if (content && box) {
+      var time = new Date().toLocaleTimeString('ru', {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+      var line = document.createElement('div');
+      line.style.marginBottom = '2px';
+      line.innerHTML = '<span style="color:#71717a">[' + time + ']</span> ' + escHtml(data.message);
+      content.appendChild(line);
+      box.scrollTop = box.scrollHeight;
     }
   });
   S.socket.on('ai-parse-result', function(data) {
