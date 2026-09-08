@@ -353,51 +353,28 @@ async function initDB() {
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
-function runPythonCleaner(data) {
-  return new Promise((resolve, reject) => {
-    const pythonCommand = process.platform === 'win32' ? 'py' : 'python3';
-    const python = spawn(pythonCommand, [path.join(__dirname, 'cleaner.py')]);
-    let result = '';
-    let errorOutput = '';
-
-    python.on('error', (err) => {
-      reject(new Error(`Не удалось запустить Python: ${err.message}`));
-    });
-
-    // ВОТ ОН, ФИКС EPIPE: Ловим ошибку обрыва канала
-    python.stdin.on('error', (err) => {
-      console.error('Ошибка передачи данных в Python (EPIPE):', err.message);
-    });
-
-    try {
-      python.stdin.write(JSON.stringify(data));
-      python.stdin.end();
-    } catch (e) {
-      console.error('Ошибка записи stdin:', e);
+// Чистая и мгновенная очистка данных на JavaScript (без вызова Питона)
+function cleanData(data) {
+  const numericFields = ['amount', 'distanceKm', 'pricePerUnit', 'tmc', 'extras', 'overdueDays', 'inOrder', 'fact'];
+  return data.map(row => {
+    const newRow = { ...row };
+    for (const key of Object.keys(newRow)) {
+      let val = newRow[key];
+      if (typeof val === 'string') {
+        val = val.trim();
+        if (key === 'region' && val) {
+          val = val.charAt(0).toUpperCase() + val.slice(1);
+        }
+        if (numericFields.includes(key)) {
+          const numStr = val.replace(/,/g, '.').replace(/[^0-9.-]/g, '');
+          val = parseFloat(numStr) || 0.0;
+        }
+      } else if (val === null && numericFields.includes(key)) {
+        val = 0.0;
+      }
+      newRow[key] = val;
     }
-
-    python.stdout.on('data', (data) => { 
-        result += data.toString(); 
-      });
-
-      // В реальном времени транслируем логи Питона прямо в консоль сервера
-      python.stderr.on('data', (data) => { 
-        const lines = data.toString().split('\n').filter(Boolean);
-        lines.forEach(l => console.log(l));
-        errorOutput += data.toString(); 
-      });
-
-    python.on('close', (code) => {
-      if (code !== 0) {
-        console.error(`Python упал с кодом ${code}. Ошибка: ${errorOutput}`);
-        return reject(new Error('Python не справился с объемом данных (нехватка памяти)'));
-      }
-      try {
-        resolve(JSON.parse(result));
-      } catch (e) {
-        reject(new Error('Python вернул битый ответ'));
-      }
-    });
+    return newRow;
   });
 }
 function getInitialStage(status) {
@@ -1428,72 +1405,61 @@ app.post('/api/ai/parse-pdf', authenticateToken, uploadAttachment.single('file')
   const filePath = req.file.path;
   const userId = req.user.id;
 
-  // Мгновенно отвечаем браузеру
+  // Мгновенный ответ браузеру
   res.json({ success: true, message: 'Файл принят. ИИ начал обработку.' });
 
-  // Запуск с флагом -u (без буферизации)
-  const pythonCommand = process.platform === 'win32' ? 'py' : 'python3';
-  const python = spawn(pythonCommand, ['-u', path.join(__dirname, 'ai_parser.py'), filePath]);
-  
-  let result = '';
-  let errorOutput = '';
+  try {
+    const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://ai:8000';
+    const fileBuffer = fs.readFileSync(filePath);
+    fs.unlink(filePath, () => {}); // Удаляем временный файл сразу
 
-  python.on('error', (err) => {
-    console.error('Не удалось запустить ai_parser.py:', err);
-    fs.unlink(filePath, () => {});
-    io.to(`user_${userId}`).emit('ai-parse-result', { error: `Ошибка запуска: ${err.message}` });
-  });
+    // Формируем отправку файла в ai-service
+    const blob = new Blob([fileBuffer], { type: req.file.mimetype });
+    const fd = new FormData();
+    fd.append('file', blob, req.file.originalname);
 
-  // Ловим вывод построчно: логи шлем в браузер, результат копим
-  python.stdout.on('data', (data) => {
-    const lines = data.toString().split('\n');
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      if (!line) continue;
+    const response = await fetch(`${aiServiceUrl}/parse`, {
+      method: 'POST',
+      body: fd
+    });
 
-      if (line.startsWith('LOG:')) {
-        const text = line.replace('LOG:', '').trim();
-        io.to(`user_${userId}`).emit('ai-log', { message: text });
-      } else if (line.startsWith('RESULT:')) {
-        result = line.replace('RESULT:', '').trim();
-      } else {
-        result += line;
+    if (!response.ok) {
+      throw new Error(`Ошибка от AI-сервиса: ${response.statusText}`);
+    }
+
+    // Читаем стриминг от FastAPI построчно
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // Оставляем незавершенную строку
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const item = JSON.parse(line);
+          if (item.type === 'log') {
+            io.to(`user_${userId}`).emit('ai-log', { message: item.message });
+          } else if (item.type === 'result') {
+            io.to(`user_${userId}`).emit('ai-parse-result', item.data);
+          } else if (item.type === 'error') {
+            io.to(`user_${userId}`).emit('ai-parse-result', { error: item.message });
+          }
+        } catch (err) {
+          console.error('Ошибка разбора строки стрима:', line);
+        }
       }
     }
-  });
-
-  python.stderr.on('data', (data) => { 
-    errorOutput += data.toString(); 
-  });
-
-  python.on('close', (code) => {
-    fs.unlink(filePath, () => {});
-
-    if (code !== 0) {
-      console.error('AI Parser Error:', errorOutput);
-      io.to(`user_${userId}`).emit('ai-parse-result', { error: 'Сбой обработки файла' });
-      return;
-    }
-
-    try {
-      const jsonStart = result.indexOf('{');
-      const jsonEnd = result.lastIndexOf('}');
-      
-      if (jsonStart === -1 || jsonEnd === -1) {
-        throw new Error('JSON не найден в ответе ИИ');
-      }
-      
-      const cleanJson = result.substring(jsonStart, jsonEnd + 1);
-      const parsedData = JSON.parse(cleanJson);
-      
-      // Отправляем финальный JSON в браузер
-      io.to(`user_${userId}`).emit('ai-parse-result', parsedData);
-
-    } catch (e) {
-      console.error('AI Parser JSON Error:', result);
-      io.to(`user_${userId}`).emit('ai-parse-result', { error: 'Не удалось прочитать ответ нейросети' });
-    }
-  });
+  } catch (e) {
+    console.error('[AI Parser Error]:', e.message);
+    io.to(`user_${userId}`).emit('ai-parse-result', { error: `Сбой сервиса ИИ: ${e.message}` });
+  }
 });
 
 // Хелпер: может ли этот пользователь трогать вложения этой заявки
@@ -1654,7 +1620,7 @@ app.get('/api/import-info', authenticateToken, async (req, res) => {
 app.post('/api/excel/import-rows', async (req, res) => {
   try {
     let { rows: newBatch, name, isFirst, totalRows } = req.body
-    newBatch = await runPythonCleaner(newBatch);
+    newBatch = await cleanData(newBatch);
     if (!Array.isArray(newBatch)) return res.status(400).json({ error: 'rows must be array' })
 
     const client = await pool.connect()
