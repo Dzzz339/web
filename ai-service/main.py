@@ -88,7 +88,7 @@ async def process_pdf_generator(file_bytes):
         "format": "json",
         "options": {
             "temperature": 0.0,
-            "num_predict": 350,
+            "num_predict": 1000,
             "num_ctx": 2048
         },
         "messages": [
@@ -108,7 +108,10 @@ async def process_pdf_generator(file_bytes):
         content = resp.json()["message"]["content"]
         yield log_line("Стандартизируем адрес и заполняем форму...")
         
-        parsed_json = json.loads(content)
+        s = content.find('{')
+        e = content.find('}')
+        clean_json = content[s:e+1] if (s != -1 and e != -1) else content
+        parsed_json = json.loads(clean_json, strict=False)
         yield json.dumps({"type": "result", "data": parsed_json}, ensure_ascii=False) + "\n"
 
     except requests.exceptions.ReadTimeout:
