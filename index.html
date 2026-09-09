@@ -1712,6 +1712,18 @@ function pageData() {
     curBanner +
     '<div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start;">' +
       
+      // ЛЕВАЯ КОЛОНКА: МАССОВАЯ ЗАГРУЗКА
+      '<div class="card p">' +
+        '<div class="fw7 mb" style="font-size:1.05rem; display:flex; align-items:center; gap:8px">📊 Массовая загрузка (Excel)</div>' +
+        '<p class="t2 mb" style="font-size:.82rem">Файл с листами «Заявки 2023-2026». Данные обновятся автоматически.</p>' +
+        '<div class="upload-zone" id="uzone" onclick="document.getElementById(\'ufile\').click()">' +
+          '<input type="file" id="ufile" accept=".xlsx,.xls">' +
+          '<div style="font-size:2rem;margin-bottom:.4rem">📂</div>' +
+          '<div class="fw6">Нажмите или перетащите файл .xlsx</div>' +
+        '</div>' +
+        '<div id="ustatus" style="margin-top:1rem"></div>' +
+      '</div>' +
+
       // ПРАВАЯ КОЛОНКА: ОДИНОЧНАЯ ЗАЯВКА И ИИ
       '<div class="card p">' +
         '<div class="fw7 mb" style="font-size:1.05rem; display:flex; align-items:center; justify-content:space-between">' +
@@ -1774,8 +1786,8 @@ function pageData() {
         '</div>' +
       '</div>' + // Закрывается card p
 
-    '</div>'; // Закрывается грид 1fr 1fr
 
+    '</div>';
 }
 
 var searchTimeout;
