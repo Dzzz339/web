@@ -1,0 +1,30 @@
+{
+  "name": "stockeasy-desktop",
+  "version": "1.0.0",
+  "description": "Stockeasy Desktop App",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^28.2.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "ru.stockeasy.app",
+    "productName": "Stockeasy",
+    "win": {
+      "target": "nsis",
+      "icon": "../images/logo.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true
+    }
+  }
+}
