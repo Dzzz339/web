@@ -1712,18 +1712,6 @@ function pageData() {
     curBanner +
     '<div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start;">' +
       
-      // ЛЕВАЯ КОЛОНКА: МАССОВАЯ ЗАГРУЗКА
-      '<div class="card p">' +
-        '<div class="fw7 mb" style="font-size:1.05rem; display:flex; align-items:center; gap:8px">📊 Массовая загрузка (Excel)</div>' +
-        '<p class="t2 mb" style="font-size:.82rem">Файл с листами «Заявки 2023-2026». Данные обновятся автоматически.</p>' +
-        '<div class="upload-zone" id="uzone" onclick="document.getElementById(\'ufile\').click()">' +
-          '<input type="file" id="ufile" accept=".xlsx,.xls">' +
-          '<div style="font-size:2rem;margin-bottom:.4rem">📂</div>' +
-          '<div class="fw6">Нажмите или перетащите файл .xlsx</div>' +
-        '</div>' +
-        '<div id="ustatus" style="margin-top:1rem"></div>' +
-      '</div>' +
-
       // ПРАВАЯ КОЛОНКА: ОДИНОЧНАЯ ЗАЯВКА И ИИ
       '<div class="card p">' +
         '<div class="fw7 mb" style="font-size:1.05rem; display:flex; align-items:center; justify-content:space-between">' +
@@ -1734,12 +1722,14 @@ function pageData() {
           '</div>' +
         '</div>' +
         
-        // ТЕРМИНАЛ ЛОГОВ (НА ВСЮ ШИРИНУ, АККУРАТНО ПОД ШАПКОЙ)
+        // ТЕРМИНАЛ ЛОГОВ (НА ВСЮ ШИРИНУ ПОД ШАПКОЙ)
         '<div id="ai_log_box" style="display:none; background:#18181b; color:#22c55e; font-family:monospace; font-size:.75rem; padding:8px 12px; border-radius:6px; max-height:110px; overflow-y:auto; margin-bottom:12px; border:1px solid #27272a;">' +
           '<div id="ai_log_content"></div>' +
         '</div>' +
         
+        // ОБЩИЙ КОНТЕЙНЕР ПОЛЕЙ ФОРМЫ (НЕ ЗАКРЫВАЕМ ЕГО ДО САМОГО НИЗА)
         '<div style="display:flex; flex-direction:column; gap:.6rem; font-size:.85rem">' +
+          '<div class="g2">' +
             '<input id="nt_id" type="text" placeholder="Номер заявки (Обязательно)*" style="font-weight:700; border-color:var(--orange)">' +
             '<input id="nt_vsp" type="text" placeholder="№ ВСП">' +
           '</div>' +
@@ -1748,6 +1738,7 @@ function pageData() {
             '<input id="nt_region" type="text" placeholder="Регион">' +
             '<input id="nt_address" type="text" placeholder="Адрес объекта">' +
           '</div>' +
+
           '<div class="g2">' +
             '<input id="nt_manager" type="text" placeholder="Менеджер Сбера (Заказчик)">' +
             '<input id="nt_contact" type="text" placeholder="Контакт на объекте">' +
@@ -1770,17 +1761,21 @@ function pageData() {
             '<div><label class="t3" style="font-size:.7rem">Дедлайн (план)</label><input id="nt_deadline" type="date" style="width:100%"></div>' +
           '</div>' +
 
-          '<input id="nt_techLink" type="url" placeholder="Ссылка на тех.информацию">' +
-          '<input id="nt_invoiceInfo" type="text" placeholder="№ счёта / сумма">' +
+          '<div class="g2">' +
+            '<input id="nt_techLink" type="url" placeholder="Ссылка на тех.информацию">' +
+            '<input id="nt_invoiceInfo" type="text" placeholder="№ счёта / сумма">' +
+          '</div>' +
+
           '<textarea id="nt_comment" placeholder="Комментарий" style="resize:vertical; min-height:60px"></textarea>' +
-        '</div>' +
+        '</div>' + // ВОТ ТУТ закрывается общий контейнер полей
 
         '<div style="text-align:right; margin-top:1rem">' +
           '<button class="btn" onclick="createSingleTask()" style="width:100%; justify-content:center">+ Создать заявку</button>' +
         '</div>' +
-      '</div>' +
+      '</div>' + // Закрывается card p
 
-    '</div>';
+    '</div>'; // Закрывается грид 1fr 1fr
+
 }
 
 var searchTimeout;
