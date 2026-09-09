@@ -345,6 +345,26 @@
       .stat { padding: .875rem 1rem; }
       .stat-val { font-size: 1.6rem; }
     }
+        .btn-spinner {
+      display: inline-block;
+      width: 13px;
+      height: 13px;
+      border: 2px solid rgba(59, 130, 246, 0.3);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+
+    /* Мягкое неоновое дыхание терминала */
+    .terminal-pulse {
+      animation: terminalPulse 1.8s ease-in-out infinite alternate !important;
+    }
+    @keyframes terminalPulse {
+      0% { border-color: #27272a; box-shadow: 0 0 0 rgba(34, 197, 94, 0); }
+      100% { border-color: #22c55e; box-shadow: 0 0 12px rgba(34, 197, 94, 0.3); }
+    }
   </style>
 <script src="xlsx.full.min.js"></script>
 <script src="/socket.io/socket.io.js"></script>
@@ -2135,7 +2155,15 @@ function doUpload(file) {
             var sent = 0;
             var BATCH = 200; // Стабильный размер пачки для Railway
             
-            setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Отправка на сервер… (0 / ' + total + ')</p></div>');
+            var p = Math.round((sent / total) * 100);
+            setStatus(
+              '<div style="margin-top:1rem">' +
+                '<div style="display:flex; justify-content:space-between; font-size:.8rem; font-weight:600; margin-bottom:6px">' +
+                  '<span>Импорт в базу...</span><span>' + p + '% (' + sent + ' / ' + total + ')</span>' +
+                '</div>' +
+                '<div class="prog"><div class="prog-fill" style="width:' + p + '%"></div></div>' +
+              '</div>'
+            );
 
             function sendBatch(isFirst) {
               var batch = rows.slice(sent, sent + BATCH);
@@ -2164,7 +2192,15 @@ function doUpload(file) {
               .then(function(result) {
                 if (result.error) throw new Error(result.error);
                 sent += batch.length;
-                setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Отправка… (' + sent + ' / ' + total + ')</p></div>');
+                var p = Math.round((sent / total) * 100);
+                setStatus(
+                  '<div style="margin-top:1rem">' +
+                    '<div style="display:flex; justify-content:space-between; font-size:.8rem; font-weight:600; margin-bottom:6px">' +
+                      '<span>Импорт в базу...</span><span>' + p + '% (' + sent + ' / ' + total + ')</span>' +
+                    '</div>' +
+                    '<div class="prog"><div class="prog-fill" style="width:' + p + '%"></div></div>' +
+                  '</div>'
+                );
                 return sendBatch(false);
               });
             }
@@ -2195,8 +2231,9 @@ function processPdfWithAi(inputEl) {
   S.aiParserBtn = btn;
   S.aiParserInput = inputEl;
   
-  btn.innerHTML = '⏳ ИИ читает документ (1-3 мин)...';
+  btn.innerHTML = '<span class="btn-spinner"></span> Анализ документа...';
   btn.disabled = true;
+  if (logBox) logBox.classList.add('terminal-pulse');
 
   var logBox = document.getElementById('ai_log_box');
   var logContent = document.getElementById('ai_log_content');
@@ -2331,10 +2368,8 @@ function initChatSocket() {
     var btn = S.aiParserBtn;
     var inputEl = S.aiParserInput;
     
-    if (btn) {
-      btn.innerHTML = S.aiParserBtnText || '✨ Заполнить через ИИ';
-      btn.disabled = false;
-    }
+    var logBox = document.getElementById('ai_log_box');
+    if (logBox) logBox.classList.remove('terminal-pulse');
     if (inputEl) inputEl.value = '';
 
     if (data.error) {
