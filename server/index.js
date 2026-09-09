@@ -1447,7 +1447,21 @@ app.post('/api/ai/parse-pdf', authenticateToken, uploadAttachment.single('file')
           if (item.type === 'log') {
             io.to(`user_${userId}`).emit('ai-log', { message: item.message });
           } else if (item.type === 'result') {
-            io.to(`user_${userId}`).emit('ai-parse-result', item.data);
+            const parsedData = item.data;
+
+            // ИНСТРУМЕНТ 2: Мгновенная стандартизация адреса через DaData
+            if (parsedData && parsedData.address) {
+              try {
+                const cleanGeo = await cleanAddressDaData(parsedData.address, parsedData.region);
+                if (cleanGeo && cleanGeo.address) {
+                  parsedData.address = cleanGeo.address; // Подставляем официальный адрес
+                }
+              } catch (geoErr) {
+                console.error('[DaData Auto-clean error]:', geoErr.message);
+              }
+            }
+
+            io.to(`user_${userId}`).emit('ai-parse-result', parsedData);
           } else if (item.type === 'error') {
             io.to(`user_${userId}`).emit('ai-parse-result', { error: item.message });
           }

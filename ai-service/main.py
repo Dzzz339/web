@@ -11,25 +11,27 @@ import asyncio
 
 app = FastAPI()
 
-# Инициализируем OCR один раз при старте контейнера, чтобы не тратить время при запросах
 print("[AI-SERVICE] Предзагрузка EasyOCR...", flush=True)
 reader = easyocr.Reader(["ru", "en"], gpu=False, verbose=False)
 print("[AI-SERVICE] EasyOCR готов к работе!", flush=True)
 
+# ИНСТРУМЕНТ 1: Умный системный промпт с автокоррекцией опечаток OCR
 SYSTEM_PROMPT = """
-Ты — строгий алгоритм-парсер. Твоя задача извлечь данные из договора Сбербанка.
-ВЕРНИ ТОЛЬКО ВАЛИДНЫЙ JSON. НИКАКИХ ПОЯСНЕНИЙ И ТЕКСТА ВОКРУГ!
-Правило: Все значения должны быть СТРОКАМИ или ЧИСЛАМИ. Запрещено создавать вложенные объекты.
+Ты — строгий аналитический парсер договоров Сбербанка. Твоя задача — извлечь факты и вернуть ТОЛЬКО ВАЛИДНЫЙ JSON.
+Никакого вводного текста, пояснений и разметки markdown! Только JSON-объект.
 
-Ищи данные СТРОГО по этим правилам (ищи слова-якоря):
-- "id": Ищи строку "ЗАКАЗ НА ВЫПОЛНЕНИЕ РАБОТ №". Верни только сам номер (например, "СРБ-6562-04").
-- "dateZayavki": Ищи дату в самом верху после номера заказа. Переведи в формат YYYY-MM-DD.
-- "address": Ищи строку, начинающуюся со слова "Объект:". Скопируй весь текст адреса.
-- "region": Вытащи только название города или населенного пункта из найденного адреса.
-- "workType": Ищи текст после слов "Состав работ:".
-- "inOrder": Ищи количество портов перед словом "шт." (ВНИМАНИЕ: категорию кабеля вроде "5е" игнорируй, бери только цифру перед "шт."). Верни ТОЛЬКО ЧИСЛО.
-- "amount": Ищи текст "составляет сумму в размере". Верни ТОЛЬКО ЧИСЛО, которое идет до скобок (например, 9641). Удали пробелы.
-- "contact": Ищи раздел "Контактная информация о Заказчике" (ФИО и телефон).
+ВАЖНОЕ ПРАВИЛО: Исходный текст получен через оптическое распознавание (OCR) и содержит типовые ошибки букв.
+ОБЯЗАТЕЛЬНО исправляй очевидные опечатки в русских словах, именах и отчествах (например: 'Надсжда' -> 'Надежда', 'Алсксандр' -> 'Александр', 'Влалимировна' -> 'Владимировна', символ 'с' вместо 'е', '0' вместо 'О').
+
+Правила извлечения полей:
+- "id": Номер заказа после "ЗАКАЗ НА ВЫПОЛНЕНИЕ РАБОТ №" (например, "СИБ-8288-18").
+- "dateZayavki": Дата в шапке заказа. Переведи строго в формат YYYY-MM-DD.
+- "address": Физический адрес объекта (город/село, улица, дом). СТРОГО УДАЛЯЙ этажи, номера комнат, клиентские залы и приписки (например, строки вроде "1-ый этаж", "Клиентский зал по обслуживанию ФЛ/ЮЛ" удаляй полностью).
+- "region": Только населенный пункт или субъект РФ (например, "Кызыл-Озек" или "Республика Алтай"). Без улиц.
+- "workType": Название работ (например, "Монтаж нового порта СКС"). Удали мусор вроде "кат. 5е", если он прилип.
+- "inOrder": Количество портов перед "шт.". Игнорируй категорию кабеля (например, 'кат. 5е: 1 шт.' означает ровно 1 порт). Верни ТОЛЬКО ЧИСЛО.
+- "amount": Число до скобок после слов "составляет сумму в размере" (например, 18527). Удали пробелы. Верни ТОЛЬКО ЧИСЛО.
+- "contact": ФИО и телефон из раздела "Контактная информация о Заказчике". Обязательно исправь искаженные буквы в имени.
 """
 
 async def process_pdf_generator(file_bytes):
@@ -45,18 +47,18 @@ async def process_pdf_generator(file_bytes):
         await asyncio.sleep(0.05)
 
         results = []
-        zoom = 2.0 
+        # ИНСТРУМЕНТ 3: Zoom 2.5x в Grayscale дает максимальную резкость контуров мелких букв
+        zoom = 2.5 
         mat = fitz.Matrix(zoom, zoom)
 
         for idx, page in enumerate(doc):
             t_page = time.time()
-            yield log_line(f"Рендеринг и распознавание страницы {idx + 1}...")
+            yield log_line(f"Обработка и распознавание страницы {idx + 1}...")
             await asyncio.sleep(0.05)
 
-            pix = page.get_pixmap(matrix=mat)
-            img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
-            if pix.n == 4:
-                img_array = img_array[:, :, :3]
+            # Рендерим в чистый ч/б Grayscale (убирает цветовой шум вокруг букв)
+            pix = page.get_pixmap(matrix=mat, colorspace=fitz.csGRAY)
+            img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width)
 
             text_blocks = reader.readtext(img_array, detail=0, paragraph=True)
             page_text = "\n".join(text_blocks)
@@ -85,7 +87,7 @@ async def process_pdf_generator(file_bytes):
         "format": "json",
         "options": {
             "temperature": 0.0,
-            "num_predict": 300,
+            "num_predict": 350,
             "num_ctx": 2048
         },
         "messages": [
@@ -96,7 +98,6 @@ async def process_pdf_generator(file_bytes):
 
     try:
         t_ollama = time.time()
-        # В Docker Windows Ollama доступна по host.docker.internal
         resp = requests.post("http://host.docker.internal:11434/api/chat", json=payload, timeout=180)
         elapsed = round(time.time() - t_ollama, 1)
         yield log_line(f"Нейросеть обработала данные за {elapsed} сек.")
@@ -104,7 +105,7 @@ async def process_pdf_generator(file_bytes):
         
         resp.raise_for_status()
         content = resp.json()["message"]["content"]
-        yield log_line("Заполняем поля формы...")
+        yield log_line("Стандартизируем адрес и заполняем форму...")
         
         parsed_json = json.loads(content)
         yield json.dumps({"type": "result", "data": parsed_json}, ensure_ascii=False) + "\n"
