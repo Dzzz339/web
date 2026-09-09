@@ -1740,11 +1740,17 @@ function pageData() {
         '</div>' +
         
         '<div style="display:flex; flex-direction:column; gap:.6rem; font-size:.85rem">' +
-          '<input id="nt_id" type="text" placeholder="Номер заявки (Обязательно)*" style="font-weight:700; border-color:var(--orange)">' +
-          
+            '<input id="nt_id" type="text" placeholder="Номер заявки (Обязательно)*" style="font-weight:700; border-color:var(--orange)">' +
+            '<input id="nt_vsp" type="text" placeholder="№ ВСП">' +
+          '</div>' +
+
           '<div class="g2">' +
             '<input id="nt_region" type="text" placeholder="Регион">' +
             '<input id="nt_address" type="text" placeholder="Адрес объекта">' +
+          '</div>' +
+          '<div class="g2">' +
+            '<input id="nt_manager" type="text" placeholder="Менеджер Сбера (Заказчик)">' +
+            '<input id="nt_contact" type="text" placeholder="Контакт на объекте">' +
           '</div>' +
           
           '<input id="nt_workType" type="text" placeholder="Тип работ">' +
@@ -2224,7 +2230,10 @@ function createSingleTask() {
     deadline:     document.getElementById('nt_deadline').value,
     techLink:     document.getElementById('nt_techLink').value.trim(),
     invoiceInfo:  document.getElementById('nt_invoiceInfo').value.trim(),
-    comment:      document.getElementById('nt_comment').value.trim()
+    comment:      document.getElementById('nt_comment').value.trim(),
+    vsp:          document.getElementById('nt_vsp').value.trim(),
+    manager:      document.getElementById('nt_manager').value.trim(),
+    contact:      document.getElementById('nt_contact').value.trim()
   };
 
   if (!data.id) {
@@ -2251,7 +2260,7 @@ function createSingleTask() {
     }
     
     // 1. Очищаем все поля формы
-    var fieldsToClear = ['nt_id', 'nt_region', 'nt_address', 'nt_workType', 'nt_amount', 'nt_pricePerUnit', 'nt_inOrder', 'nt_fact', 'nt_dateZayavki', 'nt_deadline', 'nt_techLink', 'nt_invoiceInfo', 'nt_comment'];
+    var fieldsToClear = ['nt_id', 'nt_vsp', 'nt_region', 'nt_address', 'nt_manager', 'nt_contact', 'nt_workType', 'nt_amount', 'nt_pricePerUnit', 'nt_inOrder', 'nt_fact', 'nt_dateZayavki', 'nt_deadline', 'nt_techLink', 'nt_invoiceInfo', 'nt_comment'];
     fieldsToClear.forEach(function(id) {
       var el = document.getElementById(id);
       if (el) el.value = '';
@@ -2326,23 +2335,28 @@ function initChatSocket() {
       return;
     }
 
-    // МАГИЯ АВТОЗАПОЛНЕНИЯ (Теперь срабатывает из сокета)
+    // Автозаполнение полей
     if (data.id) document.getElementById('nt_id').value = data.id;
+    if (data.vsp) document.getElementById('nt_vsp').value = data.vsp;
     if (data.region) document.getElementById('nt_region').value = data.region;
     if (data.address) document.getElementById('nt_address').value = data.address;
     if (data.workType) document.getElementById('nt_workType').value = data.workType;
-    
-    if (data.inOrder) {
-      document.getElementById('nt_inOrder').value = data.inOrder;
-      document.getElementById('nt_fact').value = data.inOrder;
-    }
-    
     if (data.dateZayavki) document.getElementById('nt_dateZayavki').value = data.dateZayavki;
     if (data.amount) document.getElementById('nt_amount').value = data.amount;
-    if (data.contact) document.getElementById('nt_comment').value = 'Контакт на объекте: ' + data.contact;
+    if (data.inOrder) document.getElementById('nt_inOrder').value = data.inOrder;
+    if (data.manager) document.getElementById('nt_manager').value = data.manager;
+    if (data.contact) document.getElementById('nt_contact').value = data.contact;
+    if (data.comment) document.getElementById('nt_comment').value = data.comment;
 
-    // Подсвечиваем заполненные поля зеленым
-    ['nt_id', 'nt_region', 'nt_address', 'nt_workType', 'nt_inOrder', 'nt_dateZayavki', 'nt_amount', 'nt_comment'].forEach(function(id) {
+    // Факт оставляем пустым!
+
+    // Авторасчет: Стоимость за ед. = Сумма с НДС / Порты
+    if (data.amount && data.inOrder && Number(data.inOrder) > 0) {
+      document.getElementById('nt_pricePerUnit').value = Math.round(Number(data.amount) / Number(data.inOrder));
+    }
+
+    // Подсветка зеленым заполненных полей
+    ['nt_id', 'nt_vsp', 'nt_region', 'nt_address', 'nt_manager', 'nt_contact', 'nt_workType', 'nt_inOrder', 'nt_dateZayavki', 'nt_amount', 'nt_pricePerUnit', 'nt_comment'].forEach(function(id) {
       var el = document.getElementById(id);
       if (el && el.value) {
         el.style.backgroundColor = '#e8f5e9';

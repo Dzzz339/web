@@ -1147,12 +1147,15 @@ app.post('/api/tasks', authenticateToken, async (req, res) => {
 
     await pool.query(`
       INSERT INTO tasks (
-        id, region, address, work_type, amount, price_per_unit,
+        id, vsp, manager, contact, region, address, work_type, amount, price_per_unit,
         in_order, fact, date_zayavki, deadline, tech_link, invoice_info, comment,
         status, priority, archived, stage
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending', 'medium', false, 'request')
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', 'medium', false, 'request')
     `, [
       cleanId, 
+      t.vsp || null, 
+      t.manager || null,
+      t.contact || null,
       t.region || null, 
       t.address || null, 
       t.workType || null,
