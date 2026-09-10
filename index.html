@@ -33,37 +33,399 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Golos Text', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
 
-    /* HEADER */
-    .hdr { background: var(--orange); height: 54px; padding: 0 1.5rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 10px rgba(255,98,0,0.25); }
-    .hdr-logo { display: flex; align-items: center; gap: 9px; color: #fff; font-weight: 700; font-size: 1.05rem; letter-spacing: -0.2px; }
-    .hdr-logo img { width: 30px; height: 30px; border-radius: 5px; object-fit: cover; }
-    .nav { display: flex; gap: 2px; }
-    .mob-bottom-nav { display: none; }
-    .mob-nav-toggle { display: none; }
-    .nav-btn { background: none; border: none; color: rgba(255,255,255,0.82); padding: 6px 13px; border-radius: 7px; cursor: pointer; font-family: inherit; font-size: 0.875rem; font-weight: 500; transition: background .12s, color .12s; white-space: nowrap; }
-    .nav-btn:hover { background: rgba(255,255,255,0.14); color: #fff; }
-    .nav-btn.active { background: rgba(255,255,255,0.2); color: #fff; }
+    /* APP LAYOUT */
+    .app-layout {
+      display: flex;
+      min-height: 100vh;
+      width: 100%;
+      background: var(--bg);
+    }
 
-    /* По умолчанию скрываем мобильные элементы на ПК */
-    #mob-burger {
-      display: none !important;
+    /* SIDEBAR */
+    .sidebar {
+      width: 240px;
+      background: #18181B;
+      color: #F4F4F5;
+      display: flex;
+      flex-direction: column;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      flex-shrink: 0;
+      transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      z-index: 120;
+      border-right: 1px solid #27272A;
+      user-select: none;
     }
-    #mob-menu-overlay {
-      display: none; /* Убрали !important, чтобы JS мог его открывать */
+    .sidebar.collapsed {
+      width: 64px;
     }
-    /* LAYOUT */
-    .main { padding: 1rem; max-width: 100%; }
+
+    /* SIDEBAR HEADER */
+    .sidebar-header {
+      height: 54px;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #27272A;
+      flex-shrink: 0;
+    }
+    .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 1.05rem;
+      letter-spacing: -0.2px;
+      color: #FFFFFF;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    .sidebar-logo img {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      object-fit: cover;
+      flex-shrink: 0;
+    }
+    .sidebar.collapsed .logo-text {
+      display: none;
+    }
+    .sidebar-collapse-btn {
+      background: none;
+      border: none;
+      color: #71717A;
+      cursor: pointer;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      transition: background 0.15s, color 0.15s;
+    }
+    .sidebar-collapse-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #FFFFFF;
+    }
+    .sidebar.collapsed .sidebar-collapse-btn {
+      margin: 0 auto;
+    }
+
+    /* SIDEBAR NAVIGATION */
+    .sidebar-nav {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 10px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .sidebar-sec-title {
+      font-size: 0.68rem;
+      font-weight: 700;
+      color: #71717A;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      padding: 14px 10px 4px;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+    .sidebar.collapsed .sidebar-sec-title {
+      display: none;
+    }
+    .sidebar-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: none;
+      border: none;
+      color: #A1A1AA;
+      font-family: inherit;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.12s, color 0.12s;
+      white-space: nowrap;
+      text-decoration: none;
+    }
+    .sidebar-item:hover {
+      background: rgba(255, 255, 255, 0.06);
+      color: #FFFFFF;
+    }
+    .sidebar-item.active {
+      background: rgba(255, 98, 0, 0.18);
+      color: var(--orange);
+      font-weight: 600;
+    }
+    .sidebar-item-icon {
+      font-size: 1.15rem;
+      width: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .sidebar-item-label {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sidebar.collapsed .sidebar-item-label {
+      display: none;
+    }
+    .sidebar.collapsed .sidebar-item {
+      justify-content: center;
+      padding: 8px 0;
+    }
+
+    /* SIDEBAR FOOTER (USER & LOGOUT) */
+    .sidebar-footer {
+      border-top: 1px solid #27272A;
+      padding: 10px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+    .sidebar-user {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.04);
+      overflow: hidden;
+    }
+    .sidebar-user-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--orange);
+      color: #FFFFFF;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .sidebar-user-info {
+      flex: 1;
+      overflow: hidden;
+      line-height: 1.25;
+    }
+    .sidebar-user-name {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #FFFFFF;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sidebar-user-role {
+      font-size: 0.68rem;
+      color: #71717A;
+    }
+    .sidebar.collapsed .sidebar-user-info {
+      display: none;
+    }
+    .sidebar.collapsed .sidebar-user {
+      justify-content: center;
+      padding: 6px 0;
+      background: none;
+    }
+    .sidebar-logout-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 7px 10px;
+      border-radius: 8px;
+      background: none;
+      border: none;
+      color: var(--red);
+      font-family: inherit;
+      font-size: 0.82rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.12s;
+      white-space: nowrap;
+    }
+    .sidebar-logout-btn:hover {
+      background: rgba(239, 68, 68, 0.12);
+    }
+    .sidebar.collapsed .sidebar-logout-btn .sidebar-item-label {
+      display: none;
+    }
+    .sidebar.collapsed .sidebar-logout-btn {
+      justify-content: center;
+      padding: 7px 0;
+    }
+
+    /* CONTENT AREA & TOPBAR */
+    .content-wrapper {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      overflow-x: hidden;
+    }
+    .topbar {
+      height: 54px;
+      background: #FFFFFF;
+      border-bottom: 1px solid var(--border);
+      padding: 0 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+    }
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .topbar-menu-btn {
+      display: none;
+      background: none;
+      border: none;
+      font-size: 1.4rem;
+      cursor: pointer;
+      color: var(--text);
+      padding: 4px 6px;
+      line-height: 1;
+      border-radius: 6px;
+    }
+    .topbar-menu-btn:hover {
+      background: var(--bg);
+    }
+    .topbar-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .topbar-icon-btn {
+      background: none;
+      border: none;
+      font-size: 1.3rem;
+      cursor: pointer;
+      padding: 4px 8px;
+      position: relative;
+      border-radius: 7px;
+      transition: background 0.12s;
+      line-height: 1;
+    }
+    .topbar-icon-btn:hover {
+      background: var(--bg);
+    }
+    .notif-badge {
+      position: absolute;
+      top: 0;
+      right: 2px;
+      background: var(--red);
+      color: #fff;
+      font-size: .65rem;
+      font-weight: 700;
+      border-radius: 10px;
+      padding: 1px 5px;
+      line-height: 1;
+    }
+    .notif-dropdown {
+      position: absolute;
+      top: 100%;
+      right: 0;
+      width: 320px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+      z-index: 200;
+      max-height: 380px;
+      overflow-y: auto;
+      color: var(--text);
+    }
+    .notif-dropdown-header {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 700;
+      font-size: .85rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* LAYOUT & GRIDS */
+    .main { padding: 1.25rem; max-width: 100%; flex: 1; }
     .page-title { font-size: 1.3rem; font-weight: 700; margin-bottom: 1.25rem; }
 
     /* SURFACE */
     .card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); }
     .p { padding: 1.25rem; }
 
-    /* GRID */
+    /* GRID & ADAPTIVE */
     .g4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 1rem; margin-bottom: 1rem; }
     .g2 { display: grid; grid-template-columns: repeat(2,1fr); gap: 1rem; }
     .row { display: flex; align-items: center; gap: .75rem; }
     .mb { margin-bottom: 1rem; }
+
+    /* ADAPTIVE BREAKPOINTS */
+    @media (max-width: 1100px) {
+      .g4 { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 900px) {
+      .g2 { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 768px) {
+      .sidebar {
+        position: fixed;
+        left: -260px;
+        top: 0;
+        bottom: 0;
+        width: 260px !important;
+        transition: left 0.25s ease;
+        z-index: 500;
+      }
+      .sidebar.mobile-open {
+        left: 0;
+      }
+      .sidebar-backdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 490;
+      }
+      .sidebar-backdrop.active {
+        display: block;
+      }
+      .topbar-menu-btn {
+        display: inline-flex;
+      }
+      .sidebar-collapse-btn {
+        display: none;
+      }
+      .g4 { grid-template-columns: 1fr; }
+    }
 
     .unsaved-bar {
       position: fixed; bottom: 0; left: 0; right: 0; z-index: 500;
@@ -370,41 +732,57 @@
 <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
-<header class="hdr">
-  <div class="hdr-logo">
-    <img src="images/logo.ico" alt="" onerror="this.style.display='none'">
-    Stockeasy
-  </div>
-  
-  <div style="display:flex; align-items:center; gap:10px">
-    <!-- Колокольчик с красным бейджем -->
-    <div id="notif-container" style="position:relative; display:none;">
-      <button id="notif-btn" onclick="toggleNotifications()" style="background:none; border:none; color:#fff; font-size:1.3rem; cursor:pointer; padding:4px 8px; position:relative;">
-        🔔<span id="notif-badge" style="display:none; position:absolute; top:0; right:2px; background:var(--red); color:#fff; font-size:.65rem; font-weight:700; border-radius:10px; padding:1px 5px; line-height:1;">0</span>
-      </button>
-      
-      <!-- Выпадающее окно с уведомлениями -->
-      <div id="notif-dropdown" style="display:none; position:absolute; top:100%; right:0; width:300px; background:#fff; border:1px solid var(--border); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.15); z-index:200; max-height:350px; overflow-y:auto; color:var(--text)">
-        <div style="padding:10px 14px; border-bottom:1px solid var(--border); font-weight:700; font-size:.85rem; display:flex; justify-content:space-between; align-items:center;">
-          <span>Уведомления</span>
-          <button onclick="markNotifsRead()" class="btn-link" style="font-size:.75rem">Прочитать все</button>
-        </div>
-        <div id="notif-list" style="font-size:.8rem"></div>
+<div class="app-layout" id="app-layout">
+  <!-- Оверлей для мобильного сайдбара -->
+  <div id="sidebar-backdrop" class="sidebar-backdrop" onclick="toggleMobileSidebar(false)"></div>
+
+  <!-- БОКОВОЙ САЙДБАР -->
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">
+        <img src="images/logo.ico" alt="" onerror="this.style.display='none'">
+        <span class="logo-text">Stockeasy</span>
       </div>
+      <button type="button" class="sidebar-collapse-btn" id="sidebar-collapse-btn" onclick="toggleSidebarCollapse()" title="Свернуть / развернуть меню">
+        <span id="collapse-icon">◀</span>
+      </button>
     </div>
 
-    <!-- Обычное меню ПК -->
-    <nav class="nav" id="nav"></nav>
-    <button id="mob-burger" onclick="toggleMobileMenu()" style="display:none; background:none; border:none; color:#fff; font-size:1.6rem; cursor:pointer; padding: 4px 8px; line-height: 1;">☰</button>
+    <nav class="sidebar-nav" id="sidebar-nav"></nav>
+
+    <div class="sidebar-footer" id="sidebar-footer"></div>
+  </aside>
+
+  <!-- ОСНОВНАЯ ОБЛАСТЬ -->
+  <div class="content-wrapper">
+    <header class="topbar" id="topbar">
+      <div class="topbar-left">
+        <button type="button" class="topbar-menu-btn" onclick="toggleMobileSidebar(true)" title="Меню">☰</button>
+        <div class="topbar-title" id="topbar-title">Заявки</div>
+      </div>
+      
+      <div class="topbar-right">
+        <!-- Колокольчик с красным бейджем -->
+        <div id="notif-container" style="position:relative; display:none;">
+          <button id="notif-btn" onclick="toggleNotifications()" class="topbar-icon-btn" title="Уведомления">
+            🔔<span id="notif-badge" class="notif-badge" style="display:none;">0</span>
+          </button>
+          
+          <!-- Выпадающее окно с уведомлениями -->
+          <div id="notif-dropdown" class="notif-dropdown" style="display:none;">
+            <div class="notif-dropdown-header">
+              <span>Уведомления</span>
+              <button onclick="markNotifsRead()" class="btn-link" style="font-size:.75rem">Прочитать все</button>
+            </div>
+            <div id="notif-list" style="font-size:.8rem"></div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="main" id="app"></main>
   </div>
-</header>
-
-<!-- Выпадающее меню для мобилок (по умолчанию скрыто) -->
-<div id="mob-menu-overlay" style="display:none; position:fixed; top:54px; left:0; right:0; background:#fff; z-index:150; border-bottom:1px solid var(--border); box-shadow:0 4px 12px rgba(0,0,0,0.1); padding: 0.5rem 0;">
-  <div id="mob-menu-list" style="display:flex; flex-direction:column;"></div>
 </div>
-
-<main class="main" id="app"></main>
 <script>
 // ─── STATE ───────────────────────────────────────────────────────────────────
 var S = {
@@ -421,18 +799,43 @@ var S = {
   marches: [], marchId: null
 };
 
-var NAV = [
-  {id:'chat',      icon:'💬', label:'Чат'},
-  {id:'logs',      icon:'📖', label:'Журнал'},
-  {id:'contractors', icon:'🏢', label:'Контрагенты'},
-  {id:'users',     icon:'👥', label:'Команда'},
-  {id:'dashboard', icon:'📊', label:'Обзор'},
-  {id:'supply',    icon:'🔗', label:'Цепи'},
-  {id:'kanban',    icon:'📋', label:'Канбан'},
-  {id:'tasks',     icon:'✅', label:'Заявки'},
-  {id:'marches',   icon:'🚗', label:'Маршруты'},
-  {id:'data',      icon:'📥', label:'Данные'},
+var NAV_SECTIONS = [
+  {
+    title: 'ОСНОВНОЕ',
+    items: [
+      { id: 'tasks',       icon: '✅', label: 'Заявки' },
+      { id: 'kanban',      icon: '📋', label: 'Канбан' },
+      { id: 'marches',     icon: '🚗', label: 'Маршруты' },
+      { id: 'supply',      icon: '🔗', label: 'Цепи' }
+    ]
+  },
+  {
+    title: 'АНАЛИТИКА',
+    items: [
+      { id: 'dashboard',   icon: '📊', label: 'Обзор' }
+    ]
+  },
+  {
+    title: 'УПРАВЛЕНИЕ',
+    items: [
+      { id: 'contractors', icon: '🏢', label: 'Контрагенты' },
+      { id: 'users',       icon: '👥', label: 'Команда' }
+    ]
+  },
+  {
+    title: 'СЕРВИС',
+    items: [
+      { id: 'data',        icon: '📥', label: 'Данные' },
+      { id: 'chat',        icon: '💬', label: 'Чат' },
+      { id: 'logs',        icon: '📖', label: 'Журнал' }
+    ]
+  }
 ];
+
+var NAV = [];
+NAV_SECTIONS.forEach(function(sec) {
+  NAV = NAV.concat(sec.items);
+});
 
 // ─── API ──────────────────────────────────────────────────────────────────────
 function api(url, opts) {
@@ -514,96 +917,140 @@ function init() {
   });
 }
 
-function go(page) { S.page = page; renderNav(); renderApp(); }
+function go(page) {
+  S.page = page;
+  toggleMobileSidebar(false);
+  renderNav();
+  renderApp();
+}
 
-// ─── NAV ─────────────────────────────────────────────────────────────────────
+// ─── SIDEBAR & NAV ───────────────────────────────────────────────────────────
 
-function toggleMobileMenu() {
-  var menu = document.getElementById('mob-menu-overlay');
-  var burger = document.getElementById('mob-burger');
-  if (!menu || !burger) return;
-  
-  var isHidden = menu.style.display === 'none';
-  menu.style.display = isHidden ? 'block' : 'none';
-  burger.innerHTML = isHidden ? '✕' : '☰'; // Меняем три полоски на крестик
+function toggleSidebarCollapse() {
+  var sb = document.getElementById('sidebar');
+  if (!sb) return;
+  var isCollapsed = sb.classList.toggle('collapsed');
+  var icon = document.getElementById('collapse-icon');
+  if (icon) icon.textContent = isCollapsed ? '▶' : '◀';
+  localStorage.setItem('sidebar_collapsed', isCollapsed ? 'true' : 'false');
+}
+
+function toggleMobileSidebar(open) {
+  var sb = document.getElementById('sidebar');
+  var backdrop = document.getElementById('sidebar-backdrop');
+  if (!sb || !backdrop) return;
+  if (open === undefined) {
+    var isOpen = sb.classList.contains('mobile-open');
+    sb.classList.toggle('mobile-open', !isOpen);
+    backdrop.classList.toggle('active', !isOpen);
+  } else {
+    sb.classList.toggle('mobile-open', open);
+    backdrop.classList.toggle('active', open);
+  }
 }
 
 function renderNav() {
-  var nav = document.getElementById('nav');
-  if (nav) nav.innerHTML = '';
+  var sb = document.getElementById('sidebar');
+  var topbar = document.getElementById('topbar');
+  var navEl = document.getElementById('sidebar-nav');
+  var footerEl = document.getElementById('sidebar-footer');
+  var topbarTitle = document.getElementById('topbar-title');
+  var notifContainer = document.getElementById('notif-container');
 
-  // Новые элементы для мобильного меню (вместо старого mob-nav)
-  var mobBurger = document.getElementById('mob-burger');
-  var mobMenuList = document.getElementById('mob-menu-list');
-  var mobMenuOverlay = document.getElementById('mob-menu-overlay');
-
-  // По умолчанию скрываем всё мобильное на старте
-  if (mobBurger) mobBurger.style.display = 'none';
-  if (mobMenuList) mobMenuList.innerHTML = '';
-  if (mobMenuOverlay) mobMenuOverlay.style.display = 'none';
-
-  // ЕСЛИ ПОЛЬЗОВАТЕЛЬ НЕ ЛОГИНЕН — ПРЕРЫВАЕМ СБОРКУ МЕНЮ
+  // Если не авторизован — скрываем сайдбар и топбар
   if (!S.token) {
-    return; // В шапке останется только логотип и название, кнопок не будет
+    if (sb) sb.style.display = 'none';
+    if (topbar) topbar.style.display = 'none';
+    return;
   }
 
-  // Если вошли — показываем кнопку-бургер
-  if (mobBurger) {
-    mobBurger.style.display = ''; 
+  // Если авторизован — показываем сайдбар и топбар
+  if (sb) sb.style.display = 'flex';
+  if (topbar) topbar.style.display = 'flex';
+  if (notifContainer) notifContainer.style.display = 'block';
+
+  // Восстанавливаем сохраненное состояние сворачивания сайдбара
+  var isCollapsed = localStorage.getItem('sidebar_collapsed') === 'true';
+  if (sb) {
+    if (isCollapsed) {
+      sb.classList.add('collapsed');
+      var icon = document.getElementById('collapse-icon');
+      if (icon) icon.textContent = '▶';
+    } else {
+      sb.classList.remove('collapsed');
+      var icon = document.getElementById('collapse-icon');
+      if (icon) icon.textContent = '◀';
+    }
   }
 
-  // Обходим элементы навигации
-  NAV.forEach(function(item) {
-    // ТВОИ УСЛОВИЯ ФИЛЬТРАЦИИ РОЛЕЙ (сохранены без изменений)
-    if (S.user && S.user.role === 'worker' && (item.id === 'dashboard' || item.id === 'data' || item.id === 'supply')) {
-      return;
-    }
-    if ((item.id === 'users' || item.id === 'logs' || item.id === 'contractors') && (!S.user || S.user.role !== 'admin')) {
-      return;
-    }
-
-    // Кнопка для ПК (сохранена без изменений)
-    var b = document.createElement('button');
-    b.className = 'nav-btn' + (S.page === item.id ? ' active' : '');
-    b.innerHTML = item.icon + ' ' + item.label;
-    b.onclick = function() { go(item.id); };
-    if (nav) nav.appendChild(b);
-
-    // Кнопка для мобильного выпадающего меню
-    if (mobMenuList) {
-      var mb = document.createElement('button');
-      mb.className = 'mob-menu-item' + (S.page === item.id ? ' active' : '');
-      mb.innerHTML = '<span>' + item.icon + '</span>' + item.label;
-      mb.onclick = function() { 
-        go(item.id); 
-        toggleMobileMenu(); // Закрываем меню после клика!
-      };
-      mobMenuList.appendChild(mb);
-    }
-  });
-
-  // Кнопка Выход для ПК (сохранена без изменений)
-  var logoutBtn = document.createElement('button');
-  logoutBtn.className = 'nav-btn';
-  logoutBtn.innerHTML = '🚪 Выход';
-  logoutBtn.onclick = function() {
-    localStorage.clear();
-    location.reload();
-  };
-  if (nav) nav.appendChild(logoutBtn);
-
-  // Кнопка Выход для мобильного меню
-  if (mobMenuList) {
-    var mLogoutBtn = document.createElement('button');
-    mLogoutBtn.className = 'mob-menu-item';
-    mLogoutBtn.style.color = 'var(--red)';
-    mLogoutBtn.innerHTML = '<span>🚪</span> Выйти из аккаунта';
-    mLogoutBtn.onclick = function() {
-      localStorage.clear();
-      location.reload();
-    };
-    mobMenuList.appendChild(mLogoutBtn);
+  // Обновляем заголовок в топбаре
+  var curItem = NAV.find(function(it){ return it.id === S.page; });
+  if (topbarTitle) {
+    topbarTitle.innerHTML = curItem ? (curItem.icon + ' ' + curItem.label) : 'Stockeasy';
   }
+
+  // Рендерим категории навигации
+  if (navEl) {
+    navEl.innerHTML = '';
+    NAV_SECTIONS.forEach(function(sec) {
+      // Фильтруем пункты по роли пользователя
+      var visibleItems = sec.items.filter(function(item) {
+        if (S.user && S.user.role === 'worker' && (item.id === 'dashboard' || item.id === 'data' || item.id === 'supply')) {
+          return false;
+        }
+        if ((item.id === 'users' || item.id === 'logs' || item.id === 'contractors') && (!S.user || S.user.role !== 'admin')) {
+          return false;
+        }
+        return true;
+      });
+
+      if (!visibleItems.length) return;
+
+      // Заголовок секции
+      var secTitle = document.createElement('div');
+      secTitle.className = 'sidebar-sec-title';
+      secTitle.textContent = sec.title;
+      navEl.appendChild(secTitle);
+
+      // Кнопки разделов
+      visibleItems.forEach(function(item) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'sidebar-item' + (S.page === item.id ? ' active' : '');
+        btn.title = item.label;
+        btn.innerHTML = '<span class="sidebar-item-icon">' + item.icon + '</span><span class="sidebar-item-label">' + item.label + '</span>';
+        btn.onclick = function() {
+          go(item.id);
+        };
+        navEl.appendChild(btn);
+      });
+    });
+  }
+
+  // Рендерим футер сайдбара (пользователь + выход)
+  if (footerEl) {
+    var userName = (S.user && (S.user.fullName || S.user.username)) || 'Пользователь';
+    var userRole = (S.user && S.user.role === 'admin') ? 'Администратор' : 'Исполнитель';
+    var initial = (userName.trim()[0] || 'U').toUpperCase();
+
+    footerEl.innerHTML = 
+      '<div class="sidebar-user" title="' + escHtml(userName) + ' (' + userRole + ')">' +
+        '<div class="sidebar-user-avatar">' + initial + '</div>' +
+        '<div class="sidebar-user-info">' +
+          '<div class="sidebar-user-name">' + escHtml(userName) + '</div>' +
+          '<div class="sidebar-user-role">' + userRole + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<button type="button" class="sidebar-logout-btn" onclick="doLogout()" title="Выйти из аккаунта">' +
+        '<span class="sidebar-item-icon">🚪</span>' +
+        '<span class="sidebar-item-label">Выход</span>' +
+      '</button>';
+  }
+}
+
+function doLogout() {
+  localStorage.clear();
+  location.reload();
 }
 
 function setApp(html) { document.getElementById('app').innerHTML = html; }
