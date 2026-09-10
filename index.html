@@ -1760,36 +1760,55 @@ function pageData() {
           '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'nt_checklist_upload\').click()" title="Прикрепить чек-лист обследования">📋 Чек-лист</button>' +
         '</div>' +
 
-        // ЧИПЫ ВЫБРАННЫХ ФАЙЛОВ СХЕМЫ
-        '<div id="nt_scheme_chips" style="display:none; margin-bottom:8px"></div>' +
-        // СВОРАЧИВАЕМЫЙ БЛОК ПРЕДПРОСМОТРА СХЕМЫ
-        '<div id="nt_scheme_preview_wrap" style="display:none; margin-bottom:12px;">' +
-          '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">' +
-            '<button type="button" class="btn btn-sm btn-ghost" onclick="toggleDocPreview(\'scheme\')" id="btn_toggle_scheme_preview">🗺️ Скрыть схему ▴</button>' +
+        // ЕДИНЫЙ БЛОК ДОКУМЕНТОВ С ТАБАМИ
+        '<div id="nt_docs_container" style="border:1px solid var(--border); border-radius:8px; padding:10px; margin-bottom:12px; background:#fafafa;">' +
+          '<div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:8px; margin-bottom:10px;">' +
+            '<div style="display:flex; gap:6px; flex-wrap:wrap;">' +
+              '<button type="button" class="btn btn-sm btn-ghost" id="tab_btn_pdf" onclick="switchDocTab(\'pdf\')" style="font-weight:600; background:var(--orange-bg); border-color:var(--orange); color:var(--orange-dark);">📑 Заказ PDF <span id="tab_badge_pdf" style="display:none; font-size:.7rem; padding:1px 5px; border-radius:4px; background:var(--orange); color:#fff; margin-left:3px;"></span></button>' +
+              '<button type="button" class="btn btn-sm btn-ghost" id="tab_btn_scheme" onclick="switchDocTab(\'scheme\')" style="font-weight:600;">🗺️ Схема <span id="tab_badge_scheme" style="display:none; font-size:.7rem; padding:1px 5px; border-radius:4px; background:var(--orange); color:#fff; margin-left:3px;"></span></button>' +
+              '<button type="button" class="btn btn-sm btn-ghost" id="tab_btn_checklist" onclick="switchDocTab(\'checklist\')" style="font-weight:600;">📋 Чек-лист <span id="tab_badge_checklist" style="display:none; font-size:.7rem; padding:1px 5px; border-radius:4px; background:var(--orange); color:#fff; margin-left:3px;"></span></button>' +
+            '</div>' +
+            '<div>' +
+              '<button type="button" class="btn btn-sm btn-ghost" onclick="toggleAllDocs()" id="btn_toggle_all_docs" style="font-size:.78rem;">Свернуть ▴</button>' +
+            '</div>' +
           '</div>' +
-          '<div id="nt_scheme_preview_content" style="width:100%; max-height:450px; overflow:auto; border-radius:8px; border:1.5px solid var(--border); background:#fff; text-align:center;"></div>' +
-        '</div>' +
 
-        // ЧИПЫ ВЫБРАННЫХ ФАЙЛОВ ЧЕК-ЛИСТА
-        '<div id="nt_checklist_chips" style="display:none; margin-bottom:8px"></div>' +
-        // СВОРАЧИВАЕМЫЙ БЛОК ПРЕДПРОСМОТРА ЧЕК-ЛИСТА
-        '<div id="nt_checklist_preview_wrap" style="display:none; margin-bottom:12px;">' +
-          '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">' +
-            '<button type="button" class="btn btn-sm btn-ghost" onclick="toggleDocPreview(\'checklist\')" id="btn_toggle_checklist_preview">📋 Скрыть чек-лист ▴</button>' +
-          '</div>' +
-          '<div id="nt_checklist_preview_content" style="width:100%; max-height:450px; overflow:auto; border-radius:8px; border:1.5px solid var(--border); background:#fff; text-align:center;"></div>' +
-        '</div>' +
+          '<div id="nt_docs_body">' +
+            // ТАБ 1: ЗАКАЗ PDF
+            '<div id="doc_tab_content_pdf">' +
+              '<div id="ai_log_box" style="display:none; background:#18181b; color:#22c55e; font-family:monospace; font-size:.75rem; padding:8px 12px; border-radius:6px; max-height:110px; overflow-y:auto; margin-bottom:8px; border:1px solid #27272a;">' +
+                '<div id="ai_log_content"></div>' +
+              '</div>' +
+              '<div id="ai_pdf_preview_wrap" style="display:none;">' +
+                '<iframe id="ai_pdf_preview_frame" style="width:100%; height:400px; border-radius:6px; border:1.5px solid var(--border); background:#fff;" src=""></iframe>' +
+              '</div>' +
+              '<div id="ai_pdf_empty_msg" class="t3" style="text-align:center; padding:1.5rem; background:#fff; border-radius:6px; border:1px dashed var(--border);">' +
+                'Документ заказа ещё не выбран. Нажмите «✨ Заполнить через ИИ» выше.' +
+              '</div>' +
+            '</div>' +
 
-        // ТЕРМИНАЛ ЛОГОВ (НА ВСЮ ШИРИНУ ПОД ШАПКОЙ)
-        '<div id="ai_log_box" style="display:none; background:#18181b; color:#22c55e; font-family:monospace; font-size:.75rem; padding:8px 12px; border-radius:6px; max-height:110px; overflow-y:auto; margin-bottom:12px; border:1px solid #27272a;">' +
-          '<div id="ai_log_content"></div>' +
-        '</div>' +
-        // СВОРАЧИВАЕМЫЙ БЛОК ПРЕДПРОСМОТРА PDF
-        '<div id="ai_pdf_preview_wrap" style="display:none; margin-bottom:12px;">' +
-          '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">' +
-            '<button type="button" class="btn btn-sm btn-ghost" onclick="togglePdfPreview()" id="btn_toggle_preview">📄 Скрыть документ PDF ▴</button>' +
+            // ТАБ 2: СХЕМА
+            '<div id="doc_tab_content_scheme" style="display:none;">' +
+              '<div id="nt_scheme_chips" style="display:none; margin-bottom:8px;"></div>' +
+              '<div id="nt_scheme_preview_wrap" style="display:none;">' +
+                '<div id="nt_scheme_preview_content" style="width:100%; max-height:400px; overflow:auto; border-radius:6px; border:1.5px solid var(--border); background:#fff; text-align:center;"></div>' +
+              '</div>' +
+              '<div id="nt_scheme_empty_msg" class="t3" style="text-align:center; padding:1.5rem; background:#fff; border-radius:6px; border:1px dashed var(--border);">' +
+                'Схема объекта ещё не загружена. Нажмите «🗺️ Схема» выше, чтобы прикрепить файлы.' +
+              '</div>' +
+            '</div>' +
+
+            // ТАБ 3: ЧЕК-ЛИСТ
+            '<div id="doc_tab_content_checklist" style="display:none;">' +
+              '<div id="nt_checklist_chips" style="display:none; margin-bottom:8px;"></div>' +
+              '<div id="nt_checklist_preview_wrap" style="display:none;">' +
+                '<div id="nt_checklist_preview_content" style="width:100%; max-height:400px; overflow:auto; border-radius:6px; border:1.5px solid var(--border); background:#fff; text-align:center;"></div>' +
+              '</div>' +
+              '<div id="nt_checklist_empty_msg" class="t3" style="text-align:center; padding:1.5rem; background:#fff; border-radius:6px; border:1px dashed var(--border);">' +
+                'Чек-лист ещё не загружен. Нажмите «📋 Чек-лист» выше, чтобы прикрепить файлы.' +
+              '</div>' +
+            '</div>' +
           '</div>' +
-          '<iframe id="ai_pdf_preview_frame" style="width:100%; height:450px; border-radius:8px; border:1.5px solid var(--border); background:#fff;" src=""></iframe>' +
         '</div>' +
         // ОБЩИЙ КОНТЕЙНЕР ПОЛЕЙ ФОРМЫ (НЕ ЗАКРЫВАЕМ ЕГО ДО САМОГО НИЗА)
         '<div style="display:flex; flex-direction:column; gap:.6rem; font-size:.85rem">' +
@@ -2256,6 +2275,12 @@ function processPdfWithAi(inputEl) {
   if (!file) return;
   S.pendingPdfFile = file; // Запоминаем файл для прикрепления к заявке
 
+  switchDocTab('pdf');
+  updateDocTabBadges();
+
+  var emptyMsg = document.getElementById('ai_pdf_empty_msg');
+  if (emptyMsg) emptyMsg.style.display = 'none';
+
   // Загружаем PDF в превью прямо в браузере
   var previewWrap = document.getElementById('ai_pdf_preview_wrap');
   var previewFrame = document.getElementById('ai_pdf_preview_frame');
@@ -2273,13 +2298,13 @@ function processPdfWithAi(inputEl) {
   
   btn.innerHTML = '<span class="btn-spinner"></span> Анализ документа...';
   btn.disabled = true;
-  if (logBox) logBox.classList.add('terminal-pulse');
 
   var logBox = document.getElementById('ai_log_box');
   var logContent = document.getElementById('ai_log_content');
   if (logBox && logContent) {
     logContent.innerHTML = '';
     logBox.style.display = 'block';
+    logBox.classList.add('terminal-pulse');
   }
   fetch('/api/ai/parse-pdf', {
     method: 'POST',
@@ -2300,18 +2325,74 @@ function processPdfWithAi(inputEl) {
   // Важно: мы не ждем данных здесь. Мы просто загрузили файл.
 }
 
-function togglePdfPreview() {
-  var frame = document.getElementById('ai_pdf_preview_frame');
-  var btn = document.getElementById('btn_toggle_preview');
-  if (!frame || !btn) return;
-  var isHidden = frame.style.display === 'none';
-  frame.style.display = isHidden ? 'block' : 'none';
-  btn.textContent = isHidden ? '📄 Скрыть документ PDF ▴' : '📄 Показать документ PDF ▾';
-}
-
-// ─── PENDING FILES (Схема / Чек-лист на форме создания) ──────────────────────
+// ─── TABS & PENDING FILES (Заказ / Схема / Чек-лист на форме создания) ──────
 S.pendingSchemeFiles = [];
 S.pendingChecklistFiles = [];
+
+function switchDocTab(tabName) {
+  ['pdf', 'scheme', 'checklist'].forEach(function(t) {
+    var btn = document.getElementById('tab_btn_' + t);
+    var content = document.getElementById('doc_tab_content_' + t);
+    if (btn) {
+      if (t === tabName) {
+        btn.style.background = 'var(--orange-bg)';
+        btn.style.borderColor = 'var(--orange)';
+        btn.style.color = 'var(--orange-dark)';
+      } else {
+        btn.style.background = 'none';
+        btn.style.borderColor = 'transparent';
+        btn.style.color = 'inherit';
+      }
+    }
+    if (content) {
+      content.style.display = (t === tabName) ? 'block' : 'none';
+    }
+  });
+  var body = document.getElementById('nt_docs_body');
+  var toggleBtn = document.getElementById('btn_toggle_all_docs');
+  if (body) body.style.display = 'block';
+  if (toggleBtn) toggleBtn.textContent = 'Свернуть ▴';
+}
+
+function toggleAllDocs() {
+  var body = document.getElementById('nt_docs_body');
+  var btn = document.getElementById('btn_toggle_all_docs');
+  if (!body || !btn) return;
+  var isHidden = body.style.display === 'none';
+  body.style.display = isHidden ? 'block' : 'none';
+  btn.textContent = isHidden ? 'Свернуть ▴' : 'Развернуть ▾';
+}
+
+function updateDocTabBadges() {
+  var bPdf = document.getElementById('tab_badge_pdf');
+  var bScheme = document.getElementById('tab_badge_scheme');
+  var bChecklist = document.getElementById('tab_badge_checklist');
+
+  if (bPdf) {
+    if (S.pendingPdfFile) {
+      bPdf.textContent = '1';
+      bPdf.style.display = 'inline-block';
+    } else {
+      bPdf.style.display = 'none';
+    }
+  }
+  if (bScheme) {
+    if (S.pendingSchemeFiles && S.pendingSchemeFiles.length) {
+      bScheme.textContent = S.pendingSchemeFiles.length;
+      bScheme.style.display = 'inline-block';
+    } else {
+      bScheme.style.display = 'none';
+    }
+  }
+  if (bChecklist) {
+    if (S.pendingChecklistFiles && S.pendingChecklistFiles.length) {
+      bChecklist.textContent = S.pendingChecklistFiles.length;
+      bChecklist.style.display = 'inline-block';
+    } else {
+      bChecklist.style.display = 'none';
+    }
+  }
+}
 
 function handlePendingFiles(type, inputEl) {
   var arr = type === 'scheme' ? S.pendingSchemeFiles : S.pendingChecklistFiles;
@@ -2320,6 +2401,10 @@ function handlePendingFiles(type, inputEl) {
   }
   inputEl.value = ''; // Сброс input, чтобы можно было выбрать тот же файл повторно
   renderPendingChips(type);
+  switchDocTab(type);
+  updateDocTabBadges();
+  var emptyMsg = document.getElementById('nt_' + type + '_empty_msg');
+  if (emptyMsg) emptyMsg.style.display = 'none';
   // Автоматически показываем превью последнего добавленного файла
   if (arr.length > 0) {
     previewPendingFile(type, arr[arr.length - 1]);
@@ -2330,12 +2415,15 @@ function removePendingFile(type, index) {
   var arr = type === 'scheme' ? S.pendingSchemeFiles : S.pendingChecklistFiles;
   arr.splice(index, 1);
   renderPendingChips(type);
-  // Если файлов не осталось — скрываем превью
+  updateDocTabBadges();
+  // Если файлов не осталось — скрываем превью и возвращаем заглушку
   if (arr.length === 0) {
     var wrap = document.getElementById('nt_' + type + '_preview_wrap');
     var chips = document.getElementById('nt_' + type + '_chips');
+    var emptyMsg = document.getElementById('nt_' + type + '_empty_msg');
     if (wrap) wrap.style.display = 'none';
     if (chips) chips.style.display = 'none';
+    if (emptyMsg) emptyMsg.style.display = 'block';
   } else {
     // Показываем превью последнего оставшегося файла
     previewPendingFile(type, arr[arr.length - 1]);
@@ -2371,16 +2459,18 @@ function previewPendingFile(type, file) {
   if (!file) return;
   var wrap = document.getElementById('nt_' + type + '_preview_wrap');
   var content = document.getElementById('nt_' + type + '_preview_content');
+  var emptyMsg = document.getElementById('nt_' + type + '_empty_msg');
   if (!wrap || !content) return;
+  if (emptyMsg) emptyMsg.style.display = 'none';
 
   var url = URL.createObjectURL(file);
   var isImage = file.type.startsWith('image/');
   var isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 
   if (isImage) {
-    content.innerHTML = '<img src="' + url + '" style="max-width:100%; max-height:440px; object-fit:contain; border-radius:6px;" alt="' + escHtml(file.name) + '">';
+    content.innerHTML = '<img src="' + url + '" style="max-width:100%; max-height:400px; object-fit:contain; border-radius:6px;" alt="' + escHtml(file.name) + '">';
   } else if (isPdf) {
-    content.innerHTML = '<iframe src="' + url + '" style="width:100%; height:440px; border:none; border-radius:6px;"></iframe>';
+    content.innerHTML = '<iframe src="' + url + '" style="width:100%; height:400px; border:none; border-radius:6px;"></iframe>';
   } else {
     // Для остальных форматов (xlsx, docx, dwg) — просто иконка с именем файла
     content.innerHTML = '<div style="padding:2rem; color:var(--text-2);">' +
@@ -2391,26 +2481,7 @@ function previewPendingFile(type, file) {
   }
 
   wrap.style.display = 'block';
-  // Убеждаемся, что контент видим (не свёрнут)
   content.style.display = 'block';
-  var btn = document.getElementById('btn_toggle_' + type + '_preview');
-  if (btn) {
-    var label = type === 'scheme' ? '🗺️ Скрыть схему ▴' : '📋 Скрыть чек-лист ▴';
-    btn.textContent = label;
-  }
-}
-
-function toggleDocPreview(type) {
-  var content = document.getElementById('nt_' + type + '_preview_content');
-  var btn = document.getElementById('btn_toggle_' + type + '_preview');
-  if (!content || !btn) return;
-  var isHidden = content.style.display === 'none';
-  content.style.display = isHidden ? 'block' : 'none';
-  if (type === 'scheme') {
-    btn.textContent = isHidden ? '🗺️ Скрыть схему ▴' : '🗺️ Показать схему ▾';
-  } else {
-    btn.textContent = isHidden ? '📋 Скрыть чек-лист ▴' : '📋 Показать чек-лист ▾';
-  }
 }
 
 // Создание одиночной заявки с вкладки Данные
@@ -2498,6 +2569,15 @@ function createSingleTask() {
       S.pendingPdfFile = null;
       S.pendingSchemeFiles = [];
       S.pendingChecklistFiles = [];
+      updateDocTabBadges();
+
+      var pdfEmpty = document.getElementById('ai_pdf_empty_msg');
+      if (pdfEmpty) pdfEmpty.style.display = 'block';
+      ['scheme', 'checklist'].forEach(function(docType) {
+        var em = document.getElementById('nt_' + docType + '_empty_msg');
+        if (em) em.style.display = 'block';
+      });
+      switchDocTab('pdf');
 
       // 3. Показываем всплывающее уведомление (Toast) об успехе
       var toast = document.createElement('div');
@@ -2516,6 +2596,15 @@ function createSingleTask() {
       S.pendingPdfFile = null;
       S.pendingSchemeFiles = [];
       S.pendingChecklistFiles = [];
+      updateDocTabBadges();
+      var pdfEmpty = document.getElementById('ai_pdf_empty_msg');
+      if (pdfEmpty) pdfEmpty.style.display = 'block';
+      ['scheme', 'checklist'].forEach(function(docType) {
+        var em = document.getElementById('nt_' + docType + '_empty_msg');
+        if (em) em.style.display = 'block';
+      });
+      switchDocTab('pdf');
+
       // Даже если файлы не прикрепились, заявку всё равно открываем
       api('/tasks').then(function(tasksList) {
         S.tasks = tasksList;
@@ -2572,6 +2661,12 @@ function initChatSocket() {
     var logBox = document.getElementById('ai_log_box');
     if (logBox) logBox.classList.remove('terminal-pulse');
     if (inputEl) inputEl.value = '';
+
+    // Сброс кнопки (она крутила спиннер во время обработки)
+    if (btn && S.aiParserBtnText) {
+      btn.innerHTML = S.aiParserBtnText;
+      btn.disabled = false;
+    }
 
     if (data.error) {
       alert('Ошибка ИИ: ' + data.error);
