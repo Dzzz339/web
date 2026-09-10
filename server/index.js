@@ -564,7 +564,7 @@ app.get('/api/users', authenticateToken, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
   try {
     const { rows } = await pool.query(`
-      SELECT u.id, u.username, u.role, u.full_name, u.email, u.contractor_id, u.created_at, c.name_short AS contractor_name
+      SELECT u.id, u.username, u.role, u.full_name, u.email, u.avatar_url, u.contractor_id, u.created_at, c.name_short AS contractor_name
       FROM users u
       LEFT JOIN contractors c ON c.id = u.contractor_id
       ORDER BY u.created_at DESC
@@ -1016,8 +1016,11 @@ async function ensureGeneralChat() {
 // Получить список всех диалогов текущего пользователя
 app.get('/api/chats', authenticateToken, async (req, res) => {
   try {
-    // 1. Все пользователи (для создания ЛС 1-на-1)
-    const { rows: users } = await pool.query('SELECT id, username, role, full_name FROM users WHERE id != $1', [req.user.id]);
+    // 1. Все пользователи (для создания ЛС 1-на-1) с аватарками
+    const { rows: users } = await pool.query(
+      'SELECT id, username, role, full_name, avatar_url FROM users WHERE id != $1 ORDER BY full_name ASC, username ASC',
+      [req.user.id]
+    );
     
     // 2. Общий чат
     const { rows: general } = await pool.query("SELECT id, name, type FROM chat_rooms WHERE type = 'group' LIMIT 1");
@@ -1026,16 +1029,16 @@ app.get('/api/chats', authenticateToken, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Получить сообщения комнаты
+// Получить сообщения комнаты (с avatar_url отправителя)
 app.get('/api/chats/:roomId/messages', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT m.id, m.room_id, m.sender_id, m.message_text, m.created_at, u.full_name, u.username
+      SELECT m.id, m.room_id, m.sender_id, m.message_text, m.created_at, u.full_name, u.username, u.avatar_url
       FROM chat_messages m
       LEFT JOIN users u ON u.id = m.sender_id
       WHERE m.room_id = $1
       ORDER BY m.created_at ASC
-      LIMIT 100
+      LIMIT 150
     `, [req.params.roomId]);
     res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -1103,13 +1106,15 @@ io.on('connection', (socket) => {
         [data.roomId, data.senderId, data.text]
       );
       
-      const { rows: userRows } = await pool.query('SELECT full_name, username FROM users WHERE id = $1', [data.senderId]);
-      const senderName = userRows[0] ? (userRows[0].full_name || userRows[0].username) : 'Пользователь';
+      const { rows: userRows } = await pool.query('SELECT full_name, username, avatar_url FROM users WHERE id = $1', [data.senderId]);
+      const sender = userRows[0] || {};
+      const senderName = sender.full_name || sender.username || 'Пользователь';
 
       const msg = {
         ...rows[0],
         full_name: senderName,
-        username: userRows[0] ? userRows[0].username : ''
+        username: sender.username || '',
+        avatar_url: sender.avatar_url || null
       };
 
       // 2. Отправляем сообщение в комнату чата по WebSockets
