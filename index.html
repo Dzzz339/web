@@ -70,6 +70,11 @@
       justify-content: space-between;
       border-bottom: 1px solid #27272A;
       flex-shrink: 0;
+      position: relative;
+    }
+    .sidebar.collapsed .sidebar-header {
+      padding: 0;
+      justify-content: center;
     }
     .sidebar-logo {
       display: flex;
@@ -81,15 +86,61 @@
       color: #FFFFFF;
       overflow: hidden;
       white-space: nowrap;
+      user-select: none;
     }
-    .sidebar-logo img {
+    .sidebar-logo-icon-wrap {
+      position: relative;
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+    .sidebar-logo-icon-wrap img {
       width: 28px;
       height: 28px;
       border-radius: 6px;
       object-fit: cover;
-      flex-shrink: 0;
+      display: block;
+      transition: opacity 0.15s ease;
+    }
+    .sidebar-logo-hint {
+      display: none;
+      position: absolute;
+      inset: 0;
+      border-radius: 8px;
+      background: var(--orange);
+      color: #FFFFFF;
+      font-size: 0.85rem;
+      font-weight: 700;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 8px rgba(255, 98, 0, 0.4);
+    }
+    .sidebar.collapsed .sidebar-logo {
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .sidebar.collapsed .sidebar-logo:hover .sidebar-logo-icon-wrap {
+      box-shadow: 0 0 0 2px var(--orange);
+    }
+    .sidebar.collapsed .sidebar-logo:hover .sidebar-logo-icon-wrap img {
+      opacity: 0;
+    }
+    .sidebar.collapsed .sidebar-logo:hover .sidebar-logo-hint {
+      display: flex;
     }
     .sidebar.collapsed .logo-text {
+      display: none;
+    }
+    .sidebar.collapsed .sidebar-collapse-btn {
       display: none;
     }
     .sidebar-collapse-btn {
@@ -109,9 +160,6 @@
     .sidebar-collapse-btn:hover {
       background: rgba(255, 255, 255, 0.08);
       color: #FFFFFF;
-    }
-    .sidebar.collapsed .sidebar-collapse-btn {
-      margin: 0 auto;
     }
 
     /* SIDEBAR NAVIGATION */
@@ -739,11 +787,14 @@
   <!-- БОКОВОЙ САЙДБАР -->
   <aside id="sidebar" class="sidebar">
     <div class="sidebar-header">
-      <div class="sidebar-logo">
-        <img src="images/logo.ico" alt="" onerror="this.style.display='none'">
+      <div class="sidebar-logo" id="sidebar-logo" onclick="handleLogoClick()" title="Stockeasy">
+        <div class="sidebar-logo-icon-wrap">
+          <img src="images/logo.ico" alt="" onerror="this.style.display='none'">
+          <div class="sidebar-logo-hint">▶</div>
+        </div>
         <span class="logo-text">Stockeasy</span>
       </div>
-      <button type="button" class="sidebar-collapse-btn" id="sidebar-collapse-btn" onclick="toggleSidebarCollapse()" title="Свернуть / развернуть меню">
+      <button type="button" class="sidebar-collapse-btn" id="sidebar-collapse-btn" onclick="toggleSidebarCollapse()" title="Свернуть меню">
         <span id="collapse-icon">◀</span>
       </button>
     </div>
@@ -926,12 +977,21 @@ function go(page) {
 
 // ─── SIDEBAR & NAV ───────────────────────────────────────────────────────────
 
+function handleLogoClick() {
+  var sb = document.getElementById('sidebar');
+  if (sb && sb.classList.contains('collapsed')) {
+    toggleSidebarCollapse();
+  }
+}
+
 function toggleSidebarCollapse() {
   var sb = document.getElementById('sidebar');
+  var logo = document.getElementById('sidebar-logo');
   if (!sb) return;
   var isCollapsed = sb.classList.toggle('collapsed');
   var icon = document.getElementById('collapse-icon');
   if (icon) icon.textContent = isCollapsed ? '▶' : '◀';
+  if (logo) logo.title = isCollapsed ? 'Нажмите, чтобы развернуть меню' : 'Stockeasy';
   localStorage.setItem('sidebar_collapsed', isCollapsed ? 'true' : 'false');
 }
 
@@ -956,6 +1016,7 @@ function renderNav() {
   var footerEl = document.getElementById('sidebar-footer');
   var topbarTitle = document.getElementById('topbar-title');
   var notifContainer = document.getElementById('notif-container');
+  var logo = document.getElementById('sidebar-logo');
 
   // Если не авторизован — скрываем сайдбар и топбар
   if (!S.token) {
@@ -976,10 +1037,12 @@ function renderNav() {
       sb.classList.add('collapsed');
       var icon = document.getElementById('collapse-icon');
       if (icon) icon.textContent = '▶';
+      if (logo) logo.title = 'Нажмите, чтобы развернуть меню';
     } else {
       sb.classList.remove('collapsed');
       var icon = document.getElementById('collapse-icon');
       if (icon) icon.textContent = '◀';
+      if (logo) logo.title = 'Stockeasy';
     }
   }
 
