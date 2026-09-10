@@ -345,6 +345,80 @@ async function initDB() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_ports_task_id ON task_ports(task_id)`);
 
+  // Таблица чек-листов обследования объекта (для прогнозов ТМЦ и характеристик СКС)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS task_checklists (
+      id                          SERIAL PRIMARY KEY,
+      task_id                     TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+      
+      -- Шапка и метаданные
+      inspection_date             DATE,
+      zno_number                  TEXT,
+      address                     TEXT,
+      room_name                   TEXT,
+      inspector_name              TEXT,
+      sbs_contact                 TEXT,
+
+      -- Характеристики работ и портов
+      work_type                   TEXT,
+      ports_install_qty           INTEGER DEFAULT 0,
+      ports_relocate_qty          INTEGER DEFAULT 0,
+      ports_dismantle_qty         INTEGER DEFAULT 0,
+      ports_restore_qty           INTEGER DEFAULT 0,
+
+      -- Поверхности, конструктивы и высота
+      mount_surface               TEXT,
+      has_floor_hatches           BOOLEAN DEFAULT false,
+      has_drops                   BOOLEAN DEFAULT false,
+      outlet_surface              TEXT,
+      table_exists                BOOLEAN DEFAULT false,
+      workplace_occupied          BOOLEAN DEFAULT false,
+      table_install_date          DATE,
+      raised_floor                BOOLEAN DEFAULT false,
+      ceiling_height_mm           INTEGER DEFAULT 0,
+
+      -- Кабельные трассы, лотки и каналы
+      has_interfloor_pass         BOOLEAN DEFAULT false,
+      interfloor_has_space        BOOLEAN DEFAULT false,
+      has_metal_tray              BOOLEAN DEFAULT false,
+      metal_tray_has_space        BOOLEAN DEFAULT false,
+      has_trunking                BOOLEAN DEFAULT false,
+      trunking_brand_size         TEXT,
+      trunking_size               TEXT,
+      trunking_install_needed     BOOLEAN DEFAULT false,
+      trunking_install_meters     NUMERIC DEFAULT 0,
+
+      -- Электрика и коммутационные шкафы
+      electric_sockets_ready      BOOLEAN DEFAULT false,
+      electric_sockets_mount_type TEXT,
+      has_server_room             BOOLEAN DEFAULT false,
+      server_room_info            TEXT,
+      has_telecom_rack            BOOLEAN DEFAULT false,
+      telecom_rack_info           TEXT,
+      patch_panel_install_needed  BOOLEAN DEFAULT false,
+      free_patch_panel_num        TEXT,
+      ports_marking               TEXT,
+
+      -- ТМЦ для выдачи подрядчику (для прогнозирования расхода)
+      materials_needed            BOOLEAN DEFAULT false,
+      mat_patch_panels_qty        INTEGER DEFAULT 0,
+      mat_cable_organizers_qty    INTEGER DEFAULT 0,
+      mat_keystone_black_qty      INTEGER DEFAULT 0,
+      mat_keystone_white_qty      INTEGER DEFAULT 0,
+      mat_faceplates_frames_qty   INTEGER DEFAULT 0,
+      mat_cable_meters            NUMERIC DEFAULT 0,
+      mat_surface_boxes_qty       INTEGER DEFAULT 0,
+
+      notes                       TEXT,
+      raw_checklist_data          JSONB DEFAULT '{}',
+      created_by                  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at                  TIMESTAMPTZ DEFAULT NOW(),
+      updated_at                  TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_checklists_task_id ON task_checklists(task_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_checklists_zno ON task_checklists(zno_number)`);
+
   const userCount = await pool.query('SELECT COUNT(*) FROM users');
   if (parseInt(userCount.rows[0].count) === 0) {
     const bcrypt = await import('bcryptjs');
@@ -1741,6 +1815,160 @@ app.delete('/api/ports/:rowId', authenticateToken, async (req, res) => {
     res.json({ success: true });
   } catch(e) { res.status(500).json({ error: e.message }) }
 });
+
+// ─── API: ЧЕК-ЛИСТ ОБСЛЕДОВАНИЯ ОБЪЕКТА (ТМЦ И ХАРАКТЕРИСТИКИ СКС) ───────────
+app.get('/api/tasks/:id/checklist', authenticateToken, async (req, res) => {
+  try {
+    if (!(await canAccessTaskAttachments(req.user, req.params.id))) {
+      return res.status(403).json({ error: 'Нет доступа к этой заявке' });
+    }
+    const { rows } = await pool.query(
+      'SELECT * FROM task_checklists WHERE task_id = $1 ORDER BY id DESC LIMIT 1',
+      [req.params.id]
+    );
+    res.json(rows[0] || null);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/tasks/:id/checklist', authenticateToken, async (req, res) => {
+  try {
+    if (!(await canAccessTaskAttachments(req.user, req.params.id))) {
+      return res.status(403).json({ error: 'Нет доступа к этой заявке' });
+    }
+
+    const b = req.body || {};
+    const { rows: existing } = await pool.query('SELECT id FROM task_checklists WHERE task_id = $1', [req.params.id]);
+
+    const params = [
+      req.params.id,
+      b.inspectionDate || null,
+      b.znoNumber || req.params.id,
+      b.address || null,
+      b.roomName || null,
+      b.inspectorName || req.user.fullName || null,
+      b.sbsContact || null,
+      b.workType || null,
+      Number(b.portsInstallQty) || 0,
+      Number(b.portsRelocateQty) || 0,
+      Number(b.portsDismantleQty) || 0,
+      Number(b.portsRestoreQty) || 0,
+      b.mountSurface || null,
+      Boolean(b.hasFloorHatches),
+      Boolean(b.hasDrops),
+      b.outletSurface || null,
+      Boolean(b.tableExists),
+      Boolean(b.workplaceOccupied),
+      b.tableInstallDate || null,
+      Boolean(b.raisedFloor),
+      Number(b.ceilingHeightMm) || 0,
+      Boolean(b.hasInterfloorPass),
+      Boolean(b.interfloorHasSpace),
+      Boolean(b.hasMetalTray),
+      Boolean(b.metalTrayHasSpace),
+      Boolean(b.hasTrunking),
+      b.trunkingBrandSize || null,
+      b.trunkingSize || null,
+      Boolean(b.trunkingInstallNeeded),
+      Number(b.trunkingInstallMeters) || 0,
+      Boolean(b.electricSocketsReady),
+      b.electricSocketsMountType || null,
+      Boolean(b.hasServerRoom),
+      b.serverRoomInfo || null,
+      Boolean(b.hasTelecomRack),
+      b.telecomRackInfo || null,
+      Boolean(b.patchPanelInstallNeeded),
+      b.freePatchPanelNum || null,
+      b.portsMarking || null,
+      Boolean(b.materialsNeeded),
+      Number(b.matPatchPanelsQty) || 0,
+      Number(b.matCableOrganizersQty) || 0,
+      Number(b.matKeystoneBlackQty) || 0,
+      Number(b.matKeystoneWhiteQty) || 0,
+      Number(b.matFaceplatesFramesQty) || 0,
+      Number(b.matCableMeters) || 0,
+      Number(b.matSurfaceBoxesQty) || 0,
+      b.notes || null,
+      JSON.stringify(b.rawChecklistData || {}),
+      req.user.id
+    ];
+
+    let result;
+    if (existing && existing.length > 0) {
+      // Обновляем существующий чек-лист
+      const updateQuery = `
+        UPDATE task_checklists SET
+          inspection_date = $2, zno_number = $3, address = $4, room_name = $5,
+          inspector_name = $6, sbs_contact = $7, work_type = $8,
+          ports_install_qty = $9, ports_relocate_qty = $10, ports_dismantle_qty = $11, ports_restore_qty = $12,
+          mount_surface = $13, has_floor_hatches = $14, has_drops = $15, outlet_surface = $16,
+          table_exists = $17, workplace_occupied = $18, table_install_date = $19, raised_floor = $20,
+          ceiling_height_mm = $21, has_interfloor_pass = $22, interfloor_has_space = $23,
+          has_metal_tray = $24, metal_tray_has_space = $25, has_trunking = $26, trunking_brand_size = $27,
+          trunking_size = $28, trunking_install_needed = $29, trunking_install_meters = $30,
+          electric_sockets_ready = $31, electric_sockets_mount_type = $32, has_server_room = $33,
+          server_room_info = $34, has_telecom_rack = $35, telecom_rack_info = $36,
+          patch_panel_install_needed = $37, free_patch_panel_num = $38, ports_marking = $39,
+          materials_needed = $40, mat_patch_panels_qty = $41, mat_cable_organizers_qty = $42,
+          mat_keystone_black_qty = $43, mat_keystone_white_qty = $44, mat_faceplates_frames_qty = $45,
+          mat_cable_meters = $46, mat_surface_boxes_qty = $47, notes = $48, raw_checklist_data = $49,
+          updated_at = NOW()
+        WHERE task_id = $1 RETURNING *
+      `;
+      result = await pool.query(updateQuery, params.slice(0, 49));
+    } else {
+      // Создаем новую запись
+      const insertQuery = `
+        INSERT INTO task_checklists (
+          task_id, inspection_date, zno_number, address, room_name,
+          inspector_name, sbs_contact, work_type,
+          ports_install_qty, ports_relocate_qty, ports_dismantle_qty, ports_restore_qty,
+          mount_surface, has_floor_hatches, has_drops, outlet_surface,
+          table_exists, workplace_occupied, table_install_date, raised_floor,
+          ceiling_height_mm, has_interfloor_pass, interfloor_has_space,
+          has_metal_tray, metal_tray_has_space, has_trunking, trunking_brand_size,
+          trunking_size, trunking_install_needed, trunking_install_meters,
+          electric_sockets_ready, electric_sockets_mount_type, has_server_room,
+          server_room_info, has_telecom_rack, telecom_rack_info,
+          patch_panel_install_needed, free_patch_panel_num, ports_marking,
+          materials_needed, mat_patch_panels_qty, mat_cable_organizers_qty,
+          mat_keystone_black_qty, mat_keystone_white_qty, mat_faceplates_frames_qty,
+          mat_cable_meters, mat_surface_boxes_qty, notes, raw_checklist_data,
+          created_by
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+          $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
+          $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44,
+          $45, $46, $47, $48, $49, $50
+        ) RETURNING *
+      `;
+      result = await pool.query(insertQuery, params);
+    }
+
+    res.json(result.rows[0]);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Эндпоинт для сводной аналитики/прогноза по материалам на основе всех чек-листов
+app.get('/api/checklists/materials-summary', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT 
+        COUNT(*) as total_checklists,
+        SUM(mat_patch_panels_qty) as total_patch_panels,
+        SUM(mat_cable_organizers_qty) as total_cable_organizers,
+        SUM(mat_keystone_black_qty) as total_keystone_black,
+        SUM(mat_keystone_white_qty) as total_keystone_white,
+        SUM(mat_faceplates_frames_qty) as total_faceplates,
+        SUM(mat_cable_meters) as total_cable_meters,
+        SUM(mat_surface_boxes_qty) as total_surface_boxes,
+        ROUND(AVG(NULLIF(mat_cable_meters, 0) / NULLIF(ports_install_qty, 0)), 1) as avg_cable_per_port
+      FROM task_checklists
+    `);
+    res.json(rows[0]);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+
 
 // ─── API: CHAINS ──────────────────────────────────────────────────────────────
 app.get('/api/chains', authenticateToken, async (req, res) => {
