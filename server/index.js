@@ -1506,7 +1506,7 @@ app.post('/api/tasks/:id/attachments', authenticateToken, uploadAttachment.array
       return res.status(403).json({ error: 'Нет доступа к этой заявке' })
     }
     const type = req.body.type
-    if (!['photo_report', 'scheme', 'act', 'receipt', 'pi_excel'].includes(type)) {
+    if (!['photo_report', 'scheme', 'act', 'receipt', 'pi_excel', 'order_pdf'].includes(type)) {
       return res.status(400).json({ error: 'Некорректный тип вложения' })
     }
     const inserted = []

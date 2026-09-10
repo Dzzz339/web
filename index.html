@@ -1758,7 +1758,13 @@ function pageData() {
         '<div id="ai_log_box" style="display:none; background:#18181b; color:#22c55e; font-family:monospace; font-size:.75rem; padding:8px 12px; border-radius:6px; max-height:110px; overflow-y:auto; margin-bottom:12px; border:1px solid #27272a;">' +
           '<div id="ai_log_content"></div>' +
         '</div>' +
-        
+        // СВОРАЧИВАЕМЫЙ БЛОК ПРЕДПРОСМОТРА PDF
+        '<div id="ai_pdf_preview_wrap" style="display:none; margin-bottom:12px;">' +
+          '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">' +
+            '<button type="button" class="btn btn-sm btn-ghost" onclick="togglePdfPreview()" id="btn_toggle_preview">📄 Скрыть документ PDF ▴</button>' +
+          '</div>' +
+          '<iframe id="ai_pdf_preview_frame" style="width:100%; height:450px; border-radius:8px; border:1.5px solid var(--border); background:#fff;" src=""></iframe>' +
+        '</div>' +
         // ОБЩИЙ КОНТЕЙНЕР ПОЛЕЙ ФОРМЫ (НЕ ЗАКРЫВАЕМ ЕГО ДО САМОГО НИЗА)
         '<div style="display:flex; flex-direction:column; gap:.6rem; font-size:.85rem">' +
           '<div class="g2">' +
@@ -2222,7 +2228,15 @@ function doUpload(file) {
 function processPdfWithAi(inputEl) {
   var file = inputEl.files[0];
   if (!file) return;
+  S.pendingPdfFile = file; // Запоминаем файл для прикрепления к заявке
 
+  // Загружаем PDF в превью прямо в браузере
+  var previewWrap = document.getElementById('ai_pdf_preview_wrap');
+  var previewFrame = document.getElementById('ai_pdf_preview_frame');
+  if (previewWrap && previewFrame) {
+    previewFrame.src = URL.createObjectURL(file);
+    previewWrap.style.display = 'block';
+  }
   var fd = new FormData();
   fd.append('file', file);
   
@@ -2258,6 +2272,15 @@ function processPdfWithAi(inputEl) {
     alert('Ошибка загрузки файла: ' + e.message);
   });
   // Важно: мы не ждем данных здесь. Мы просто загрузили файл.
+}
+
+function togglePdfPreview() {
+  var frame = document.getElementById('ai_pdf_preview_frame');
+  var btn = document.getElementById('btn_toggle_preview');
+  if (!frame || !btn) return;
+  var isHidden = frame.style.display === 'none';
+  frame.style.display = isHidden ? 'block' : 'none';
+  btn.textContent = isHidden ? '📄 Скрыть документ PDF ▴' : '📄 Показать документ PDF ▾';
 }
 // Создание одиночной заявки с вкладки Данные
 function createSingleTask() {
@@ -2310,18 +2333,43 @@ function createSingleTask() {
       if (el) el.value = '';
     });
 
-    // 2. Показываем всплывающее уведомление (Toast) об успехе
-    var toast = document.createElement('div');
-    toast.innerHTML = '✅ Заявка ' + res.id + ' успешно создана!';
-    toast.style.cssText = 'position:fixed; bottom:20px; right:20px; background:var(--green); color:#fff; padding:12px 24px; border-radius:8px; box-shadow:var(--shadow); z-index:9999; font-weight:600; transition:opacity 0.3s;';
-    document.body.appendChild(toast);
-    setTimeout(function() { toast.style.opacity = '0'; setTimeout(function(){ toast.remove(); }, 300); }, 3000);
+    // Очищаем и сворачиваем превью PDF, если оно было открыто
+    var previewWrap = document.getElementById('ai_pdf_preview_wrap');
+    var previewFrame = document.getElementById('ai_pdf_preview_frame');
+    if (previewWrap && previewFrame) {
+      previewFrame.src = '';
+      previewWrap.style.display = 'none';
+    }
 
-    // 3. Обновляем список задач с сервера и открываем карточку новой заявки
-    api('/tasks').then(function(tasksList) {
-      S.tasks = tasksList;
-      openCard(res.id);
+    // 2. Если была загружена PDF — прикрепляем её к созданной заявке в базу
+    var attachPromise = S.pendingPdfFile
+      ? uploadAttachments(res.id, 'order_pdf', [S.pendingPdfFile])
+      : Promise.resolve();
+
+    attachPromise.then(function() {
+      S.pendingPdfFile = null; // Сбрасываем сохраненный файл
+
+      // 3. Показываем всплывающее уведомление (Toast) об успехе
+      var toast = document.createElement('div');
+      toast.innerHTML = '✅ Заявка ' + res.id + ' успешно создана!';
+      toast.style.cssText = 'position:fixed; bottom:20px; right:20px; background:var(--green); color:#fff; padding:12px 24px; border-radius:8px; box-shadow:var(--shadow); z-index:9999; font-weight:600; transition:opacity 0.3s;';
+      document.body.appendChild(toast);
+      setTimeout(function() { toast.style.opacity = '0'; setTimeout(function(){ toast.remove(); }, 300); }, 3000);
+
+      // 4. Обновляем список задач с сервера и открываем карточку новой заявки
+      api('/tasks').then(function(tasksList) {
+        S.tasks = tasksList;
+        openCard(res.id);
+      });
+    }).catch(function(err) {
+      console.error('Ошибка прикрепления PDF:', err);
+      // Даже если файл не прикрепился, заявку всё равно открываем
+      api('/tasks').then(function(tasksList) {
+        S.tasks = tasksList;
+        openCard(res.id);
+      });
     });
+
   }).catch(function(e) {
     btn.innerHTML = originalBtnText;
     btn.disabled = false;
@@ -3228,7 +3276,7 @@ function refreshAttachmentsList(taskId) {
     }).join('');
   });
 }
-var typeLabels = { photo_report: '📷 Фото', scheme: '🗺️ Схема', act: '📄 Акт', receipt: '🧾 Чек', pi_excel: '📊 Excel ПИ' };
+var typeLabels = { photo_report: '📷 Фото', scheme: '🗺️ Схема', act: '📄 Акт', receipt: '🧾 Чек', pi_excel: '📊 Excel ПИ', order_pdf: '📑 Заказ на работы (PDF)' };
 
 function openAttachment(id) {
   fetch('/api/attachments/' + id + '/file', { headers: { 'Authorization': 'Bearer ' + S.token } })
