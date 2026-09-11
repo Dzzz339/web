@@ -259,6 +259,62 @@
       padding: 8px 0;
     }
 
+    /* SIDEBAR SUBMENU */
+    .sidebar-submenu {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-left: 28px;
+      margin-top: 2px;
+      margin-bottom: 4px;
+      border-left: 1.5px solid #27272A;
+      padding-left: 8px;
+    }
+    .sidebar.collapsed .sidebar-submenu {
+      display: none !important;
+    }
+    .sidebar-subitem {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 8px;
+      font-size: 0.8rem;
+      color: #A1A1AA;
+      background: none;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+      text-align: left;
+      transition: background 0.12s, color 0.12s;
+      white-space: nowrap;
+    }
+    .sidebar-subitem:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: #FFFFFF;
+    }
+    .sidebar-subitem.active {
+      color: var(--orange);
+      font-weight: 600;
+      background: rgba(255, 98, 0, 0.12);
+    }
+    .sidebar-arrow {
+      margin-left: auto;
+      font-size: 0.7rem;
+      transition: transform 0.2s ease;
+      color: #71717A;
+    }
+    .sidebar-arrow.open {
+      transform: rotate(90deg);
+      color: var(--orange);
+    }
+
+    /* BADGES FOR CONTRACTOR TYPES */
+    .b-customer { background: #dbeafe; color: #1d4ed8; }
+    .b-executor { background: #ffedd5; color: #c2410c; }
+    .b-supplier { background: #dcfce7; color: #15803d; }
+    .b-internal { background: #f3e8ff; color: #7e22ce; }
+
     /* SIDEBAR FOOTER (USER & LOGOUT) */
     .sidebar-footer {
       border-top: 1px solid #27272A;
@@ -569,12 +625,29 @@
     /* TABLE */
     .tbl-wrap { 
       overflow: auto; 
-      max-height: 80vh; /* Увеличим высоту по умолчанию */
+      max-height: 80vh; 
       border-radius: var(--radius); 
-      resize: vertical; /* Позволит тянуть окно вниз за правый нижний угол */
-      border-bottom: 2px solid var(--border); /* Чтобы было видно, за что тянуть */
+      resize: vertical; 
+      border-bottom: 2px solid var(--border);
+      scrollbar-width: thin;
+      scrollbar-color: var(--orange) #f1f1f1;
     }
-    table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+    .tbl-wrap::-webkit-scrollbar, .kanban::-webkit-scrollbar, .chain-steps::-webkit-scrollbar {
+      height: 10px;
+      width: 10px;
+    }
+    .tbl-wrap::-webkit-scrollbar-track, .kanban::-webkit-scrollbar-track, .chain-steps::-webkit-scrollbar-track {
+      background: #f1f1f5;
+      border-radius: 5px;
+    }
+    .tbl-wrap::-webkit-scrollbar-thumb, .kanban::-webkit-scrollbar-thumb, .chain-steps::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 5px;
+    }
+    .tbl-wrap::-webkit-scrollbar-thumb:hover, .kanban::-webkit-scrollbar-thumb:hover, .chain-steps::-webkit-scrollbar-thumb:hover {
+      background: var(--orange);
+    }
+    table { width: 100%; min-width: 980px; border-collapse: collapse; font-size: .82rem; }
     thead th { background: #FAFAFA; position: sticky; top: 0; z-index: 10; padding: 9px 11px; text-align: left; font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--text-3); border-bottom: 1px solid var(--border); white-space: nowrap; }
     tbody td { padding: 8px 11px; border-bottom: 1px solid #F4F4F5; vertical-align: middle; }
     tbody tr:hover td { background: var(--orange-bg); }
@@ -874,8 +947,9 @@ var S = {
   token: localStorage.getItem('token') || null,
   page: 'dashboard',
   tasks: [], chains: [], stats: {}, importInfo: null, users: [], contractors: [], notifications: [],
-  selChain: null, selChainStep: null,
+  selChain: null, selChainStep: null, chainMgr: '',
   taskQ: '', taskSt: '', taskPr: '', taskReg: '', taskMgr: '', taskYear: '', taskOverdue: '',
+  taskCustomer: '',
   taskArch: 'no',
   taskStage: '', taskSort: '',
   cardId: null, cardDraft: {}, cardConfirmOpen: false,
@@ -912,7 +986,21 @@ var NAV_SECTIONS = [
   {
     title: 'АНАЛИТИКА',
     items: [
-      { id: 'dashboard',   icon: ICONS.dashboard,   label: 'Обзор' }
+      { 
+        id: 'dashboard',   
+        icon: ICONS.dashboard,   
+        label: 'Обзор',
+        hasChildren: true,
+        children: [
+          { id: 'dash-summary',     label: 'Сводка' },
+          { id: 'dash-customers',   label: 'Заказчики' },
+          { id: 'dash-executors',   label: 'Исполнители' },
+          { id: 'dash-calendar',    label: 'Календарь' },
+          { id: 'dash-materials',   label: 'Материалы' },
+          { id: 'dash-payments-in', label: 'Оплаты нам' },
+          { id: 'dash-payments-out',label: 'Оплаты наши' }
+        ]
+      }
     ]
   },
   {
@@ -1132,15 +1220,54 @@ function renderNav() {
 
       // Кнопки разделов
       visibleItems.forEach(function(item) {
+        var isDashSub = S.page.startsWith('dash-');
+        var isActive = S.page === item.id || (item.id === 'dashboard' && isDashSub);
+        var isDashOpen = S.dashMenuOpen !== undefined ? S.dashMenuOpen : (isActive || isDashSub);
+
         var btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'sidebar-item' + (S.page === item.id ? ' active' : '');
+        btn.className = 'sidebar-item' + (isActive ? ' active' : '');
         btn.title = item.label;
-        btn.innerHTML = '<span class="sidebar-item-icon">' + item.icon + '</span><span class="sidebar-item-label">' + item.label + '</span>';
-        btn.onclick = function() {
-          go(item.id);
+
+        var arrowHtml = item.hasChildren ? '<span class="sidebar-arrow' + (isDashOpen ? ' open' : '') + '">▶</span>' : '';
+        btn.innerHTML = '<span class="sidebar-item-icon">' + item.icon + '</span><span class="sidebar-item-label">' + item.label + '</span>' + arrowHtml;
+
+        btn.onclick = function(e) {
+          if (item.hasChildren) {
+            var sb = document.getElementById('sidebar');
+            if (sb && sb.classList.contains('collapsed')) {
+              toggleSidebarCollapse();
+            }
+            S.dashMenuOpen = !isDashOpen;
+            if (S.page !== 'dashboard' && !S.page.startsWith('dash-')) {
+              go('dashboard');
+            } else {
+              renderNav();
+            }
+          } else {
+            go(item.id);
+          }
         };
         navEl.appendChild(btn);
+
+        // Рендерим подменю для Обзора
+        if (item.hasChildren && item.children && isDashOpen) {
+          var subWrap = document.createElement('div');
+          subWrap.className = 'sidebar-submenu';
+          item.children.forEach(function(sub) {
+            var subActive = (sub.id === 'dash-summary' && S.page === 'dashboard') || (S.page === sub.id);
+            var subBtn = document.createElement('button');
+            subBtn.type = 'button';
+            subBtn.className = 'sidebar-subitem' + (subActive ? ' active' : '');
+            subBtn.textContent = sub.label;
+            subBtn.onclick = function() {
+              if (sub.id === 'dash-summary') go('dashboard');
+              else go(sub.id);
+            };
+            subWrap.appendChild(subBtn);
+          });
+          navEl.appendChild(subWrap);
+        }
       });
     });
   }
@@ -1198,7 +1325,7 @@ function renderApp() {
   }
 
   // 2. Отрисовка страницы
-  if      (S.page === 'dashboard') setApp(pageDash());
+  if      (S.page === 'dashboard' || S.page.startsWith('dash-')) setApp(pageDash());
   else if (S.page === 'users')     setApp(pageUsers());
   else if (S.page === 'logs')      setApp(pageLogs());
   else if (S.page === 'chat')      setApp(pageChat());
@@ -1769,32 +1896,53 @@ function deleteAvatar() {
 
 function pageUsers() {
   api('/users').then(users => {
-    var rows = users.map(u => `
-      <tr style="border-bottom: 1px solid var(--border)">
-        <td style="padding: 10px 12px"><b>#${u.id}</b></td>
-        <td style="padding: 10px 12px; font-weight:600">${u.username}</td>
-        <td style="padding: 10px 12px">${badge(u.role === 'admin' ? 'b-red' : 'b-gray', u.role)}${u.contractor_name ? '<div style="font-size:.72rem;color:var(--text-3);margin-top:2px">' + escHtml(u.contractor_name) + '</div>' : ''}</td>
-        <td style="padding: 10px 12px">${u.full_name || '—'}</td>
-        <td style="padding: 10px 12px; color:var(--text-2)">${u.email || '—'}</td>
-        <td style="padding: 10px 12px; color:var(--text-3); font-size:.75rem">${new Date(u.created_at).toLocaleDateString('ru')}</td>
-        <td style="padding: 10px 12px; text-align:right">
-          <button class="btn btn-sm btn-ghost" onclick="editUser(${u.id})" title="Редактировать">✏️</button>
-          ${u.username !== S.user.username ? `<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteUser(${u.id})" title="Удалить">✕</button>` : ''}
-        </td>
-      </tr>
-    `).join('');
+    S.users = users;
+    var rows = users.map(u => {
+      var passInfo = u.passport_series_number 
+        ? '<div style="font-size:.72rem;color:var(--text-3);margin-top:2px">Паспорт: ' + escHtml(u.passport_series_number) + '</div>' 
+        : '';
+      return `
+        <tr style="border-bottom: 1px solid var(--border)">
+          <td style="padding: 10px 12px"><b>#${u.id}</b></td>
+          <td style="padding: 10px 12px; font-weight:600">${escHtml(u.username)}</td>
+          <td style="padding: 10px 12px">${badge(u.role === 'admin' ? 'b-red' : 'b-gray', u.role === 'admin' ? 'Админ' : 'Монтажник')}${u.contractor_name ? '<div style="font-size:.72rem;color:var(--text-3);margin-top:2px">' + escHtml(u.contractor_name) + '</div>' : ''}</td>
+          <td style="padding: 10px 12px">
+            <div style="font-weight:600">${escHtml(u.full_name || '—')}</div>
+            ${passInfo}
+          </td>
+          <td style="padding: 10px 12px">${escHtml(u.phone || '—')}</td>
+          <td style="padding: 10px 12px; color:var(--text-2)">${escHtml(u.email || '—')}</td>
+          <td style="padding: 10px 12px; color:var(--text-3); font-size:.75rem">${new Date(u.created_at).toLocaleDateString('ru')}</td>
+          <td style="padding: 10px 12px; text-align:right">
+            <button class="btn btn-sm btn-ghost" onclick="editUser(${u.id})" title="Редактировать (вкл. паспорт)">✏️</button>
+            ${u.username !== S.user.username ? `<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteUser(${u.id})" title="Удалить">✕</button>` : ''}
+          </td>
+        </tr>
+      `;
+    }).join('');
 
-    document.getElementById('users-table').innerHTML = rows;
+    var el = document.getElementById('users-table');
+    if (el) el.innerHTML = rows || '<tr><td colspan="8" style="text-align:center;padding:2rem">Нет сотрудников</td></tr>';
   });
 
+  var formOpen = S.userFormOpen || false;
+
   return `
-    <h1 class="page-title">Управление командой</h1>
-    <div class="card p mb">
-      <div class="sec-title">Добавить сотрудника</div>
-      <div style="display:flex; gap:.5rem; flex-wrap:wrap">
-        <input id="nu_name" type="text" placeholder="Логин">
-        <input id="nu_pass" type="password" placeholder="Пароль">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem; flex-wrap:wrap; gap:10px">
+      <h1 class="page-title" style="margin:0">Управление командой</h1>
+      <button class="btn" onclick="toggleUserForm()">
+        ${formOpen ? '✕ Закрыть форму' : '+ Добавить сотрудника'}
+      </button>
+    </div>
+
+    <!-- ФОРМА ДОБАВЛЕНИЯ (СКРЫТА ПО УМОЛЧАНИЮ) -->
+    <div id="user_add_card" class="card p mb" style="display:${formOpen ? 'block' : 'none'}; border:1.5px solid var(--orange); animation: fadeIn 0.15s ease;">
+      <div class="sec-title" style="margin-bottom:.75rem">Новый сотрудник</div>
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:.75rem; margin-bottom:1rem">
+        <input id="nu_name" type="text" placeholder="Логин *">
+        <input id="nu_pass" type="password" placeholder="Пароль *">
         <input id="nu_full" type="text" placeholder="ФИО (как в Excel)">
+        <input id="nu_phone" type="text" placeholder="Телефон для связи">
         <input id="nu_email" type="email" placeholder="Email для писем">
         <select id="nu_role">
           <option value="worker">Монтажник (Worker)</option>
@@ -1804,9 +1952,13 @@ function pageUsers() {
           <option value="">— Без контрагента —</option>
           ${(S.contractors || []).map(function(c) { return '<option value="' + c.id + '">' + escHtml(c.name_short) + '</option>'; }).join('')}
         </select>
-        <button class="btn" onclick="addUser()">+ Добавить</button>
+      </div>
+      <div style="text-align:right">
+        <button class="btn btn-ghost btn-sm" onclick="toggleUserForm(false)" style="margin-right:8px">Отмена</button>
+        <button class="btn" onclick="addUser()">+ Сохранить сотрудника</button>
       </div>
     </div>
+
     <div class="card tbl-wrap">
       <table>
         <thead>
@@ -1815,17 +1967,23 @@ function pageUsers() {
             <th>Логин</th>
             <th>Роль</th>
             <th>ФИО</th>
+            <th>Телефон</th>
             <th>Email</th>
             <th>Дата создания</th>
             <th></th>
           </tr>
         </thead>
         <tbody id="users-table">
-          <tr><td colspan="7" style="text-align:center; padding:2rem">Загрузка...</td></tr>
+          <tr><td colspan="8" style="text-align:center; padding:2rem">Загрузка...</td></tr>
         </tbody>
       </table>
     </div>
   `;
+}
+
+function toggleUserForm(open) {
+  S.userFormOpen = (open !== undefined) ? open : !S.userFormOpen;
+  renderApp();
 }
 
 function pageChat() {
@@ -2046,54 +2204,88 @@ function scrollChatToBottom() {
 
 
 function pageContractors() {
-  var rows = (S.contractors || []).map(function(c) {
+  var filterType = S.contractorFilterType || 'all';
+
+  var filtered = (S.contractors || []).filter(function(c) {
+    if (filterType === 'all') return true;
+    return (c.type || 'executor') === filterType;
+  });
+
+  var typeLabels = {
+    customer: { label: 'Заказчик', cls: 'b-customer' },
+    executor: { label: 'Исполнитель', cls: 'b-executor' },
+    supplier: { label: 'Поставщик', cls: 'b-supplier' },
+    internal: { label: 'Собственный', cls: 'b-internal' }
+  };
+
+  var rows = filtered.map(function(c) {
+    var tInfo = typeLabels[c.type || 'executor'] || { label: c.type || 'Исполнитель', cls: 'b-gray' };
     return `
       <tr style="border-bottom: 1px solid var(--border)">
-        <td style="padding: 10px 12px; font-weight:600">${c.inn}</td>
-        <td style="padding: 10px 12px">${c.name_short}</td>
-        <td style="padding: 10px 12px" class="t3">${c.director || '—'}</td>
-        <td style="padding: 10px 12px">${c.phone || '—'}</td>
+        <td style="padding: 10px 12px; font-weight:600">${escHtml(c.inn)}</td>
+        <td style="padding: 10px 12px">
+          <div style="font-weight:600">${escHtml(c.name_short)}</div>
+          ${c.name_full ? '<div style="font-size:.73rem;color:var(--text-3);line-height:1.2;margin-top:2px">' + escHtml(c.name_full.slice(0,80)) + '</div>' : ''}
+        </td>
+        <td style="padding: 10px 12px">${badge(tInfo.cls, tInfo.label)}</td>
+        <td style="padding: 10px 12px" class="t3">${escHtml(c.director || '—')}</td>
+        <td style="padding: 10px 12px">${escHtml(c.phone || '—')}</td>
         <td style="padding: 10px 12px; text-align:right">
-          <button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteContractor(${c.id})">✕</button>
+          <button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteContractor(${c.id})" title="Удалить">✕</button>
         </td>
       </tr>
     `;
   }).join('');
 
+  var formOpen = S.contractorFormOpen || false;
+
   return `
-    <h1 class="page-title">Справочник Контрагентов</h1>
-    
-    <div class="card p mb" style="display:grid; grid-template-columns: 1fr 1fr; gap: 1.5rem">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem; flex-wrap:wrap; gap:10px">
+      <h1 class="page-title" style="margin:0">Справочник Контрагентов</h1>
+      <button class="btn" onclick="toggleContractorForm()">
+        ${formOpen ? '✕ Закрыть форму' : '+ Добавить контрагента'}
+      </button>
+    </div>
+
+    <!-- ФОРМА ДОБАВЛЕНИЯ (СКРЫТА ПО УМОЛЧАНИЮ) -->
+    <div id="contractor_add_card" class="card p mb" style="display:${formOpen ? 'grid' : 'none'}; grid-template-columns: 1fr 1fr; gap: 1.5rem; border:1.5px solid var(--orange); animation: fadeIn 0.15s ease;">
       <!-- Левая колонка: Поиск и Базовые данные -->
       <div>
         <div class="sec-title">Поиск и Основные данные</div>
         
-        <!-- Живая поисковая строка с выпадающим списком -->
         <div class="mb" style="position:relative">
           <input id="nc_search_input" type="text" 
                  placeholder="Начните вводить Название компании или ИНН..." 
                  style="width:100%; font-weight:600; border-color:var(--orange)" 
                  oninput="onContractorSearchInput(this.value)">
-                 
-          <!-- Выпадающий список вариантов -->
           <div id="nc_suggestions_box" style="display:none; position:absolute; top:100%; left:0; right:0; background:#fff; border:1.5px solid var(--orange); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.15); z-index:100; max-height:250px; overflow-y:auto; margin-top:4px"></div>
         </div>
 
+        <div class="mb">
+          <label style="display:block;font-size:.75rem;font-weight:700;text-transform:uppercase;color:var(--text-3);margin-bottom:4px">Кто он? (Тип контрагента)</label>
+          <select id="nc_type" style="width:100%;font-weight:600">
+            <option value="executor">Исполнитель / Подрядчик (Монтажная организация, ИП)</option>
+            <option value="customer">Заказчик (ПАО Сбербанк, ВТБ и др.)</option>
+            <option value="supplier">Поставщик ТМЦ (Кабель, лотки, шкафы)</option>
+            <option value="internal">Собственный (Наша организация)</option>
+          </select>
+        </div>
+
         <div class="g2 mb">
-          <input id="nc_inn" type="text" placeholder="ИНН">
+          <input id="nc_inn" type="text" placeholder="ИНН *">
           <input id="nc_kpp" type="text" placeholder="КПП (если есть)">
         </div>
         <div class="mb">
-          <input id="nc_name_short" type="text" placeholder="Краткое название (ИП / ООО)">
+          <input id="nc_name_short" type="text" placeholder="Краткое название (ИП / ООО) *">
         </div>
         <div class="mb">
-          <textarea id="nc_name_full" placeholder="Полное наименование" style="width:100%; resize:vertical; min-height:50px"></textarea>
+          <textarea id="nc_name_full" placeholder="Полное наименование" style="width:100%; resize:vertical; min-height:48px"></textarea>
         </div>
         <div class="mb">
           <input id="nc_director" type="text" placeholder="ФИО Руководителя">
         </div>
         <div class="mb">
-          <textarea id="nc_address" placeholder="Юридический адрес" style="width:100%; resize:vertical; min-height:50px"></textarea>
+          <textarea id="nc_address" placeholder="Юридический адрес" style="width:100%; resize:vertical; min-height:48px"></textarea>
         </div>
       </div>
 
@@ -2118,11 +2310,22 @@ function pageContractors() {
           <input id="nc_email" type="text" placeholder="Email">
         </div>
         
-        <div style="text-align:right; margin-top:1rem">
+        <div style="text-align:right; margin-top:1.5rem">
           <span id="nc_status" style="margin-right:1rem; color:var(--text-3); font-size:.8rem"></span>
+          <button class="btn btn-ghost btn-sm" onclick="toggleContractorForm(false)" style="margin-right:8px">Отмена</button>
           <button class="btn" onclick="addContractor()">+ Сохранить Контрагента</button>
         </div>
       </div>
+    </div>
+
+    <!-- ФИЛЬТРЫ ТИПОВ КОНТРАГЕНТОВ -->
+    <div style="display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap; align-items:center">
+      <span class="t3" style="font-size:.8rem; margin-right:4px">Фильтр по типу:</span>
+      <button class="btn btn-sm ${filterType === 'all' ? '' : 'btn-ghost'}" onclick="setContractorFilterType('all')">Все (${(S.contractors || []).length})</button>
+      <button class="btn btn-sm ${filterType === 'customer' ? '' : 'btn-ghost'}" onclick="setContractorFilterType('customer')">Заказчики</button>
+      <button class="btn btn-sm ${filterType === 'executor' ? '' : 'btn-ghost'}" onclick="setContractorFilterType('executor')">Исполнители</button>
+      <button class="btn btn-sm ${filterType === 'supplier' ? '' : 'btn-ghost'}" onclick="setContractorFilterType('supplier')">Поставщики</button>
+      <button class="btn btn-sm ${filterType === 'internal' ? '' : 'btn-ghost'}" onclick="setContractorFilterType('internal')">Собственные</button>
     </div>
 
     <!-- Таблица -->
@@ -2132,15 +2335,26 @@ function pageContractors() {
           <tr style="background:var(--bg)">
             <th style="padding: 10px 12px; color:var(--text-3)">ИНН</th>
             <th style="padding: 10px 12px; color:var(--text-3)">Название</th>
+            <th style="padding: 10px 12px; color:var(--text-3)">Тип</th>
             <th style="padding: 10px 12px; color:var(--text-3)">Руководитель</th>
             <th style="padding: 10px 12px; color:var(--text-3)">Телефон</th>
             <th style="padding: 10px 12px"></th>
           </tr>
         </thead>
-        <tbody>${rows || '<tr><td colspan="5" style="text-align:center;padding:2rem">Справочник пуст</td></tr>'}</tbody>
+        <tbody>${rows || '<tr><td colspan="6" style="text-align:center;padding:2rem">По выбранному фильтру контрагенты не найдены</td></tr>'}</tbody>
       </table>
     </div>
   `;
+}
+
+function toggleContractorForm(open) {
+  S.contractorFormOpen = (open !== undefined) ? open : !S.contractorFormOpen;
+  renderApp();
+}
+
+function setContractorFilterType(type) {
+  S.contractorFilterType = type;
+  renderApp();
 }
 
 function pageLogs() {
@@ -2226,23 +2440,234 @@ function pageLogin() {
   `;
 }
 
-function pageDash() {
+function filterAndGoTasks(filterObj) {
+  clearFilters();
+  if (filterObj.q !== undefined) S.taskQ = filterObj.q;
+  if (filterObj.st !== undefined) S.taskSt = filterObj.st;
+  if (filterObj.reg !== undefined) S.taskReg = filterObj.reg;
+  if (filterObj.mgr !== undefined) S.taskMgr = filterObj.mgr;
+  if (filterObj.ovd !== undefined) S.taskOverdue = filterObj.ovd;
+  if (filterObj.customer !== undefined) S.taskCustomer = filterObj.customer;
+  go('tasks');
+}
+
+function pageDash(subSection) {
+  subSection = subSection || (S.page.startsWith('dash-') ? S.page.replace('dash-', '') : 'summary');
+
   var s = S.stats;
   var total   = s.tasks   && s.tasks.total    || 0;
   var done    = s.tasks   && s.tasks.done     || 0;
   var pend    = s.tasks   && s.tasks.pending  || 0;
   var overdue = s.supply  && s.supply.overdue || 0;
   var revenue = s.revenue && s.revenue.total  || 0;
-  var p = pct(done, total);
 
+  // 1. ПОДРАЗДЕЛ: ЗАКАЗЧИКИ
+  if (subSection === 'customers') {
+    var custMap = {};
+    S.tasks.forEach(function(t) {
+      var c = t.customer || 'ПАО Сбербанк';
+      if (!custMap[c]) custMap[c] = { name: c, total: 0, done: 0, overdue: 0, inWork: 0, amount: 0 };
+      custMap[c].total++;
+      if (t.status === 'done') custMap[c].done++;
+      else custMap[c].inWork++;
+      if (t.overdueDays > 0) custMap[c].overdue++;
+      custMap[c].amount += Number(t.amount || 0);
+    });
+    var custList = Object.values(custMap).sort(function(a,b){ return b.total - a.total; });
+
+    var cardsHtml = custList.map(function(c) {
+      var p = pct(c.done, c.total);
+      return `
+        <div class="card p" style="cursor:pointer; transition:transform 0.12s, box-shadow 0.12s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'" onclick="filterAndGoTasks({customer:'${escHtml(c.name)}'})">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:.75rem">
+            <div>
+              <span class="badge b-customer" style="margin-bottom:4px; display:inline-block">Заказчик</span>
+              <div style="font-weight:700; font-size:1.1rem">${escHtml(c.name)}</div>
+            </div>
+            <div style="font-weight:700; font-size:1.15rem; color:var(--blue)">${fmtMoney(c.amount)}</div>
+          </div>
+          <div class="g3 mb" style="gap:.5rem; font-size:.85rem">
+            <div style="background:var(--bg); padding:6px 8px; border-radius:6px">Всего: <b>${fmtN(c.total)}</b></div>
+            <div style="background:var(--bg); padding:6px 8px; border-radius:6px; color:var(--green)">Готово: <b>${fmtN(c.done)}</b></div>
+            <div style="background:var(--bg); padding:6px 8px; border-radius:6px; color:${c.overdue>0?'var(--red)':'var(--text-3)'}">Просрочено: <b>${fmtN(c.overdue)}</b></div>
+          </div>
+          ${bar(c.done, c.total)}
+          <div style="text-align:right; font-size:.75rem; color:var(--text-3); margin-top:4px">${p}% завершено (клик для перехода к заявкам) ➔</div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem">
+        <h1 class="page-title" style="margin:0">Аналитика: Заказчики</h1>
+        <button class="btn btn-sm btn-ghost" onclick="go('dashboard')">← Назад в Обзор</button>
+      </div>
+      <p class="t3 mb" style="font-size:.85rem">Срез выполнения работ и объёмов в разрезе генеральных заказчиков.</p>
+      <div class="g2" style="gap:1rem">${cardsHtml || '<div class="card p t3">Нет данных</div>'}</div>
+    `;
+  }
+
+  // 2. ПОДРАЗДЕЛ: ИСПОЛНИТЕЛИ
+  if (subSection === 'executors') {
+    var execMap = {};
+    S.tasks.forEach(function(t) {
+      var e = t.assignee || t.contractor || 'Не назначен';
+      if (!execMap[e]) execMap[e] = { name: e, total: 0, done: 0, inWork: 0, overdue: 0, pay: 0, ports: 0 };
+      execMap[e].total++;
+      if (t.status === 'done') execMap[e].done++;
+      else execMap[e].inWork++;
+      if (t.overdueDays > 0) execMap[e].overdue++;
+      execMap[e].ports += (t.fact || t.inOrder || 0);
+
+      var f = getTaskFinance(t);
+      execMap[e].pay += f.po;
+    });
+    var execList = Object.values(execMap).sort(function(a,b){ return b.total - a.total; });
+
+    var execRows = execList.map(function(e) {
+      return `
+        <tr style="cursor:pointer" onclick="filterAndGoTasks({q:'${escHtml(e.name)}'})" title="Перейти к заявкам исполнителя">
+          <td style="padding:10px 12px; font-weight:600">${escHtml(e.name)}</td>
+          <td style="padding:10px 12px; text-align:right; font-weight:600">${fmtN(e.total)}</td>
+          <td style="padding:10px 12px; text-align:right; color:var(--green)">${fmtN(e.done)}</td>
+          <td style="padding:10px 12px; text-align:right; color:var(--orange)">${fmtN(e.inWork)}</td>
+          <td style="padding:10px 12px; text-align:right; color:${e.overdue>0?'var(--red)':'var(--text-3)'}"><b>${fmtN(e.overdue)}</b></td>
+          <td style="padding:10px 12px; text-align:right">${fmtN(e.ports)}</td>
+          <td style="padding:10px 12px; text-align:right; font-weight:700; color:var(--orange)">${fmtMoney(e.pay)}</td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem">
+        <h1 class="page-title" style="margin:0">Аналитика: Исполнители</h1>
+        <button class="btn btn-sm btn-ghost" onclick="go('dashboard')">← Назад в Обзор</button>
+      </div>
+      <div class="card tbl-wrap">
+        <table>
+          <thead>
+            <tr style="background:var(--bg)">
+              <th>Исполнитель / Подрядчик</th>
+              <th style="text-align:right">Заявок</th>
+              <th style="text-align:right">Готово</th>
+              <th style="text-align:right">В работе</th>
+              <th style="text-align:right">Просрочено</th>
+              <th style="text-align:right">Портов</th>
+              <th style="text-align:right">К выплате (ПО)</th>
+            </tr>
+          </thead>
+          <tbody>${execRows}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  // 3. ПОДРАЗДЕЛ: ОПЛАТЫ НАМ VS ОПЛАТЫ НАШИ
+  if (subSection === 'payments-in' || subSection === 'payments-out') {
+    var isIncoming = subSection === 'payments-in';
+    var title = isIncoming ? 'Оплаты нам (Дебиторка от Заказчиков)' : 'Оплаты наши (Выплаты Исполнителям)';
+    
+    var totalSum = 0;
+    var paidSum = 0;
+    S.tasks.forEach(function(t) {
+      if (isIncoming) {
+        totalSum += Number(t.amount || 0);
+        if (t.status === 'done' && (t.oplata || '').toLowerCase().includes('оплач')) {
+          paidSum += Number(t.amount || 0);
+        }
+      } else {
+        var f = getTaskFinance(t);
+        totalSum += f.po;
+        if ((t.oplata || '').toLowerCase().includes('оплач')) {
+          paidSum += f.po;
+        }
+      }
+    });
+
+    var debt = Math.max(0, totalSum - paidSum);
+
+    return `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem">
+        <h1 class="page-title" style="margin:0">${title}</h1>
+        <button class="btn btn-sm btn-ghost" onclick="go('dashboard')">← Назад в Обзор</button>
+      </div>
+      <div class="g3 mb">
+        <div class="card stat"><div class="stat-lbl">Общая сумма</div><div class="stat-val">${fmtMoney(totalSum)}</div></div>
+        <div class="card stat"><div class="stat-lbl">Оплачено</div><div class="stat-val" style="color:var(--green)">${fmtMoney(paidSum)}</div></div>
+        <div class="card stat"><div class="stat-lbl">Остаток к ${isIncoming?'получению':'выплате'}</div><div class="stat-val" style="color:var(--orange)">${fmtMoney(debt)}</div></div>
+      </div>
+      <div class="card p" style="text-align:center; padding:2rem">
+        <button class="btn" onclick="filterAndGoTasks({st:'done'})">Перейти к выполненным заявкам с расчетами ➔</button>
+      </div>
+    `;
+  }
+
+  // 4. ПОДРАЗДЕЛ: МАТЕРИАЛЫ
+  if (subSection === 'materials') {
+    var totalTmc = S.tasks.reduce(function(acc, t){ return acc + (t.tmc || 0); }, 0);
+    return `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem">
+        <h1 class="page-title" style="margin:0">Аналитика: Материалы (ТМЦ)</h1>
+        <button class="btn btn-sm btn-ghost" onclick="go('dashboard')">← Назад в Обзор</button>
+      </div>
+      <div class="g3 mb">
+        <div class="card stat"><div class="stat-lbl">Общая сумма ТМЦ в заявках</div><div class="stat-val" style="color:var(--blue)">${fmtMoney(totalTmc)}</div></div>
+      </div>
+      <div id="checklists_summary_box" class="card p mb">
+        <div class="sec-title">Потребность по чек-листам обследования</div>
+        <div class="t3">Загрузка данных обследований…</div>
+      </div>
+    `;
+  }
+
+  // 5. ПОДРАЗДЕЛ: КАЛЕНДАРЬ
+  if (subSection === 'calendar') {
+    var calMap = {};
+    S.tasks.forEach(function(t) {
+      if (!t.deadline) return;
+      var m = t.deadline.slice(0,7);
+      if (!calMap[m]) calMap[m] = { month: m, total: 0, done: 0, overdue: 0 };
+      calMap[m].total++;
+      if (t.status === 'done') calMap[m].done++;
+      if (t.overdueDays > 0) calMap[m].overdue++;
+    });
+    var calList = Object.values(calMap).sort(function(a,b){ return a.month.localeCompare(b.month); });
+
+    var calRows = calList.map(function(c) {
+      return `
+        <tr style="cursor:pointer" onclick="filterAndGoTasks({q:'${c.month}'})" title="Перейти к заявкам за ${c.month}">
+          <td style="padding:10px 12px; font-weight:600">📅 ${c.month}</td>
+          <td style="padding:10px 12px; text-align:right"><b>${fmtN(c.total)}</b></td>
+          <td style="padding:10px 12px; text-align:right; color:var(--green)">${fmtN(c.done)}</td>
+          <td style="padding:10px 12px; text-align:right; color:${c.overdue>0?'var(--red)':'var(--text-3)'}"><b>${fmtN(c.overdue)}</b></td>
+          <td style="padding:10px 12px">${bar(c.done, c.total)}</td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem">
+        <h1 class="page-title" style="margin:0">Календарь дедлайнов</h1>
+        <button class="btn btn-sm btn-ghost" onclick="go('dashboard')">← Назад в Обзор</button>
+      </div>
+      <div class="card tbl-wrap">
+        <table>
+          <thead><tr style="background:var(--bg)"><th>Месяц</th><th style="text-align:right">Всего заявок</th><th style="text-align:right">Выполнено</th><th style="text-align:right">Просрочено</th><th>Прогресс</th></tr></thead>
+          <tbody>${calRows || '<tr><td colspan="5" style="text-align:center;padding:2rem">Нет данных по дедлайнам</td></tr>'}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  // 0. ГЛАВНАЯ СВОДКА ОБЗОРА (С ИНТЕРАКТИВНЫМИ ПЛИТКАМИ DRILL-DOWN)
   var top = '';
   var chainsArray = Array.isArray(S.chains) ? S.chains : [];
   var topChains = chainsArray.slice().sort(function(a,b){ return b.totalTasks - a.totalTasks; }).slice(0,8);
   topChains.forEach(function(c) {
     var cp = pct(c.doneTasks, c.totalTasks);
-    top += '<div style="margin-bottom:.6rem">' +
+    top += '<div style="margin-bottom:.6rem; cursor:pointer; padding:4px 6px; border-radius:6px" onmouseover="this.style.background=\'var(--orange-bg)\'" onmouseout="this.style.background=\'none\'" onclick="filterAndGoTasks({reg:\'' + escHtml(c.id) + '\'})" title="Перейти к заявкам региона ' + escHtml(c.id) + '">' +
       '<div class="row" style="justify-content:space-between;margin-bottom:3px">' +
-        '<span class="fw6" style="font-size:.82rem">' + c.id + '</span>' +
+        '<span class="fw6" style="font-size:.82rem">📍 ' + c.id + ' <span style="font-size:.7rem; color:var(--orange)">➔</span></span>' +
         '<span class="t3" style="font-size:.75rem">' + c.doneTasks + '/' + c.totalTasks + ' · ' + cp + '% · ' + fmtMoney(c.totalAmount) + '</span>' +
       '</div>' + bar(c.doneTasks, c.totalTasks) + '</div>';
   });
@@ -2250,17 +2675,28 @@ function pageDash() {
   return '<h1 class="page-title">Дашборд</h1>' +
     importBanner() +
     '<div class="g4">' +
-      '<div class="card stat"><div class="stat-lbl">Всего заявок</div><div class="stat-val">' + fmtN(total) + '</div>' +
+      // ПЛИТКА 1: Всего заявок (Интерактивная)
+      '<div class="card stat" style="cursor:pointer; transition:transform 0.12s;" onmouseover="this.style.transform=\'translateY(-2px)\'" onmouseout="this.style.transform=\'none\'" onclick="filterAndGoTasks({})" title="Перейти ко всем заявкам">' +
+        '<div class="stat-lbl">Всего заявок ➔</div><div class="stat-val">' + fmtN(total) + '</div>' +
         '<div class="stat-sub">✓ Готово: <strong>' + fmtN(done) + '</strong> · ⏳ В работе: <strong>' + fmtN(pend) + '</strong></div>' +
         bar(done, total) + '</div>' +
-      '<div class="card stat"><div class="stat-lbl">Просрочено</div><div class="stat-val" style="color:' + (overdue>0?'var(--red)':'var(--green)') + '">' + fmtN(overdue) + '</div>' +
-        '<div class="stat-sub">заявок с превышением срока</div></div>' +
-      '<div class="card stat"><div class="stat-lbl">Регионы / цепи</div><div class="stat-val">' + S.chains.length + '</div>' +
+
+      // ПЛИТКА 2: Просрочено (Интерактивная)
+      '<div class="card stat" style="cursor:pointer; transition:transform 0.12s;" onmouseover="this.style.transform=\'translateY(-2px)\'" onmouseout="this.style.transform=\'none\'" onclick="filterAndGoTasks({ovd:\'yes\'})" title="Показать только просроченные заявки">' +
+        '<div class="stat-lbl">Просрочено ➔</div><div class="stat-val" style="color:' + (overdue>0?'var(--red)':'var(--green)') + '">' + fmtN(overdue) + '</div>' +
+        '<div class="stat-sub">заявок с превышением срока (клик для отбора)</div></div>' +
+
+      // ПЛИТКА 3: Регионы / цепи (Интерактивная)
+      '<div class="card stat" style="cursor:pointer; transition:transform 0.12s;" onmouseover="this.style.transform=\'translateY(-2px)\'" onmouseout="this.style.transform=\'none\'" onclick="go(\'supply\')" title="Перейти в цепочки">' +
+        '<div class="stat-lbl">Регионы / цепи ➔</div><div class="stat-val">' + S.chains.length + '</div>' +
         '<div class="stat-sub">✓ Завершено: <strong>' + S.chains.filter(function(c){return c.status==='completed';}).length + '</strong></div></div>' +
-      '<div class="card stat"><div class="stat-lbl">Сумма договоров</div><div class="stat-val" style="font-size:1.4rem">' + fmtMoney(revenue) + '</div>' +
-        '<div class="stat-sub">по всем заявкам</div></div>' +
+
+      // ПЛИТКА 4: Сумма договоров (Интерактивная)
+      '<div class="card stat" style="cursor:pointer; transition:transform 0.12s;" onmouseover="this.style.transform=\'translateY(-2px)\'" onmouseout="this.style.transform=\'none\'" onclick="go(\'dash-customers\')" title="Посмотреть разбивку по заказчикам">' +
+        '<div class="stat-lbl">Сумма договоров ➔</div><div class="stat-val" style="font-size:1.4rem">' + fmtMoney(revenue) + '</div>' +
+        '<div class="stat-sub">по всем заявкам (клик для среза по Заказчикам)</div></div>' +
     '</div>' +
-    '<div class="card p"><div class="sec-title">Топ регионов</div>' + (top || '<p class="t3">Нет данных</p>') + '</div>';
+    '<div class="card p"><div class="sec-title" style="display:flex; justify-content:space-between; align-items:center"><span>Топ регионов (кликните для отбора заявок)</span><button class="btn btn-sm btn-ghost" onclick="go(\'dash-customers\')">Группировка по Заказчикам ➔</button></div>' + (top || '<p class="t3">Нет данных</p>') + '</div>';
 }
 
 // ─── PAGE: SUPPLY ─────────────────────────────────────────────────────────────
@@ -2271,67 +2707,109 @@ function pageSupply() {
   if (!S.chains.length) return '<h1 class="page-title">Цепи по регионам</h1>' +
     '<div class="card p" style="text-align:center;padding:3rem"><p class="t3">Нет данных.</p><button class="btn" style="margin-top:1rem" onclick="go(\'data\')">Загрузить</button></div>';
 
-  var chain = S.chains.find(function(c){ return c.id === S.selChain; }) || S.chains[0];
-  var cp = pct(chain.doneTasks, chain.totalTasks);
+  var curMgr = S.chainMgr || '';
+  var mgrList = Array.from(new Set(S.tasks.map(function(t){ return t.manager || ''; }).filter(Boolean))).sort();
+  var regList = S.chains.map(function(c){ return c.id; });
 
-  // Считаем заявки по этапам для выбранного региона
+  // Фильтруем задачи текущего выбранного региона (с учетом ведущего менеджера)
+  var selRegionId = S.selChain || (S.chains[0] ? S.chains[0].id : '');
+  var regionTasks = S.tasks.filter(function(t){
+    if (t.region !== selRegionId || t.archived) return false;
+    if (curMgr && t.manager !== curMgr) return false;
+    return true;
+  });
+
+  // Расчет метрик выбранного региона с учетом менеджера
+  var totalRegTasks = regionTasks.length;
+  var doneRegTasks  = regionTasks.filter(function(t){ return t.status === 'done'; }).length;
+  var inProgTasks   = regionTasks.filter(function(t){ return t.status === 'progress' || t.status === 'pending'; }).length;
+  var cancTasks     = regionTasks.filter(function(t){ return t.status === 'cancelled'; }).length;
+  var totalRegAmt   = regionTasks.reduce(function(acc, t){ return acc + Number(t.amount || 0); }, 0);
+  var cp = pct(doneRegTasks, totalRegTasks);
+
+  // Считаем заявки по этапам для выбранного региона и менеджера
   var stageCount = {};
   STAGE_KEYS.forEach(function(k){ stageCount[k] = 0; });
-  S.tasks.filter(function(t){ return t.region === S.selChain && !t.archived; }).forEach(function(t){
+  regionTasks.forEach(function(t){
     if (t.stage && stageCount[t.stage] !== undefined) stageCount[t.stage]++;
   });
 
   var stepsHtml = '';
-  (chain.steps || []).forEach(function(s, i) {
-    var cls = i < chain.currentStep ? 'done' : i === chain.currentStep ? 'active' : '';
-    var icon = i < chain.currentStep ? '✓' : i === chain.currentStep ? '⏳' : '○';
+  STAGE_NAMES.forEach(function(s, i) {
     var stageKey = STAGE_KEYS[i];
     var cnt = stageCount[stageKey] || 0;
     var isSel = S.selChainStep === stageKey;
-    var stepStyle = isSel ? 'outline:2px solid var(--orange);outline-offset:2px;cursor:pointer;' : 'cursor:pointer;';
-    stepsHtml += '<div class="step ' + cls + '" style="' + stepStyle + '" data-step="' + stageKey + '">' +
-      '<div class="step-icon">' + icon + '</div>' +
+    // Определяем статус этапа
+    var isDone = false;
+    if (i === 0 && doneRegTasks > 0) isDone = true;
+    var stepStyle = isSel ? 'outline:2px solid var(--orange);outline-offset:2px;cursor:pointer;flex-shrink:0;' : 'cursor:pointer;flex-shrink:0;';
+    stepsHtml += '<div class="step ' + (cnt > 0 ? 'active' : '') + '" style="' + stepStyle + '" data-step="' + stageKey + '">' +
+      '<div class="step-icon">' + (cnt > 0 ? '⏳' : '○') + '</div>' +
       s +
-      (cnt > 0 ? '<div style="font-size:.7rem;margin-top:2px;color:var(--orange-dark);font-weight:700">' + cnt + ' з.</div>' : '') +
+      '<div style="font-size:.75rem;margin-top:2px;color:var(--orange-dark);font-weight:700">' + cnt + ' з.</div>' +
     '</div>';
-    if (i < chain.steps.length - 1) stepsHtml += '<span class="chain-arr">→</span>';
+    if (i < STAGE_NAMES.length - 1) stepsHtml += '<span class="chain-arr">→</span>';
   });
 
   var listHtml = '';
-  S.chains.forEach(function(c, idx) {
-    var rp = pct(c.doneTasks, c.totalTasks);
-    var isSel = c.id === S.selChain;
+  S.chains.forEach(function(c) {
+    var cTasks = S.tasks.filter(function(t){
+      if (t.region !== c.id || t.archived) return false;
+      if (curMgr && t.manager !== curMgr) return false;
+      return true;
+    });
+    var cTotal = cTasks.length;
+    var cDone  = cTasks.filter(function(t){ return t.status === 'done'; }).length;
+    var cProg  = cTasks.filter(function(t){ return t.status === 'progress' || t.status === 'pending'; }).length;
+    var cCanc  = cTasks.filter(function(t){ return t.status === 'cancelled'; }).length;
+    var cAmt   = cTasks.reduce(function(acc, t){ return acc + Number(t.amount || 0); }, 0);
+    var rp = pct(cDone, cTotal);
+    var isSel = c.id === selRegionId;
+
     listHtml += '<div class="rrow' + (isSel?' sel':'') + '" data-cid="' + encodeURIComponent(c.id) + '">' +
-      '<span class="rname">' + c.id + '</span>' +
+      '<span class="rname">' + escHtml(c.id) + '</span>' +
       '<div class="rstats">' +
-        '<span style="color:var(--green)">✓ ' + c.doneTasks + '</span>' +
-        '<span style="color:var(--orange)">⏳ ' + c.inProgressTasks + '</span>' +
-        '<span class="t3">✗ ' + c.cancelledTasks + '</span>' +
+        '<span style="color:var(--green)">✓ ' + cDone + '</span>' +
+        '<span style="color:var(--orange)">⏳ ' + cProg + '</span>' +
+        '<span class="t3">✗ ' + cCanc + '</span>' +
       '</div>' +
-      '<div class="rprog">' + bar(c.doneTasks, c.totalTasks) + '</div>' +
-      '<span class="ramt">' + rp + '% · ' + fmtMoney(c.totalAmount) + '</span>' +
+      '<div class="rprog">' + bar(cDone, cTotal) + '</div>' +
+      '<span class="ramt">' + rp + '% · ' + fmtMoney(cAmt) + '</span>' +
     '</div>';
   });
 
-  return '<h1 class="page-title">Цепи по регионам</h1>' +
+  return '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.75rem; flex-wrap:wrap; gap:.5rem">' +
+      '<h1 class="page-title" style="margin:0">Цепи по регионам</h1>' +
+      '<div style="display:flex; gap:.5rem; align-items:center">' +
+        '<label style="font-size:.8rem; font-weight:600; color:var(--text-2)">Ведущий менеджер:</label>' +
+        '<select id="chain_mgr_filter" style="min-width:180px">' +
+          '<option value="">Все менеджеры</option>' +
+          mgrList.map(function(m){ return '<option value="' + escHtml(m) + '"' + (curMgr === m ? ' selected' : '') + '>' + escHtml(m) + '</option>'; }).join('') +
+        '</select>' +
+        (curMgr ? '<button class="btn btn-sm btn-ghost" onclick="S.chainMgr=\'\';renderApp()">✕</button>' : '') +
+      '</div>' +
+    '</div>' +
     '<div class="g2">' +
       '<div>' +
         '<div class="card p mb">' +
-          '<div class="fw7" style="font-size:1rem;margin-bottom:.75rem">' + chain.name + '</div>' +
-          '<div class="row" style="flex-wrap:wrap;gap:.75rem;margin-bottom:.9rem;font-size:.82rem">' +
-            '<span style="color:var(--green)">✓ Готово: <strong>' + chain.doneTasks + '</strong></span>' +
-            '<span style="color:var(--orange)">⏳ В работе: <strong>' + chain.inProgressTasks + '</strong></span>' +
-            '<span class="t3">✗ Отменено: <strong>' + chain.cancelledTasks + '</strong></span>' +
-            '<span style="color:var(--blue)">💰 ' + fmtMoney(chain.totalAmount) + '</span>' +
+          '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.75rem">' +
+            '<div class="fw7" style="font-size:1.1rem">' + escHtml(selRegionId) + ' (' + totalRegTasks + ' заявок)</div>' +
+            '<button class="btn btn-sm btn-ghost" onclick="filterAndGoTasks({reg:\'' + escHtml(selRegionId) + '\', mgr:\'' + escHtml(curMgr) + '\'})" title="Перейти ко всем заявкам этого региона">Открыть в Заявках ➔</button>' +
           '</div>' +
-          '<div class="chain-steps">' + stepsHtml + '</div>' +
-          '<div style="margin-top:.75rem">' + bar(chain.doneTasks, chain.totalTasks) + '</div>' +
+          '<div class="row" style="flex-wrap:wrap;gap:.75rem;margin-bottom:.9rem;font-size:.82rem">' +
+            '<span style="color:var(--green)">✓ Готово: <strong>' + doneRegTasks + '</strong></span>' +
+            '<span style="color:var(--orange)">⏳ В работе: <strong>' + inProgTasks + '</strong></span>' +
+            '<span class="t3">✗ Отменено: <strong>' + cancTasks + '</strong></span>' +
+            '<span style="color:var(--blue)">💰 ' + fmtMoney(totalRegAmt) + '</span>' +
+          '</div>' +
+          '<div class="chain-steps" style="overflow-x:auto; padding-bottom:.5rem; flex-wrap:nowrap">' + stepsHtml + '</div>' +
+          '<div style="margin-top:.75rem">' + bar(doneRegTasks, totalRegTasks) + '</div>' +
           '<div style="text-align:right;font-size:.75rem;color:var(--text-3);margin-top:3px">' + cp + '% выполнено</div>' +
         '</div>' +
         (S.selChainStep ? (function(){
           var stepIdx = STAGE_KEYS.indexOf(S.selChainStep);
           var stepName = STAGE_NAMES[stepIdx] || S.selChainStep;
-          var stepTasks = S.tasks.filter(function(t){ return t.region===S.selChain && t.stage===S.selChainStep && !t.archived; });
+          var stepTasks = regionTasks.filter(function(t){ return t.stage === S.selChainStep; });
           if (!stepTasks.length) return '<div class="card p mb"><div class="sec-title">' + stepName + ' — нет заявок</div></div>';
           var rows = stepTasks.slice(0,30).map(function(t){
             var tid = (t.id||'').replace(/'/g,"\\'");
@@ -2385,6 +2863,7 @@ function pageKanban() {
 
 function clearFilters() {
   S.taskQ=''; S.taskSt=''; S.taskPr=''; S.taskReg=''; S.taskMgr=''; S.taskYear=''; S.taskOverdue='';
+  S.taskCustomer='';
   S.taskArch='no'; S.taskStage=''; S.taskSort=''; // Сбрасываем новые фильтры
   renderApp();
 }
@@ -2398,7 +2877,7 @@ function statBox(lbl, val, sub, color) {
 }
 
 function pageTasks() {
-  var q=S.taskQ, st=S.taskSt, pr=S.taskPr, reg=S.taskReg, mgr=S.taskMgr, yr=S.taskYear, ovd=S.taskOverdue;
+  var q=S.taskQ, st=S.taskSt, pr=S.taskPr, reg=S.taskReg, mgr=S.taskMgr, yr=S.taskYear, ovd=S.taskOverdue, cust=S.taskCustomer;
   
   // 1. Фильтрация
   var filtered = S.tasks.filter(function(t) {
@@ -2411,7 +2890,8 @@ function pageTasks() {
         (t.title || '') + ' ' + 
         (t.region || '') + ' ' + 
         (t.address || '') + ' ' + 
-        (t.manager || '')
+        (t.manager || '') + ' ' +
+        (t.customer || '')
       ).toLowerCase();
 
       // Проверяем, что КАЖДОЕ слово из поиска есть в этой строке
@@ -2427,6 +2907,7 @@ function pageTasks() {
     if (reg && t.region   !== reg) return false;
     if (mgr && t.manager  !== mgr) return false;
     if (yr  && t.sheet    !== yr)  return false;
+    if (cust && (t.customer || 'ПАО Сбербанк') !== cust) return false;
     if (ovd==='yes' && !(t.overdueDays>0)) return false;
     if (ovd==='no'  && t.overdueDays>0)    return false;
     if (S.taskArch === 'no' && t.archived) return false;
@@ -2453,9 +2934,10 @@ function pageTasks() {
     return acc + (order - fact);
   }, 0);
 
-  var regions  = Array.from(new Set(S.tasks.map(function(t){return t.region||'';}).filter(Boolean))).sort();
-  var managers = Array.from(new Set(S.tasks.map(function(t){return t.manager||'';}).filter(Boolean))).sort();
-  var years    = Array.from(new Set(S.tasks.map(function(t){return t.sheet||'';}).filter(Boolean))).sort();
+  var regions   = Array.from(new Set(S.tasks.map(function(t){return t.region||'';}).filter(Boolean))).sort();
+  var managers  = Array.from(new Set(S.tasks.map(function(t){return t.manager||'';}).filter(Boolean))).sort();
+  var customers = Array.from(new Set(S.tasks.map(function(t){return t.customer||'ПАО Сбербанк';}).filter(Boolean))).sort();
+  var years     = Array.from(new Set(S.tasks.map(function(t){return t.sheet||'';}).filter(Boolean))).sort();
 
   // Сортировка — dateZayavki хранится в YYYY-MM-DD, localeCompare даёт правильный порядок
   if (S.taskSort) {
@@ -2474,7 +2956,7 @@ function pageTasks() {
     return '<option value="'+safe+'"'+(cur===v?' selected':'')+'>'+v+'</option>';
   }).join('');}
 
-  var hasFilter = q||st||pr||reg||mgr||yr||ovd||S.taskArch==='yes'||S.taskStage;
+  var hasFilter = q||st||pr||reg||mgr||yr||ovd||cust||S.taskArch==='yes'||S.taskStage;
 
   // Сетка totals изменена на 7 колонок (repeat(7,1fr))
   var totals = '<div class="card p mb" style="display:grid;grid-template-columns:repeat(7,1fr);gap:.5rem;padding:.75rem 1rem">' +
@@ -2544,6 +3026,7 @@ function pageTasks() {
         '<option value="medium"'+(pr==='medium'?' selected':'')+'>🟡 Средний</option>' +
         '<option value="low"'+(pr==='low'?' selected':'')+'>🟢 Низкий</option>' +
       '</select>' +
+      '<select id="tcust"><option value="">Все заказчики</option>'+mkOpts(customers,cust)+'</select>' +
       '<select id="treg"><option value="">Все регионы</option>'+mkOpts(regions,reg)+'</select>' +
       '<select id="tmgr"><option value="">Все менеджеры</option>'+mkOpts(managers,mgr)+'</select>' +
       '<select id="tyr"><option value="">Все годы</option>'+mkOpts(years,yr)+'</select>' +
@@ -2749,32 +3232,67 @@ function pageData() {
   var curBanner = '';
   if (info && info.importedFrom) {
     curBanner = '<div class="banner banner-ok" style="margin-bottom:1.5rem">' +
-      '<div><div class="banner-title">✅ Активный источник</div>' +
-      '<div class="banner-body"><strong>' + info.importedFrom + '</strong> · ' + new Date(info.importedAt).toLocaleString('ru') + ' · <strong>' + fmtN(info.rowCount) + ' заявок</strong>' +
-      '<br><span style="font-size:.78rem">Загрузите новый файл — всё обновится автоматически.</span></div></div>' +
+      '<div><div class="banner-title">✅ Активный источник данных</div>' +
+      '<div class="banner-body"><strong>' + info.importedFrom + '</strong> · ' + new Date(info.importedAt).toLocaleString('ru') + ' · <strong>' + fmtN(info.rowCount) + ' заявок в базе</strong>' +
+      '<br><span style="font-size:.78rem">Загрузите новый файл или отправьте данные через API — всё синхронизируется мгновенно.</span></div></div>' +
     '</div>';
   }
 
-  return '<h1 class="page-title">Данные системы</h1>' +
+  // Список заказчиков для выпадающего списка
+  var custOptions = ['ПАО Сбербанк'];
+  if (Array.isArray(S.contractors)) {
+    S.contractors.filter(function(c){ return c.type === 'customer'; }).forEach(function(c){
+      if (!custOptions.includes(c.name_short)) custOptions.push(c.name_short);
+    });
+  }
+
+  return '<h1 class="page-title">Данные и интеграции</h1>' +
     curBanner +
     '<div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start;">' +
       
-      // ЛЕВАЯ КОЛОНКА: МАССОВАЯ ЗАГРУЗКА
-      '<div class="card p">' +
-        '<div class="fw7 mb" style="font-size:1.05rem; display:flex; align-items:center; gap:8px">📊 Массовая загрузка (Excel)</div>' +
-        '<p class="t2 mb" style="font-size:.82rem">Файл с листами «Заявки 2023-2026». Данные обновятся автоматически.</p>' +
-        '<div class="upload-zone" id="uzone" onclick="document.getElementById(\'ufile\').click()">' +
-          '<input type="file" id="ufile" accept=".xlsx,.xls">' +
-          '<div style="font-size:2rem;margin-bottom:.4rem">📂</div>' +
-          '<div class="fw6">Нажмите или перетащите файл .xlsx</div>' +
+      // ЛЕВАЯ КОЛОНКА: СЦЕНАРИИ 1 И 2
+      '<div style="display:flex; flex-direction:column; gap:1.5rem">' +
+
+        // СЦЕНАРИЙ 1: МАССОВАЯ ЗАГРУЗКА EXCEL
+        '<div class="card p">' +
+          '<div class="fw7 mb" style="font-size:1.05rem; display:flex; align-items:center; justify-content:space-between">' +
+            '<span>📊 Сценарий 1: Массовая загрузка (Excel)</span>' +
+            '<span class="badge b-blue" style="font-size:.7rem">.xlsx / .xls</span>' +
+          '</div>' +
+          '<p class="t2 mb" style="font-size:.82rem">Сводные таблицы Сбера с листами «Заявки 2023-2026». При загрузке строки обновляются без потери комментариев и вложений.</p>' +
+          '<div class="upload-zone" id="uzone" onclick="document.getElementById(\'ufile\').click()">' +
+            '<input type="file" id="ufile" accept=".xlsx,.xls">' +
+            '<div style="font-size:2.2rem;margin-bottom:.4rem">📂</div>' +
+            '<div class="fw6">Нажмите или перетащите файл реестра .xlsx</div>' +
+            '<div class="t3" style="font-size:.75rem;margin-top:4px">Поддерживаются стандартные таблицы Сбера</div>' +
+          '</div>' +
+          '<div id="ustatus" style="margin-top:1rem"></div>' +
         '</div>' +
-        '<div id="ustatus" style="margin-top:1rem"></div>' +
+
+        // СЦЕНАРИЙ 2: РОБОТ / API ИНТЕГРАЦИЯ
+        '<div class="card p" style="background:#fafafa; border:1px dashed var(--border)">' +
+          '<div class="fw7 mb" style="font-size:1.05rem; display:flex; align-items:center; justify-content:space-between">' +
+            '<span>🤖 Сценарий 2: Робот / Внешнее API</span>' +
+            '<span class="badge b-green" style="font-size:.7rem">REST API</span>' +
+          '</div>' +
+          '<p class="t2 mb" style="font-size:.82rem">Автоматическая синхронизация с порталами заказчиков через фоновые скрипты и вебхуки.</p>' +
+          '<div style="background:#18181b; color:#e4e4e7; border-radius:8px; padding:10px 14px; font-family:monospace; font-size:.75rem; margin-bottom:.75rem">' +
+            '<span style="color:#22c55e">POST</span> /api/tasks<br>' +
+            '<span style="color:#71717a">Authorization: Bearer &lt;TOKEN&gt;</span>' +
+          '</div>' +
+          '<div style="display:flex; justify-content:space-between; align-items:center; font-size:.8rem">' +
+            '<span class="t3">Статус службы интеграции: <b style="color:var(--green)">Активен</b></span>' +
+            '<button class="btn btn-sm btn-ghost" onclick="alert(\'API ключ: ' + (S.token ? S.token.slice(0,18)+'...' : 'Не авторизован') + '\')">Ключ доступа</button>' +
+          '</div>' +
+        '</div>' +
+
       '</div>' +
 
-      // ПРАВАЯ КОЛОНКА: ОДИНОЧНАЯ ЗАЯВКА И ИИ
+      // ПРАВАЯ КОЛОНКА: СЦЕНАРИЙ 3 (ОДИНОЧНАЯ ЗАЯВКА И ИИ)
       '<div class="card p">' +
         '<div class="fw7 mb" style="font-size:1.05rem; display:flex; align-items:center; justify-content:space-between">' +
-          '<span>📝 Одиночная заявка</span>' +
+          '<span>📝 Сценарий 3: Одиночная заявка / ИИ</span>' +
+          '<span class="badge b-orange" style="font-size:.7rem">Ручной ввод</span>' +
         '</div>' +
 
         // ПАНЕЛЬ ЗАГРУЗКИ ДОКУМЕНТОВ
@@ -2837,7 +3355,8 @@ function pageData() {
             '</div>' +
           '</div>' +
         '</div>' +
-        // ОБЩИЙ КОНТЕЙНЕР ПОЛЕЙ ФОРМЫ (НЕ ЗАКРЫВАЕМ ЕГО ДО САМОГО НИЗА)
+
+        // ОБЩИЙ КОНТЕЙНЕР ПОЛЕЙ ФОРМЫ
         '<div style="display:flex; flex-direction:column; gap:.6rem; font-size:.85rem">' +
           '<div class="g2">' +
             '<input id="nt_id" type="text" placeholder="Номер заявки (Обязательно)*" style="font-weight:700; border-color:var(--orange)">' +
@@ -2845,12 +3364,22 @@ function pageData() {
           '</div>' +
 
           '<div class="g2">' +
-            '<input id="nt_region" type="text" placeholder="Регион">' +
-            '<input id="nt_address" type="text" placeholder="Адрес объекта">' +
+            '<div>' +
+              '<label class="t3" style="font-size:.7rem">Заказчик (Организация)</label>' +
+              '<select id="nt_customer" style="width:100%">' +
+                custOptions.map(function(c){ return '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>'; }).join('') +
+              '</select>' +
+            '</div>' +
+            '<div>' +
+              '<label class="t3" style="font-size:.7rem">Регион</label>' +
+              '<input id="nt_region" type="text" placeholder="Регион" style="width:100%">' +
+            '</div>' +
           '</div>' +
 
+          '<input id="nt_address" type="text" placeholder="Адрес объекта">' +
+
           '<div class="g2">' +
-            '<input id="nt_manager" type="text" placeholder="Менеджер Сбера (Заказчик)">' +
+            '<input id="nt_manager" type="text" placeholder="Менеджер Сбера / Контакт Заказчика">' +
             '<input id="nt_contact" type="text" placeholder="Контакт на объекте">' +
           '</div>' +
           
@@ -2877,13 +3406,12 @@ function pageData() {
           '</div>' +
 
           '<textarea id="nt_comment" placeholder="Комментарий" style="resize:vertical; min-height:60px"></textarea>' +
-        '</div>' + // ВОТ ТУТ закрывается общий контейнер полей
+        '</div>' +
 
         '<div style="text-align:right; margin-top:1rem">' +
           '<button class="btn" onclick="createSingleTask()" style="width:100%; justify-content:center">+ Создать заявку</button>' +
         '</div>' +
-      '</div>' + // Закрывается card p
-
+      '</div>' +
 
     '</div>';
 }
@@ -2903,6 +3431,9 @@ function bindEvents() {
       renderApp();
     });
   });
+  // chain manager filter
+  var cmf = document.getElementById('chain_mgr_filter');
+  if (cmf) cmf.addEventListener('change', function(){ S.chainMgr = this.value; renderApp(); });
   // kanban move
   document.querySelectorAll('.kmove').forEach(function(sel) {
     sel.addEventListener('change', function() { moveTask(sel.dataset.tid, sel.value); });
@@ -2967,6 +3498,8 @@ function bindEvents() {
   if (tst) tst.addEventListener('change', function(){ S.taskSt = this.value; renderApp(); });
   var tpr = document.getElementById('tpr');
   if (tpr) tpr.addEventListener('change', function(){ S.taskPr = this.value; renderApp(); });
+  var tcust = document.getElementById('tcust');
+  if (tcust) tcust.addEventListener('change', function(){ S.taskCustomer = this.value; renderApp(); });
   var treg = document.getElementById('treg');
   if (treg) treg.addEventListener('change', function(){ S.taskReg = this.value; renderApp(); });
   var tmgr = document.getElementById('tmgr');
@@ -3528,6 +4061,7 @@ function createSingleTask() {
     invoiceInfo:  document.getElementById('nt_invoiceInfo').value.trim(),
     comment:      document.getElementById('nt_comment').value.trim(),
     vsp:          document.getElementById('nt_vsp').value.trim(),
+    customer:     (document.getElementById('nt_customer') ? document.getElementById('nt_customer').value : 'ПАО Сбербанк'),
     manager:      document.getElementById('nt_manager').value.trim(),
     contact:      document.getElementById('nt_contact').value.trim()
   };
@@ -3824,10 +4358,13 @@ function editUser(id) {
   var user = (S.users || []).find(u => u.id === id);
   if (!user) return;
 
+  var issueDateStr = user.passport_issue_date ? user.passport_issue_date.slice(0, 10) : '';
+
   showModal('✏️ Редактировать пользователя #' + id, [
     { key: 'username', label: 'Логин', value: user.username, required: true },
     { key: 'password', label: 'Новый пароль (оставьте пустым, если не меняется)', type: 'password', value: '' },
     { key: 'fullName', label: 'ФИО (как в Excel)', value: user.full_name || '' },
+    { key: 'phone',    label: 'Телефон (для связи и допусков)', value: user.phone || '' },
     { key: 'email',    label: 'Email для писем', value: user.email || '' },
     { key: 'role',     label: 'Роль', type: 'select', value: user.role, options: [
         { value: 'worker', label: 'Монтажник (Worker)' },
@@ -3836,14 +4373,19 @@ function editUser(id) {
     },
     { key: 'contractorId', label: 'Контрагент', type: 'select', value: user.contractor_id || '', options:
         [{ value: '', label: '— Без контрагента —' }].concat((S.contractors || []).map(function(c) { return { value: c.id, label: c.name_short }; }))
-    }
+    },
+    { key: 'passportSeriesNumber', label: 'Паспорт: Серия и Номер', value: user.passport_series_number || '' },
+    { key: 'passportIssuedBy',     label: 'Паспорт: Кем выдан', value: user.passport_issued_by || '' },
+    { key: 'passportIssueDate',    label: 'Паспорт: Дата выдачи', type: 'date', value: issueDateStr },
+    { key: 'passportCode',         label: 'Паспорт: Код подразделения', value: user.passport_code || '' },
+    { key: 'passportScanUrl',      label: 'Ссылка на скан паспорта (или файл)', value: user.passport_scan_url || '' }
   ], function(d) {
     api('/users/' + id, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(d)
     }).then(function(res) {
-      if (res.error) return alert(res.error);
+      if (res && res.error) return alert(res.error);
       api('/users').then(list => { S.users = list; renderApp(); });
     });
   });
@@ -3851,10 +4393,11 @@ function editUser(id) {
 
 function addUser() {
   var data = {
-    username: document.getElementById('nu_name').value,
+    username: document.getElementById('nu_name').value.trim(),
     password: document.getElementById('nu_pass').value,
-    fullName: document.getElementById('nu_full').value,
-    email:    document.getElementById('nu_email').value,
+    fullName: document.getElementById('nu_full').value.trim(),
+    phone:    document.getElementById('nu_phone') ? document.getElementById('nu_phone').value.trim() : null,
+    email:    document.getElementById('nu_email').value.trim(),
     role:     document.getElementById('nu_role').value,
     contractorId: document.getElementById('nu_contractor').value || null
   };
@@ -3866,7 +4409,8 @@ function addUser() {
     body: JSON.stringify(data)
   }).then(function(res) {
     if (res && res.error) return alert(res.error);
-    renderApp();
+    S.userFormOpen = false;
+    api('/users').then(list => { S.users = list; renderApp(); });
   });
 }
 
@@ -3962,6 +4506,7 @@ function addContractor() {
     kpp:           document.getElementById('nc_kpp').value.trim(),
     name_short:    document.getElementById('nc_name_short').value.trim(),
     name_full:     document.getElementById('nc_name_full').value.trim(),
+    type:          document.getElementById('nc_type') ? document.getElementById('nc_type').value : 'executor',
     director:      document.getElementById('nc_director').value.trim(),
     address_legal: document.getElementById('nc_address').value.trim(),
     bank_name:     document.getElementById('nc_bank').value.trim(),
@@ -3980,6 +4525,7 @@ function addContractor() {
     body: JSON.stringify(data)
   }).then(res => {
     if(res.error) return alert(res.error);
+    S.contractorFormOpen = false;
     // Перезагружаем список
     api('/contractors').then(list => { S.contractors = list; renderApp(); });
   });

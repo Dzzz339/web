@@ -248,6 +248,32 @@ async function initDB() {
   // Миграция: добавляем email и avatar_url для пользователей
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS passport_series_number TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS passport_issued_by TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS passport_issue_date DATE`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS passport_code TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS passport_scan_url TEXT`);
+
+  // Миграция: тип контрагента (customer, executor, supplier, internal)
+  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'executor'`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contractors_type ON contractors(type)`);
+
+  // Миграция: заказчик в заявках (по умолчанию ПАО Сбербанк)
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS customer TEXT DEFAULT 'ПАО Сбербанк'`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_customer ON tasks(customer)`);
+
+  // Засеиваем базовых контрагентов, если их ещё нет
+  await pool.query(`
+    INSERT INTO contractors (inn, name_short, name_full, type, status)
+    VALUES ('7707083893', 'ПАО СБЕРБАНК', 'Публичное акционерное общество «Сбербанк России»', 'customer', 'active')
+    ON CONFLICT (inn) DO UPDATE SET type = 'customer';
+  `);
+  await pool.query(`
+    INSERT INTO contractors (inn, name_short, name_full, type, status)
+    VALUES ('540208866750', 'ООО «К10»', 'Общество с ограниченной ответственностью «К10»', 'internal', 'active')
+    ON CONFLICT (inn) DO UPDATE SET type = 'internal';
+  `);
 
   // 1. Таблицы для будущего Чата
   await pool.query(`
@@ -522,6 +548,7 @@ function rowToTask(r) {
     supplierOrderSigned: r.supplier_order_signed || false,
     supplierIdUploaded:  r.supplier_id_uploaded || false,
     overdueReason: r.overdue_reason,
+    customer:      r.customer || 'ПАО Сбербанк',
   }
 }
 
@@ -638,7 +665,12 @@ app.get('/api/users', authenticateToken, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
   try {
     const { rows } = await pool.query(`
-      SELECT u.id, u.username, u.role, u.full_name, u.email, u.avatar_url, u.contractor_id, u.created_at, c.name_short AS contractor_name
+      SELECT 
+        u.id, u.username, u.role, u.full_name, u.email, u.phone, 
+        u.avatar_url, u.contractor_id, u.created_at,
+        u.passport_series_number, u.passport_issued_by, 
+        u.passport_issue_date, u.passport_code, u.passport_scan_url,
+        c.name_short AS contractor_name
       FROM users u
       LEFT JOIN contractors c ON c.id = u.contractor_id
       ORDER BY u.created_at DESC
@@ -651,14 +683,22 @@ app.get('/api/users', authenticateToken, async (req, res) => {
 app.post('/api/users', authenticateToken, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
   try {
-    const { username, password, role, fullName, email, contractorId } = req.body;
+    const { 
+      username, password, role, fullName, email, phone, contractorId,
+      passportSeriesNumber, passportIssuedBy, passportIssueDate, passportCode, passportScanUrl 
+    } = req.body;
     const salt = await bcrypt.genSalt(10);
     const hash = await bcrypt.hash(password, salt);
     
-    await pool.query(
-      'INSERT INTO users (username, password_hash, role, full_name, email, contractor_id) VALUES ($1, $2, $3, $4, $5, $6)',
-      [username, hash, role, fullName, email || null, contractorId || null]
-    );
+    await pool.query(`
+      INSERT INTO users (
+        username, password_hash, role, full_name, email, phone, contractor_id,
+        passport_series_number, passport_issued_by, passport_issue_date, passport_code, passport_scan_url
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    `, [
+      username, hash, role, fullName, email || null, phone || null, contractorId || null,
+      passportSeriesNumber || null, passportIssuedBy || null, passportIssueDate || null, passportCode || null, passportScanUrl || null
+    ]);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -667,9 +707,20 @@ app.post('/api/users', authenticateToken, async (req, res) => {
 app.put('/api/users/:id', authenticateToken, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
   try {
-    const { username, password, role, fullName, email, contractorId } = req.body;
-    let query = 'UPDATE users SET username = $1, role = $2, full_name = $3, email = $4, contractor_id = $5';
-    let params = [username, role, fullName, email || null, contractorId || null];
+    const { 
+      username, password, role, fullName, email, phone, contractorId,
+      passportSeriesNumber, passportIssuedBy, passportIssueDate, passportCode, passportScanUrl 
+    } = req.body;
+    let query = `
+      UPDATE users SET 
+        username = $1, role = $2, full_name = $3, email = $4, phone = $5, contractor_id = $6,
+        passport_series_number = $7, passport_issued_by = $8, passport_issue_date = $9,
+        passport_code = $10, passport_scan_url = $11
+    `;
+    let params = [
+      username, role, fullName, email || null, phone || null, contractorId || null,
+      passportSeriesNumber || null, passportIssuedBy || null, passportIssueDate || null, passportCode || null, passportScanUrl || null
+    ];
 
     // Если передан новый пароль — хешируем и обновляем его
     if (password && password.trim() !== '') {
@@ -857,12 +908,13 @@ app.post('/api/contractors', authenticateToken, async (req, res) => {
     const { rows } = await pool.query(`
       INSERT INTO contractors (
         inn, kpp, name_short, name_full, address_legal, director, 
-        bank_name, bik, account_corr, account_pay, phone, email
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        bank_name, bik, account_corr, account_pay, phone, email, type
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `, [
       d.inn, d.kpp || null, d.name_short, d.name_full || null, d.address_legal || null, d.director || null,
-      d.bank_name || null, d.bik || null, d.account_corr || null, d.account_pay || null, d.phone || null, d.email || null
+      d.bank_name || null, d.bik || null, d.account_corr || null, d.account_pay || null, d.phone || null, d.email || null,
+      d.type || 'executor'
     ]);
     res.json(rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -888,11 +940,12 @@ app.put('/api/contractors/:id', authenticateToken, async (req, res) => {
         phone = COALESCE($12, phone),
         email = COALESCE($13, email),
         status = COALESCE($14, status),
+        type = COALESCE($15, type),
         updated_at = NOW()
       WHERE id = $1
     `, [
       req.params.id, d.inn, d.kpp, d.name_short, d.name_full, d.address_legal, d.director,
-      d.bank_name, d.bik, d.account_corr, d.account_pay, d.phone, d.email, d.status
+      d.bank_name, d.bik, d.account_corr, d.account_pay, d.phone, d.email, d.status, d.type
     ]);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -1240,14 +1293,88 @@ io.on('connection', (socket) => {
 
 
 
-// ─── API: STATS ───────────────────────────────────────────────────────────────
 app.get('/api/stats', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM tasks WHERE archived = false')
     if (!rows.length) return res.json({ tasks:{total:0,done:0,pending:0,cancelled:0}, orders:{total:0,pending:0}, supply:{steps:6,completed:0,overdue:0}, revenue:{total:0,month:0} })
     res.json(computeStats(rows.map(rowToTask)))
   } catch(e) { res.status(500).json({ error: e.message }) }
-})
+});
+
+// Сводная аналитика дашборда с группировками по Заказчикам, Исполнителям, Оплатам
+app.get('/api/stats/overview', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM tasks WHERE archived = false');
+    const tasks = rows.map(rowToTask);
+
+    // 1. По Заказчикам
+    const byCustomer = {};
+    // 2. По Исполнителям / Подрядчикам
+    const byExecutor = {};
+    // 3. Финансы (Оплаты нам vs Оплаты наши)
+    let totalRevenueFromCustomer = 0; // Нам причитается
+    let totalPaidFromCustomer = 0;    // Нам оплачено
+    let totalPayToSubcontractors = 0; // Наша оплата подрядчикам
+    let totalMaterialsTmc = 0;        // Затраты на материалы
+
+    // 4. Календарь (дедлайны по месяцам/неделям)
+    const calendarDeadlines = {};
+
+    tasks.forEach(t => {
+      const cust = t.customer || 'ПАО Сбербанк';
+      if (!byCustomer[cust]) {
+        byCustomer[cust] = { name: cust, count: 0, done: 0, overdue: 0, totalAmount: 0 };
+      }
+      byCustomer[cust].count++;
+      if (t.status === 'done') byCustomer[cust].done++;
+      if (t.overdueDays > 0) byCustomer[cust].overdue++;
+      byCustomer[cust].totalAmount += (t.amount || 0);
+
+      const exec = t.assignee || t.contractor || 'Не назначен';
+      if (!byExecutor[exec]) {
+        byExecutor[exec] = { name: exec, count: 0, done: 0, inWork: 0, ports: 0, pay: 0 };
+      }
+      byExecutor[exec].count++;
+      if (t.status === 'done') byExecutor[exec].done++;
+      else byExecutor[exec].inWork++;
+      byExecutor[exec].ports += (t.fact || t.inOrder || 0);
+
+      const workPay = Math.round((t.fact || t.inOrder || 0) * (t.pricePerUnit || 0));
+      const transportPay = Number(t.distanceKm || 0);
+      const extrasPay = Number(t.extras || 0);
+      const subTotal = workPay + transportPay + extrasPay;
+      byExecutor[exec].pay += subTotal;
+
+      totalRevenueFromCustomer += (t.amount || 0);
+      if (t.status === 'done' && (t.oplata || '').toLowerCase().includes('оплач')) {
+        totalPaidFromCustomer += (t.amount || 0);
+      }
+      totalPayToSubcontractors += subTotal;
+      totalMaterialsTmc += (t.tmc || 0);
+
+      if (t.deadline) {
+        const monthKey = t.deadline.slice(0, 7); // YYYY-MM
+        if (!calendarDeadlines[monthKey]) calendarDeadlines[monthKey] = { month: monthKey, total: 0, overdue: 0 };
+        calendarDeadlines[monthKey].total++;
+        if (t.overdueDays > 0) calendarDeadlines[monthKey].overdue++;
+      }
+    });
+
+    res.json({
+      customers: Object.values(byCustomer).sort((a,b) => b.count - a.count),
+      executors: Object.values(byExecutor).sort((a,b) => b.count - a.count),
+      finance: {
+        customerTotal: totalRevenueFromCustomer,
+        customerPaid: totalPaidFromCustomer,
+        customerDebt: Math.max(0, totalRevenueFromCustomer - totalPaidFromCustomer),
+        subcontractorsPay: totalPayToSubcontractors,
+        materialsTmc: totalMaterialsTmc,
+        grossMargin: totalRevenueFromCustomer - totalPayToSubcontractors - totalMaterialsTmc
+      },
+      calendar: Object.values(calendarDeadlines).sort((a,b) => a.month.localeCompare(b.month))
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 
 
 app.get('/api/tasks/:id/payment-readiness', authenticateToken, async (req, res) => {
@@ -1351,8 +1478,8 @@ app.post('/api/tasks', authenticateToken, async (req, res) => {
       INSERT INTO tasks (
         id, vsp, manager, contact, region, address, work_type, amount, price_per_unit,
         in_order, fact, date_zayavki, deadline, tech_link, invoice_info, comment,
-        status, priority, archived, stage
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', 'medium', false, 'request')
+        status, priority, archived, stage, customer
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', 'medium', false, 'request', $17)
     `, [
       cleanId, 
       t.vsp || null, 
@@ -1369,7 +1496,8 @@ app.post('/api/tasks', authenticateToken, async (req, res) => {
       safeDate(t.deadline),
       t.techLink || null, 
       t.invoiceInfo || null, 
-      t.comment || null
+      t.comment || null,
+      t.customer || 'ПАО Сбербанк'
     ]);
 
     // Сразу после создания пробуем найти координаты в фоне
@@ -1468,6 +1596,7 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
         supplier_id_uploaded  = COALESCE($33::boolean, supplier_id_uploaded),
         overdue_reason        = COALESCE($34, overdue_reason),
         assignment_status     = COALESCE($35, assignment_status),
+        customer              = COALESCE($36, customer),
         updated_at    = NOW()
       WHERE id = $1
     `, [
@@ -1509,7 +1638,8 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
       d.supplierOrderSigned !== undefined ? d.supplierOrderSigned : null,
       d.supplierIdUploaded  !== undefined ? d.supplierIdUploaded  : null,
       d.overdueReason       || null,
-      d.assignmentStatus || null
+      d.assignmentStatus || null,
+      d.customer    || null
     ]);
 
     // --- УВЕДОМЛЕНИЯ И EMAIL ДЛЯ ИСПОЛНИТЕЛЯ ---
