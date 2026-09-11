@@ -597,6 +597,12 @@
     .b-green { background: #DCFCE7; color: #15803D; }
     .b-gray { background: #F4F4F5; color: #71717A; }
     .b-blue { background: #DBEAFE; color: #1D4ED8; }
+    .b-request { background: #F1F5F9; color: #475569; }
+    .b-survey { background: #F3E8FF; color: #7E22CE; }
+    .b-install { background: #FFEDD5; color: #C2410C; }
+    .b-control { background: #FEF3C7; color: #B45309; }
+    .b-acceptance { background: #E0F2FE; color: #0369A1; }
+    .b-payment { background: #DCFCE7; color: #15803D; }
 
     /* BUTTONS */
     .btn { display: inline-flex; align-items: center; gap: 5px; background: var(--orange); color: #fff; border: none; padding: 7px 15px; border-radius: 7px; cursor: pointer; font-family: inherit; font-size: .85rem; font-weight: 600; transition: background .12s; white-space: nowrap; text-decoration: none; }
@@ -678,7 +684,14 @@
     .c-progress { background: var(--orange); }
     .c-review   { background: var(--yellow); }
     .c-done     { background: var(--green); }
-    .kcard { background: #fff; border-radius: 8px; padding: 9px 11px; margin-bottom: 7px; box-shadow: var(--shadow); border: 1px solid var(--border); }
+    .c-request    { background: #64748B; }
+    .c-survey     { background: #8B5CF6; }
+    .c-install    { background: var(--orange); }
+    .c-control    { background: #F59E0B; }
+    .c-acceptance { background: #0284C7; }
+    .c-payment    { background: var(--green); }
+    .kcard { background: #fff; border-radius: 8px; padding: 9px 11px; margin-bottom: 7px; box-shadow: var(--shadow); border: 1px solid var(--border); transition: transform .12s, box-shadow .12s; }
+    .kcard:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,0.08); }
     .kcard-title { font-weight: 600; font-size: .8rem; margin-bottom: 5px; }
 
     /* UPLOAD */
@@ -952,6 +965,7 @@ var S = {
   taskCustomer: '',
   taskArch: 'no',
   taskStage: '', taskSort: '',
+  kanbanQ: '', kanbanReg: '', kanbanMgr: '', kanbanCustomer: '',
   cardId: null, cardDraft: {}, cardConfirmOpen: false,
   cpTaskId: null, cpMode: 'search', cpQuery: '',
   marches: [], marchId: null
@@ -1524,6 +1538,30 @@ function stBadge(s) {
     cancelled: ['b-red',    'Отменен']
   };
   var v = m[s] || ['b-gray', s||'—']; return badge(v[0], v[1]);
+}
+var STAGE_KEYS  = ['request','survey','install','control','acceptance','payment'];
+var STAGE_NAMES = ['Заявка','Обследование','Монтаж','Контроль','Приёмка','Оплата'];
+var STAGE_ICONS = ['📥','📐','🔧','🔍','📋','💳'];
+var STAGE_DESCS = [
+  'Поступила, распределение и назначение ответственных',
+  'Выезд на замеры, согласование схемы и доступа',
+  'Прокладка кабеля, монтаж портов на объекте',
+  'Прозвонка портов, чек-лист и контрольный фотоотчет',
+  'Подписание исполнительной документации (ИД со Сбером)',
+  'Выставление счета, оплата от заказчика, расчёт с подрядчиком'
+];
+
+function stageBadge(s) {
+  var m = {
+    request:    ['b-request',    '1. Заявка'],
+    survey:     ['b-survey',     '2. Обследование'],
+    install:    ['b-install',    '3. Монтаж'],
+    control:    ['b-control',    '4. Контроль'],
+    acceptance: ['b-acceptance', '5. Приёмка'],
+    payment:    ['b-payment',    '6. Оплата']
+  };
+  var v = m[s] || ['b-gray', s ? (s.charAt(0).toUpperCase() + s.slice(1)) : '1. Заявка'];
+  return '<span class="badge ' + v[0] + '">' + v[1] + '</span>';
 }
 function getTaskFinance(t) {
   var work = Math.round((Number(t.fact) || 0) * (Number(t.pricePerUnit) || 0));
@@ -2834,37 +2872,130 @@ function pageSupply() {
 }
 
 // ─── PAGE: KANBAN ─────────────────────────────────────────────────────────────
+function clearKanbanFilters() {
+  S.kanbanQ = '';
+  S.kanbanReg = '';
+  S.kanbanMgr = '';
+  S.kanbanCustomer = '';
+  renderApp();
+}
+
 function pageKanban() {
+  var q = (S.kanbanQ || '').toLowerCase().trim();
+  var reg = S.kanbanReg || '';
+  var mgr = S.kanbanMgr || '';
+  var cust = S.kanbanCustomer || '';
+
+  var regions = Array.from(new Set(S.tasks.map(function(t){ return t.region; }).filter(Boolean))).sort();
+  var managers = Array.from(new Set(S.tasks.map(function(t){ return t.manager; }).filter(Boolean))).sort();
+  var customers = Array.from(new Set(S.tasks.map(function(t){ return t.customer || 'ПАО Сбербанк'; }).filter(Boolean))).sort();
+
+  function mkOpts(arr, cur) {
+    return arr.map(function(v) {
+      var safe = v.replace(/"/g, '&quot;');
+      return '<option value="' + safe + '"' + (cur === v ? ' selected' : '') + '>' + v + '</option>';
+    }).join('');
+  }
+
   var cols = [
-    {id:'pending', label:'Ожидание', cls:'c-pending'},
-    {id:'progress',label:'В работе',  cls:'c-progress'},
-    {id:'review',  label:'Проверка',  cls:'c-review'},
-    {id:'done',    label:'Готово',    cls:'c-done'},
+    { id: 'request',    label: '1. Заявка',       cls: 'c-request',    desc: 'Распределение и назначение' },
+    { id: 'survey',     label: '2. Обследование', cls: 'c-survey',     desc: 'Замеры и согласование' },
+    { id: 'install',    label: '3. Монтаж',       cls: 'c-install',    desc: 'Прокладка и монтаж портов' },
+    { id: 'control',    label: '4. Контроль',     cls: 'c-control',    desc: 'Прозвонка и чек-лист' },
+    { id: 'acceptance', label: '5. Приёмка',      cls: 'c-acceptance', desc: 'Подписание ИД со Сбером' },
+    { id: 'payment',    label: '6. Оплата',       cls: 'c-payment',    desc: 'Счета и выплаты' }
   ];
+
+  var filtered = S.tasks.filter(function(t) {
+    if (t.archived) return false;
+    if (reg && t.region !== reg) return false;
+    if (mgr && t.manager !== mgr) return false;
+    if (cust && (t.customer || 'ПАО Сбербанк') !== cust) return false;
+    if (q) {
+      var content = ((t.id || '') + ' ' + (t.address || '') + ' ' + (t.contractor || '') + ' ' + (t.assignee || '') + ' ' + (t.customer || '')).toLowerCase();
+      if (!content.includes(q)) return false;
+    }
+    return true;
+  });
+
   var board = '';
-  cols.forEach(function(col) {
-    var colTasks = S.tasks.filter(function(t){ return t.status === col.id; }).slice(0,50);
+  cols.forEach(function(col, colIdx) {
+    var colTasks = filtered.filter(function(t){ 
+      var stg = t.stage || 'request';
+      return stg === col.id; 
+    });
+    var colAmt = colTasks.reduce(function(sum, t){ return sum + Number(t.amount || 0); }, 0);
+
     var cards = '';
-    colTasks.forEach(function(t) {
-      var opts = cols.map(function(c){ return '<option value="' + c.id + '"' + (c.id===t.status?' selected':'') + '>' + c.label + '</option>'; }).join('');
-      cards += '<div class="kcard">' +
-        '<div class="kcard-title">' + (t.title||'').slice(0,80) + '</div>' +
-        '<select data-tid="' + t.id + '" class="kmove" style="padding:3px 8px;font-size:.75rem">' + opts + '</select>' +
+    colTasks.slice(0, 60).forEach(function(t) {
+      var tid = (t.id || '').replace(/'/g, "\\'");
+      var fin = getTaskFinance(t);
+      var prevK = colIdx > 0 ? cols[colIdx - 1].id : null;
+      var nextK = colIdx < cols.length - 1 ? cols[colIdx + 1].id : null;
+
+      var opts = cols.map(function(c){ 
+        return '<option value="' + c.id + '"' + (c.id === (t.stage || 'request') ? ' selected' : '') + '>' + c.label + '</option>'; 
+      }).join('');
+
+      cards += '<div class="kcard" onclick="openCard(\'' + tid + '\')" style="cursor:pointer">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+          '<span style="font-weight:700;color:var(--orange);font-size:.82rem">№ ' + escHtml(t.id) + '</span>' +
+          prBadge(t.priority) +
+        '</div>' +
+        '<div class="kcard-title" style="font-size:.78rem;margin-bottom:4px;line-height:1.25">' + escHtml(t.address || t.title || 'Без адреса') + '</div>' +
+        '<div style="font-size:.72rem;color:var(--text-3);margin-bottom:4px;display:flex;justify-content:space-between">' +
+          '<span>📍 ' + escHtml(t.region || '—') + '</span>' +
+          (t.overdueDays > 0 ? '<span style="color:var(--red);font-weight:700">+' + t.overdueDays + ' дн</span>' : '') +
+        '</div>' +
+        '<div style="font-size:.72rem;color:var(--text-2);margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' +
+          '👤 ' + escHtml(t.assignee || t.contractor || 'Не назначен') +
+        '</div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;font-size:.74rem;border-top:1px dashed var(--border);padding-top:4px;margin-top:4px">' +
+          '<span style="font-weight:600">Порты: ' + (t.fact || 0) + ' / ' + (t.inOrder || 0) + '</span>' +
+          '<span style="font-weight:700;color:var(--blue)">' + fmtMoney(fin.total) + '</span>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:3px;margin-top:6px" onclick="event.stopPropagation()">' +
+          (prevK ? '<button class="btn btn-xs btn-ghost" onclick="moveTask(\'' + tid + '\', \'' + prevK + '\')" title="Назад" style="padding:2px 5px;font-size:.72rem">←</button>' : '') +
+          '<select data-tid="' + t.id + '" class="kmove" style="flex:1;padding:2px 3px;font-size:.7rem;border-radius:4px;height:24px">' + opts + '</select>' +
+          (nextK ? '<button class="btn btn-xs btn-ghost" onclick="moveTask(\'' + tid + '\', \'' + nextK + '\')" title="Вперед" style="padding:2px 5px;font-size:.72rem">→</button>' : '') +
+        '</div>' +
       '</div>';
     });
-    board += '<div class="kcol">' +
-      '<div class="kcol-hdr ' + col.cls + '">' + col.label + ' (' + colTasks.length + ')</div>' +
-      cards + '</div>';
+
+    board += '<div class="kcol" style="min-width:240px;max-width:280px;flex:1">' +
+      '<div class="kcol-hdr ' + col.cls + '" style="display:flex;justify-content:space-between;align-items:center">' +
+        '<span>' + col.label + ' (' + colTasks.length + ')</span>' +
+        '<span style="font-size:.68rem;opacity:.9;font-weight:600">' + fmtMoney(colAmt) + '</span>' +
+      '</div>' +
+      '<div style="font-size:.7rem;color:var(--text-3);margin:-.4rem 0 .5rem 2px">' + col.desc + '</div>' +
+      cards +
+      (colTasks.length === 0 ? '<div style="text-align:center;padding:1.5rem .5rem;color:var(--text-3);font-size:.75rem;border:1px dashed var(--border);border-radius:6px;background:#fafafa">Нет заявок</div>' : '') +
+      (colTasks.length > 60 ? '<div style="text-align:center;padding:6px;color:var(--text-3);font-size:.72rem">... и ещё ' + (colTasks.length - 60) + '</div>' : '') +
+    '</div>';
   });
-  return '<h1 class="page-title">Канбан</h1>' +
-    '<div class="row mb"><input id="ntask" type="text" placeholder="Новая задача…" style="flex:1;max-width:380px"><button class="btn" id="addBtn">+ Добавить</button></div>' +
-    '<div class="kanban">' + board + '</div>';
+
+  return '<h1 class="page-title">Канбан — Полный цикл обработки заявки</h1>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:1rem;align-items:center">' +
+      '<input id="kq" type="text" placeholder="Поиск в канбане..." style="flex:2;min-width:170px" value="' + escHtml(S.kanbanQ || '') + '">' +
+      '<select id="kreg"><option value="">Все регионы</option>' + mkOpts(regions, reg) + '</select>' +
+      '<select id="kmgr"><option value="">Все менеджеры</option>' + mkOpts(managers, mgr) + '</select>' +
+      '<select id="kcust"><option value="">Все заказчики</option>' + mkOpts(customers, cust) + '</select>' +
+      (q || reg || mgr || cust ? '<button class="btn btn-sm btn-ghost" onclick="clearKanbanFilters()">✕ Сбросить</button>' : '') +
+      '<input id="ntask" type="text" placeholder="Быстрая заявка…" style="flex:1;min-width:140px;max-width:220px">' +
+      '<button class="btn btn-sm" id="addBtn">+ Добавить</button>' +
+    '</div>' +
+    '<div class="kanban" style="display:flex;gap:.8rem;overflow-x:auto;padding-bottom:1rem;align-items:flex-start">' + board + '</div>';
 }
 
 function clearFilters() {
   S.taskQ=''; S.taskSt=''; S.taskPr=''; S.taskReg=''; S.taskMgr=''; S.taskYear=''; S.taskOverdue='';
   S.taskCustomer='';
   S.taskArch='no'; S.taskStage=''; S.taskSort=''; // Сбрасываем новые фильтры
+  renderApp();
+}
+
+function setTaskStageFilter(stg) {
+  S.taskStage = stg;
   renderApp();
 }
 
@@ -2969,6 +3100,30 @@ function pageTasks() {
     statBox('Остаток портов', fmtN(portBalance), 'заказ - факт', portBalance > 0 ? 'var(--orange)' : 'var(--green)') +
   '</div>';
 
+  // Подсчет заявок по каждому этапу для быстрых табов
+  var countsByStage = { all: S.tasks.filter(function(t){ return !t.archived; }).length };
+  STAGE_KEYS.forEach(function(k){ countsByStage[k] = 0; });
+  S.tasks.forEach(function(t){
+    if (!t.archived && t.stage && countsByStage[t.stage] !== undefined) {
+      countsByStage[t.stage]++;
+    }
+  });
+
+  var stageTabsHtml = '<div style="display:flex;gap:.35rem;overflow-x:auto;padding-bottom:.4rem;margin-bottom:.65rem">';
+  var allActive = !S.taskStage;
+  stageTabsHtml += '<button class="btn btn-sm ' + (allActive ? '' : 'btn-ghost') + '" onclick="setTaskStageFilter(\'\')" style="white-space:nowrap;font-size:.76rem;padding:3px 9px">' +
+    'Все этапы <span style="opacity:.7;margin-left:3px">(' + countsByStage.all + ')</span>' +
+  '</button>';
+
+  STAGE_KEYS.forEach(function(k, idx) {
+    var isActive = S.taskStage === k;
+    var cnt = countsByStage[k] || 0;
+    stageTabsHtml += '<button class="btn btn-sm ' + (isActive ? '' : 'btn-ghost') + '" onclick="setTaskStageFilter(\'' + k + '\')" style="white-space:nowrap;font-size:.76rem;padding:3px 9px">' +
+      STAGE_ICONS[idx] + ' ' + (idx + 1) + '. ' + STAGE_NAMES[idx] + ' <span style="opacity:.7;margin-left:3px">(' + cnt + ')</span>' +
+    '</button>';
+  });
+  stageTabsHtml += '</div>';
+
   var tableRows = '';
   filtered.slice(0, 300).forEach(function(t) {
     var od = t.overdueDays > 0
@@ -2998,7 +3153,7 @@ function pageTasks() {
       // Статусы и кнопки (тут подсветка не нужна, это бейджи)
       '<td>' + prBadge(t.priority) + '</td>' +
       '<td>' + od + '</td>' +
-
+      '<td>' + stageBadge(t.stage) + '</td>' +
       '<td>' + stBadge(t.status) + '</td>' +
 
       '<td style="white-space:nowrap; font-weight:700; color:var(--blue)">' + fmtMoney(fin.total) + '</td>' +
@@ -3008,7 +3163,7 @@ function pageTasks() {
   });
 
   var more = filtered.length>300
-    ? '<tr><td colspan="10" style="text-align:center;padding:1rem;color:var(--text-3)">… ещё '+(filtered.length-300)+' заявок — уточните фильтр</td></tr>'
+    ? '<tr><td colspan="12" style="text-align:center;padding:1rem;color:var(--text-3)">… ещё '+(filtered.length-300)+' заявок — уточните фильтр</td></tr>'
     : '';
 
   return '<h1 class="page-title">Заявки</h1>' +
@@ -3056,11 +3211,12 @@ function pageTasks() {
         '<option value="date_asc"'+(S.taskSort==='date_asc'?' selected':'')+'>📅 Старые сначала</option>' +
       '</select>' +
     '</div>' +
+    stageTabsHtml +
     totals +
     '<div class="card tbl-wrap">' +
       '<table><thead><tr>' +
         '<th>Номер</th><th>Дата</th><th>Регион</th><th>Порты</th><th>Контрагент</th>' +
-        '<th>Приоритет</th><th>Просрочка</th><th>Статус</th>' +
+        '<th>Приоритет</th><th>Просрочка</th><th>Этап</th><th>Статус</th>' +
         '<th title="Итого: ПО + ТМЦ">Платит Сбер</th><th title="Сумма из Excel">Сумма (спр.)</th><th></th>' +
       '</tr></thead><tbody>'+tableRows+more+'</tbody></table>' +
     '</div>' +
@@ -3438,6 +3594,15 @@ function bindEvents() {
   document.querySelectorAll('.kmove').forEach(function(sel) {
     sel.addEventListener('change', function() { moveTask(sel.dataset.tid, sel.value); });
   });
+  // kanban filters
+  var kq = document.getElementById('kq');
+  if (kq) kq.addEventListener('input', function(){ S.kanbanQ = this.value; renderApp(); });
+  var kreg = document.getElementById('kreg');
+  if (kreg) kreg.addEventListener('change', function(){ S.kanbanReg = this.value; renderApp(); });
+  var kmgr = document.getElementById('kmgr');
+  if (kmgr) kmgr.addEventListener('change', function(){ S.kanbanMgr = this.value; renderApp(); });
+  var kcust = document.getElementById('kcust');
+  if (kcust) kcust.addEventListener('change', function(){ S.kanbanCustomer = this.value; renderApp(); });
   // add task
   var tarch = document.getElementById('tarch');
   if (tarch) tarch.addEventListener('change', function(){ S.taskArch = this.value; renderApp(); });
@@ -3679,6 +3844,31 @@ function parseDate(v) {
         var overdue = parseNum(row[colMap['дней просрочки']]);
         var addr = strVal(row[colMap['Адрес']]);
 
+        var rawOplata = strVal(row[colMap['Оплата подрядчику']]).toLowerCase();
+        var rawPriemka = strVal(row[colMap['Приёмка']]).toLowerCase();
+        var rawIdStatus = strVal(row[colMap['ИД']]).toLowerCase();
+        var rawObsledovanie = strVal(row[colMap['Обследование']]).toLowerCase();
+        var inOrder = parseNum(row[colMap['В заказе']]);
+        var fact = parseNum(row[colMap['Факт']]);
+        var dataVyhoda = parseDate(row[colMap['Дата выхода']]);
+
+        var stage = 'request';
+        if (status === 'paid' || rawOplata.includes('оплач') || rawOplata.includes('да') || rawOplata.includes('+') || rawIdStatus.includes('оплач')) {
+          stage = 'payment';
+        } else if (status === 'done' || rawPriemka.includes('принят') || rawPriemka.includes('да') || rawPriemka.includes('+') || rawIdStatus.includes('принят')) {
+          stage = 'acceptance';
+        } else if (fact > 0 && inOrder > 0 && fact >= inOrder) {
+          stage = 'control';
+        } else if (dataVyhoda || fact > 0 || status === 'progress') {
+          stage = 'install';
+        } else if (rawObsledovanie && rawObsledovanie !== '-' && rawObsledovanie !== 'нет') {
+          stage = 'survey';
+        }
+
+        if (stage === 'request' && status !== 'cancelled') {
+          status = 'pending';
+        }
+
         allRows.push({
           id: num, 
           sheet: shName,
@@ -3696,11 +3886,11 @@ function parseDate(v) {
           manager:      strVal(row[colMap['Менеджер Сбера']]),
           contact:      strVal(row[colMap['Контакт']]),
           contractor:   strVal(row[colMap['Подрядчик']]),
-          inOrder:      parseNum(row[colMap['В заказе']]),
-          fact:         parseNum(row[colMap['Факт']]),
+          inOrder:      inOrder,
+          fact:         fact,
           obsledovanie: strVal(row[colMap['Обследование']]),
           dostup:       strVal(row[colMap['Доступ']]),
-          dataVyhoda:   parseDate(row[colMap['Дата выхода']]),
+          dataVyhoda:   dataVyhoda,
           priemka:      strVal(row[colMap['Приёмка']]),
           oplata:       strVal(row[colMap['Оплата подрядчику']]),
           idStatus:     strVal(row[colMap['ИД']]),
@@ -3710,7 +3900,7 @@ function parseDate(v) {
           pricePerUnit: parseNum(row[colMap['Стоимость за ед.']]),
           tmc:          parseNum(row[colMap['ТМЦ']]),
           extras:       parseNum(row[colMap['Допы']]),
-          overdueDays:  parseNum(row[colMap['дней просрочки']]),
+          overdueDays:  overdue,
 
           techLink:     strVal(row[colMap['Ссылка на Тех.Информацию']]),
           edoNumber:    strVal(row[colMap['№ документа в ЭДО']]),
@@ -3718,6 +3908,7 @@ function parseDate(v) {
           vedoStatus:   strVal(row[colMap['В ЭДО']]),
           excelComment: strVal(row[colMap['Комментарий']]),
           status: status, 
+          stage: stage,
           overdueDays: overdue,
           archived: false,
           rawData: (function() {
@@ -4586,28 +4777,70 @@ function addTask() {
   if (!inp) return;
   var title = inp.value.trim();
   if (!title) return;
-  api('/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:title,status:'pending',priority:'medium'})})
-    .then(function(t){ S.tasks.push(t); inp.value = ''; renderApp(); });
+  api('/tasks', {
+    method: 'POST', 
+    headers: { 'Content-Type': 'application/json' }, 
+    body: JSON.stringify({ title: title, status: 'pending', stage: 'request', priority: 'medium' })
+  })
+  .then(function(t){ S.tasks.push(t); inp.value = ''; renderApp(); });
 }
 
-function moveTask(id, status) {
-  var t = S.tasks.find(function(x){ return String(x.id)===String(id); });
+function moveTask(id, stage) {
+  var t = S.tasks.find(function(x){ return String(x.id) === String(id); });
   if (!t) return;
   
   var now = new Date().toLocaleString('ru');
   var author = S.user ? (S.user.full_name || S.user.username) : 'Система';
   var hist = t._history || [];
-  
-  if (t.status !== status) {
-    hist.push({ date: now, author: author, field: 'Статус (Канбан)', old: t.status, new: status });
+
+  var stageNames = {
+    request: '1. Заявка',
+    survey: '2. Обследование',
+    install: '3. Монтаж',
+    control: '4. Контроль',
+    acceptance: '5. Приёмка',
+    payment: '6. Оплата'
+  };
+
+  var oldStageName = stageNames[t.stage] || t.stage || '1. Заявка';
+  var newStageName = stageNames[stage] || stage;
+
+  if (t.stage !== stage) {
+    hist.push({ date: now, author: author, field: 'Этап (Канбан)', old: oldStageName, new: newStageName });
   }
 
-  api('/tasks/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status:status, _history: hist})})
-    .then(function(){
-      t.status = status;
-      t._history = hist;
-      renderApp();
-    });
+  // Авто-статус по этапу
+  var newStatus = t.status;
+  if (stage === 'payment') {
+    newStatus = (t.status === 'paid') ? 'paid' : 'done';
+  } else if (stage === 'acceptance') {
+    newStatus = 'done';
+  } else if (stage === 'install' || stage === 'control' || stage === 'survey') {
+    if (t.status === 'pending' || !t.status) newStatus = 'progress';
+  } else if (stage === 'request') {
+    if (t.status === 'progress' && (!t.fact || Number(t.fact) === 0)) newStatus = 'pending';
+  }
+
+  api('/tasks/' + id, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stage: stage, status: newStatus, _history: hist })
+  })
+  .then(function(){
+    t.stage = stage;
+    t.status = newStatus;
+    t._history = hist;
+    renderApp();
+  })
+  .catch(function(err){
+    console.error('Failed to move task:', err);
+    alert('Ошибка перемещения заявки: ' + (err.message || err));
+  });
+}
+
+function setTaskStage(newStage) {
+  if (!S.cardId) return;
+  moveTask(S.cardId, newStage);
 }
 
 var contractorSearchTimeout = null;
@@ -4895,6 +5128,66 @@ function pageCard() {
     docBtns +
   '</div>';
 
+  var curStage = Object.prototype.hasOwnProperty.call(S.cardDraft,'stage') ? S.cardDraft.stage : (t.stage || 'request');
+  var stageIdx = STAGE_KEYS.indexOf(curStage);
+  if (stageIdx < 0) stageIdx = 0;
+
+  var prevStageKey = stageIdx > 0 ? STAGE_KEYS[stageIdx - 1] : null;
+  var nextStageKey = stageIdx < STAGE_KEYS.length - 1 ? STAGE_KEYS[stageIdx + 1] : null;
+
+  var stageHelpMap = {
+    request: 'Поступила новая заявка. Проверьте данные объекта, назначьте ведущего менеджера и исполнителя (подрядчика), согласуйте дату выезда.',
+    survey: 'Обследование объекта. Выезд на объект, проведение замеров кабельных трасс, согласование схемы прокладки и условий доступа (пропускной режим).',
+    install: 'Монтажные работы на объекте. Прокладка кабельных линий, монтаж розеток и кроссового оборудования. Фиксация факта выполненных портов.',
+    control: 'Контроль качества. Тестирование и прозвонка смонтированных портов, проверка чек-листа соответствия стандартам Сбера, контрольный фотоотчёт.',
+    acceptance: 'Приёмка выполненных работ. Подготовка и передача исполнительной документации (ИД со Сбером), подписание актов с Заказчиком.',
+    payment: 'Оплата и расчеты. Выставление счетов в ЭДО, контроль поступления оплаты от Заказчика и окончательный расчет с подрядчиком / монтажниками.'
+  };
+
+  var stepperHtml = '';
+  STAGE_KEYS.forEach(function(sk, idx) {
+    var isCurrent = (sk === curStage);
+    var isPassed = (idx < stageIdx);
+    var stepCls = isCurrent ? 'step active' : (isPassed ? 'step passed' : 'step');
+    var stepBg = isCurrent ? 'var(--orange-bg)' : (isPassed ? 'var(--green-bg)' : '#f8fafc');
+    var stepBorder = isCurrent ? 'var(--orange)' : (isPassed ? 'var(--green)' : 'var(--border)');
+    var stepColor = isCurrent ? 'var(--orange-dark)' : (isPassed ? 'var(--green)' : 'var(--text-3)');
+    var stepFontWeight = isCurrent ? '700' : '500';
+
+    stepperHtml += '<div class="' + stepCls + '" onclick="setTaskStage(\'' + sk + '\')" style="flex:1;min-width:115px;padding:8px 8px;border-radius:8px;border:1.5px solid ' + stepBorder + ';background:' + stepBg + ';color:' + stepColor + ';cursor:pointer;text-align:center;transition:all .15s" title="Переключить этап на «' + STAGE_NAMES[idx] + '»">' +
+      '<div style="font-size:1.05rem;margin-bottom:2px">' + STAGE_ICONS[idx] + '</div>' +
+      '<div style="font-size:.78rem;font-weight:' + stepFontWeight + '">' + (idx + 1) + '. ' + STAGE_NAMES[idx] + '</div>' +
+      (isCurrent ? '<div style="font-size:.65rem;color:var(--orange);font-weight:700;margin-top:2px">● ТЕКУЩИЙ</div>' : '') +
+      (isPassed ? '<div style="font-size:.65rem;color:var(--green);font-weight:600;margin-top:2px">✓ Пройден</div>' : '') +
+    '</div>';
+
+    if (idx < STAGE_KEYS.length - 1) {
+      stepperHtml += '<div style="color:var(--text-3);font-size:1rem;user-select:none;padding:0 2px">→</div>';
+    }
+  });
+
+  var lifecycleBanner = '<div class="card p mb" style="border:1.5px solid var(--border);box-shadow:var(--shadow);background:linear-gradient(135deg, #fff 0%, #fcfcfd 100%)">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.75rem;margin-bottom:.75rem">' +
+      '<div>' +
+        '<div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;font-weight:700;color:var(--text-3)">Жизненный цикл заявки (Блок-схема регламента)</div>' +
+        '<div style="display:flex;align-items:center;gap:.6rem;margin-top:2px">' +
+          '<span style="font-size:1.05rem;font-weight:800">Текущий этап:</span> ' + stageBadge(curStage) +
+          (t.overdueDays > 0 ? '<span class="badge b-red">Просрочка +' + t.overdueDays + ' дн</span>' : '') +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:.5rem;align-items:center">' +
+        (prevStageKey ? '<button class="btn btn-sm btn-ghost" onclick="setTaskStage(\'' + prevStageKey + '\')">← ' + STAGE_NAMES[stageIdx - 1] + '</button>' : '') +
+        (nextStageKey ? '<button class="btn btn-sm" onclick="setTaskStage(\'' + nextStageKey + '\')">Перевести: ' + STAGE_NAMES[stageIdx + 1] + ' →</button>' : '<span class="badge b-green" style="padding:6px 12px;font-weight:700">✅ Финал цикла</span>') +
+      '</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:.25rem;align-items:center;overflow-x:auto;padding-bottom:4px;margin-bottom:.75rem">' +
+      stepperHtml +
+    '</div>' +
+    '<div style="background:#fff;border-radius:6px;padding:.65rem .85rem;border-left:4px solid var(--orange);font-size:.82rem;line-height:1.4;color:var(--text-2);box-shadow:0 1px 3px rgba(0,0,0,0.04)">' +
+      '<b style="color:var(--text)">💡 Регламент этапа:</b> ' + (stageHelpMap[curStage] || '') +
+    '</div>' +
+  '</div>';
+
   var leftCol = '<div class="card p">' +
     '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.5rem">' +
       '<div class="sec-title" style="margin:0">Основные данные</div>' +
@@ -5073,6 +5366,7 @@ function pageCard() {
     : '';
 
   return hdr +
+    lifecycleBanner +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start">' +
       leftCol + rightCol +
     '</div>' +

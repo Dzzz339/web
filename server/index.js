@@ -458,6 +458,23 @@ async function initDB() {
     );
     console.log('Default admin user created');
   }
+  // Синхронизация этапов жизненного цикла по блок-схеме для существующих задач
+  try {
+    await pool.query(`
+      UPDATE tasks SET stage = CASE
+        WHEN LOWER(COALESCE(oplata, '')) ~ '(оплач|да|\\+)' OR status = 'paid' OR LOWER(COALESCE(id_status, '')) ~ 'оплач' THEN 'payment'
+        WHEN LOWER(COALESCE(priemka, '')) ~ '(принят|да|\\+)' OR status = 'done' OR LOWER(COALESCE(id_status, '')) ~ 'принят' THEN 'acceptance'
+        WHEN fact > 0 AND in_order > 0 AND fact >= in_order THEN 'control'
+        WHEN data_vyhoda IS NOT NULL OR fact > 0 OR status = 'progress' THEN 'install'
+        WHEN obsledovanie IS NOT NULL AND obsledovanie NOT IN ('', '-', 'нет') THEN 'survey'
+        ELSE 'request'
+      END
+      WHERE stage IS NULL OR stage = '' OR (stage = 'install' AND status = 'pending' AND fact = 0 AND data_vyhoda IS NULL);
+    `);
+  } catch(err) {
+    console.error('Stage backfill migration error:', err.message);
+  }
+
   runBackgroundGeocoding();
   ensureGeneralChat();
   console.log('DB initialized')
@@ -489,11 +506,35 @@ function cleanData(data) {
     return newRow;
   });
 }
-function getInitialStage(status) {
-  const s = String(status || '').toLowerCase()
-  if (s === 'done') return 'payment'
-  if (s === 'cancelled') return null
-  return 'install'
+function getInitialStage(status, t) {
+  if (t && t.stage) return t.stage;
+  const s = String(status || (t ? t.status : '') || '').toLowerCase();
+  if (s === 'cancelled') return null;
+
+  const oplata = t ? String(t.oplata || '').toLowerCase() : '';
+  const priemka = t ? String(t.priemka || '').toLowerCase() : '';
+  const idStatus = t ? String(t.idStatus || '').toLowerCase() : '';
+  const obsledovanie = t ? String(t.obsledovanie || '').toLowerCase() : '';
+  const fact = t ? (Number(t.fact) || 0) : 0;
+  const inOrder = t ? (Number(t.inOrder) || 0) : 0;
+  const dataVyhoda = t ? t.dataVyhoda : null;
+
+  if (s === 'paid' || oplata.includes('оплач') || oplata.includes('да') || oplata.includes('+') || idStatus.includes('оплач')) {
+    return 'payment';
+  }
+  if (s === 'done' || priemka.includes('принят') || priemka.includes('да') || priemka.includes('+') || idStatus.includes('принят')) {
+    return 'acceptance';
+  }
+  if (fact > 0 && inOrder > 0 && fact >= inOrder) {
+    return 'control';
+  }
+  if (dataVyhoda || fact > 0 || s === 'progress') {
+    return 'install';
+  }
+  if (obsledovanie && obsledovanie !== '-' && obsledovanie !== 'нет') {
+    return 'survey';
+  }
+  return 'request';
 }
 
 // Конвертируем snake_case из БД в camelCase для фронтенда
@@ -1518,13 +1559,17 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
     if (d.stage !== undefined || d.status !== undefined) {
       
       // 1. Авто-статус по этапу
-      if (d.stage === 'payment' || d.stage === 'acceptance') {
-        d.status = 'done'; 
-        // Если уже был оплачен, не откатываем на "просто готово"
-        if (d.status === 'paid') d.status = 'paid';
+      if (d.stage === 'payment') {
+        d.status = (d.status === 'paid') ? 'paid' : 'done';
+      }
+      else if (d.stage === 'acceptance') {
+        d.status = 'done';
       }
       else if (d.stage === 'install' || d.stage === 'control' || d.stage === 'survey') {
-        if (d.status === 'pending') d.status = 'progress';
+        if (d.status === 'pending' || !d.status) d.status = 'progress';
+      }
+      else if (d.stage === 'request') {
+        if (d.status === 'progress' && (!d.fact || Number(d.fact) === 0)) d.status = 'pending';
       }
 
       // 2. Авто-этап по статусу
@@ -2208,7 +2253,7 @@ app.post('/api/excel/import-rows', async (req, res) => {
           t.idStatus, Number(t.amount)||0, Number(t.distanceKm)||0, Number(t.pricePerUnit)||0,
           t.techLink, t.edoNumber, t.invoiceInfo, t.vedoStatus, t.excelComment,
           t.status||'progress', t.priority||'low', Number(t.overdueDays)||0,
-          t.stage || getInitialStage(t.status),
+          t.stage || getInitialStage(t.status, t),
           JSON.stringify(t.rawData || {})
         ]);
       }
