@@ -963,6 +963,7 @@ var S = {
   selChain: null, selChainStep: null, chainMgr: '',
   taskQ: '', taskSt: '', taskPr: '', taskReg: '', taskMgr: '', taskYear: '', taskOverdue: '',
   taskCustomer: '',
+  taskContractor: '',
   taskArch: 'no',
   taskStage: '', taskSort: '',
   kanbanQ: '', kanbanReg: '', kanbanMgr: '', kanbanCustomer: '',
@@ -2486,6 +2487,7 @@ function filterAndGoTasks(filterObj) {
   if (filterObj.mgr !== undefined) S.taskMgr = filterObj.mgr;
   if (filterObj.ovd !== undefined) S.taskOverdue = filterObj.ovd;
   if (filterObj.customer !== undefined) S.taskCustomer = filterObj.customer;
+  if (filterObj.contractor !== undefined) S.taskContractor = filterObj.contractor;
   go('tasks');
 }
 
@@ -2564,7 +2566,7 @@ function pageDash(subSection) {
 
     var execRows = execList.map(function(e) {
       return `
-        <tr style="cursor:pointer" onclick="filterAndGoTasks({q:'${escHtml(e.name)}'})" title="Перейти к заявкам исполнителя">
+        <tr style="cursor:pointer" onclick="filterAndGoTasks({contractor:'${escHtml(e.name)}'})" title="Перейти к заявкам исполнителя">
           <td style="padding:10px 12px; font-weight:600">${escHtml(e.name)}</td>
           <td style="padding:10px 12px; text-align:right; font-weight:600">${fmtN(e.total)}</td>
           <td style="padding:10px 12px; text-align:right; color:var(--green)">${fmtN(e.done)}</td>
@@ -2989,7 +2991,7 @@ function pageKanban() {
 
 function clearFilters() {
   S.taskQ=''; S.taskSt=''; S.taskPr=''; S.taskReg=''; S.taskMgr=''; S.taskYear=''; S.taskOverdue='';
-  S.taskCustomer='';
+  S.taskCustomer=''; S.taskContractor='';
   S.taskArch='no'; S.taskStage=''; S.taskSort=''; // Сбрасываем новые фильтры
   renderApp();
 }
@@ -3008,13 +3010,14 @@ function statBox(lbl, val, sub, color) {
 }
 
 function pageTasks() {
-  var q=S.taskQ, st=S.taskSt, pr=S.taskPr, reg=S.taskReg, mgr=S.taskMgr, yr=S.taskYear, ovd=S.taskOverdue, cust=S.taskCustomer;
+  var q=S.taskQ, st=S.taskSt, pr=S.taskPr, reg=S.taskReg, mgr=S.taskMgr, yr=S.taskYear, ovd=S.taskOverdue, cust=S.taskCustomer, contr=S.taskContractor;
   
   // 1. Фильтрация
   var filtered = S.tasks.filter(function(t) {
     // УМНЫЙ ПОИСК
     if (q) {
-      var searchWords = q.toLowerCase().split(/\s+/).filter(Boolean);
+      var cleanQ = q.toLowerCase().replace(/[,;.]/g, ' ');
+      var searchWords = cleanQ.split(/\s+/).filter(Boolean);
       // Собираем всё содержимое строки в одну кучу для поиска
       var content = (
         (t.id || '') + ' ' + 
@@ -3022,7 +3025,15 @@ function pageTasks() {
         (t.region || '') + ' ' + 
         (t.address || '') + ' ' + 
         (t.manager || '') + ' ' +
-        (t.customer || '')
+        (t.customer || '') + ' ' +
+        (t.contractor || '') + ' ' +
+        (t.assignee || '') + ' ' +
+        (t.contact || '') + ' ' +
+        (t.workType || '') + ' ' +
+        (t.vsp || '') + ' ' +
+        (t.gosb || '') + ' ' +
+        (t.deadline || '') + ' ' +
+        (t.dateZayavki || '')
       ).toLowerCase();
 
       // Проверяем, что КАЖДОЕ слово из поиска есть в этой строке
@@ -3030,6 +3041,20 @@ function pageTasks() {
         return content.indexOf(word) !== -1;
       });
       if (!isMatch) return false;
+    }
+
+    // Фильтр по Контрагенту / Исполнителю
+    if (contr) {
+      var tContr = (t.contractor || '').trim().toLowerCase();
+      var tAssign = (t.assignee || '').trim().toLowerCase();
+      var targetContr = contr.trim().toLowerCase();
+      if (targetContr === 'не назначен') {
+        if (tContr || tAssign) return false;
+      } else {
+        if (tContr !== targetContr && tAssign !== targetContr && !tContr.includes(targetContr) && !tAssign.includes(targetContr)) {
+          return false;
+        }
+      }
     }
 
     // Остальные фильтры (статус, приоритет и т.д. — оставляем как было)
@@ -3070,6 +3095,18 @@ function pageTasks() {
   var customers = Array.from(new Set(S.tasks.map(function(t){return t.customer||'ПАО Сбербанк';}).filter(Boolean))).sort();
   var years     = Array.from(new Set(S.tasks.map(function(t){return t.sheet||'';}).filter(Boolean))).sort();
 
+  var contractorSet = new Set();
+  var hasUnassignedContr = false;
+  S.tasks.forEach(function(t) {
+    var c = (t.contractor || '').trim();
+    var a = (t.assignee || '').trim();
+    if (c) contractorSet.add(c);
+    if (a) contractorSet.add(a);
+    if (!c && !a) hasUnassignedContr = true;
+  });
+  var contractors = Array.from(contractorSet).sort();
+  if (hasUnassignedContr) contractors.push('Не назначен');
+
   // Сортировка — dateZayavki хранится в YYYY-MM-DD, localeCompare даёт правильный порядок
   if (S.taskSort) {
     filtered = filtered.slice().sort(function(a, b) {
@@ -3087,7 +3124,7 @@ function pageTasks() {
     return '<option value="'+safe+'"'+(cur===v?' selected':'')+'>'+v+'</option>';
   }).join('');}
 
-  var hasFilter = q||st||pr||reg||mgr||yr||ovd||cust||S.taskArch==='yes'||S.taskStage;
+  var hasFilter = q||st||pr||reg||mgr||yr||ovd||cust||contr||S.taskArch==='yes'||S.taskStage;
 
   // Сетка totals изменена на 7 колонок (repeat(7,1fr))
   var totals = '<div class="card p mb" style="display:grid;grid-template-columns:repeat(7,1fr);gap:.5rem;padding:.75rem 1rem">' +
@@ -3204,12 +3241,13 @@ function pageTasks() {
         '<option value="acceptance"' + (S.taskStage==='acceptance'?' selected':'') + '>Приёмка</option>' +
         '<option value="payment"' + (S.taskStage==='payment'?' selected':'') + '>Оплата</option>' +
       '</select>' +
-      (hasFilter||S.taskSort ? '<button class="btn btn-sm btn-ghost" onclick="clearFilters()">✕ Сбросить</button>' : '') +
       '<select id="tsort">' +
         '<option value=""'+(S.taskSort===''?' selected':'')+'>Порядок по умолчанию</option>' +
         '<option value="date_desc"'+(S.taskSort==='date_desc'?' selected':'')+'>📅 Новые сначала</option>' +
         '<option value="date_asc"'+(S.taskSort==='date_asc'?' selected':'')+'>📅 Старые сначала</option>' +
       '</select>' +
+      '<select id="tcontr"><option value="">Все контрагенты</option>' + mkOpts(contractors, contr) + '</select>' +
+      (hasFilter||S.taskSort ? '<button class="btn btn-sm btn-ghost" onclick="clearFilters()">✕ Сбросить</button>' : '') +
     '</div>' +
     stageTabsHtml +
     totals +
@@ -3610,6 +3648,8 @@ function bindEvents() {
   if (tstage) tstage.addEventListener('change', function(){ S.taskStage = this.value; renderApp(); });
   var tsort = document.getElementById('tsort');
   if (tsort) tsort.addEventListener('change', function(){ S.taskSort = this.value; renderApp(); });
+  var tcontr = document.getElementById('tcontr');
+  if (tcontr) tcontr.addEventListener('change', function(){ S.taskContractor = this.value; renderApp(); });
   var addBtn = document.getElementById('addBtn');
   if (addBtn) addBtn.addEventListener('click', addTask);
   var ntask = document.getElementById('ntask');
