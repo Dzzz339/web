@@ -965,7 +965,7 @@ var S = {
   taskCustomer: '',
   taskContractor: '',
   taskArch: 'no',
-  taskStage: '', taskSort: '',
+  taskStage: '', taskSort: '', taskView: 'all',
   kanbanQ: '', kanbanReg: '', kanbanMgr: '', kanbanCustomer: '',
   cardId: null, cardDraft: {}, cardConfirmOpen: false,
   cpTaskId: null, cpMode: 'search', cpQuery: '',
@@ -1563,6 +1563,240 @@ function stageBadge(s) {
   };
   var v = m[s] || ['b-gray', s ? (s.charAt(0).toUpperCase() + s.slice(1)) : '1. Заявка'];
   return '<span class="badge ' + v[0] + '">' + v[1] + '</span>';
+}
+
+var ID_ROLES = {
+  ADMIN: 'admin',
+  LEADER: 'leader',
+  MANAGER: 'manager',
+  DESIGNER: 'designer',
+  DISPATCH: 'dispatch',
+  PAYMENTS: 'payments',
+  WORKER: 'worker'
+};
+
+var ID_STEPS = [
+  { step: 0, title: 'Монтаж начат', role: 'manager', toStage: 1, action: 'Начать монтаж' },
+  { step: 1, title: 'Объект готов', role: 'manager', toStage: 2, action: 'Завершить монтаж' },
+  { step: 2, title: 'Материалы переданы', role: 'manager', toStage: 3, action: 'Передать материалы' },
+  { step: 3, title: 'Взял ИД в работу', role: 'designer', toStage: 4, action: 'Взять ИД в работу' },
+  { step: 4, title: 'ИД готова', role: 'designer', toStage: 5, action: 'Завершить ИД' },
+  { step: 5, title: 'ИД отправлена в Сбер', role: 'dispatch', toStage: 6, action: 'Отправить в Сбер' },
+  { step: 6, title: 'Сбер принял ИД', role: 'dispatch', toStage: 7, action: 'Сбер принял ИД' },
+  { step: 7, title: 'Передано на оплату', role: 'payments', toStage: 8, action: 'Передать на оплату' },
+  { step: 8, title: 'Оплачено', role: 'payments', toStage: 9, action: 'Подтвердить оплату' }
+];
+
+var ID_STAGES = [
+  { num: 0, name: 'Новая', icon: '📥', role: 'Менеджер' },
+  { num: 1, name: 'В монтаже', icon: '🔧', role: 'Менеджер' },
+  { num: 2, name: 'Ждёт материалов', icon: '📷', role: 'Менеджер' },
+  { num: 3, name: 'Очередь ИД', icon: '📦', role: 'Проектировщик' },
+  { num: 4, name: 'Проектирование', icon: '📐', role: 'Проектировщик' },
+  { num: 5, name: 'Готова к отправке', icon: '✉️', role: 'Отдел отправки' },
+  { num: 6, name: 'Ждёт приёмки Сбером', icon: '⏳', role: 'Отдел отправки' },
+  { num: 7, name: 'К оплате', icon: '📝', role: 'Бухгалтерия' },
+  { num: 8, name: 'Ждёт оплаты', icon: '💳', role: 'Бухгалтерия' },
+  { num: 9, name: 'Завершена', icon: '✅', role: 'Завершено' }
+];
+
+function idStageBadge(stageNum) {
+  var s = Number(stageNum != null ? stageNum : 0);
+  var stg = ID_STAGES[s] || ID_STAGES[0];
+  var colorCls = 'b-gray';
+  if (s === 1 || s === 2) colorCls = 'b-install';
+  else if (s === 3 || s === 4) colorCls = 'b-survey';
+  else if (s === 5 || s === 6) colorCls = 'b-control';
+  else if (s === 7 || s === 8) colorCls = 'b-payment';
+  else if (s === 9) colorCls = 'b-acceptance';
+  return '<span class="badge ' + colorCls + '" style="font-size:.75rem;padding:2px 7px" title="Этап ' + s + ': ' + stg.name + ' (' + stg.role + ')">' + stg.icon + ' ' + s + '. ' + stg.name + '</span>';
+}
+
+function hasUserRole(user) {
+  if (!user) return false;
+  var wanted = Array.prototype.slice.call(arguments, 1);
+  var roles = (user.role || '').split(',').map(function(r){ return r.trim().toLowerCase(); });
+  if (roles.includes('admin') || roles.includes('leader')) return true;
+  return wanted.some(function(w){ return roles.includes(String(w).toLowerCase()); });
+}
+
+function canUserStep(user, task) {
+  var s = Number(task.stageNum != null ? task.stageNum : 0);
+  var stepDef = ID_STEPS.find(function(x){ return x.step === s; });
+  if (!stepDef) return false;
+  return hasUserRole(user, stepDef.role);
+}
+
+function canUserUndo(user, task) {
+  var s = Number(task.stageNum != null ? task.stageNum : 0);
+  if (s <= 0) return false;
+  return hasUserRole(user, 'admin', 'leader', 'manager', 'dispatch', 'payments');
+}
+
+function advanceIdStep(taskId) {
+  var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+  var s = Number(t.stageNum != null ? t.stageNum : 0);
+  var stepDef = ID_STEPS.find(function(x){ return x.step === s; });
+  if (!stepDef) return alert('Заявка уже на финальном этапе');
+  if (!canUserStep(S.user, t)) {
+    return alert('Действие «' + stepDef.action + '» доступно только для роли: ' + stepDef.role + ' (или admin/leader)');
+  }
+  if (s === 6 && Number(t.openRemarksCount || 0) > 0) {
+    return alert('Нельзя принять ИД: у объекта есть открытые замечания Сбера (' + t.openRemarksCount + ' шт.). Сначала устраните замечания!');
+  }
+
+  var link = '';
+  if (s === 2) {
+    link = prompt('Укажите ссылку на фотоматериалы / папку с исходными данными:', t.materialsLink || t.techLink || '');
+    if (link === null) return;
+    if (!link.trim()) return alert('Для передачи материалов ссылка обязательна!');
+  } else if (s === 4) {
+    link = prompt('Укажите ссылку на готовую ИД (папка или альбом):', t.idLink || '');
+    if (link === null) return;
+    if (!link.trim()) return alert('Для завершения ИД ссылка на документацию обязательна!');
+  }
+
+  api('/tasks/' + encodeURIComponent(taskId) + '/advance', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ link: link ? link.trim() : undefined, version: t.version })
+  })
+  .then(function(res){
+    if (res.error) return alert('Ошибка: ' + res.error);
+    if (res.task) {
+      Object.assign(t, res.task);
+    }
+    renderApp();
+    if (S.page === 'card' && S.cardId === taskId) {
+      refreshRemarksList(taskId);
+    }
+  })
+  .catch(function(err){
+    alert('Ошибка продвижения этапа: ' + (err.message || err));
+  });
+}
+
+function undoIdStep(taskId) {
+  var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+  if (!canUserUndo(S.user, t)) {
+    return alert('Откат этапа доступен только ответственным ролям или администратору');
+  }
+  var reason = prompt('Укажите причину отката этапа назад:');
+  if (reason === null) return;
+  if (!reason.trim()) return alert('Причина отката обязательна!');
+
+  api('/tasks/' + encodeURIComponent(taskId) + '/undo', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: reason.trim(), version: t.version })
+  })
+  .then(function(res){
+    if (res.error) return alert('Ошибка: ' + res.error);
+    if (res.task) {
+      Object.assign(t, res.task);
+    }
+    renderApp();
+    if (S.page === 'card' && S.cardId === taskId) {
+      refreshRemarksList(taskId);
+    }
+  })
+  .catch(function(err){
+    alert('Ошибка отката: ' + (err.message || err));
+  });
+}
+
+function refreshRemarksList(taskId) {
+  var box = document.getElementById('remarksList');
+  if (!box) return;
+  api('/tasks/' + encodeURIComponent(taskId) + '/remarks')
+    .then(function(list){
+      if (!list || !list.length) {
+        box.innerHTML = '<div class="t3" style="font-size:.8rem;padding:.4rem 0">Замечаний от Сбера нет</div>';
+        return;
+      }
+      var html = list.map(function(r){
+        var isResolved = !!r.resolved_at;
+        var rBadge = isResolved
+          ? '<span class="badge b-green" style="font-size:.7rem">✓ Устранено</span>'
+          : '<span class="badge b-red" style="font-size:.7rem">🔴 Открыто</span>';
+        var dateStr = r.created_at ? r.created_at.slice(0, 16).replace('T', ' ') : '';
+        var docLink = r.doc_link ? ' <a href="' + escHtml(r.doc_link) + '" target="_blank" rel="noopener noreferrer" style="font-size:.78rem;color:var(--blue)">📄 Ссылка на замечание</a>' : '';
+        var resInfo = '';
+        if (isResolved) {
+          var resDate = r.resolved_at ? r.resolved_at.slice(0, 16).replace('T', ' ') : '';
+          var fixLink = r.fixed_doc_link ? ' <a href="' + escHtml(r.fixed_doc_link) + '" target="_blank" rel="noopener noreferrer" style="font-size:.78rem;color:var(--green)">📁 Исправленная ИД</a>' : '';
+          resInfo = '<div style="margin-top:4px;padding:4px 8px;background:#f0fdf4;border-radius:4px;border:1px solid #bbf7d0;font-size:.76rem;color:#166534">' +
+            '<b>Решение (' + resDate + (r.resolver_name ? ', ' + escHtml(r.resolver_name) : '') + '):</b> ' + escHtml(r.resolution || 'Устранено') + fixLink +
+          '</div>';
+        } else {
+          resInfo = '<div style="margin-top:6px">' +
+            '<button class="btn btn-sm" style="font-size:.74rem;padding:3px 8px" onclick="resolveRemarkPrompt(\'' + String(taskId).replace(/'/g,"\\'") + '\',' + r.id + ')">✓ Устранить замечание</button>' +
+          '</div>';
+        }
+
+        return '<div style="padding:8px;border-radius:6px;background:#fff;border:1px solid var(--border);margin-bottom:6px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+            '<div>' + rBadge + ' <span style="font-size:.75rem;color:var(--text-3);margin-left:4px">' + dateStr + (r.author_name ? ' (' + escHtml(r.author_name) + ')' : '') + '</span></div>' +
+          '</div>' +
+          '<div style="font-size:.82rem;color:var(--text);line-height:1.35">' + escHtml(r.text) + docLink + '</div>' +
+          resInfo +
+        '</div>';
+      }).join('');
+      box.innerHTML = html;
+    })
+    .catch(function(err){
+      box.innerHTML = '<div class="t3" style="color:var(--red);font-size:.8rem">Ошибка загрузки замечаний: ' + (err.message || err) + '</div>';
+    });
+}
+
+function addRemarkPrompt(taskId) {
+  var text = prompt('Введите суть замечания Сбера:');
+  if (text === null) return;
+  if (!text.trim()) return alert('Текст замечания обязателен!');
+  var link = prompt('Ссылка на файл или лист замечаний (необязательно):', '');
+  api('/tasks/' + encodeURIComponent(taskId) + '/remarks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: text.trim(), link: link ? link.trim() : undefined })
+  })
+  .then(function(res){
+    if (res.error) return alert('Ошибка: ' + res.error);
+    var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
+    if (t) {
+      t.openRemarksCount = (t.openRemarksCount || 0) + 1;
+    }
+    refreshRemarksList(taskId);
+    renderApp();
+  })
+  .catch(function(err){
+    alert('Ошибка добавления замечания: ' + (err.message || err));
+  });
+}
+
+function resolveRemarkPrompt(taskId, remarkId) {
+  var resolution = prompt('Опишите, что было исправлено в альбоме ИД:');
+  if (resolution === null) return;
+  if (!resolution.trim()) return alert('Описание исправления обязательно!');
+  var fixedLink = prompt('Ссылка на обновленный альбом ИД (необязательно):', '');
+  api('/tasks/' + encodeURIComponent(taskId) + '/remarks/' + remarkId + '/resolve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ resolution: resolution.trim(), fixedLink: fixedLink ? fixedLink.trim() : undefined })
+  })
+  .then(function(res){
+    if (res.error) return alert('Ошибка: ' + res.error);
+    var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
+    if (t && Number(t.openRemarksCount) > 0) {
+      t.openRemarksCount--;
+    }
+    refreshRemarksList(taskId);
+    renderApp();
+  })
+  .catch(function(err){
+    alert('Ошибка закрытия замечания: ' + (err.message || err));
+  });
 }
 function getTaskFinance(t) {
   var work = Math.round((Number(t.fact) || 0) * (Number(t.pricePerUnit) || 0));
@@ -2900,12 +3134,12 @@ function pageKanban() {
   }
 
   var cols = [
-    { id: 'request',    label: '1. Заявка',       cls: 'c-request',    desc: 'Распределение и назначение' },
-    { id: 'survey',     label: '2. Обследование', cls: 'c-survey',     desc: 'Замеры и согласование' },
-    { id: 'install',    label: '3. Монтаж',       cls: 'c-install',    desc: 'Прокладка и монтаж портов' },
-    { id: 'control',    label: '4. Контроль',     cls: 'c-control',    desc: 'Прозвонка и чек-лист' },
-    { id: 'acceptance', label: '5. Приёмка',      cls: 'c-acceptance', desc: 'Подписание ИД со Сбером' },
-    { id: 'payment',    label: '6. Оплата',       cls: 'c-payment',    desc: 'Счета и выплаты' }
+    { id: 'montage',  label: '1. Монтаж на объекте', cls: 'c-install',    desc: 'Стадии 0..2 (Монтаж и сбор фото)', stages: [0, 1, 2] },
+    { id: 'queue',    label: '2. Очередь ИД',        cls: 'c-survey',     desc: 'Стадия 3 (Материалы переданы)',    stages: [3] },
+    { id: 'design',   label: '3. Проектирование',    cls: 'c-control',    desc: 'Стадия 4 (Срок 3 раб. дня)',       stages: [4] },
+    { id: 'sber',     label: '4. В Сбере на приёмке',cls: 'c-acceptance', desc: 'Стадии 5..6 (Согласование альбома)', stages: [5, 6] },
+    { id: 'payment',  label: '5. Оплата и счета',    cls: 'c-payment',    desc: 'Стадии 7..8 (Бухгалтерия)',        stages: [7, 8] },
+    { id: 'done',     label: '6. Завершена',         cls: 'c-request',    desc: 'Стадия 9 (ИД сдана, оплачено)',    stages: [9] }
   ];
 
   var filtered = S.tasks.filter(function(t) {
@@ -2921,10 +3155,10 @@ function pageKanban() {
   });
 
   var board = '';
-  cols.forEach(function(col, colIdx) {
+  cols.forEach(function(col) {
     var colTasks = filtered.filter(function(t){ 
-      var stg = t.stage || 'request';
-      return stg === col.id; 
+      var sn = Number(t.stageNum != null ? t.stageNum : 0);
+      return col.stages.includes(sn);
     });
     var colAmt = colTasks.reduce(function(sum, t){ return sum + Number(t.amount || 0); }, 0);
 
@@ -2932,22 +3166,32 @@ function pageKanban() {
     colTasks.slice(0, 60).forEach(function(t) {
       var tid = (t.id || '').replace(/'/g, "\\'");
       var fin = getTaskFinance(t);
-      var prevK = colIdx > 0 ? cols[colIdx - 1].id : null;
-      var nextK = colIdx < cols.length - 1 ? cols[colIdx + 1].id : null;
+      var sn = Number(t.stageNum != null ? t.stageNum : 0);
+      var nextStep = sn < 9 ? ID_STEPS[sn] : null;
+      var canStep = canUserStep(S.user, t);
+      var canUndo = canUserUndo(S.user, t) && sn > 0;
+      var openRem = Number(t.openRemarksCount || 0);
 
-      var opts = cols.map(function(c){ 
-        return '<option value="' + c.id + '"' + (c.id === (t.stage || 'request') ? ' selected' : '') + '>' + c.label + '</option>'; 
-      }).join('');
+      var dueBadge = '';
+      if (t.stageDue) {
+        var isOvd = new Date(t.stageDue) < new Date();
+        dueBadge = '<span class="badge ' + (isOvd ? 'b-red' : 'b-survey') + '" style="font-size:.65rem;padding:1px 5px">' +
+          '⏳ ' + t.stageDue.slice(5, 10).split('-').reverse().join('.') + (isOvd ? ' !' : '') +
+        '</span>';
+      }
 
       cards += '<div class="kcard" onclick="openCard(\'' + tid + '\')" style="cursor:pointer">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
-          '<span style="font-weight:700;color:var(--orange);font-size:.82rem">№ ' + escHtml(t.id) + '</span>' +
+          '<div style="display:flex;align-items:center;gap:4px">' +
+            '<span style="font-weight:700;color:var(--orange);font-size:.82rem">№ ' + escHtml(t.id) + '</span>' +
+            (openRem > 0 ? '<span class="badge b-red" style="font-size:.65rem;padding:1px 5px" title="Замечания Сбера">⚠️ ' + openRem + '</span>' : '') +
+          '</div>' +
           prBadge(t.priority) +
         '</div>' +
         '<div class="kcard-title" style="font-size:.78rem;margin-bottom:4px;line-height:1.25">' + escHtml(t.address || t.title || 'Без адреса') + '</div>' +
-        '<div style="font-size:.72rem;color:var(--text-3);margin-bottom:4px;display:flex;justify-content:space-between">' +
+        '<div style="font-size:.72rem;color:var(--text-3);margin-bottom:4px;display:flex;justify-content:space-between;align-items:center">' +
           '<span>📍 ' + escHtml(t.region || '—') + '</span>' +
-          (t.overdueDays > 0 ? '<span style="color:var(--red);font-weight:700">+' + t.overdueDays + ' дн</span>' : '') +
+          (t.overdueDays > 0 ? '<span style="color:var(--red);font-weight:700">+' + t.overdueDays + ' дн</span>' : dueBadge) +
         '</div>' +
         '<div style="font-size:.72rem;color:var(--text-2);margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' +
           '👤 ' + escHtml(t.assignee || t.contractor || 'Не назначен') +
@@ -2956,10 +3200,12 @@ function pageKanban() {
           '<span style="font-weight:600">Порты: ' + (t.fact || 0) + ' / ' + (t.inOrder || 0) + '</span>' +
           '<span style="font-weight:700;color:var(--blue)">' + fmtMoney(fin.total) + '</span>' +
         '</div>' +
-        '<div style="display:flex;align-items:center;gap:3px;margin-top:6px" onclick="event.stopPropagation()">' +
-          (prevK ? '<button class="btn btn-xs btn-ghost" onclick="moveTask(\'' + tid + '\', \'' + prevK + '\')" title="Назад" style="padding:2px 5px;font-size:.72rem">←</button>' : '') +
-          '<select data-tid="' + t.id + '" class="kmove" style="flex:1;padding:2px 3px;font-size:.7rem;border-radius:4px;height:24px">' + opts + '</select>' +
-          (nextK ? '<button class="btn btn-xs btn-ghost" onclick="moveTask(\'' + tid + '\', \'' + nextK + '\')" title="Вперед" style="padding:2px 5px;font-size:.72rem">→</button>' : '') +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:4px;margin-top:6px" onclick="event.stopPropagation()">' +
+          idStageBadge(sn) +
+          '<div style="display:flex;gap:3px;align-items:center">' +
+            (canUndo ? '<button class="btn btn-xs btn-ghost" onclick="undoIdStep(\'' + tid + '\')" title="Откатить шаг назад" style="padding:2px 5px;font-size:.72rem">↩</button>' : '') +
+            (nextStep ? '<button class="btn btn-xs ' + (canStep ? '' : 'disabled') + '" onclick="advanceIdStep(\'' + tid + '\')" ' + (canStep ? '' : 'title="Требуется роль: ' + nextStep.role + '"') + ' style="padding:2px 7px;font-size:.7rem;font-weight:700;background:var(--orange);color:#fff;border:none">▶ ' + nextStep.action + '</button>' : '') +
+          '</div>' +
         '</div>' +
       '</div>';
     });
@@ -2976,7 +3222,7 @@ function pageKanban() {
     '</div>';
   });
 
-  return '<h1 class="page-title">Канбан — Полный цикл обработки заявки</h1>' +
+  return '<h1 class="page-title">Канбан — Жизненный цикл ИД</h1>' +
     '<div style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:1rem;align-items:center">' +
       '<input id="kq" type="text" placeholder="Поиск в канбане..." style="flex:2;min-width:170px" value="' + escHtml(S.kanbanQ || '') + '">' +
       '<select id="kreg"><option value="">Все регионы</option>' + mkOpts(regions, reg) + '</select>' +
@@ -2992,7 +3238,12 @@ function pageKanban() {
 function clearFilters() {
   S.taskQ=''; S.taskSt=''; S.taskPr=''; S.taskReg=''; S.taskMgr=''; S.taskYear=''; S.taskOverdue='';
   S.taskCustomer=''; S.taskContractor='';
-  S.taskArch='no'; S.taskStage=''; S.taskSort=''; // Сбрасываем новые фильтры
+  S.taskArch='no'; S.taskStage=''; S.taskSort=''; S.taskView='all'; // Сбрасываем фильтры
+  renderApp();
+}
+
+function setTaskViewFilter(view) {
+  S.taskView = view;
   renderApp();
 }
 
@@ -3068,6 +3319,13 @@ function pageTasks() {
     if (ovd==='no'  && t.overdueDays>0)    return false;
     if (S.taskArch === 'no' && t.archived) return false;
     if (S.taskStage && t.stage !== S.taskStage) return false;
+    if (S.taskView === 'montage' && (t.stageNum != null && t.stageNum > 2)) return false;
+    if (S.taskView === 'id_queue' && t.stageNum !== 3) return false;
+    if (S.taskView === 'design' && t.stageNum !== 4) return false;
+    if (S.taskView === 'sber' && (t.stageNum !== 5 && t.stageNum !== 6)) return false;
+    if (S.taskView === 'remarks' && !(Number(t.openRemarksCount) > 0)) return false;
+    if (S.taskView === 'payment' && (t.stageNum !== 7 && t.stageNum !== 8)) return false;
+    if (S.taskView === 'done' && t.stageNum !== 9) return false;
     if (S.user.role === 'worker' && t.assignmentStatus === 'pending') return false;
 
     return true;
@@ -3124,7 +3382,7 @@ function pageTasks() {
     return '<option value="'+safe+'"'+(cur===v?' selected':'')+'>'+v+'</option>';
   }).join('');}
 
-  var hasFilter = q||st||pr||reg||mgr||yr||ovd||cust||contr||S.taskArch==='yes'||S.taskStage;
+  var hasFilter = q||st||pr||reg||mgr||yr||ovd||cust||contr||S.taskArch==='yes'||S.taskStage||(S.taskView && S.taskView !== 'all');
 
   // Сетка totals изменена на 7 колонок (repeat(7,1fr))
   var totals = '<div class="card p mb" style="display:grid;grid-template-columns:repeat(7,1fr);gap:.5rem;padding:.75rem 1rem">' +
@@ -3137,26 +3395,37 @@ function pageTasks() {
     statBox('Остаток портов', fmtN(portBalance), 'заказ - факт', portBalance > 0 ? 'var(--orange)' : 'var(--green)') +
   '</div>';
 
-  // Подсчет заявок по каждому этапу для быстрых табов
-  var countsByStage = { all: S.tasks.filter(function(t){ return !t.archived; }).length };
-  STAGE_KEYS.forEach(function(k){ countsByStage[k] = 0; });
-  S.tasks.forEach(function(t){
-    if (!t.archived && t.stage && countsByStage[t.stage] !== undefined) {
-      countsByStage[t.stage]++;
-    }
-  });
+  // Подсчет заявок по Quick Views (быстрым ролевым табам)
+  var qvCounts = {
+    all: S.tasks.filter(function(t){ return !t.archived; }).length,
+    montage: S.tasks.filter(function(t){ return !t.archived && (t.stageNum == null || t.stageNum <= 2); }).length,
+    id_queue: S.tasks.filter(function(t){ return !t.archived && t.stageNum === 3; }).length,
+    design: S.tasks.filter(function(t){ return !t.archived && t.stageNum === 4; }).length,
+    sber: S.tasks.filter(function(t){ return !t.archived && (t.stageNum === 5 || t.stageNum === 6); }).length,
+    remarks: S.tasks.filter(function(t){ return !t.archived && Number(t.openRemarksCount) > 0; }).length,
+    payment: S.tasks.filter(function(t){ return !t.archived && (t.stageNum === 7 || t.stageNum === 8); }).length,
+    done: S.tasks.filter(function(t){ return !t.archived && t.stageNum === 9; }).length,
+  };
+
+  var curView = S.taskView || 'all';
+  var quickViews = [
+    { id: 'all',      label: 'Все',                 cnt: qvCounts.all },
+    { id: 'montage',  label: '🔧 В монтаже',        cnt: qvCounts.montage },
+    { id: 'id_queue', label: '📦 Очередь ИД',       cnt: qvCounts.id_queue },
+    { id: 'design',   label: '📐 В проектировании', cnt: qvCounts.design },
+    { id: 'sber',     label: '📫 В Сбере',          cnt: qvCounts.sber },
+    { id: 'remarks',  label: '⛔ Замечания Сбера',   cnt: qvCounts.remarks, isRed: qvCounts.remarks > 0 },
+    { id: 'payment',  label: '💳 К оплате',         cnt: qvCounts.payment },
+    { id: 'done',     label: '✅ Завершена',         cnt: qvCounts.done }
+  ];
 
   var stageTabsHtml = '<div style="display:flex;gap:.35rem;overflow-x:auto;padding-bottom:.4rem;margin-bottom:.65rem">';
-  var allActive = !S.taskStage;
-  stageTabsHtml += '<button class="btn btn-sm ' + (allActive ? '' : 'btn-ghost') + '" onclick="setTaskStageFilter(\'\')" style="white-space:nowrap;font-size:.76rem;padding:3px 9px">' +
-    'Все этапы <span style="opacity:.7;margin-left:3px">(' + countsByStage.all + ')</span>' +
-  '</button>';
-
-  STAGE_KEYS.forEach(function(k, idx) {
-    var isActive = S.taskStage === k;
-    var cnt = countsByStage[k] || 0;
-    stageTabsHtml += '<button class="btn btn-sm ' + (isActive ? '' : 'btn-ghost') + '" onclick="setTaskStageFilter(\'' + k + '\')" style="white-space:nowrap;font-size:.76rem;padding:3px 9px">' +
-      STAGE_ICONS[idx] + ' ' + (idx + 1) + '. ' + STAGE_NAMES[idx] + ' <span style="opacity:.7;margin-left:3px">(' + cnt + ')</span>' +
+  quickViews.forEach(function(qv) {
+    var isActive = (curView === qv.id);
+    var btnCls = isActive ? 'btn btn-sm' : 'btn btn-sm btn-ghost';
+    var badgeStyle = qv.isRed ? 'background:var(--red);color:#fff;border-radius:10px;padding:1px 6px;margin-left:4px' : 'opacity:.7;margin-left:3px';
+    stageTabsHtml += '<button class="' + btnCls + '" onclick="setTaskViewFilter(\'' + qv.id + '\')" style="white-space:nowrap;font-size:.76rem;padding:3px 9px">' +
+      qv.label + ' <span style="' + badgeStyle + '">(' + qv.cnt + ')</span>' +
     '</button>';
   });
   stageTabsHtml += '</div>';
@@ -3190,7 +3459,7 @@ function pageTasks() {
       // Статусы и кнопки (тут подсветка не нужна, это бейджи)
       '<td>' + prBadge(t.priority) + '</td>' +
       '<td>' + od + '</td>' +
-      '<td>' + stageBadge(t.stage) + '</td>' +
+      '<td>' + idStageBadge(t.stageNum) + (Number(t.openRemarksCount) > 0 ? ' <span class="badge b-red" style="font-size:.68rem;padding:1px 5px" title="Открытые замечания Сбера">⚠️ ' + t.openRemarksCount + '</span>' : '') + '</td>' +
       '<td>' + stBadge(t.status) + '</td>' +
 
       '<td style="white-space:nowrap; font-weight:700; color:var(--blue)">' + fmtMoney(fin.total) + '</td>' +
@@ -4976,6 +5245,7 @@ function openCard(id) {
   window.scrollTo(0,0);
   refreshAttachmentsList(id);
   refreshPortsList(id);
+  refreshRemarksList(id);
 }
 
 function pageCard() {
@@ -5168,63 +5438,83 @@ function pageCard() {
     docBtns +
   '</div>';
 
-  var curStage = Object.prototype.hasOwnProperty.call(S.cardDraft,'stage') ? S.cardDraft.stage : (t.stage || 'request');
-  var stageIdx = STAGE_KEYS.indexOf(curStage);
-  if (stageIdx < 0) stageIdx = 0;
+  var curStageNum = Number(t.stageNum != null ? t.stageNum : 0);
+  if (curStageNum < 0) curStageNum = 0;
+  if (curStageNum > 9) curStageNum = 9;
+  var curStg = ID_STAGES[curStageNum] || ID_STAGES[0];
+  var nextStepDef = curStageNum < 9 ? ID_STEPS[curStageNum] : null;
 
-  var prevStageKey = stageIdx > 0 ? STAGE_KEYS[stageIdx - 1] : null;
-  var nextStageKey = stageIdx < STAGE_KEYS.length - 1 ? STAGE_KEYS[stageIdx + 1] : null;
+  var idStageHelp = [
+    'Новая заявка поступила. Менеджер проверяет ТЗ, согласовывает дату и передает монтажникам.',
+    'Монтаж на объекте начат. Исполнители выполняют прокладку и установку оборудования.',
+    'Монтаж завершён. Менеджер собирает фотоотчёт и результаты замеров для передачи в проектный отдел.',
+    'Материалы переданы в очередь ИД. Проектировщик берёт задачу в работу (ставится срок 3 рабочих дня).',
+    'ИД в проектировании. Проектировщик подготавливает комплект исполнительной документации.',
+    'Исполнительная документация готова. Отдел отправки проверяет альбом и направляет в банк Сбер.',
+    'ИД на согласовании в Сбере. При наличии правок вносите замечания в карточку. Приёмка блокируется открытыми замечаниями.',
+    'ИД успешно согласована и принята Сбером. Пакет документов передан на оплату.',
+    'Заявка ожидает поступления оплаты от Заказчика.',
+    'Заявка успешно завершена и полностью оплачена.'
+  ];
 
-  var stageHelpMap = {
-    request: 'Поступила новая заявка. Проверьте данные объекта, назначьте ведущего менеджера и исполнителя (подрядчика), согласуйте дату выезда.',
-    survey: 'Обследование объекта. Выезд на объект, проведение замеров кабельных трасс, согласование схемы прокладки и условий доступа (пропускной режим).',
-    install: 'Монтажные работы на объекте. Прокладка кабельных линий, монтаж розеток и кроссового оборудования. Фиксация факта выполненных портов.',
-    control: 'Контроль качества. Тестирование и прозвонка смонтированных портов, проверка чек-листа соответствия стандартам Сбера, контрольный фотоотчёт.',
-    acceptance: 'Приёмка выполненных работ. Подготовка и передача исполнительной документации (ИД со Сбером), подписание актов с Заказчиком.',
-    payment: 'Оплата и расчеты. Выставление счетов в ЭДО, контроль поступления оплаты от Заказчика и окончательный расчет с подрядчиком / монтажниками.'
-  };
+  var isDueOverdue = t.stageDue && new Date(t.stageDue) < new Date();
+  var dueStr = t.stageDue ? t.stageDue.slice(0, 10).split('-').reverse().join('.') : '';
 
   var stepperHtml = '';
-  STAGE_KEYS.forEach(function(sk, idx) {
-    var isCurrent = (sk === curStage);
-    var isPassed = (idx < stageIdx);
-    var stepCls = isCurrent ? 'step active' : (isPassed ? 'step passed' : 'step');
+  ID_STAGES.forEach(function(stg, idx) {
+    var isCurrent = (idx === curStageNum);
+    var isPassed = (idx < curStageNum);
     var stepBg = isCurrent ? 'var(--orange-bg)' : (isPassed ? 'var(--green-bg)' : '#f8fafc');
     var stepBorder = isCurrent ? 'var(--orange)' : (isPassed ? 'var(--green)' : 'var(--border)');
     var stepColor = isCurrent ? 'var(--orange-dark)' : (isPassed ? 'var(--green)' : 'var(--text-3)');
     var stepFontWeight = isCurrent ? '700' : '500';
 
-    stepperHtml += '<div class="' + stepCls + '" onclick="setTaskStage(\'' + sk + '\')" style="flex:1;min-width:115px;padding:8px 8px;border-radius:8px;border:1.5px solid ' + stepBorder + ';background:' + stepBg + ';color:' + stepColor + ';cursor:pointer;text-align:center;transition:all .15s" title="Переключить этап на «' + STAGE_NAMES[idx] + '»">' +
-      '<div style="font-size:1.05rem;margin-bottom:2px">' + STAGE_ICONS[idx] + '</div>' +
-      '<div style="font-size:.78rem;font-weight:' + stepFontWeight + '">' + (idx + 1) + '. ' + STAGE_NAMES[idx] + '</div>' +
+    stepperHtml += '<div class="step ' + (isCurrent ? 'active' : (isPassed ? 'done' : '')) + '" style="flex:1;min-width:110px;padding:8px 6px;border-radius:8px;border:1.5px solid ' + stepBorder + ';background:' + stepBg + ';color:' + stepColor + ';text-align:center;transition:all .15s" title="' + stg.name + ' (' + stg.role + ')">' +
+      '<div style="font-size:1.1rem;margin-bottom:2px">' + stg.icon + '</div>' +
+      '<div style="font-size:.75rem;font-weight:' + stepFontWeight + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + idx + '. ' + stg.name + '</div>' +
+      '<div style="font-size:.65rem;opacity:.8;margin-top:1px">' + stg.role + '</div>' +
       (isCurrent ? '<div style="font-size:.65rem;color:var(--orange);font-weight:700;margin-top:2px">● ТЕКУЩИЙ</div>' : '') +
       (isPassed ? '<div style="font-size:.65rem;color:var(--green);font-weight:600;margin-top:2px">✓ Пройден</div>' : '') +
     '</div>';
 
-    if (idx < STAGE_KEYS.length - 1) {
-      stepperHtml += '<div style="color:var(--text-3);font-size:1rem;user-select:none;padding:0 2px">→</div>';
+    if (idx < ID_STAGES.length - 1) {
+      stepperHtml += '<div style="color:var(--text-3);font-size:.9rem;user-select:none;padding:0 1px">→</div>';
     }
   });
+
+  var canStepNow = canUserStep(S.user, t);
+  var canUndoNow = canUserUndo(S.user, t);
 
   var lifecycleBanner = '<div class="card p mb" style="border:1.5px solid var(--border);box-shadow:var(--shadow);background:linear-gradient(135deg, #fff 0%, #fcfcfd 100%)">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.75rem;margin-bottom:.75rem">' +
       '<div>' +
-        '<div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;font-weight:700;color:var(--text-3)">Жизненный цикл заявки (Блок-схема регламента)</div>' +
-        '<div style="display:flex;align-items:center;gap:.6rem;margin-top:2px">' +
-          '<span style="font-size:1.05rem;font-weight:800">Текущий этап:</span> ' + stageBadge(curStage) +
+        '<div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;font-weight:700;color:var(--text-3)">Жизненный цикл ИД (10 стадий, 9 регламентных шагов)</div>' +
+        '<div style="display:flex;align-items:center;gap:.5rem;margin-top:2px;flex-wrap:wrap">' +
+          '<span style="font-size:1.05rem;font-weight:800">Текущая стадия:</span> ' + idStageBadge(curStageNum) +
           (t.overdueDays > 0 ? '<span class="badge b-red">Просрочка +' + t.overdueDays + ' дн</span>' : '') +
+          (t.stageDue ? '<span class="badge ' + (isDueOverdue ? 'b-red' : 'b-survey') + '" style="font-size:.74rem">⏳ Срок ИД: ' + dueStr + (isDueOverdue ? ' (просрочен!)' : ' (3 раб. дня)') + '</span>' : '') +
+          (Number(t.openRemarksCount || 0) > 0 ? '<span class="badge b-red" style="font-size:.74rem">⚠️ Замечания Сбера: ' + t.openRemarksCount + ' шт.</span>' : '') +
         '</div>' +
       '</div>' +
-      '<div style="display:flex;gap:.5rem;align-items:center">' +
-        (prevStageKey ? '<button class="btn btn-sm btn-ghost" onclick="setTaskStage(\'' + prevStageKey + '\')">← ' + STAGE_NAMES[stageIdx - 1] + '</button>' : '') +
-        (nextStageKey ? '<button class="btn btn-sm" onclick="setTaskStage(\'' + nextStageKey + '\')">Перевести: ' + STAGE_NAMES[stageIdx + 1] + ' →</button>' : '<span class="badge b-green" style="padding:6px 12px;font-weight:700">✅ Финал цикла</span>') +
+      '<div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">' +
+        (canUndoNow && curStageNum > 0 ? '<button class="btn btn-sm btn-ghost" onclick="undoIdStep(\'' + eid + '\')" title="Откатить этап назад" style="color:var(--text-2)">↩ Откатить назад</button>' : '') +
+        (nextStepDef
+          ? '<button class="btn btn-sm ' + (canStepNow ? '' : 'disabled') + '" onclick="advanceIdStep(\'' + eid + '\')" ' + (canStepNow ? '' : 'title="Требуется роль: ' + nextStepDef.role + '"') + ' style="font-weight:700;padding:6px 14px;background:var(--orange);color:#fff;border:none">' +
+              '▶ Шаг ' + (curStageNum + 1) + ': ' + nextStepDef.action +
+            '</button>'
+          : '<span class="badge b-green" style="padding:6px 12px;font-weight:700">✅ Финал цикла: Завершена</span>'
+        ) +
       '</div>' +
     '</div>' +
     '<div style="display:flex;gap:.25rem;align-items:center;overflow-x:auto;padding-bottom:4px;margin-bottom:.75rem">' +
       stepperHtml +
     '</div>' +
-    '<div style="background:#fff;border-radius:6px;padding:.65rem .85rem;border-left:4px solid var(--orange);font-size:.82rem;line-height:1.4;color:var(--text-2);box-shadow:0 1px 3px rgba(0,0,0,0.04)">' +
-      '<b style="color:var(--text)">💡 Регламент этапа:</b> ' + (stageHelpMap[curStage] || '') +
+    '<div style="background:#fff;border-radius:6px;padding:.65rem .85rem;border-left:4px solid var(--orange);font-size:.82rem;line-height:1.4;color:var(--text-2);box-shadow:0 1px 3px rgba(0,0,0,0.04);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">' +
+      '<div><b style="color:var(--text)">💡 Регламент этапа (' + curStg.role + '):</b> ' + (idStageHelp[curStageNum] || '') + '</div>' +
+      '<div style="display:flex;gap:.75rem;font-size:.8rem">' +
+        (t.materialsLink ? '<a href="' + escHtml(t.materialsLink) + '" target="_blank" rel="noopener noreferrer" style="color:var(--blue);font-weight:600">📷 Исходные материалы</a>' : '') +
+        (t.idLink ? '<a href="' + escHtml(t.idLink) + '" target="_blank" rel="noopener noreferrer" style="color:var(--green);font-weight:600">📐 Альбом ИД</a>' : '') +
+      '</div>' +
     '</div>' +
   '</div>';
 
@@ -5278,6 +5568,8 @@ function pageCard() {
 
     // БЛОК 3: ХОД РАБОТ (Этапы и даты)
     '<div class="sec-title" style="margin-bottom:.5rem">Ход работ</div>' +
+    field('Стадия ИД (0..9)', 'stageNum', 'number') +
+    field('Срок ИД (3 раб. дня)', 'stageDue', 'date') +
     field('Этап производства', 'stage') +
     field('Дата распределения', 'distributedAt', 'date') +
     field('Дата заявки', 'dateZayavki', 'date') +
@@ -5293,6 +5585,8 @@ function pageCard() {
 
     // БЛОК 4: ДОКУМЕНТЫ И ЗАМЕТКИ
     '<div class="sec-title" style="margin-bottom:.5rem">Документы и комментарии</div>' +
+    field('Ссылка на материалы (исходники)', 'materialsLink', 'url') +
+    field('Ссылка на готовую ИД (альбом)', 'idLink', 'url') +
     field('Ссылка на тех.инфо', 'techLink', 'url') +
     field('№ документа в ЭДО', 'edoNumber') +
     field('№ счёта / сумма', 'invoiceInfo') +
@@ -5356,6 +5650,18 @@ function pageCard() {
     '</form>' +
   '</div>';
 
+  var remarksBadge = Number(t.openRemarksCount || 0) > 0
+    ? '<span class="badge b-red" style="font-size:11px;padding:2px 7px;margin-left:6px">⚠️ ' + t.openRemarksCount + ' открыто</span>'
+    : '<span class="badge b-green" style="font-size:11px;padding:2px 7px;margin-left:6px">✓ Нет замечаний</span>';
+
+  var remarksBlock = '<div class="card p" id="remarksBlock">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
+      '<div class="sec-title" style="margin:0;display:flex;align-items:center">Замечания Сбера ' + remarksBadge + '</div>' +
+      '<button class="btn btn-sm btn-ghost" onclick="addRemarkPrompt(\'' + eid + '\')">+ Замечание</button>' +
+    '</div>' +
+    '<div id="remarksList" class="t3">Загрузка…</div>' +
+  '</div>';
+
   var rightCol = '<div style="display:flex;flex-direction:column;gap:1rem">' +
     '<div class="card p"><div class="sec-title" style="margin-bottom:.5rem">Карта объекта</div>' + mapHtml + '</div>' +
     '<div class="card p" id="attachmentsBlock"><div class="sec-title" style="margin-bottom:.5rem">Вложения</div><div id="attachmentsList" class="t3">Загрузка…</div>' +
@@ -5368,6 +5674,7 @@ function pageCard() {
         '<label class="btn btn-sm btn-ghost">📊 Excel ПИ<input type="file" accept=".xlsx,.xls" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'pi_excel\',this.files)"></label>' +
       '</div>' +
     '</div>' +
+    remarksBlock +
     '<div class="card p" id="portsBlock"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
       '<div class="sec-title" style="margin:0">КЖ / Протокол измерений</div>' +
       '<button class="btn btn-sm btn-ghost" onclick="addPortRow(\''+t.id+'\')">+ Порт</button>' +

@@ -275,6 +275,37 @@ async function initDB() {
     ON CONFLICT (inn) DO UPDATE SET type = 'internal';
   `);
 
+  // Миграция: функционал «Контроль ИД»
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS stage_num INTEGER DEFAULT 0`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 0`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS manager_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS designer_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS materials_link TEXT DEFAULT ''`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS id_link TEXT DEFAULT ''`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS stage_due TIMESTAMPTZ`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_stage_num ON tasks(stage_num)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_manager_id ON tasks(manager_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_designer_id ON tasks(designer_id)`);
+
+  // Таблица замечаний (Remarks) по ИД
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS remarks (
+      id              TEXT PRIMARY KEY,
+      task_id         TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      body            TEXT NOT NULL,
+      link            TEXT DEFAULT '',
+      created_by      INTEGER NOT NULL REFERENCES users(id),
+      created_name    TEXT NOT NULL,
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      resolved_at     TIMESTAMPTZ,
+      resolved_by     INTEGER REFERENCES users(id),
+      resolved_name   TEXT,
+      resolution      TEXT,
+      resolution_link TEXT
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_remarks_task ON remarks(task_id)`);
+
   // 1. Таблицы для будущего Чата
   await pool.query(`
     CREATE TABLE IF NOT EXISTS chat_rooms (
@@ -471,6 +502,18 @@ async function initDB() {
       END
       WHERE stage IS NULL OR stage = '' OR (stage = 'install' AND status = 'pending' AND fact = 0 AND data_vyhoda IS NULL);
     `);
+    await pool.query(`
+      UPDATE tasks SET stage_num = CASE
+        WHEN LOWER(COALESCE(oplata, '')) ~ '(оплач|да|\\+)' OR status = 'paid' OR LOWER(COALESCE(id_status, '')) ~ 'оплач' THEN 9
+        WHEN LOWER(COALESCE(priemka, '')) ~ '(принят|да|\\+)' OR status = 'done' OR LOWER(COALESCE(id_status, '')) ~ 'принят' THEN 7
+        WHEN stage = 'payment' THEN 7
+        WHEN stage = 'acceptance' THEN 6
+        WHEN stage = 'control' THEN 3
+        WHEN stage = 'install' OR stage = 'survey' THEN 1
+        ELSE 0
+      END
+      WHERE stage_num IS NULL OR stage_num = 0;
+    `);
   } catch(err) {
     console.error('Stage backfill migration error:', err.message);
   }
@@ -482,6 +525,85 @@ async function initDB() {
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
+
+// Константы и функции ролевого жизненного цикла ИД («Контроль ИД»)
+export const ID_ROLES = {
+  unassigned: 'Без роли',
+  manager:    'Менеджер',
+  designer:   'Проектировщик',
+  dispatch:   'Отдел отправки',
+  payments:   'Оплаты',
+  leader:     'Руководитель',
+  admin:      'Администратор',
+  worker:     'Монтажник'
+};
+
+export const ID_STEPS = [
+  { label: 'Монтаж начат',        role: 'manager' },
+  { label: 'Объект готов',        role: 'manager' },
+  { label: 'Материалы переданы',  role: 'manager', link: true },
+  { label: 'Взял ИД в работу',    role: 'designer' },
+  { label: 'ИД готова',           role: 'designer', link: true },
+  { label: 'ИД отправлена в Сбер', role: 'dispatch' },
+  { label: 'Сбер принял ИД',      role: 'dispatch' },
+  { label: 'Передано на оплату',  role: 'payments' },
+  { label: 'Оплачено',            role: 'payments' },
+];
+
+export const ID_STAGES = [
+  'Новая',              // 0
+  'В монтаже',          // 1
+  'Ждёт материалов',    // 2
+  'Очередь ИД',         // 3
+  'Проектирование',     // 4
+  'Готова к отправке',  // 5
+  'Ждёт приёмки',       // 6
+  'К оплате',           // 7
+  'Ждёт оплаты',        // 8
+  'Завершена',          // 9
+];
+
+function businessDue(start, days = 3) {
+  let d = new Date(start || Date.now());
+  for (let n = 0; n < days;) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6) n++;
+  }
+  return d.toISOString();
+}
+
+function hasRole(user, ...wanted) {
+  if (!user || !user.role) return false;
+  const userRoles = String(user.role).split(',').map(r => r.trim());
+  if (userRoles.includes('admin') || userRoles.includes('leader')) return true;
+  return userRoles.some(r => wanted.includes(r));
+}
+
+function canStep(user, task) {
+  if (!user || !task) return false;
+  const stageNum = Number(task.stage_num !== undefined ? task.stage_num : task.stageNum) || 0;
+  const s = ID_STEPS[stageNum];
+  if (!s || task.archived) return false;
+  if (hasRole(user, 'admin', 'leader')) return true;
+  if (s.role === 'manager') {
+    const mgrId = task.manager_id !== undefined ? task.manager_id : task.managerId;
+    return hasRole(user, 'manager') && (!mgrId || Number(mgrId) === Number(user.id));
+  }
+  if (s.role === 'designer') {
+    const dsgId = task.designer_id !== undefined ? task.designer_id : task.designerId;
+    return hasRole(user, 'designer') && (!dsgId || Number(dsgId) === Number(user.id) || stageNum === 3);
+  }
+  return hasRole(user, s.role);
+}
+
+function canUndo(user, task) {
+  if (!user || !task) return false;
+  const stageNum = Number(task.stage_num !== undefined ? task.stage_num : task.stageNum) || 0;
+  if (task.archived || stageNum <= 0) return false;
+  if (hasRole(user, 'admin', 'leader')) return true;
+  const prevStep = ID_STEPS[stageNum - 1];
+  return !!prevStep && hasRole(user, prevStep.role);
+}
 // Чистая и мгновенная очистка данных на JavaScript (без вызова Питона)
 function cleanData(data) {
   const numericFields = ['amount', 'distanceKm', 'pricePerUnit', 'tmc', 'extras', 'overdueDays', 'inOrder', 'fact'];
@@ -590,6 +712,14 @@ function rowToTask(r) {
     supplierIdUploaded:  r.supplier_id_uploaded || false,
     overdueReason: r.overdue_reason,
     customer:      r.customer || 'ПАО Сбербанк',
+    stageNum:      Number(r.stage_num) || 0,
+    version:       Number(r.version) || 0,
+    managerId:     r.manager_id ? Number(r.manager_id) : null,
+    designerId:    r.designer_id ? Number(r.designer_id) : null,
+    materialsLink: r.materials_link || '',
+    idLink:        r.id_link || '',
+    stageDue:      r.stage_due ? new Date(r.stage_due).toISOString() : null,
+    openRemarksCount: Number(r.open_remarks_count) || 0,
   }
 }
 
@@ -1470,16 +1600,20 @@ async function sendEmail({ to, subject, html }) {
 // ─── API: TASKS ───────────────────────────────────────────────────────────────
 app.get('/api/tasks', authenticateToken, async (req, res) => {
   try {
-    let query = 'SELECT * FROM tasks';
+    let query = `
+      SELECT t.*,
+        (SELECT COUNT(*) FROM remarks rm WHERE rm.task_id = t.id AND rm.resolved_at IS NULL)::integer AS open_remarks_count
+      FROM tasks t
+    `;
     let params = [];
 
     // Если зашел рабочий (worker), показываем только ЕГО задачи
     if (req.user.role === 'worker') {
-      query += ' WHERE assignee = $1';
+      query += ' WHERE t.assignee = $1';
       params.push(req.user.fullName);
     }
 
-    query += ' ORDER BY created_at';
+    query += ' ORDER BY t.created_at';
     const { rows } = await pool.query(query, params);
     
     // Если рабочий — удаляем финансовую информацию из ответа, чтобы он её не видел
@@ -1642,6 +1776,13 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
         overdue_reason        = COALESCE($34, overdue_reason),
         assignment_status     = COALESCE($35, assignment_status),
         customer              = COALESCE($36, customer),
+        stage_num             = COALESCE($37::integer, stage_num),
+        manager_id            = COALESCE($38::integer, manager_id),
+        designer_id           = COALESCE($39::integer, designer_id),
+        materials_link        = COALESCE($40, materials_link),
+        id_link               = COALESCE($41, id_link),
+        stage_due             = $42,
+        version               = version + 1,
         updated_at    = NOW()
       WHERE id = $1
     `, [
@@ -1684,7 +1825,13 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
       d.supplierIdUploaded  !== undefined ? d.supplierIdUploaded  : null,
       d.overdueReason       || null,
       d.assignmentStatus || null,
-      d.customer    || null
+      d.customer    || null,
+      d.stageNum    !== undefined ? Number(d.stageNum) : null,
+      d.managerId   !== undefined ? (d.managerId ? Number(d.managerId) : null) : null,
+      d.designerId  !== undefined ? (d.designerId ? Number(d.designerId) : null) : null,
+      d.materialsLink !== undefined ? d.materialsLink : null,
+      d.idLink      !== undefined ? d.idLink : null,
+      d.stageDue    ? new Date(d.stageDue) : null
     ]);
 
     // --- УВЕДОМЛЕНИЯ И EMAIL ДЛЯ ИСПОЛНИТЕЛЯ ---
@@ -1771,6 +1918,346 @@ app.delete('/api/tasks/:id', async (req, res) => {
     res.json({ success: true })
   } catch(e) { res.status(500).json({ error: e.message }) }
 })
+
+// ─── API: ЖИЗНЕННЫЙ ЦИКЛ ИД И ЗАМЕЧАНИЯ СБЕРА ─────────────────────────────────
+
+// Перевод на следующий этап
+app.post('/api/tasks/:id/advance', authenticateToken, async (req, res) => {
+  try {
+    const { link, designerId, note } = req.body || {};
+    const { rows } = await pool.query('SELECT * FROM tasks WHERE id=$1', [req.params.id]);
+    const task = rows[0];
+    if (!task) return res.status(404).json({ error: 'Заявка не найдена' });
+
+    const curStage = Number(task.stage_num) || 0;
+    if (curStage >= ID_STEPS.length) {
+      return res.status(400).json({ error: 'Заявка уже на финальном этапе' });
+    }
+
+    // Проверка прав
+    if (!canStep(req.user, task)) {
+      return res.status(403).json({ error: 'У вас нет прав для выполнения этого шага' });
+    }
+
+    const stepInfo = ID_STEPS[curStage];
+
+    // Шаг 0 (Монтаж начат) -> если нет менеджера, привязываем текущего
+    let managerId = task.manager_id;
+    if (curStage === 0 && !managerId && hasRole(req.user, 'manager', 'admin', 'leader')) {
+      managerId = req.user.id;
+    }
+
+    // Шаг 2 (Материалы переданы) -> требуется ссылка или материалы
+    let materialsLink = task.materials_link || '';
+    if (curStage === 2) {
+      const trimmedLink = (link || '').trim();
+      if (!trimmedLink && !materialsLink) {
+        return res.status(400).json({ error: 'Для передачи материалов укажите ссылку на материалы (диск/архив)' });
+      }
+      if (trimmedLink) materialsLink = trimmedLink;
+    }
+
+    // Шаг 3 (Взял ИД в работу) -> привязываем проектировщика и ставим дедлайн
+    let targetDesignerId = task.designer_id;
+    let stageDue = task.stage_due;
+    if (curStage === 3) {
+      if (designerId) targetDesignerId = Number(designerId);
+      else if (hasRole(req.user, 'designer')) targetDesignerId = req.user.id;
+      stageDue = businessDue(new Date().toISOString(), 3); // 3 рабочих дня
+    }
+
+    // Шаг 4 (ИД готова) -> требуется ссылка на готовую ИД
+    let idLink = task.id_link || '';
+    if (curStage === 4) {
+      const trimmedLink = (link || '').trim();
+      if (!trimmedLink && !idLink) {
+        return res.status(400).json({ error: 'Для подтверждения готовности ИД укажите ссылку на готовую документацию' });
+      }
+      if (trimmedLink) idLink = trimmedLink;
+    }
+
+    // Шаг 6 (Сбер принял ИД) -> БЛОКИРОВКА при наличии открытых замечаний!
+    if (curStage === 6) {
+      const { rows: unresolved } = await pool.query(
+        'SELECT id FROM remarks WHERE task_id=$1 AND resolved_at IS NULL LIMIT 1',
+        [req.params.id]
+      );
+      if (unresolved.length > 0) {
+        return res.status(400).json({ error: 'Нельзя принять заявку: сначала устраните открытые замечания Сбера' });
+      }
+    }
+
+    const nextStage = curStage + 1;
+
+    // Синхронизация статуса
+    let newStatus = task.status;
+    let newStageText = task.stage;
+    if (nextStage === 1) { newStatus = 'progress'; newStageText = 'install'; }
+    else if (nextStage === 2) { newStatus = 'progress'; newStageText = 'survey'; }
+    else if (nextStage === 3) { newStatus = 'progress'; newStageText = 'control'; }
+    else if (nextStage === 4) { newStatus = 'progress'; newStageText = 'control'; }
+    else if (nextStage === 5) { newStatus = 'progress'; newStageText = 'control'; }
+    else if (nextStage === 6) { newStatus = 'progress'; newStageText = 'acceptance'; }
+    else if (nextStage === 7) { newStatus = 'done'; newStageText = 'payment'; }
+    else if (nextStage === 8) { newStatus = 'done'; newStageText = 'payment'; }
+    else if (nextStage === 9) { newStatus = 'paid'; newStageText = 'payment'; }
+
+    // Лог в историю
+    const history = Array.isArray(task.history) ? [...task.history] : [];
+    history.push({
+      date: new Date().toISOString(),
+      user: req.user.fullName || req.user.username,
+      userId: req.user.id,
+      action: stepInfo.label,
+      fromStage: curStage,
+      toStage: nextStage,
+      link: link || undefined,
+      note: note || undefined
+    });
+
+    await pool.query(`
+      UPDATE tasks SET
+        stage_num     = $1,
+        status        = $2,
+        stage         = $3,
+        manager_id    = $4,
+        designer_id   = $5,
+        materials_link= $6,
+        id_link       = $7,
+        stage_due     = $8,
+        version       = version + 1,
+        history       = $9::jsonb,
+        updated_at    = NOW()
+      WHERE id = $10
+    `, [
+      nextStage,
+      newStatus,
+      newStageText,
+      managerId,
+      targetDesignerId,
+      materialsLink,
+      idLink,
+      stageDue,
+      JSON.stringify(history),
+      req.params.id
+    ]);
+
+    // Уведомления по сокетам и в БД
+    const recipientRoles = nextStage === 3 ? ['designer'] :
+                           nextStage === 5 ? ['dispatch'] :
+                           nextStage === 7 ? ['payments'] : [];
+    if (recipientRoles.length > 0) {
+      pool.query(
+        "SELECT id FROM users WHERE role = ANY($1)",
+        [recipientRoles]
+      ).then(({ rows: recUsers }) => {
+        recUsers.forEach(u => {
+          createNotification(
+            u.id,
+            `📌 Заявка ${task.id}: ${stepInfo.label}`,
+            `Переведена на этап: ${ID_STAGES[nextStage]}`,
+            task.id
+          );
+        });
+      }).catch(e => console.error('Advance notify error:', e.message));
+    }
+
+    const { rows: updatedRows } = await pool.query('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
+    const updatedTask = rowToTask(updatedRows[0]);
+    io.emit('task-updated', updatedTask);
+    res.json({ success: true, task: updatedTask, stageNum: nextStage, status: newStatus });
+  } catch(e) {
+    console.error('Advance error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Откат на предыдущий этап
+app.post('/api/tasks/:id/undo', authenticateToken, async (req, res) => {
+  try {
+    const { reason } = req.body || {};
+    const { rows } = await pool.query('SELECT * FROM tasks WHERE id=$1', [req.params.id]);
+    const task = rows[0];
+    if (!task) return res.status(404).json({ error: 'Заявка не найдена' });
+
+    const curStage = Number(task.stage_num) || 0;
+    if (curStage <= 0) {
+      return res.status(400).json({ error: 'Заявка уже на начальном этапе' });
+    }
+
+    if (!canUndo(req.user, task)) {
+      return res.status(403).json({ error: 'У вас нет прав для отката этого этапа' });
+    }
+
+    const prevStage = curStage - 1;
+    const history = Array.isArray(task.history) ? [...task.history] : [];
+    history.push({
+      date: new Date().toISOString(),
+      user: req.user.fullName || req.user.username,
+      userId: req.user.id,
+      action: `Откат этапа: ${ID_STAGES[curStage]} ➔ ${ID_STAGES[prevStage]}`,
+      reason: reason || 'Без указания причины',
+      revert: true
+    });
+
+    await pool.query(`
+      UPDATE tasks SET
+        stage_num  = $1,
+        version    = version + 1,
+        history    = $2::jsonb,
+        updated_at = NOW()
+      WHERE id = $3
+    `, [prevStage, JSON.stringify(history), req.params.id]);
+
+    const { rows: updatedRows } = await pool.query('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
+    const updatedTask = rowToTask(updatedRows[0]);
+    io.emit('task-updated', updatedTask);
+    res.json({ success: true, task: updatedTask, stageNum: prevStage });
+  } catch(e) {
+    console.error('Undo error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Замечания Сбера: список замечаний
+app.get('/api/tasks/:id/remarks', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM remarks WHERE task_id = $1 ORDER BY created_at DESC',
+      [req.params.id]
+    );
+    const remarks = rows.map(r => ({
+      id: r.id,
+      taskId: r.task_id,
+      text: r.body || '',
+      body: r.body || '',
+      doc_link: r.link || '',
+      link: r.link || '',
+      created_at: r.created_at,
+      author_id: r.created_by,
+      author_name: r.created_name,
+      resolved_at: r.resolved_at,
+      resolved_by: r.resolved_by,
+      resolver_name: r.resolved_name,
+      resolution: r.resolution,
+      fixed_doc_link: r.resolution_link,
+      resolution_link: r.resolution_link
+    }));
+    res.json(remarks);
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Замечания Сбера: добавить новое замечание
+app.post('/api/tasks/:id/remarks', authenticateToken, async (req, res) => {
+  try {
+    const text = (req.body?.text || req.body?.body || '').trim();
+    const link = (req.body?.link || req.body?.doc_link || '').trim();
+    if (!text) {
+      return res.status(400).json({ error: 'Текст замечания обязателен' });
+    }
+
+    const id = crypto.randomUUID();
+    const { rows } = await pool.query(`
+      INSERT INTO remarks (id, task_id, body, link, created_by, created_name)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+    `, [
+      id,
+      req.params.id,
+      text,
+      link,
+      req.user.id,
+      req.user.fullName || req.user.username
+    ]);
+
+    const r = rows[0];
+    const remark = {
+      id: r.id,
+      taskId: r.task_id,
+      text: r.body || '',
+      body: r.body || '',
+      doc_link: r.link || '',
+      link: r.link || '',
+      created_at: r.created_at,
+      author_id: r.created_by,
+      author_name: r.created_name
+    };
+
+    // Уведомление проектировщику
+    pool.query('SELECT designer_id FROM tasks WHERE id=$1', [req.params.id]).then(({ rows: tRows }) => {
+      if (tRows[0] && tRows[0].designer_id) {
+        createNotification(
+          tRows[0].designer_id,
+          `⚠️ Замечание Сбера: ${req.params.id}`,
+          text.slice(0, 100),
+          req.params.id
+        );
+      }
+    }).catch(e => console.error('Remark notify error:', e.message));
+
+    io.emit('task-remarks-updated', { taskId: req.params.id, remark });
+    res.json({ success: true, remark, id: remark.id, text: remark.text });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Замечания Сбера: закрыть (устранить) замечание
+app.post('/api/tasks/:id/remarks/:remarkId/resolve', authenticateToken, async (req, res) => {
+  try {
+    const resolution = (req.body?.resolution || '').trim();
+    const fixedLink = (req.body?.fixedLink || req.body?.resolutionLink || '').trim();
+    if (!resolution) {
+      return res.status(400).json({ error: 'Укажите, как было устранено замечание' });
+    }
+
+    const { rows } = await pool.query(`
+      UPDATE remarks SET
+        resolution      = $1,
+        resolution_link = $2,
+        resolved_at     = NOW(),
+        resolved_by     = $3,
+        resolved_name   = $4
+      WHERE id = $5 AND task_id = $6
+      RETURNING *
+    `, [
+      resolution,
+      fixedLink,
+      req.user.id,
+      req.user.fullName || req.user.username,
+      req.params.remarkId,
+      req.params.id
+    ]);
+
+    if (!rows[0]) return res.status(404).json({ error: 'Замечание не найдено' });
+
+    const r = rows[0];
+    const remark = {
+      id: r.id,
+      taskId: r.task_id,
+      text: r.body || '',
+      body: r.body || '',
+      doc_link: r.link || '',
+      link: r.link || '',
+      created_at: r.created_at,
+      author_id: r.created_by,
+      author_name: r.created_name,
+      resolved_at: r.resolved_at,
+      resolved_by: r.resolved_by,
+      resolver_name: r.resolved_name,
+      resolution: r.resolution,
+      fixed_doc_link: r.resolution_link,
+      resolution_link: r.resolution_link
+    };
+
+    io.emit('task-remarks-updated', { taskId: req.params.id, remark });
+    res.json({ success: true, remark, id: remark.id });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // ─── API: ВЛОЖЕНИЯ ЗАЯВКИ ────────────────────────────────────────────────────
 
