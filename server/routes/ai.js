@@ -6,9 +6,9 @@ import { authenticateToken } from '../middleware/auth.js';
 const router = express.Router();
 
 // ─── ИИ-АССИСТЕНТ: провайдер ─────────────────────────────────────────────────
-// По умолчанию — локальная модель через Ollama на том же сервере (localhost).
-// env перекрывает (напр. для доступа с другой машины по Tailscale, или на прод через OpenAI/DeepSeek).
-const AI_BASE_URL = process.env.AI_BASE_URL || 'http://localhost:11434/v1';
+// По умолчанию — локальная модель через Ollama на хост-машине (host.docker.internal для Docker).
+// env перекрывает при необходимости.
+const AI_BASE_URL = process.env.AI_BASE_URL || 'http://host.docker.internal:11434/v1';
 const AI_API_KEY  = process.env.AI_API_KEY  || 'ollama';
 const AI_MODEL    = process.env.AI_MODEL    || 'qwen2.5:7b';
 const AI_DAILY_LIMIT = 50; // макс. сообщений (роль=user) в день на пользователя
@@ -19,6 +19,50 @@ function getAiClient() {
   if (!_aiClient) _aiClient = new OpenAI({ baseURL: AI_BASE_URL, apiKey: AI_API_KEY || 'ollama' });
   return _aiClient;
 }
+
+// GET /api/ai/health — проверка связи с Ollama и список моделей
+router.get('/health', authenticateToken, async (req, res) => {
+  const targetUrl = AI_BASE_URL;
+  try {
+    const client = getAiClient();
+    const list = await client.models.list();
+    const models = [];
+    if (list && list.data) {
+      for (const m of list.data) {
+        models.push(m.id);
+      }
+    }
+    return res.json({
+      status: 'ok',
+      baseUrl: targetUrl,
+      currentModel: AI_MODEL,
+      availableModels: models
+    });
+  } catch (e) {
+    // Если host.docker.internal не доступен (напр. локальный запуск вне Docker), пробуем localhost
+    if (targetUrl.includes('host.docker.internal')) {
+      try {
+        const fallbackClient = new OpenAI({ baseURL: 'http://localhost:11434/v1', apiKey: AI_API_KEY });
+        const list = await fallbackClient.models.list();
+        const models = (list.data || []).map(m => m.id);
+        _aiClient = fallbackClient; // переключаемся на рабочий fallback
+        return res.json({
+          status: 'ok',
+          baseUrl: 'http://localhost:11434/v1',
+          currentModel: AI_MODEL,
+          availableModels: models,
+          fallback: true
+        });
+      } catch (_) {}
+    }
+    return res.json({
+      status: 'error',
+      baseUrl: targetUrl,
+      currentModel: AI_MODEL,
+      error: e.message || String(e)
+    });
+  }
+});
 
 // SQL-запросы для режима "Аналитика"
 async function runAnalyticsSql() {
@@ -250,7 +294,12 @@ router.post('/chat', authenticateToken, async (req, res) => {
       );
       return res.json({ success: true, parsed: parsed.parsed || {}, materials: parsed.materials || {} });
     } catch (e) {
-      return res.json({ success: false, error: 'Ошибка парсинга: ' + e.message });
+      console.error('[AI Parse Error]:', e.message || e);
+      let errMsg = e.message || 'Ошибка парсинга';
+      if (errMsg.includes('ECONNREFUSED') || errMsg.includes('Connection error') || errMsg.includes('fetch failed')) {
+        errMsg = `Не удалось подключиться к Ollama (${AI_BASE_URL}). Убедитесь, что Ollama запущена на сервере (порт 11434), разрешены внешние подключения (OLLAMA_HOST=0.0.0.0), и на сервере выполнен 'docker compose up -d'. Детали: ${errMsg}`;
+      }
+      return res.json({ success: false, error: errMsg });
     }
   }
 
@@ -331,8 +380,12 @@ router.post('/chat', authenticateToken, async (req, res) => {
     );
   } catch (e) {
     console.error('[AI Stream Error]:', e.message || e);
+    let errMsg = e.message || 'Ошибка генерации ответа';
+    if (errMsg.includes('ECONNREFUSED') || errMsg.includes('Connection error') || errMsg.includes('fetch failed')) {
+      errMsg = `Не удалось подключиться к Ollama (${AI_BASE_URL}). Убедитесь, что Ollama запущена на сервере (порт 11434), установлена системная переменная OLLAMA_HOST=0.0.0.0, и на сервере выполнен 'docker compose up -d'. Детали: ${errMsg}`;
+    }
     try {
-      res.write('data: ' + JSON.stringify({ error: e.message || 'Ошибка генерации ответа' }) + '\n\n');
+      res.write('data: ' + JSON.stringify({ error: errMsg }) + '\n\n');
       res.write('data: [DONE]\n\n');
       res.end();
     } catch (_) {}

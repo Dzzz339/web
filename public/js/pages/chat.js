@@ -80,7 +80,13 @@ function pageChat() {
         <!-- ИИ-ШАПКА -->
         <div style="padding:12px 16px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:8px">
           <div style="display:flex; align-items:center; justify-content:space-between">
-            <div style="font-weight:700; font-size:1rem">🤖 ИИ-ассистент <span id="ai-mode-label" style="font-size:.75rem; color:var(--text-3)"></span></div>
+            <div style="font-weight:700; font-size:1rem; display:flex; align-items:center; gap:8px;">
+              <span>🤖 ИИ-ассистент</span>
+              <span id="ai-mode-label" style="font-size:.75rem; color:var(--text-3); font-weight:normal;"></span>
+            </div>
+            <div id="ai-health-status" style="font-size:.72rem; padding:3px 10px; border-radius:12px; background:#f3f4f6; color:#6b7280; font-weight:600; cursor:pointer;" onclick="checkAiHealth(true)" title="Проверить статус связи с Ollama">
+              ⏳ Проверка связи...
+            </div>
           </div>
 
           <!-- Переключатели режима -->
@@ -393,6 +399,47 @@ function initAiChat() {
   }
   setAiMode(S.aiMode || 'general');
   renderAiMessages();
+  checkAiHealth(false);
+}
+
+function checkAiHealth(showAlert) {
+  var badge = document.getElementById('ai-health-status');
+  if (badge) {
+    badge.style.background = '#f3f4f6';
+    badge.style.color = '#6b7280';
+    badge.textContent = '⏳ Проверка связи...';
+  }
+  fetch('/api/ai/health', {
+    headers: { 'Authorization': 'Bearer ' + S.token }
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (!badge) return;
+    if (data.status === 'ok') {
+      badge.style.background = '#dcfce7';
+      badge.style.color = '#15803d';
+      badge.textContent = '🟢 Ollama онлайн (' + (data.currentModel || 'qwen') + ')';
+      badge.title = 'Базовый адрес: ' + data.baseUrl + '\nДоступные модели: ' + (data.availableModels || []).join(', ') + '\nНажмите для повторной проверки';
+      if (showAlert) {
+        alert('✅ Связь с Ollama установлена!\n\nБазовый URL: ' + data.baseUrl + '\nТекущая модель: ' + data.currentModel + '\nДоступные модели:\n' + (data.availableModels || []).join('\n'));
+      }
+    } else {
+      badge.style.background = '#fee2e2';
+      badge.style.color = '#b91c1c';
+      badge.textContent = '🔴 Ollama недоступна';
+      badge.title = 'Ошибка: ' + (data.error || 'не отвечает') + '\nURL: ' + data.baseUrl + '\nНажмите для подсказки';
+      if (showAlert) {
+        alert('⚠️ Ollama недоступна!\n\nБазовый URL: ' + data.baseUrl + '\nОшибка: ' + data.error + '\n\nИнструкция для исправления на сервере:\n1. Запустите Ollama на сервере.\n2. В Windows задайте системную переменную OLLAMA_HOST=0.0.0.0 и перезапустите Ollama.\n3. Пересоздайте контейнер web в терминале сервера: docker compose up -d');
+      }
+    }
+  })
+  .catch(function(err) {
+    if (!badge) return;
+    badge.style.background = '#fee2e2';
+    badge.style.color = '#b91c1c';
+    badge.textContent = '🔴 Ошибка связи';
+    if (showAlert) alert('Не удалось выполнить проверку связи: ' + err.message);
+  });
 }
 
 function renderAiMessages() {

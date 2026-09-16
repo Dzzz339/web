@@ -37,9 +37,16 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Статика
-app.use(express.static(ROOT));
-app.use(express.static(path.join(ROOT, 'public')));
+// Статика с защитой от устаревания кэша скриптов в браузере
+const staticOptions = {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.js') || filePath.endsWith('.css') || filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    }
+  }
+};
+app.use(express.static(ROOT, staticOptions));
+app.use(express.static(path.join(ROOT, 'public'), staticOptions));
 app.use('/uploads', express.static(UPLOADS_DIR));
 
 app.get('/', (req, res) => res.sendFile(path.join(ROOT, 'index.html')));
