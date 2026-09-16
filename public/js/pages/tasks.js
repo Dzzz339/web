@@ -1,7 +1,17 @@
 function clearFilters() {
   S.taskQ=''; S.taskSt=''; S.taskPr=''; S.taskReg=''; S.taskMgr=''; S.taskYear=''; S.taskOverdue='';
-  S.taskCustomer=''; S.taskContractor='';
+  S.taskCustomer=''; S.taskContractor=''; S.taskDistanceFilter='';
   S.taskArch='no'; S.taskStage=''; S.taskSort=''; S.taskView='all'; // Сбрасываем фильтры
+  renderApp();
+}
+
+function setTaskFinanceMode(mode) {
+  S.taskFinanceMode = mode;
+  renderApp();
+}
+
+function setTaskDistanceFilter(val) {
+  S.taskDistanceFilter = val;
   renderApp();
 }
 
@@ -24,7 +34,9 @@ function statBox(lbl, val, sub, color) {
 }
 
 function pageTasks() {
-  var q=S.taskQ, st=S.taskSt, pr=S.taskPr, reg=S.taskReg, mgr=S.taskMgr, yr=S.taskYear, ovd=S.taskOverdue, cust=S.taskCustomer, contr=S.taskContractor;
+  var q=S.taskQ, st=S.taskSt, pr=S.taskPr, reg=S.taskReg, mgr=S.taskMgr, yr=S.taskYear, ovd=S.taskOverdue, cust=S.taskCustomer, contr=S.taskContractor, distFilter=S.taskDistanceFilter;
+  var isWorker = S.user && (S.user.role === 'worker' || S.user.role === 'contractor');
+  var finMode = isWorker ? 'contractor' : (S.taskFinanceMode || 'customer');
   
   // 1. Фильтрация
   var filtered = S.tasks.filter(function(t) {
@@ -69,6 +81,15 @@ function pageTasks() {
           return false;
         }
       }
+    }
+
+    // Фильтр по удаленности (транспортные расходы)
+    if (distFilter) {
+      var dKm = Number(t.distanceKm || 0);
+      if (distFilter === 'has' && !(dKm > 0)) return false;
+      if (distFilter === 'none' && dKm > 0) return false;
+      if (distFilter === 'gt5k' && !(dKm >= 5000)) return false;
+      if (distFilter === 'gt10k' && !(dKm >= 10000)) return false;
     }
 
     // Остальные фильтры (статус, приоритет и т.д. — оставляем как было)
@@ -145,17 +166,41 @@ function pageTasks() {
     return '<option value="'+safe+'"'+(cur===v?' selected':'')+'>'+v+'</option>';
   }).join('');}
 
-  var hasFilter = q||st||pr||reg||mgr||yr||ovd||cust||contr||S.taskArch==='yes'||S.taskStage||(S.taskView && S.taskView !== 'all');
+  var hasFilter = q||st||pr||reg||mgr||yr||ovd||cust||contr||distFilter||S.taskArch==='yes'||S.taskStage||(S.taskView && S.taskView !== 'all');
 
-  // Сетка totals изменена на 7 колонок (repeat(7,1fr))
+  var sumTransportAll = filtered.reduce(function(s,t){ return s + Number(t.distanceKm || 0); }, 0);
+  var sumContAll = filtered.reduce(function(s, t) { return s + getTaskContractorFinance(t).total; }, 0);
+  var sumContPaid = filtered.filter(function(t) { return getTaskContractorFinance(t).isPaid; }).reduce(function(s, t) { return s + getTaskContractorFinance(t).total; }, 0);
+  var sumContPending = Math.max(0, sumContAll - sumContPaid);
+  var sumContTransport = filtered.reduce(function(s, t) { return s + getTaskContractorFinance(t).transport; }, 0);
+  var sumMargin = sumAll - sumContAll;
+  var marginPct = sumAll > 0 ? Math.round(sumMargin / sumAll * 100) : 0;
+
+  var modeSwitcher = isWorker ? '' : '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;flex-wrap:wrap;gap:8px">' +
+    '<div style="display:flex;align-items:center;gap:4px;background:#f1f5f9;padding:3px 4px;border-radius:8px;border:1px solid var(--border)">' +
+      '<button type="button" class="btn btn-sm ' + (finMode === 'customer' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskFinanceMode(\'customer\')" style="font-size:.78rem;padding:4px 12px;height:auto">🏦 Заказчик (Сбер)</button>' +
+      '<button type="button" class="btn btn-sm ' + (finMode === 'contractor' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskFinanceMode(\'contractor\')" style="font-size:.78rem;padding:4px 12px;height:auto">🤝 Подрядчики</button>' +
+    '</div>' +
+    '<div style="font-size:.76rem;color:var(--text-3)">' + (finMode === 'customer' ? 'Отображаются цены, удаленность и общая стоимость по Заказчику (Сбер)' : 'Отображаются ставки, транспортные и выплаты подрядчикам') + '</div>' +
+  '</div>';
+
   var totals = '<div class="card p mb" style="display:grid;grid-template-columns:repeat(7,1fr);gap:.5rem;padding:.75rem 1rem">' +
-    statBox('Заявок', fmtN(filtered.length), 'из '+fmtN(S.tasks.length), 'var(--orange)') +
-    statBox('Сумма', fmtMoney(sumAll), null, null) +
-    statBox('Выполнено', fmtMoney(sumDone), null, 'var(--green)') +
-    statBox('В работе', fmtMoney(sumAct), null, 'var(--orange)') +
-    statBox('Просрочено', fmtN(cntOvd), null, cntOvd>0?'var(--red)':'var(--green)') +
-    statBox('Портов', fmtN(portsDone)+'/'+fmtN(portsTotal), null, null) +
-    statBox('Остаток портов', fmtN(portBalance), 'заказ - факт', portBalance > 0 ? 'var(--orange)' : 'var(--green)') +
+    (finMode === 'customer'
+      ? (statBox('Заявок', fmtN(filtered.length), 'из '+fmtN(S.tasks.length), 'var(--orange)') +
+         statBox('Общая стоимость', fmtMoney(sumAll), 'с удаленкой', null) +
+         statBox('Выполнено', fmtMoney(sumDone), null, 'var(--green)') +
+         statBox('В работе', fmtMoney(sumAct), null, 'var(--orange)') +
+         statBox('Удаленность', fmtMoney(sumTransportAll), 'транспорт всего', null) +
+         statBox('Портов', fmtN(portsDone)+'/'+fmtN(portsTotal), null, null) +
+         statBox('Остаток портов', fmtN(portBalance) + ' шт.', 'в заказе минус факт', portBalance > 0 ? 'var(--orange)' : 'var(--green)'))
+      : (statBox('Заявок', fmtN(filtered.length), 'из '+fmtN(S.tasks.length), 'var(--orange)') +
+         statBox('Общая подрядчикам', fmtMoney(sumContAll), null, null) +
+         statBox('Выплачено', fmtMoney(sumContPaid), null, 'var(--green)') +
+         statBox('К выплате', fmtMoney(sumContPending), null, 'var(--orange)') +
+         statBox('Транспортные', fmtMoney(sumContTransport), 'подрядчикам', null) +
+         statBox('Портов', fmtN(portsDone)+'/'+fmtN(portsTotal), null, null) +
+         statBox('План. маржа', fmtMoney(sumMargin), (marginPct + '% от Сбера'), 'var(--green)'))
+    ) +
   '</div>';
 
   // Подсчет заявок по Quick Views (быстрым ролевым табам)
@@ -201,6 +246,19 @@ function pageTasks() {
     
     var tid = (t.id || '').replace(/'/g, "\\'");
     var fin = getTaskFinance(t);
+    var cFin = getTaskContractorFinance(t);
+
+    var financeCells = (finMode === 'customer')
+      ? (
+          '<td style="white-space:nowrap; color:var(--text-2)" title="Цена за единицу / объем">' + (fin.unitPrice > 0 ? fmtMoney(fin.unitPrice) : '<span class="t3">—</span>') + '</td>' +
+          '<td style="white-space:nowrap; color:' + (fin.transport > 0 ? 'var(--text)' : 'var(--text-3)') + '" title="Сумма за удаленность">' + (fin.transport > 0 ? fmtMoney(fin.transport) : '<span class="t3">—</span>') + '</td>' +
+          '<td style="white-space:nowrap; font-weight:700; color:var(--blue)" title="Общая стоимость договора">' + fmtMoney(fin.total) + '</td>'
+        )
+      : (
+          '<td style="white-space:nowrap; color:var(--text-2)" title="Ставка / цена подрядчика">' + (cFin.unitPrice > 0 ? fmtMoney(cFin.unitPrice) : '<span class="t3">—</span>') + '</td>' +
+          '<td style="white-space:nowrap; color:' + (cFin.transport > 0 ? 'var(--text)' : 'var(--text-3)') + '" title="Транспортные расходы подрядчику">' + (cFin.transport > 0 ? fmtMoney(cFin.transport) : '<span class="t3">—</span>') + '</td>' +
+          '<td style="white-space:nowrap; font-weight:700; color:var(--orange-dark)" title="Общая сумма к выплате подрядчику">' + (cFin.total > 0 ? fmtMoney(cFin.total) : '<span class="t3">—</span>') + '</td>'
+        );
 
     tableRows += '<tr>' +
       // Номер с подсветкой
@@ -225,14 +283,13 @@ function pageTasks() {
       '<td>' + idStageBadge(t.stageNum) + (Number(t.openRemarksCount) > 0 ? ' <span class="badge b-red" style="font-size:.68rem;padding:1px 5px" title="Открытые замечания Сбера">⚠️ ' + t.openRemarksCount + '</span>' : '') + '</td>' +
       '<td>' + stBadge(t.status) + '</td>' +
 
-      '<td style="white-space:nowrap; font-weight:700; color:var(--blue)">' + fmtMoney(fin.total) + '</td>' +
-      '<td style="white-space:nowrap; color:var(--text-3)">' + fmtMoney(t.amount) + '</td>' +
+      financeCells +
       '<td><button class="btn btn-sm btn-ghost btn-icon" onclick="exportTask(\'' + tid + '\')">&#x2B07;</button></td>' +
     '</tr>';
   });
 
   var more = filtered.length>300
-    ? '<tr><td colspan="12" style="text-align:center;padding:1rem;color:var(--text-3)">… ещё '+(filtered.length-300)+' заявок — уточните фильтр</td></tr>'
+    ? '<tr><td colspan="13" style="text-align:center;padding:1rem;color:var(--text-3)">… ещё '+(filtered.length-300)+' заявок — уточните фильтр</td></tr>'
     : '';
 
   return '<h1 class="page-title">Заявки</h1>' +
@@ -258,6 +315,13 @@ function pageTasks() {
         '<option value="yes"'+(ovd==='yes'?' selected':'')+'>⛔ Просроченные</option>' +
         '<option value="no"'+(ovd==='no'?' selected':'')+'>✓ Без просрочки</option>' +
       '</select>' +
+      '<select id="tdist">' +
+        '<option value="">Удаленность: Все</option>' +
+        '<option value="has"'  + (distFilter==='has'?' selected':'')  + '>🚗 С удаленностью (&gt;0 ₽)</option>' +
+        '<option value="none"' + (distFilter==='none'?' selected':'') + '>🏢 Без удаленности (0 ₽)</option>' +
+        '<option value="gt5k"' + (distFilter==='gt5k'?' selected':'') + '>💰 Удаленность &gt; 5 000 ₽</option>' +
+        '<option value="gt10k"'+ (distFilter==='gt10k'?' selected':'')+ '>💰 Удаленность &gt; 10 000 ₽</option>' +
+      '</select>' +
       // ВОТ ОН, СЕЛЕКТОР АРХИВА:
       '<select id="tarch">' +
         '<option value="no"' + (S.taskArch==='no'?' selected':'') + '>Активные</option>' +
@@ -282,12 +346,17 @@ function pageTasks() {
       (hasFilter||S.taskSort ? '<button class="btn btn-sm btn-ghost" onclick="clearFilters()">✕ Сбросить</button>' : '') +
     '</div>' +
     stageTabsHtml +
+    modeSwitcher +
     totals +
     '<div class="card tbl-wrap">' +
-      '<table><thead><tr>' +
+      '<table class="tasks-table"><thead><tr>' +
         '<th>Номер</th><th>Дата</th><th>Регион</th><th>Порты</th><th>Контрагент</th>' +
         '<th>Приоритет</th><th>Просрочка</th><th>Этап</th><th>Статус</th>' +
-        '<th title="Итого: ПО + ТМЦ">Платит Сбер</th><th title="Сумма из Excel">Сумма (спр.)</th><th></th>' +
+        (finMode === 'customer'
+          ? '<th title="Стоимость за единицу / объем работ">Цена</th><th title="Сумма за удаленность (транспортные расходы)">Удаленность</th><th title="Итоговая сумма договора Сбера">Общая стоимость</th>'
+          : '<th title="Ставка / стоимость работ подрядчика">Цена подрядчика</th><th title="Транспортные расходы подрядчику">Транспортные</th><th title="Общая сумма к выплате подрядчику">Общая подрядчику</th>'
+        ) +
+        '<th></th>' +
       '</tr></thead><tbody>'+tableRows+more+'</tbody></table>' +
     '</div>' +
     renderContractorPicker();

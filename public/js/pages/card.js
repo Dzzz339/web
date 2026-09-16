@@ -282,6 +282,7 @@ function pageCard() {
     return '<option value="'+v+'"'+(curStage===v?' selected':'')+'>'+stageLabel[v]+'</option>';
   }).join('');
   var docBtns =
+    '<button class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\''+eid+'\')" title="Сформировать официальное письмо на допуск в Word (с паспортами монтажников)">📄 Допуск (.docx)</button>' +
     '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'app2\',\''+eid+'\')" title="\u041f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u0435 \u21162">&#x2B07; \u041f\u0440\u0438\u043b. \u21162</button>' +
     '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'invoice\',\''+eid+'\')" title="\u0421\u0447\u0451\u0442">&#x1F4CB; \u0421\u0447\u0451\u0442</button>' +
     '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'act\',\''+eid+'\')" title="\u0410\u043a\u0442">&#x2714; \u0410\u043a\u0442</button>' +
@@ -623,6 +624,15 @@ function pageCard() {
   '</div>';
 
   var paneFiles = '<div id="cardTabPane-files" class="card-tab-pane" style="display:' + (curTab === 'files' ? 'block' : 'none') + '">' +
+    '<div class="card p mb" style="border:1.5px solid var(--orange);background:#fffcf5">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">' +
+        '<div>' +
+          '<div style="font-weight:700;font-size:1rem;color:var(--text)">📄 Официальное письмо на допуск (Word .docx)</div>' +
+          '<div style="font-size:.82rem;color:var(--text-2);margin-top:2px">Сформировать и скачать письмо в Сбербанк с паспортными данными и контактами назначенных монтажников</div>' +
+        '</div>' +
+        '<button class="btn btn-sm" onclick="openAccessLetterModal(\'' + eid + '\')">📄 Сформировать допуск</button>' +
+      '</div>' +
+    '</div>' +
     '<div class="card p mb">' +
       '<div class="sec-title" style="margin-bottom:.5rem">Облачные ссылки на документацию</div>' +
       field('Ссылка на материалы (исходники)', 'materialsLink', 'url') +
@@ -1151,4 +1161,183 @@ function cancelTaskPrompt(taskId) {
     alert('Ошибка отмены заявки: ' + (err.message || err));
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// МОДАЛЬНОЕ ОКНО ФОРМИРОВАНИЯ ПИСЬМА НА ДОПУСК (Word .docx)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function openAccessLetterModal(taskId) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); }) || { id: taskId };
+  
+  var p = S.specialists ? Promise.resolve(S.specialists) : api('/specialists').then(function(specs){ S.specialists = specs; return specs; });
+  
+  p.then(function(specialists) {
+    var existing = document.getElementById('_access_letter_modal');
+    if (existing) existing.remove();
+
+    var defaultContractor = 'ООО "Ультима"';
+    var defaultResponsible = '8(923) 102-40-42, ПМ – Чайка Алексей Николаевич';
+    
+    var parts = [];
+    if (t.address) parts.push(t.address);
+    if (t.vsp) parts.push('ВСП ' + t.vsp);
+    if (t.gosb) parts.push('ГОСБ ' + t.gosb);
+    parts.push('Заявка № ' + t.id);
+    if (t.contact) parts.push('Контакт: ' + t.contact);
+    var defaultTaskInfo = parts.join(', ');
+
+    var specsList = specialists || [];
+
+    var modal = document.createElement('div');
+    modal.id = '_access_letter_modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(2px)';
+    
+    modal.innerHTML = `
+      <div style="background:#fff;border-radius:14px;padding:1.5rem;width:100%;max-width:640px;box-shadow:0 12px 48px rgba(0,0,0,.25);max-height:90vh;display:flex;flex-direction:column">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+          <div>
+            <div style="font-weight:700;font-size:1.1rem">📄 Письмо на допуск (Word .docx)</div>
+            <div style="font-size:.8rem;color:var(--text-3);margin-top:2px">Подготовка допуска для объекта: <b>${escHtml(t.id)}</b></div>
+          </div>
+          <button onclick="document.getElementById('_access_letter_modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-3);line-height:1">×</button>
+        </div>
+
+        <div style="overflow-y:auto;flex:1;padding-right:4px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+            <div>
+              <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Организация подрядчика</label>
+              <input type="text" id="alm_contractor" value="${escHtml(defaultContractor)}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">
+            </div>
+            <div>
+              <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Ответственный руководитель (ПМ)</label>
+              <input type="text" id="alm_responsible" value="${escHtml(defaultResponsible)}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">
+            </div>
+          </div>
+
+          <div style="margin-bottom:12px">
+            <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Данные объекта и основание (автозаполнение из заявки)</label>
+            <textarea id="alm_task_info" rows="2" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;resize:vertical">${escHtml(defaultTaskInfo)}</textarea>
+          </div>
+
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <label style="font-size:.75rem;font-weight:700;color:var(--text-2);text-transform:uppercase">Выберите монтажников для допуска:</label>
+            <input type="text" id="alm_search" placeholder="Быстрый поиск..." oninput="filterAlmSpecialists(this.value)" style="padding:4px 8px;font-size:.8rem;border:1px solid var(--border);border-radius:4px;width:160px">
+          </div>
+
+          <div id="alm_specialists_list" style="border:1.5px solid var(--border);border-radius:8px;max-height:260px;overflow-y:auto;padding:6px;background:var(--bg)">
+            ${specsList.map(function(s) {
+              var hasPass = s.passport_raw && s.passport_raw.trim() !== '';
+              var passSnippet = s.passport_raw || s.passport_series_number || 'Паспортные данные не заполнены';
+              return `
+                <label class="alm-spec-item" data-name="${escHtml((s.full_name||'').toLowerCase())}" style="display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;margin-bottom:4px;background:#fff;border:1px solid var(--border);user-select:none">
+                  <input type="checkbox" name="alm_spec_cb" value="${s.id}" style="margin-top:3px">
+                  <div style="flex:1;min-width:0">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                      <span style="font-weight:600;font-size:.85rem">${escHtml(s.full_name)}</span>
+                      <span style="font-size:.72rem;color:var(--text-3)">${escHtml(s.phone || 'без телефона')}</span>
+                    </div>
+                    <div style="font-size:.74rem;color:${hasPass ? 'var(--text-2)' : 'var(--red)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                      ${hasPass ? '🪪 ' + escHtml(passSnippet) : '⚠️ Паспорт не заполнен'}
+                    </div>
+                  </div>
+                </label>
+              `;
+            }).join('')}
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1.25rem;border-top:1px solid var(--border);padding-top:12px">
+          <div style="font-size:.8rem;color:var(--text-3)">
+            Выбрано: <b id="alm_selected_count">0</b> чел.
+          </div>
+          <div style="display:flex;gap:8px">
+            <button onclick="document.getElementById('_access_letter_modal').remove()" class="btn btn-ghost btn-sm">Отмена</button>
+            <button id="alm_download_btn" class="btn btn-sm" onclick="downloadAccessLetter('${escHtml(taskId)}')">📥 Скачать письмо (.docx)</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+    modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
+
+    var cbs = modal.querySelectorAll('input[name="alm_spec_cb"]');
+    cbs.forEach(function(cb){
+      cb.addEventListener('change', function(){
+        var sel = modal.querySelectorAll('input[name="alm_spec_cb"]:checked').length;
+        var cntEl = document.getElementById('alm_selected_count');
+        if (cntEl) cntEl.textContent = sel;
+      });
+    });
+  });
+}
+
+function filterAlmSpecialists(val) {
+  var q = (val || '').toLowerCase().trim();
+  var items = document.querySelectorAll('.alm-spec-item');
+  items.forEach(function(el){
+    var name = el.getAttribute('data-name') || '';
+    el.style.display = (!q || name.includes(q)) ? 'flex' : 'none';
+  });
+}
+
+function downloadAccessLetter(taskId) {
+  var modal = document.getElementById('_access_letter_modal');
+  if (!modal) return;
+
+  var contractorName = (document.getElementById('alm_contractor') ? document.getElementById('alm_contractor').value : '').trim();
+  var responsibleInfo = (document.getElementById('alm_responsible') ? document.getElementById('alm_responsible').value : '').trim();
+  var customTaskInfo = (document.getElementById('alm_task_info') ? document.getElementById('alm_task_info').value : '').trim();
+
+  var checkedCbs = modal.querySelectorAll('input[name="alm_spec_cb"]:checked');
+  var specialistIds = Array.from(checkedCbs).map(function(cb){ return parseInt(cb.value); });
+
+  if (specialistIds.length === 0) {
+    return alert('Пожалуйста, выберите хотя бы одного специалиста для допуска');
+  }
+
+  var btn = document.getElementById('alm_download_btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Генерация Word...';
+  }
+
+  fetch('/api/tasks/' + encodeURIComponent(taskId) + '/access-letter', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + S.token
+    },
+    body: JSON.stringify({
+      specialistIds: specialistIds,
+      contractorName: contractorName,
+      responsibleInfo: responsibleInfo,
+      customTaskInfo: customTaskInfo
+    })
+  })
+  .then(function(r) {
+    if (!r.ok) return r.json().then(function(e){ throw new Error(e.error || 'Ошибка сервера'); });
+    return r.blob();
+  })
+  .then(function(blob) {
+    var bUrl = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = bUrl;
+    var cleanId = taskId.replace(/[/\\?%*:|"<>]/g, '_');
+    a.download = 'Pismo_na_dopusk_' + cleanId + '.docx';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(bUrl);
+    modal.remove();
+  })
+  .catch(function(err) {
+    alert('Не удалось сформировать письмо на допуск: ' + err.message);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '📥 Скачать письмо (.docx)';
+    }
+  });
+}
+
 // ─── PAGE: МАРШИ ─────────────────────────────────────────────────────────────

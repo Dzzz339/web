@@ -4,3 +4,5 @@ db.json
 .sql
 desktop/node_modules/
 desktop/dist/
+документы/
+uploads/archive/

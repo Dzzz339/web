@@ -555,6 +555,8 @@ function bindEvents() {
   if (tyr) tyr.addEventListener('change', function(){ S.taskYear = this.value; renderApp(); });
   var tovd = document.getElementById('tovd');
   if (tovd) tovd.addEventListener('change', function(){ S.taskOverdue = this.value; renderApp(); });
+  var tdist = document.getElementById('tdist');
+  if (tdist) tdist.addEventListener('change', function(){ S.taskDistanceFilter = this.value; renderApp(); });
   // file upload
   var ufile = document.getElementById('ufile');
   if (ufile) ufile.addEventListener('change', function(){ if(this.files[0]) doUpload(this.files[0]); });

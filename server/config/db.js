@@ -279,6 +279,46 @@ export async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_items_contractor_id ON task_items(contractor_id)`);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS specialists (
+      id                      SERIAL PRIMARY KEY,
+      full_name               TEXT NOT NULL,
+      phone                   TEXT,
+      passport_series_number  TEXT,
+      passport_issued_by      TEXT,
+      passport_issue_date     TEXT,
+      passport_code           TEXT,
+      passport_raw            TEXT,
+      organization            TEXT DEFAULT 'ООО "Ультима"',
+      position                TEXT DEFAULT 'Монтажник СКС',
+      contractor_id           INTEGER REFERENCES contractors(id) ON DELETE SET NULL,
+      user_id                 INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at              TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_specialists_name ON specialists(full_name)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_specialists_contractor ON specialists(contractor_id)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS powers_of_attorney (
+      id              SERIAL PRIMARY KEY,
+      number          TEXT NOT NULL,
+      issue_date      DATE,
+      valid_until     DATE,
+      person_name     TEXT NOT NULL,
+      specialist_id   INTEGER REFERENCES specialists(id) ON DELETE SET NULL,
+      contractor_name TEXT,
+      organization    TEXT,
+      status          TEXT DEFAULT 'active',
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_poa_specialist ON powers_of_attorney(specialist_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_poa_person ON powers_of_attorney(person_name)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_poa_valid_until ON powers_of_attorney(valid_until)`);
+  await pool.query(`ALTER TABLE powers_of_attorney ADD COLUMN IF NOT EXISTS contractor_id INTEGER REFERENCES contractors(id) ON DELETE SET NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_poa_contractor_id ON powers_of_attorney(contractor_id)`);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS invoices (
       id            SERIAL PRIMARY KEY,
       task_id       TEXT REFERENCES tasks(id) ON DELETE CASCADE,

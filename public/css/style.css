@@ -643,6 +643,8 @@
     tbody td { padding: 8px 11px; border-bottom: 1px solid #F4F4F5; vertical-align: middle; }
     tbody tr:hover td { background: var(--orange-bg); }
     tbody tr:last-child td { border-bottom: none; }
+    .tasks-table th { padding: 8px 7px; font-size: .68rem; }
+    .tasks-table td { padding: 7px 7px; font-size: .78rem; }
 
     /* CHAIN */
     .chain-steps { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

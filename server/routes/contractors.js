@@ -1,6 +1,7 @@
 import express from 'express';
 import { pool } from '../config/db.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { syncContractorsFromPOA } from '../services/directoriesImporter.js';
 
 const router = express.Router();
 
@@ -182,6 +183,17 @@ router.get('/dadata/suggest-party', authenticateToken, async (req, res) => {
   } catch (e) {
     console.error("DaData Suggest Party error:", e.message);
     res.json([]);
+  }
+});
+
+// Синхронизация контрагентов из реестра доверенностей через DaData
+router.post('/contractors/sync-from-poa', authenticateToken, async (req, res) => {
+  try {
+    const result = await syncContractorsFromPOA();
+    res.json(result);
+  } catch (e) {
+    console.error("DaData Sync from POA error:", e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 

@@ -13,6 +13,7 @@ var S = {
   taskContractor: '',
   taskArch: 'no',
   taskStage: '', taskSort: '', taskView: 'all',
+  taskFinanceMode: 'customer', taskDistanceFilter: '',
   kanbanQ: '', kanbanReg: '', kanbanMgr: '', kanbanCustomer: '',
   cardId: null, cardDraft: {}, cardConfirmOpen: false, cardTab: 'main', helpTab: 'quickstart',
   cpTaskId: null, cpMode: 'search', cpQuery: '',

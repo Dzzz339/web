@@ -24,8 +24,8 @@ function pageContractors() {
         </td>
         <td style="padding: 10px 12px">${badge(tInfo.cls, tInfo.label)}</td>
         <td style="padding: 10px 12px" class="t3">${escHtml(c.director || '—')}</td>
-        <td style="padding: 10px 12px">${escHtml(c.phone || '—')}</td>
-        <td style="padding: 10px 12px; text-align:right">
+        <td style="padding: 10px 12px; text-align:right; white-space:nowrap">
+          <button class="btn btn-sm btn-ghost" onclick="viewContractorDetails(${c.id})" title="Просмотр доверенностей и специалистов">📋 Персонал и доверенности</button>
           <button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteContractor(${c.id})" title="Удалить">✕</button>
         </td>
       </tr>
@@ -36,10 +36,18 @@ function pageContractors() {
 
   return `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem; flex-wrap:wrap; gap:10px">
-      <h1 class="page-title" style="margin:0">Справочник Контрагентов</h1>
-      <button class="btn" onclick="toggleContractorForm()">
-        ${formOpen ? '✕ Закрыть форму' : '+ Добавить контрагента'}
-      </button>
+      <div>
+        <h1 class="page-title" style="margin:0">Справочник Контрагентов</h1>
+        <div style="font-size:.82rem; color:var(--text-3); margin-top:2px">Официальные реквизиты, ИНН, директора и привязка к доверенностям</div>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap">
+        <button id="btn_sync_poa_contractors" class="btn btn-ghost" onclick="syncContractorsFromPOAAction()" title="Автоматически найти и добавить всех контрагентов из доверенностей через DaData">
+          ⚡ Синхронизировать из доверенностей (DaData)
+        </button>
+        <button class="btn" onclick="toggleContractorForm()">
+          ${formOpen ? '✕ Закрыть форму' : '+ Добавить контрагента'}
+        </button>
+      </div>
     </div>
 
     <!-- ФОРМА ДОБАВЛЕНИЯ (СКРЫТА ПО УМОЛЧАНИЮ) -->
@@ -117,10 +125,10 @@ function pageContractors() {
     <div style="display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap; align-items:center">
       <span class="t3" style="font-size:.8rem; margin-right:4px">Фильтр по типу:</span>
       <button class="btn btn-sm ${filterType === 'all' ? '' : 'btn-ghost'}" onclick="setContractorFilterType('all')">Все (${(S.contractors || []).length})</button>
-      <button class="btn btn-sm ${filterType === 'customer' ? '' : 'btn-ghost'}" onclick="setContractorFilterType('customer')">Заказчики</button>
-      <button class="btn btn-sm ${filterType === 'executor' ? '' : 'btn-ghost'}" onclick="setContractorFilterType('executor')">Исполнители</button>
-      <button class="btn btn-sm ${filterType === 'supplier' ? '' : 'btn-ghost'}" onclick="setContractorFilterType('supplier')">Поставщики</button>
-      <button class="btn btn-sm ${filterType === 'internal' ? '' : 'btn-ghost'}" onclick="setContractorFilterType('internal')">Собственные</button>
+      <button class="btn btn-sm ${filterType === 'customer' ? '' : 'btn-ghost'}" onclick="setContractorFilterType('customer')">Заказчики (${(S.contractors || []).filter(c=>c.type==='customer').length})</button>
+      <button class="btn btn-sm ${filterType === 'executor' ? '' : 'btn-ghost'}" onclick="setContractorFilterType('executor')">Исполнители (${(S.contractors || []).filter(c=>(c.type||'executor')==='executor').length})</button>
+      <button class="btn btn-sm ${filterType === 'supplier' ? '' : 'btn-ghost'}" onclick="setContractorFilterType('supplier')">Поставщики (${(S.contractors || []).filter(c=>c.type==='supplier').length})</button>
+      <button class="btn btn-sm ${filterType === 'internal' ? '' : 'btn-ghost'}" onclick="setContractorFilterType('internal')">Собственные (${(S.contractors || []).filter(c=>c.type==='internal').length})</button>
     </div>
 
     <!-- Таблица -->
@@ -324,7 +332,124 @@ document.addEventListener('click', function(e) {
   });
 });
 
+function viewContractorDetails(contractorId) {
+  var c = (S.contractors || []).find(function(x){ return x.id === contractorId; });
+  if (!c) return;
 
+  Promise.all([
+    api('/specialists?contractorId=' + contractorId).catch(() => []),
+    api('/powers-of-attorney?contractorId=' + contractorId).catch(() => [])
+  ]).then(function(results) {
+    var specs = results[0] || [];
+    var poas = results[1] || [];
 
+    var existing = document.getElementById('_contractor_details_modal');
+    if (existing) existing.remove();
 
-// ─── PAGE: CARD ───────────────────────────────────────────────────────────────
+    var modal = document.createElement('div');
+    modal.id = '_contractor_details_modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(2px)';
+
+    var specsHtml = specs.length ? specs.map(function(s) {
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid var(--border);font-size:.85rem">
+          <div>
+            <b>${escHtml(s.full_name)}</b> <span class="t3" style="font-size:.75rem">(${escHtml(s.position || 'Монтажник')})</span>
+          </div>
+          <div style="font-size:.8rem;color:var(--text-3)">${escHtml(s.phone || '—')}</div>
+        </div>
+      `;
+    }).join('') : '<div style="color:var(--text-3);padding:8px 0;font-size:.85rem">Нет привязанных специалистов</div>';
+
+    var poasHtml = poas.length ? poas.map(function(p) {
+      var dStr = p.valid_until ? new Date(p.valid_until).toLocaleDateString('ru') : 'Бессрочно';
+      var st = p.computed_status === 'expired' ? '<span class="badge b-red">Просрочена</span>' : '<span class="badge b-green">Действует</span>';
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid var(--border);font-size:.85rem">
+          <div>
+            <b style="font-family:monospace">№ ${escHtml(p.number)}</b> &bull; ${escHtml(p.person_name)}
+          </div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:.75rem;color:var(--text-3)">до ${dStr}</span>
+            ${st}
+          </div>
+        </div>
+      `;
+    }).join('') : '<div style="color:var(--text-3);padding:8px 0;font-size:.85rem">Нет доверенностей</div>';
+
+    modal.innerHTML = `
+      <div style="background:#fff;border-radius:14px;padding:1.5rem;width:100%;max-width:600px;box-shadow:0 12px 48px rgba(0,0,0,.25);max-height:90vh;display:flex;flex-direction:column">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1rem">
+          <div>
+            <h2 style="margin:0;font-size:1.2rem">${escHtml(c.name_short)}</h2>
+            <div style="font-size:.78rem;color:var(--text-3);margin-top:2px">ИНН: ${escHtml(c.inn)} ${c.director ? '&bull; Руководитель: ' + escHtml(c.director) : ''}</div>
+          </div>
+          <button onclick="document.getElementById('_contractor_details_modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-3);line-height:1">×</button>
+        </div>
+
+        <div style="overflow-y:auto;flex:1">
+          <!-- СПЕЦИАЛИСТЫ -->
+          <div style="margin-bottom:1.25rem">
+            <div style="font-weight:700;font-size:.9rem;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+              <span>👷 Закреплённые специалисты</span>
+              <span class="badge b-blue" style="font-size:.72rem">${specs.length} чел.</span>
+            </div>
+            <div style="background:var(--bg);border-radius:8px;padding:4px 8px;border:1px solid var(--border);max-height:180px;overflow-y:auto">
+              ${specsHtml}
+            </div>
+          </div>
+
+          <!-- ДОВЕРЕННОСТИ -->
+          <div>
+            <div style="font-weight:700;font-size:.9rem;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+              <span>📜 Связанные доверенности</span>
+              <span class="badge b-gray" style="font-size:.72rem">${poas.length} шт.</span>
+            </div>
+            <div style="background:var(--bg);border-radius:8px;padding:4px 8px;border:1px solid var(--border);max-height:220px;overflow-y:auto">
+              ${poasHtml}
+            </div>
+          </div>
+        </div>
+
+        <div style="text-align:right;margin-top:1.25rem;border-top:1px solid var(--border);padding-top:10px">
+          <button onclick="document.getElementById('_contractor_details_modal').remove()" class="btn btn-sm">Закрыть</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+    modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
+  });
+}
+
+function syncContractorsFromPOAAction() {
+  var btn = document.getElementById('btn_sync_poa_contractors');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Синхронизация с DaData...';
+  }
+
+  api('/contractors/sync-from-poa', { method: 'POST' })
+    .then(function(res) {
+      if (res && res.error) {
+        alert('Ошибка синхронизации: ' + res.error);
+      } else {
+        alert('✅ Успешно синхронизировано контрагентов из доверенностей!\nДобавлено новых: ' + (res.added || 0) + '\nОбновлено: ' + (res.updated || 0) + '\nВсего в доверенностях: ' + (res.totalPOAContractors || 0));
+        api('/contractors').then(function(list) {
+          S.contractors = list;
+          renderApp();
+        });
+      }
+    })
+    .catch(function(err) {
+      alert('Ошибка при запросе к DaData: ' + (err.message || err));
+    })
+    .finally(function() {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '⚡ Синхронизировать из доверенностей (DaData)';
+      }
+    });
+}
+
+

@@ -354,19 +354,73 @@ function resolveRemarkPrompt(taskId, remarkId) {
   });
 }
 function getTaskFinance(t) {
-  var work = Math.round((Number(t.fact) || 0) * (Number(t.pricePerUnit) || 0));
-  // Берем готовые рубли прямо из базы (без умножения на тарифы)
+  var unitPrice = Number(t.pricePerUnit) || 0;
+  var fact = Number(t.fact) || 0;
+  var inOrder = Number(t.inOrder) || 0;
+  var work = Math.round(fact > 0 ? (fact * unitPrice) : (inOrder * unitPrice));
   var transport = Number(t.distanceKm) || 0; 
   var extras = Number(t.extras) || 0;
-  
-  var po = work + transport + extras;
   var tmc = Number(t.tmc) || 0;
   
+  var total = (work + transport + extras + tmc);
+  if (total === 0 && Number(t.amount) > 0) {
+    total = Number(t.amount);
+  }
+  
   return {
-    po: po,
+    unitPrice: unitPrice,
+    work: work,
+    transport: transport,
+    extras: extras,
+    po: work + transport + extras,
     tmc: tmc,
-    total: po + tmc,
-    details: 'Работа: ' + fmtMoney(work) + ' + Транспорт: ' + fmtMoney(transport) + ' + Допы: ' + fmtMoney(extras)
+    total: total,
+    details: 'Работа: ' + fmtMoney(work) + ' + Удаленность: ' + fmtMoney(transport) + ' + Допы: ' + fmtMoney(extras)
+  };
+}
+
+function getTaskContractorFinance(t) {
+  var items = (t.items && Array.isArray(t.items)) ? t.items : ((window._taskItemsMap && window._taskItemsMap[t.id]) || null);
+  var work = 0;
+  var transport = 0;
+  var unitPrice = 0;
+  var total = 0;
+
+  if (items && items.length > 0) {
+    items.forEach(function(it) {
+      var q = Number(it.quantity) || 1;
+      var pr = Number(it.price_contractor || it.priceContractor) || 0;
+      var am = Number(it.amount_contractor || it.amountContractor) || (q * pr);
+      work += am;
+      if (pr > 0 && unitPrice === 0) unitPrice = pr;
+      transport += Number(it.distance_km || it.distanceKm) || 0;
+    });
+    total = work + transport;
+  } else {
+    var parsedOplata = 0;
+    if (t.oplata) {
+      var clean = String(t.oplata).replace(/[^\d.,]/g, '').replace(',', '.');
+      parsedOplata = parseFloat(clean) || 0;
+    }
+    if (parsedOplata > 0) {
+      total = parsedOplata;
+      var count = Number(t.fact) || Number(t.inOrder) || 1;
+      unitPrice = count > 0 ? Math.round(total / count) : total;
+      work = total;
+    } else {
+      unitPrice = 0;
+      transport = 0;
+      work = 0;
+      total = 0;
+    }
+  }
+
+  return {
+    unitPrice: unitPrice,
+    work: work,
+    transport: transport,
+    total: total,
+    isPaid: (String(t.oplata || '')).toLowerCase().includes('оплач')
   };
 }
 function prBadge(p) {
