@@ -192,6 +192,27 @@ router.post('/excel/import-rows', async (req, res) => {
           t.stage || getInitialStage(t.status, t),
           JSON.stringify(t.rawData || {})
         ]);
+
+        if (Array.isArray(t.items) && t.items.length > 0) {
+          await client.query('DELETE FROM task_items WHERE task_id = $1', [t.id]);
+          for (const item of t.items) {
+            const q = Number(item.quantity) || 1;
+            const priceCust = Number(item.priceCustomer) || 0;
+            const amountCust = Number(item.amountCustomer) || (q * priceCust);
+            const contractor = item.contractor ? String(item.contractor).trim() : null;
+            await client.query(
+              `INSERT INTO task_items (
+                task_id, work_type, quantity, unit,
+                price_customer, amount_customer,
+                contractor_name, distance_km, status
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')`,
+              [
+                t.id, item.workType || 'Работа', q, item.unit || 'шт.',
+                priceCust, amountCust, contractor, Number(item.distanceKm) || 0
+              ]
+            );
+          }
+        }
       }
 
       // Последний батч — обновляем метаданные

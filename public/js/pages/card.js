@@ -1,22 +1,26 @@
-function exportDoc(type, id) {
-  fetch('/api/export/' + type + '/' + encodeURIComponent(id), {
-    headers: { 'Authorization': 'Bearer ' + S.token } // ДОБАВИЛИ КЛЮЧ
+function exportDoc(type, id, contractorName) {
+  var url = '/api/export/' + type + '/' + encodeURIComponent(id);
+  if (contractorName) {
+    url += '?contractorName=' + encodeURIComponent(contractorName);
+  }
+  fetch(url, {
+    headers: { 'Authorization': 'Bearer ' + S.token }
   })
     .then(function(r) {
       if (!r.ok) return r.json().then(function(e){ throw new Error(e.error); });
       return r.blob();
     })
     .then(function(blob) {
-      var suffix = type === 'invoice' ? '_Счёт' : type === 'act' ? '_Акт' : '_Приложение_2';
-      var url = URL.createObjectURL(blob);
+      var suffix = type === 'invoice' ? '_Счёт' : type === 'act' ? '_Акт' : (contractorName ? '_Приложение_2_' + contractorName.replace(/[/\\?%*:|"<>]/g, '_') : '_Приложение_2');
+      var bUrl = URL.createObjectURL(blob);
       var a = document.createElement('a');
-      a.href = url;
+      a.href = bUrl;
       a.download = id.replace(/\//g, '-') + suffix + '.xlsx';
       document.body.appendChild(a); a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(bUrl);
     })
-    .catch(function(e) { alert('\u041e\u0448\u0438\u0431\u043a\u0430 \u044d\u043a\u0441\u043f\u043e\u0440\u0442\u0430: ' + e.message); });
+    .catch(function(e) { alert('Ошибка экспорта: ' + e.message); });
 }
 
 function exportTask(id) {
@@ -52,6 +56,7 @@ function openCard(id) {
   refreshAttachmentsList(id);
   refreshPortsList(id);
   refreshRemarksList(id);
+  refreshTaskItemsList(id);
 }
 
 function pageCard() {
@@ -518,12 +523,272 @@ function pageCard() {
       '</div>'
     : '';
 
+  var itemsBlock = '<div class="card p" style="margin-bottom:1rem;border:1.5px solid var(--border)">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:.75rem">' +
+      '<div style="display:flex;align-items:center;gap:10px">' +
+        '<div class="sec-title" style="margin:0;font-size:1.05rem">📦 Состав работ и спецификация</div>' +
+        '<span id="cardItemsCountBadge" class="badge b-gray" style="font-size:.74rem">0 позиций</span>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:6px">' +
+        '<button class="btn btn-sm" onclick="addItemPrompt(\'' + eid + '\')">+ Добавить работу / ТМЦ</button>' +
+      '</div>' +
+    '</div>' +
+    '<div id="cardItemsSummaryBar" style="display:flex;gap:16px;background:var(--bg);padding:8px 12px;border-radius:6px;margin-bottom:.75rem;font-size:.8rem;flex-wrap:wrap;align-items:center">' +
+      '<div>Сумма Сбера (вход): <b id="cardSummaryCust" style="color:var(--text)">0 ₽</b></div>' +
+      '<div>Сумма подрядчикам: <b id="cardSummaryCont" style="color:var(--text-2)">0 ₽</b></div>' +
+      '<div>Плановая маржа: <b id="cardSummaryMargin" style="color:var(--green)">0 ₽</b></div>' +
+    '</div>' +
+    '<div id="taskItemsList" class="t3">Загрузка позиций…</div>' +
+    '<div id="cardContractorOrdersBar" style="margin-top:.75rem;display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.78rem"></div>' +
+  '</div>';
+
   return hdr +
     lifecycleBanner +
+    itemsBlock +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start">' +
       leftCol + rightCol +
     '</div>' +
     unsavedBar + confirmModal;
+}
+
+function refreshTaskItemsList(taskId) {
+  var el = document.getElementById('taskItemsList');
+  if (!el) return;
+  api('/tasks/' + encodeURIComponent(taskId) + '/items')
+    .then(function(items) {
+      if (!Array.isArray(items) || !items.length) {
+        el.innerHTML = '<div class="t3" style="padding:.6rem 0;font-size:.82rem">Позиции работ пока не внесены. Нажмите «+ Добавить работу / ТМЦ», чтобы детализировать состав заявки.</div>';
+        updateItemsSummary(taskId, []);
+        return;
+      }
+
+      var contractors = S.contractors || [];
+      var rows = items.map(function(it, idx) {
+        var statusColor = it.status === 'done' ? 'var(--green)' : it.status === 'progress' ? 'var(--orange)' : 'var(--text-3)';
+        var statusLabel = it.status === 'done' ? '✓ Выполнено' : it.status === 'progress' ? '⚙ В работе' : '⏳ Запланировано';
+
+        var contOptions = '<option value="">(Не назначен)</option>' +
+          contractors.map(function(c) {
+            var selected = (it.contractor_id === c.id || it.contractor_name === c.name_short) ? ' selected' : '';
+            return '<option value="' + c.id + '"' + selected + '>' + escHtml(c.name_short) + '</option>';
+          }).join('');
+
+        var margin = (Number(it.amount_customer) || 0) - (Number(it.amount_contractor) || 0);
+
+        return '<tr style="border-bottom:1px solid var(--border);font-size:.82rem">' +
+          '<td style="padding:6px 8px;font-weight:600;color:var(--text-3)">' + (idx + 1) + '</td>' +
+          '<td style="padding:6px 8px">' +
+            '<div style="font-weight:600;color:var(--text)">' + escHtml(it.work_type) + '</div>' +
+            (it.comment ? '<div style="font-size:.72rem;color:var(--text-3)">' + escHtml(it.comment) + '</div>' : '') +
+          '</td>' +
+          '<td style="padding:6px 8px;white-space:nowrap;font-weight:600">' + (it.quantity || 1) + ' ' + escHtml(it.unit || 'шт.') + '</td>' +
+          '<td style="padding:6px 8px;white-space:nowrap;color:var(--text)">' + fmtMoney(it.amount_customer) + '</td>' +
+          '<td style="padding:6px 8px">' +
+            '<select class="field-input" style="padding:2px 6px;font-size:.76rem" onchange="updateItemContractor(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ',this.value)">' +
+              contOptions +
+            '</select>' +
+          '</td>' +
+          '<td style="padding:6px 8px;white-space:nowrap;color:var(--text-2)">' + fmtMoney(it.amount_contractor) + '</td>' +
+          '<td style="padding:6px 8px;white-space:nowrap;font-weight:600;color:' + (margin >= 0 ? 'var(--green)' : 'var(--red)') + '">' + fmtMoney(margin) + '</td>' +
+          '<td style="padding:6px 8px;white-space:nowrap">' +
+            '<span style="font-size:.74rem;color:' + statusColor + ';font-weight:600">' + statusLabel + '</span>' +
+          '</td>' +
+          '<td style="padding:6px 8px;text-align:right;white-space:nowrap">' +
+            '<button class="btn btn-sm btn-ghost" onclick="editItemModal(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ')" title="Редактировать">✏️</button>' +
+            '<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteItemModal(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ')" title="Удалить">✕</button>' +
+          '</td>' +
+        '</tr>';
+      }).join('');
+
+      el.innerHTML = '<div style="overflow-x:auto">' +
+        '<table style="width:100%;border-collapse:collapse;text-align:left">' +
+          '<thead><tr style="background:var(--bg);font-size:.74rem;color:var(--text-3);border-bottom:1px solid var(--border)">' +
+            '<th style="padding:6px 8px">№</th>' +
+            '<th style="padding:6px 8px">Вид работ / позиция</th>' +
+            '<th style="padding:6px 8px">Кол-во</th>' +
+            '<th style="padding:6px 8px">Сбер (вход)</th>' +
+            '<th style="padding:6px 8px">Подрядчик (исп.)</th>' +
+            '<th style="padding:6px 8px">Подрядчику</th>' +
+            '<th style="padding:6px 8px">Маржа</th>' +
+            '<th style="padding:6px 8px">Статус</th>' +
+            '<th style="padding:6px 8px"></th>' +
+          '</tr></thead>' +
+          '<tbody>' + rows + '</tbody>' +
+        '</table></div>';
+
+      updateItemsSummary(taskId, items);
+    })
+    .catch(function(err) {
+      el.innerHTML = '<div class="t3" style="color:var(--red);font-size:.8rem">Ошибка загрузки позиций: ' + (err.message || err) + '</div>';
+    });
+}
+
+function updateItemsSummary(taskId, items) {
+  var countBadge = document.getElementById('cardItemsCountBadge');
+  if (countBadge) countBadge.textContent = (items ? items.length : 0) + ' позиций';
+
+  var totalCust = 0, totalCont = 0;
+  var contractorsMap = {};
+
+  (items || []).forEach(function(it) {
+    totalCust += Number(it.amount_customer) || 0;
+    totalCont += Number(it.amount_contractor) || 0;
+    var cName = it.contractor_name;
+    if (!cName && it.contractor_id) {
+      var found = (S.contractors || []).find(function(c) { return c.id === it.contractor_id; });
+      if (found) cName = found.name_short;
+    }
+    if (cName) {
+      contractorsMap[cName] = (contractorsMap[cName] || 0) + 1;
+    }
+  });
+
+  var margin = totalCust - totalCont;
+  var marginPct = totalCust > 0 ? Math.round((margin / totalCust) * 100) : 0;
+
+  var custEl = document.getElementById('cardSummaryCust');
+  if (custEl) custEl.textContent = fmtMoney(totalCust);
+
+  var contEl = document.getElementById('cardSummaryCont');
+  if (contEl) contEl.textContent = fmtMoney(totalCont);
+
+  var marginEl = document.getElementById('cardSummaryMargin');
+  if (marginEl) {
+    marginEl.textContent = fmtMoney(margin) + ' (' + marginPct + '%)';
+    marginEl.style.color = margin >= 0 ? 'var(--green)' : 'var(--red)';
+  }
+
+  // Обновляем кнопки персональных Приложений №2
+  var ordersBar = document.getElementById('cardContractorOrdersBar');
+  if (ordersBar) {
+    var cNames = Object.keys(contractorsMap);
+    if (cNames.length > 0) {
+      ordersBar.innerHTML = '<span style="font-weight:600;color:var(--text-3)">Заказы подрядчикам (Приложение №2):</span>' +
+        cNames.map(function(cn) {
+          return '<button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:.74rem" onclick="exportDoc(\'app2\',\'' + taskId.replace(/'/g, "\\'") + '\',\'' + cn.replace(/'/g, "\\'") + '\')">📥 Заказ: ' + escHtml(cn) + ' (' + contractorsMap[cn] + ' поз.)</button>';
+        }).join('');
+    } else {
+      ordersBar.innerHTML = '';
+    }
+  }
+}
+
+function addItemPrompt(taskId) {
+  var work = prompt('Введите наименование работы или материала (ТМЦ):');
+  if (work === null) return;
+  if (!work.trim()) return alert('Наименование работы обязательно!');
+
+  var qtyStr = prompt('Количество (например, 15):', '1');
+  var qty = parseFloat((qtyStr || '1').replace(',', '.')) || 1;
+
+  var unit = prompt('Единица измерения:', 'шт.') || 'шт.';
+
+  var priceCustStr = prompt('Стоимость от Заказчика (Сбера) за ед., руб.:', '0');
+  var priceCust = parseFloat((priceCustStr || '0').replace(',', '.')) || 0;
+
+  var priceContStr = prompt('Ставка Подрядчику за ед., руб. (необязательно):', '0');
+  var priceCont = parseFloat((priceContStr || '0').replace(',', '.')) || 0;
+
+  api('/tasks/' + encodeURIComponent(taskId) + '/items', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      work_type: work.trim(),
+      quantity: qty,
+      unit: unit.trim(),
+      price_customer: priceCust,
+      amount_customer: qty * priceCust,
+      price_contractor: priceCont,
+      amount_contractor: qty * priceCont
+    })
+  })
+  .then(function(res) {
+    if (res.error) return alert('Ошибка: ' + res.error);
+    refreshTaskItemsList(taskId);
+    var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
+    if (t) {
+      t.amount = (t.amount || 0) + (qty * priceCust);
+    }
+  })
+  .catch(function(err) {
+    alert('Ошибка добавления позиции: ' + (err.message || err));
+  });
+}
+
+function updateItemContractor(taskId, itemId, contractorId) {
+  var cObj = (S.contractors || []).find(function(c) { return String(c.id) === String(contractorId); });
+  var cName = cObj ? cObj.name_short : null;
+
+  api('/tasks/' + encodeURIComponent(taskId) + '/items/' + itemId, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contractor_id: contractorId ? parseInt(contractorId, 10) : null,
+      contractor_name: cName
+    })
+  })
+  .then(function(res) {
+    if (res.error) return alert('Ошибка: ' + res.error);
+    refreshTaskItemsList(taskId);
+  })
+  .catch(function(err) {
+    alert('Ошибка назначения подрядчика: ' + (err.message || err));
+  });
+}
+
+function editItemModal(taskId, itemId) {
+  api('/tasks/' + encodeURIComponent(taskId) + '/items')
+    .then(function(list) {
+      var item = (list || []).find(function(x) { return x.id === itemId; });
+      if (!item) return alert('Позиция не найдена');
+
+      var newWork = prompt('Наименование работы:', item.work_type);
+      if (newWork === null) return;
+      if (!newWork.trim()) return alert('Наименование обязательно');
+
+      var newQtyStr = prompt('Количество:', String(item.quantity || 1));
+      var newQty = parseFloat((newQtyStr || '1').replace(',', '.')) || 1;
+
+      var newPriceCustStr = prompt('Цена Сбера за ед., руб.:', String(item.price_customer || 0));
+      var newPriceCust = parseFloat((newPriceCustStr || '0').replace(',', '.')) || 0;
+
+      var newPriceContStr = prompt('Ставка подрядчику за ед., руб.:', String(item.price_contractor || 0));
+      var newPriceCont = parseFloat((newPriceContStr || '0').replace(',', '.')) || 0;
+
+      api('/tasks/' + encodeURIComponent(taskId) + '/items/' + itemId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          work_type: newWork.trim(),
+          quantity: newQty,
+          price_customer: newPriceCust,
+          amount_customer: newQty * newPriceCust,
+          price_contractor: newPriceCont,
+          amount_contractor: newQty * newPriceCont
+        })
+      })
+      .then(function(res) {
+        if (res.error) return alert('Ошибка: ' + res.error);
+        refreshTaskItemsList(taskId);
+      })
+      .catch(function(err) {
+        alert('Ошибка сохранения позиции: ' + (err.message || err));
+      });
+    });
+}
+
+function deleteItemModal(taskId, itemId) {
+  if (!confirm('Удалить эту позицию из спецификации?')) return;
+  api('/tasks/' + encodeURIComponent(taskId) + '/items/' + itemId, {
+    method: 'DELETE'
+  })
+  .then(function(res) {
+    if (res.error) return alert('Ошибка: ' + res.error);
+    refreshTaskItemsList(taskId);
+  })
+  .catch(function(err) {
+    alert('Ошибка удаления позиции: ' + (err.message || err));
+  });
 }
 
 

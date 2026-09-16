@@ -262,11 +262,33 @@ function parseDate(v) {
     for (var si = 0; si < sheetNames.length; si++) {
       var shName = sheetNames[si];
       var ws = workbook.Sheets[shName];
+      if (!ws || !ws['!ref']) continue;
+
+      // Разворачиваем вертикальные объединения ячеек, чтобы дочерние строки работ не теряли ID и реквизиты
+      var merges = ws['!merges'] || [];
+      for (var mi = 0; mi < merges.length; mi++) {
+        var m = merges[mi];
+        if (m.e.r > m.s.r) {
+          var topKey = XLSX.utils.encode_cell(m.s);
+          var topCell = ws[topKey];
+          if (topCell && topCell.v !== undefined && topCell.v !== '') {
+            for (var mr = m.s.r; mr <= m.e.r; mr++) {
+              for (var mc = m.s.c; mc <= m.e.c; mc++) {
+                if (mr === m.s.r && mc === m.s.c) continue;
+                var subKey = XLSX.utils.encode_cell({ r: mr, c: mc });
+                if (!ws[subKey] || ws[subKey].v === undefined || ws[subKey].v === '') {
+                  ws[subKey] = Object.assign({}, topCell);
+                }
+              }
+            }
+          }
+        }
+      }
+
       var rows = XLSX.utils.sheet_to_json(ws, { defval: null, raw: true });
       if (!rows.length) continue;
 
       // --- ШАГ 1: ОПРЕДЕЛЯЕМ КОЛОНКИ (ОДИН РАЗ НА ЛИСТ) ---
-      var firstRow = rows[0];
       var range = XLSX.utils.decode_range(ws['!ref']);
       var keys = [];
       for(var C = range.s.c; C <= range.e.c; ++C) {
@@ -284,9 +306,6 @@ function parseDate(v) {
                      'Стоимость за ед.', 'Ссылка на Тех.Информацию', '№ документа в ЭДО', 
                      '№ счета/сумма', 'В ЭДО', 'Комментарий', 'дней просрочки', 'Удаленность', 'ТМЦ', 'Допы'];
 
-      
-      // --- ШАГ 1: УЛУЧШЕННЫЙ ПОИСК КОЛОНОК ---
-      var usedCols = new Set(); // Хранилище занятых колонок
       targets.forEach(function(target) {
         var normTarget = target.toLowerCase().replace(/[^а-яёa-z0-9]/g, '');
         
@@ -307,11 +326,9 @@ function parseDate(v) {
 
         for (var i = 0; i < keys.length; i++) {
           var key = String(keys[i]);
-          if (usedCols.has(key)) continue; // Пропускаем уже занятые колонки!
+          if (usedCols.has(key)) continue;
 
           var normKey = key.toLowerCase().replace(/[^а-яёa-z0-9]/g, '');
-          
-          // Проверяем прямое вхождение (если слова длинные)
           if ((normKey.includes(normTarget) || normTarget.includes(normKey)) && normTarget.length > 2) {
             bestMatch = key;
             break;
@@ -329,13 +346,46 @@ function parseDate(v) {
           usedCols.add(bestMatch);
         }
       });
-      // --- ШАГ 2: БЫСТРЫЙ ПАРСИНГ СТРОК ---
+
+      // --- ШАГ 2: ПАРСИНГ СТРОК И ГРУППИРОВКА ПОЗИЦИЙ ПО ЗАЯВКЕ ---
+      var sheetTasks = {};
+      var sheetTaskOrder = [];
+
       for (var ri = 0; ri < rows.length; ri++) {
         var row = rows[ri];
-        
-        // Берем данные по заранее найденным ключам
         var num = strVal(row[colMap['Номер']]).trim();
         if (!num) continue;
+
+        var work = strVal(row[colMap['ТИП РАБОТ']]);
+        var inOrder = parseNum(row[colMap['В заказе']]);
+        var fact = parseNum(row[colMap['Факт']]);
+        var priceUnit = parseNum(row[colMap['Стоимость за ед.']]);
+        var rowAmount = parseNum(row[colMap['Сумма договора']]);
+        var contractor = strVal(row[colMap['Подрядчик']]);
+        var distKm = parseNum(row[colMap['Удаленность']]);
+
+        var itemObj = {
+          workType: work || 'Монтажные работы',
+          quantity: fact || inOrder || 1,
+          unit: 'шт.',
+          priceCustomer: priceUnit || (inOrder > 0 && rowAmount > 0 ? Math.round(rowAmount / inOrder) : 0),
+          amountCustomer: rowAmount || ((fact || inOrder || 1) * priceUnit) || 0,
+          contractor: contractor || null,
+          distanceKm: distKm || 0
+        };
+
+        if (sheetTasks[num]) {
+          var existing = sheetTasks[num];
+          existing.items.push(itemObj);
+          existing.inOrder = (existing.inOrder || 0) + inOrder;
+          existing.fact = (existing.fact || 0) + fact;
+          if (rowAmount > 0) existing.amount = (existing.amount || 0) + rowAmount;
+          if (!existing.workType && work) existing.workType = work;
+          else if (work && !existing.workType.includes(work)) {
+            existing.workType += '; ' + work;
+          }
+          continue;
+        }
 
         var rawStatus = strVal(row[colMap['Статус']]).toLowerCase();
         var status = 'progress';
@@ -350,8 +400,6 @@ function parseDate(v) {
         var rawPriemka = strVal(row[colMap['Приёмка']]).toLowerCase();
         var rawIdStatus = strVal(row[colMap['ИД']]).toLowerCase();
         var rawObsledovanie = strVal(row[colMap['Обследование']]).toLowerCase();
-        var inOrder = parseNum(row[colMap['В заказе']]);
-        var fact = parseNum(row[colMap['Факт']]);
         var dataVyhoda = parseDate(row[colMap['Дата выхода']]);
 
         var stage = 'request';
@@ -371,48 +419,45 @@ function parseDate(v) {
           status = 'pending';
         }
 
-        allRows.push({
+        var taskObj = {
           id: num, 
           sheet: shName,
           title: num + (addr ? ' — ' + addr.slice(0, 80) : ''),
-          // Используем colMap, который мы подготовили в Шаге 1
           region: strVal(row[colMap['Регион']]).split(/[\s,\n]/)[0].trim(),
           address: addr,
-          workType:     strVal(row[colMap['ТИП РАБОТ']]),
-          tipObj:       strVal(row[colMap['Тип объекта']]),
-          gosb:         strVal(row[colMap['№ ГОСБ']]),
-          vsp:          strVal(row[colMap['№ ВСП']]),
-          dateZayavki:  parseDate(row[colMap['Дата заявки']]),
-          deadline:     parseDate(row[colMap['Дата окончания работ']]),
-          currentDate:  parseDate(row[colMap['Текущая дата']]),
-          manager:      strVal(row[colMap['Менеджер Сбера']]),
-          contact:      strVal(row[colMap['Контакт']]),
-          contractor:   strVal(row[colMap['Подрядчик']]),
-          inOrder:      inOrder,
-          fact:         fact,
+          workType: work,
+          tipObj: strVal(row[colMap['Тип объекта']]),
+          gosb: strVal(row[colMap['№ ГОСБ']]),
+          vsp: strVal(row[colMap['№ ВСП']]),
+          dateZayavki: parseDate(row[colMap['Дата заявки']]),
+          deadline: parseDate(row[colMap['Дата окончания работ']]),
+          currentDate: parseDate(row[colMap['Текущая дата']]),
+          manager: strVal(row[colMap['Менеджер Сбера']]),
+          contact: strVal(row[colMap['Контакт']]),
+          contractor: contractor,
+          inOrder: inOrder,
+          fact: fact,
           obsledovanie: strVal(row[colMap['Обследование']]),
-          dostup:       strVal(row[colMap['Доступ']]),
-          dataVyhoda:   dataVyhoda,
-          priemka:      strVal(row[colMap['Приёмка']]),
-          oplata:       strVal(row[colMap['Оплата подрядчику']]),
-          idStatus:     strVal(row[colMap['ИД']]),
-          amount:       parseNum(row[colMap['Сумма договора']]),
-          
-          distanceKm:   parseNum(row[colMap['Удаленность']]),
-          pricePerUnit: parseNum(row[colMap['Стоимость за ед.']]),
-          tmc:          parseNum(row[colMap['ТМЦ']]),
-          extras:       parseNum(row[colMap['Допы']]),
-          overdueDays:  overdue,
-
-          techLink:     strVal(row[colMap['Ссылка на Тех.Информацию']]),
-          edoNumber:    strVal(row[colMap['№ документа в ЭДО']]),
-          invoiceInfo:  strVal(row[colMap['№ счета/сумма']]),
-          vedoStatus:   strVal(row[colMap['В ЭДО']]),
+          dostup: strVal(row[colMap['Доступ']]),
+          dataVyhoda: dataVyhoda,
+          priemka: strVal(row[colMap['Приёмка']]),
+          oplata: strVal(row[colMap['Оплата подрядчику']]),
+          idStatus: strVal(row[colMap['ИД']]),
+          amount: rowAmount,
+          distanceKm: distKm,
+          pricePerUnit: priceUnit,
+          tmc: parseNum(row[colMap['ТМЦ']]),
+          extras: parseNum(row[colMap['Допы']]),
+          overdueDays: overdue,
+          techLink: strVal(row[colMap['Ссылка на Тех.Информацию']]),
+          edoNumber: strVal(row[colMap['№ документа в ЭДО']]),
+          invoiceInfo: strVal(row[colMap['№ счета/сумма']]),
+          vedoStatus: strVal(row[colMap['В ЭДО']]),
           excelComment: strVal(row[colMap['Комментарий']]),
           status: status, 
           stage: stage,
-          overdueDays: overdue,
           archived: false,
+          items: [itemObj],
           rawData: (function() {
             var raw = {};
             Object.keys(row).forEach(function(k) {
@@ -420,7 +465,14 @@ function parseDate(v) {
             });
             return raw;
           })()
-        });
+        };
+
+        sheetTasks[num] = taskObj;
+        sheetTaskOrder.push(num);
+      }
+
+      for (var oi = 0; oi < sheetTaskOrder.length; oi++) {
+        allRows.push(sheetTasks[sheetTaskOrder[oi]]);
       }
     }
     return allRows;

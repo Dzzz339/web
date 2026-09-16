@@ -159,25 +159,78 @@ export function numToWords(n) {
   return res.charAt(0).toUpperCase()+res.slice(1)+' рублей  00 копеек.';
 }
 
-export function buildApp2(task) {
-  const wb=XLSX.utils.book_new(),ports=task.fact||task.inOrder||0,km=Number(task.distanceKm)||0;
-  const ppp=calcPricePerPort(ports),tr=calcTransport(km),total=calcTotal(ports,km);
-  const data=[
-    ['Приложение №2'],['к Договору № _____ от "__" _______ 202_г.'],['Заявка на выполнение работ'],
-    ['исполнитель работ',task.assignee||task.contractor||'—'],['дата распределения',task.distributedAt||fmtDate()],
-    ['куратор от Заказчика',task.manager||'—'],['1. Содержание заявки, контактная и техническая информация, сроки выполнения'],
-    ['Регион (договор)',task.region||'—'],['Номер заявки',task.id],['Дата заявки',task.deadline||'—'],
-    ['Срок выполнения',task.deadline||'—'],['Кол-во дней просрочки',task.overdueDays||0],
-    ['Адрес выполнения работ',task.address||'—'],['Контакт / сопровождающий',task.contact||task.contractor||'—'],
-    ['ТИП РАБОТ',task.workType||'—'],['Ссылка на Тех.Информацию',task.techLink||'—'],
-    ['Количество портов'],['В заказе',task.inOrder||0],['Фактически',task.fact||0],
-    ['Комментарий',task.comment||''],['2. Стоимость работ и транспортные расходы'],
-    ['Удалённость, км',km],['Стоимость за ед., руб.',ppp],['Транспортные расходы, руб.',tr],['Общая стоимость, руб.',total],[],
-    ['От Заказчика','','','Директор __________________ /И.О. Городович/'],
-    ['От Подрядчика','','','гр. РФ _________________ / ___________________ /'],
+export function buildApp2(task, contractorName = null, items = []) {
+  const wb = XLSX.utils.book_new();
+  const ports = task.fact || task.inOrder || 0;
+  const km = Number(task.distanceKm) || 0;
+  const tr = calcTransport(km);
+  const ppp = calcPricePerPort(ports);
+  const fallbackTotal = calcTotal(ports, km);
+
+  const executor = contractorName || task.assignee || task.contractor || '—';
+
+  let data = [
+    ['Приложение №2'],
+    ['к Договору № _____ от "__" _______ 202_г.'],
+    ['Заявка на выполнение работ (Заказ-наряд)'],
+    ['Исполнитель (Подрядчик)', executor],
+    ['Дата распределения', task.distributedAt || fmtDate()],
+    ['Куратор от Заказчика', task.manager || '—'],
+    [],
+    ['1. Содержание заявки, контактная и техническая информация, сроки выполнения'],
+    ['Регион (договор)', task.region || '—'],
+    ['Номер заявки', task.id],
+    ['Дата заявки', task.deadline || '—'],
+    ['Срок выполнения', task.deadline || '—'],
+    ['Кол-во дней просрочки', task.overdueDays || 0],
+    ['Адрес выполнения работ', task.address || '—'],
+    ['Контакт / сопровождающий', task.contact || task.contractor || '—'],
+    ['Ссылка на Тех.Информацию', task.techLink || '—'],
+    ['Комментарий', task.comment || '']
   ];
-  const ws=XLSX.utils.aoa_to_sheet(data); ws['!cols']=[{wch:28},{wch:52},{wch:8},{wch:20}];
-  XLSX.utils.book_append_sheet(wb,ws,'Приложение №2'); return wb;
+
+  let totalWorksCost = 0;
+
+  if (items && items.length > 0) {
+    data.push([]);
+    data.push(['2. Спецификация поручаемых работ и материалов:']);
+    data.push(['№', 'Вид работ / Оборудование', 'Кол-во', 'Ед.', 'Цена за ед., руб.', 'Сумма, руб.']);
+    items.forEach((it, idx) => {
+      const q = Number(it.quantity) || 1;
+      const price = Number(it.price_contractor) || 0;
+      const rowSum = Number(it.amount_contractor) || (q * price);
+      totalWorksCost += rowSum;
+      data.push([
+        idx + 1,
+        it.work_type || '—',
+        q,
+        it.unit || 'шт.',
+        price,
+        rowSum
+      ]);
+    });
+  } else {
+    data.push(['ТИП РАБОТ', task.workType || '—']);
+    data.push(['Количество портов (В заказе / Факт)', `${task.inOrder || 0} / ${task.fact || 0}`]);
+    totalWorksCost = ppp * ports;
+  }
+
+  const grandTotal = (totalWorksCost > 0 ? totalWorksCost : fallbackTotal) + tr;
+
+  data.push([]);
+  data.push(['3. Стоимость работ и транспортные расходы:']);
+  data.push(['Стоимость работ по спецификации, руб.', totalWorksCost > 0 ? totalWorksCost : ppp * ports]);
+  data.push(['Удалённость объекта, км', km]);
+  data.push(['Транспортные расходы, руб.', tr]);
+  data.push(['ИТОГО к оплате Подрядчику, руб.', grandTotal]);
+  data.push([]);
+  data.push(['От Заказчика', '', '', 'Директор __________________ /И.О. Городович/']);
+  data.push(['От Подрядчика', '', '', `${executor} _________________ / ___________________ /`]);
+
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = [{ wch: 8 }, { wch: 55 }, { wch: 10 }, { wch: 8 }, { wch: 18 }, { wch: 18 }];
+  XLSX.utils.book_append_sheet(wb, ws, 'Приложение №2');
+  return wb;
 }
 
 export function buildInvoice(task) {

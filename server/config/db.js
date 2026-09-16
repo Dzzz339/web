@@ -256,6 +256,29 @@ export async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_attachments_task_id ON task_attachments(task_id)`);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS task_items (
+      id                SERIAL PRIMARY KEY,
+      task_id           TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      work_type         TEXT NOT NULL,
+      quantity          NUMERIC DEFAULT 1,
+      unit              TEXT DEFAULT 'шт.',
+      price_customer    NUMERIC DEFAULT 0,
+      amount_customer   NUMERIC DEFAULT 0,
+      contractor_id     INTEGER REFERENCES contractors(id) ON DELETE SET NULL,
+      contractor_name   TEXT,
+      price_contractor  NUMERIC DEFAULT 0,
+      amount_contractor NUMERIC DEFAULT 0,
+      distance_km       NUMERIC DEFAULT 0,
+      status            TEXT DEFAULT 'pending',
+      comment           TEXT,
+      created_at        TIMESTAMPTZ DEFAULT NOW(),
+      updated_at        TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_items_task_id ON task_items(task_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_items_contractor_id ON task_items(contractor_id)`);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS invoices (
       id            SERIAL PRIMARY KEY,
       task_id       TEXT REFERENCES tasks(id) ON DELETE CASCADE,

@@ -1080,21 +1080,196 @@ router.get('/checklists/materials-summary', authenticateToken, async (req, res) 
 
 router.get('/export/:type/:id', authenticateToken, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM tasks WHERE id=$1', [req.params.id])
-    if (!rows.length) return res.status(404).json({ error: 'Заявка не найдена' })
-    const task = rowToTask(rows[0])
-    const type = req.params.type
-    let wb, suffix
-    if (type==='invoice'){ wb=buildInvoice(task); suffix='_Счёт' }
-    else if(type==='act'){ wb=buildAct(task);     suffix='_Акт' }
-    else                 { wb=buildApp2(task);    suffix='_Приложение_2' }
-    const buf=XLSX.write(wb,{type:'buffer',bookType:'xlsx'})
-    const filename=(task.id+suffix+'.xlsx').replace(/\//g,'-')
-    res.setHeader('Content-Disposition',"attachment; filename*=UTF-8''"+encodeURIComponent(filename))
-    res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    res.send(buf)
-  } catch(e) { res.status(500).json({ error: e.message }) }
-})
+    const { rows } = await pool.query('SELECT * FROM tasks WHERE id=$1', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'Заявка не найдена' });
+    const task = rowToTask(rows[0]);
+    const type = req.params.type;
+    const { contractorId, contractorName } = req.query || {};
+
+    let wb, suffix;
+    if (type === 'invoice') {
+      wb = buildInvoice(task);
+      suffix = '_Счёт';
+    } else if (type === 'act') {
+      wb = buildAct(task);
+      suffix = '_Акт';
+    } else {
+      // Приложение №2: ищем позиции task_items
+      let itemsQuery = 'SELECT * FROM task_items WHERE task_id = $1';
+      const params = [req.params.id];
+      if (contractorId) {
+        itemsQuery += ' AND contractor_id = $2';
+        params.push(contractorId);
+      } else if (contractorName) {
+        itemsQuery += ' AND LOWER(contractor_name) = LOWER($2)';
+        params.push(contractorName);
+      }
+      itemsQuery += ' ORDER BY id ASC';
+      const itemsRes = await pool.query(itemsQuery, params);
+      wb = buildApp2(task, contractorName || null, itemsRes.rows);
+      suffix = contractorName ? `_Приложение_2_${contractorName}` : '_Приложение_2';
+    }
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const filename = (task.id + suffix + '.xlsx').replace(/[/\\?%*:|"<>]/g, '-');
+    res.setHeader('Content-Disposition', "attachment; filename*=UTF-8''" + encodeURIComponent(filename));
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buf);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── API: ПОДТАБЛИЦА СОСТАВА РАБОТ (TASK_ITEMS) ──────────────────────────────
+router.get('/tasks/:id/items', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ti.*, c.name_short AS contractor_short_name, c.inn AS contractor_inn
+       FROM task_items ti
+       LEFT JOIN contractors c ON c.id = ti.contractor_id
+       WHERE ti.task_id = $1
+       ORDER BY ti.id ASC`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/tasks/:id/items', authenticateToken, async (req, res) => {
+  try {
+    const {
+      work_type,
+      quantity = 1,
+      unit = 'шт.',
+      price_customer = 0,
+      amount_customer = 0,
+      contractor_id = null,
+      contractor_name = null,
+      price_contractor = 0,
+      amount_contractor = 0,
+      distance_km = 0,
+      status = 'pending',
+      comment = null
+    } = req.body;
+
+    if (!work_type || !work_type.trim()) {
+      return res.status(400).json({ error: 'Наименование работы обязательно' });
+    }
+
+    const calcAmountCust = Number(amount_customer) || (Number(quantity) * Number(price_customer));
+    const calcAmountCont = Number(amount_contractor) || (Number(quantity) * Number(price_contractor));
+
+    const { rows } = await pool.query(
+      `INSERT INTO task_items (
+        task_id, work_type, quantity, unit,
+        price_customer, amount_customer,
+        contractor_id, contractor_name,
+        price_contractor, amount_contractor,
+        distance_km, status, comment
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      RETURNING *`,
+      [
+        req.params.id, work_type.trim(), Number(quantity) || 1, unit || 'шт.',
+        Number(price_customer) || 0, calcAmountCust,
+        contractor_id ? parseInt(contractor_id, 10) : null, contractor_name ? contractor_name.trim() : null,
+        Number(price_contractor) || 0, calcAmountCont,
+        Number(distance_km) || 0, status || 'pending', comment || null
+      ]
+    );
+
+    // Авто-пересчет суммы в tasks
+    await pool.query(
+      `UPDATE tasks SET amount = COALESCE((SELECT SUM(amount_customer) FROM task_items WHERE task_id = $1), amount) WHERE id = $1`,
+      [req.params.id]
+    );
+
+    res.json(rows[0]);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.put('/tasks/:id/items/:itemId', authenticateToken, async (req, res) => {
+  try {
+    const {
+      work_type,
+      quantity,
+      unit,
+      price_customer,
+      amount_customer,
+      contractor_id,
+      contractor_name,
+      price_contractor,
+      amount_contractor,
+      distance_km,
+      status,
+      comment
+    } = req.body;
+
+    const calcAmountCust = amount_customer !== undefined ? Number(amount_customer) : undefined;
+    const calcAmountCont = amount_contractor !== undefined ? Number(amount_contractor) : undefined;
+
+    const { rows } = await pool.query(
+      `UPDATE task_items SET
+        work_type         = COALESCE($1, work_type),
+        quantity          = COALESCE($2, quantity),
+        unit              = COALESCE($3, unit),
+        price_customer    = COALESCE($4, price_customer),
+        amount_customer   = COALESCE($5, amount_customer),
+        contractor_id     = $6,
+        contractor_name   = COALESCE($7, contractor_name),
+        price_contractor  = COALESCE($8, price_contractor),
+        amount_contractor = COALESCE($9, amount_contractor),
+        distance_km       = COALESCE($10, distance_km),
+        status            = COALESCE($11, status),
+        comment           = COALESCE($12, comment),
+        updated_at        = NOW()
+      WHERE id = $13 AND task_id = $14
+      RETURNING *`,
+      [
+        work_type ? work_type.trim() : null,
+        quantity !== undefined ? Number(quantity) : null,
+        unit || null,
+        price_customer !== undefined ? Number(price_customer) : null,
+        calcAmountCust,
+        contractor_id !== undefined ? (contractor_id ? parseInt(contractor_id, 10) : null) : null,
+        contractor_name !== undefined ? (contractor_name ? contractor_name.trim() : null) : null,
+        price_contractor !== undefined ? Number(price_contractor) : null,
+        calcAmountCont,
+        distance_km !== undefined ? Number(distance_km) : null,
+        status || null,
+        comment !== undefined ? comment : null,
+        req.params.itemId,
+        req.params.id
+      ]
+    );
+
+    if (!rows.length) return res.status(404).json({ error: 'Позиция не найдена' });
+
+    // Авто-пересчет суммы в tasks
+    await pool.query(
+      `UPDATE tasks SET amount = COALESCE((SELECT SUM(amount_customer) FROM task_items WHERE task_id = $1), amount) WHERE id = $1`,
+      [req.params.id]
+    );
+
+    res.json(rows[0]);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.delete('/tasks/:id/items/:itemId', authenticateToken, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM task_items WHERE id = $1 AND task_id = $2', [req.params.itemId, req.params.id]);
+    // Авто-пересчет суммы в tasks
+    await pool.query(
+      `UPDATE tasks SET amount = COALESCE((SELECT SUM(amount_customer) FROM task_items WHERE task_id = $1), 0) WHERE id = $1`,
+      [req.params.id]
+    );
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // Получить все версии счетов/актов по заявке
 router.get('/tasks/:id/invoices', authenticateToken, async (req, res) => {
