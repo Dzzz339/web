@@ -323,6 +323,7 @@ function renderApp() {
   else if (S.page === 'marches')   setApp(pageMarches());
   else if (S.page === 'march-detail') setApp(pageMarchDetail());
   else if (S.page === 'profile')   setApp(pageProfile());
+  else if (S.page === 'help')      setApp(pageHelp());
 
   // 3. Вешаем события заново
   bindEvents();

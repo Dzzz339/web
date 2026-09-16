@@ -45,8 +45,33 @@ function exportTask(id) {
 }
 
 
+function setCardTab(tabName) {
+  S.cardTab = tabName;
+  var btns = document.querySelectorAll('.card-tab-btn');
+  for (var i = 0; i < btns.length; i++) {
+    if (btns[i].getAttribute('data-tab') === tabName) {
+      btns[i].classList.add('active');
+    } else {
+      btns[i].classList.remove('active');
+    }
+  }
+  var panes = document.querySelectorAll('.card-tab-pane');
+  for (var j = 0; j < panes.length; j++) {
+    if (panes[j].id === 'cardTabPane-' + tabName) {
+      panes[j].style.display = 'block';
+    } else {
+      panes[j].style.display = 'none';
+    }
+  }
+  if (tabName === 'main' && window._activeLeafletMap) {
+    setTimeout(function(){ window._activeLeafletMap.invalidateSize(); }, 60);
+  }
+}
+window.setCardTab = setCardTab;
+
 function openCard(id) {
   S.cardId = id;
+  if (!S.cardTab) S.cardTab = 'main';
   S.cardDraft = {};
   S.cardConfirmOpen = false;
   S.page = 'card';
@@ -207,6 +232,7 @@ function pageCard() {
         var lat = parseFloat(t.geoLat), lng = parseFloat(t.geoLon);
         el.innerHTML = '';
         var map = L.map(el).setView([lat, lng], 16);
+        window._activeLeafletMap = map;
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OSM' }).addTo(map);
         L.marker([lat, lng]).addTo(map).bindPopup(t.cleanAddress || t.address).openPopup();
         return;
@@ -229,6 +255,7 @@ function pageCard() {
         el.innerHTML = '';
         el.style.display = 'block';
         var map = L.map(el).setView([lat, lng], zoom);
+        window._activeLeafletMap = map;
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           attribution: '© <a href="https://osm.org/copyright">OSM</a>',
           maxZoom: 19
@@ -327,169 +354,256 @@ function pageCard() {
   var canStepNow = canUserStep(S.user, t);
   var canUndoNow = canUserUndo(S.user, t);
 
-  var lifecycleBanner = '<div class="card p mb" style="border:1.5px solid var(--border);box-shadow:var(--shadow);background:linear-gradient(135deg, #fff 0%, #fcfcfd 100%)">' +
-    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.75rem;margin-bottom:.75rem">' +
+  // ─── 1. SMART ACTION CENTER ───
+  var checklistHtml = '';
+  var canAdvance = true;
+  var advanceBlockReason = '';
+
+  if (curStageNum === 0) {
+    var hasCont = !!(t.contractor && t.contractor.trim());
+    if (hasCont) {
+      checklistHtml += '<div class="checklist-item"><span class="checklist-icon ok">✓</span><span>Подрядчик назначен: <b>' + escHtml(t.contractor) + '</b></span></div>';
+    } else {
+      canAdvance = false;
+      advanceBlockReason = 'Не назначен подрядчик на заявку';
+      checklistHtml += '<div class="checklist-item"><span class="checklist-icon fail">✕</span><span style="color:var(--red)">Подрядчик не назначен</span><span class="checklist-action-link" onclick="setCardTab(\'items\')">Назначить в спецификации →</span></div>';
+    }
+  } else if (curStageNum === 1) {
+    var factVal = Number(t.fact) || 0;
+    if (factVal > 0) {
+      checklistHtml += '<div class="checklist-item"><span class="checklist-icon ok">✓</span><span>Фактический объем подтвержден: <b>' + factVal + ' ед.</b></span></div>';
+    } else {
+      canAdvance = false;
+      advanceBlockReason = 'Укажите фактический объем выполненных работ';
+      checklistHtml += '<div class="checklist-item"><span class="checklist-icon fail">✕</span><span style="color:var(--red)">Фактический объем не указан (Факт = 0)</span><span class="checklist-action-link" onclick="setCardTab(\'finance\')">Указать факт в финансах →</span></div>';
+    }
+  } else if (curStageNum === 2) {
+    var hasMat = !!(t.materialsLink && t.materialsLink.trim());
+    if (hasMat) {
+      checklistHtml += '<div class="checklist-item"><span class="checklist-icon ok">✓</span><span>Ссылка на материалы указана: <a href="' + escHtml(t.materialsLink) + '" target="_blank" rel="noopener noreferrer">Яндекс.Диск</a></span></div>';
+    } else {
+      canAdvance = false;
+      advanceBlockReason = 'Загрузите фотоотчёт или укажите ссылку на Яндекс.Диск';
+      checklistHtml += '<div class="checklist-item"><span class="checklist-icon fail">✕</span><span style="color:var(--red)">Нет фотоотчёта или ссылки на Яндекс.Диск</span><span class="checklist-action-link" onclick="setCardTab(\'files\')">Загрузить во вкладке «Файлы» →</span></div>';
+    }
+  } else if (curStageNum === 4) {
+    var hasId = !!(t.idLink && t.idLink.trim());
+    if (hasId) {
+      checklistHtml += '<div class="checklist-item"><span class="checklist-icon ok">✓</span><span>Альбом ИД прикреплен: <a href="' + escHtml(t.idLink) + '" target="_blank" rel="noopener noreferrer">Открыть альбом</a></span></div>';
+    } else {
+      canAdvance = false;
+      advanceBlockReason = 'Прикрепите ссылку на готовую ИД';
+      checklistHtml += '<div class="checklist-item"><span class="checklist-icon fail">✕</span><span style="color:var(--red)">Ссылка на готовую ИД не указана</span><span class="checklist-action-link" onclick="setCardTab(\'files\')">Прикрепить ссылку на ИД →</span></div>';
+    }
+  } else if (curStageNum === 6) {
+    var openRem = Number(t.openRemarksCount || 0);
+    if (openRem === 0) {
+      checklistHtml += '<div class="checklist-item"><span class="checklist-icon ok">✓</span><span>Все замечания Сбера устранены (открытых замечаний нет)</span></div>';
+    } else {
+      canAdvance = false;
+      advanceBlockReason = 'Устраните открытые замечания Сбера (' + openRem + ' шт.)';
+      checklistHtml += '<div class="checklist-item"><span class="checklist-icon fail">✕</span><span style="color:var(--red)">Открыто замечаний Сбера: <b>' + openRem + ' шт.</b></span><span class="checklist-action-link" onclick="setCardTab(\'remarks\')">Устранить замечания →</span></div>';
+    }
+  } else {
+    checklistHtml += '<div class="checklist-item"><span class="checklist-icon ok">✓</span><span>Условия этапа регламента соблюдены</span></div>';
+  }
+
+  var smartActionBox = '<div class="smart-action-box">' +
+    '<div class="smart-action-header">' +
       '<div>' +
-        '<div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;font-weight:700;color:var(--text-3)">Жизненный цикл ИД (10 стадий, 9 регламентных шагов)</div>' +
-        '<div style="display:flex;align-items:center;gap:.5rem;margin-top:2px;flex-wrap:wrap">' +
-          '<span style="font-size:1.05rem;font-weight:800">Текущая стадия:</span> ' + idStageBadge(curStageNum) +
-          (t.overdueDays > 0 ? '<span class="badge b-red">Просрочка +' + t.overdueDays + ' дн</span>' : '') +
-          (t.stageDue ? '<span class="badge ' + (isDueOverdue ? 'b-red' : 'b-survey') + '" style="font-size:.74rem">⏳ Срок ИД: ' + dueStr + (isDueOverdue ? ' (просрочен!)' : ' (3 раб. дня)') + '</span>' : '') +
-          (Number(t.openRemarksCount || 0) > 0 ? '<span class="badge b-red" style="font-size:.74rem">⚠️ Замечания Сбера: ' + t.openRemarksCount + ' шт.</span>' : '') +
+        '<div class="smart-action-title">Регламент жизненного цикла ИД • Стадия ' + curStageNum + ' из 9</div>' +
+        '<div class="smart-action-stage">' +
+          curStg.icon + ' ' + curStg.name +
+          ' <span class="badge b-blue" style="font-size:.76rem;margin-left:6px">' + curStg.role + '</span>' +
+          (t.stageDue ? '<span class="badge ' + (isDueOverdue ? 'b-red' : 'b-survey') + '" style="font-size:.74rem;margin-left:6px">⏳ Срок: ' + dueStr + (isDueOverdue ? ' (просрочен!)' : '') + '</span>' : '') +
+          (Number(t.openRemarksCount || 0) > 0 ? '<span class="badge b-red" style="font-size:.74rem;margin-left:6px">⚠️ Замечания: ' + t.openRemarksCount + ' шт.</span>' : '') +
         '</div>' +
       '</div>' +
-      '<div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">' +
-        (canUndoNow && curStageNum > 0 ? '<button class="btn btn-sm btn-ghost" onclick="undoIdStep(\'' + eid + '\')" title="Откатить этап назад" style="color:var(--text-2)">↩ Откатить назад</button>' : '') +
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+        '<button type="button" class="btn btn-sm btn-ghost" style="border-color:var(--border);background:#fff" onclick="showStageHelpModal(' + curStageNum + ')" title="Справка по текущему этапу и правилам перехода">❓ Справка по шагу</button>' +
+        (canUndoNow && curStageNum > 0 ? '<button class="btn btn-sm btn-ghost" onclick="undoIdStep(\'' + eid + '\')" title="Откатить этап назад">↩ Откатить</button>' : '') +
         (nextStepDef
-          ? '<button class="btn btn-sm ' + (canStepNow ? '' : 'disabled') + '" onclick="advanceIdStep(\'' + eid + '\')" ' + (canStepNow ? '' : 'title="Требуется роль: ' + nextStepDef.role + '"') + ' style="font-weight:700;padding:6px 14px;background:var(--orange);color:#fff;border:none">' +
+          ? '<button class="smart-action-btn-primary ' + (canStepNow && canAdvance ? '' : 'disabled') + '" onclick="' + (canStepNow && canAdvance ? 'advanceIdStep(\'' + eid + '\')' : (advanceBlockReason ? 'alert(\'' + advanceBlockReason + '\')' : '')) + '" title="' + (advanceBlockReason || ('Роль: ' + nextStepDef.role)) + '">' +
               '▶ Шаг ' + (curStageNum + 1) + ': ' + nextStepDef.action +
             '</button>'
-          : '<span class="badge b-green" style="padding:6px 12px;font-weight:700">✅ Финал цикла: Завершена</span>'
+          : '<span class="badge b-green" style="padding:8px 14px;font-weight:800;font-size:.9rem">✅ Заявка полностью завершена</span>'
         ) +
       '</div>' +
     '</div>' +
-    '<div style="display:flex;gap:.25rem;align-items:center;overflow-x:auto;padding-bottom:4px;margin-bottom:.75rem">' +
-      stepperHtml +
+    '<div class="smart-action-checklist">' +
+      '<div style="font-size:.76rem;font-weight:700;color:var(--text-2);margin-bottom:2px">Чек-лист готовности к переходу:</div>' +
+      checklistHtml +
     '</div>' +
-    '<div style="background:#fff;border-radius:6px;padding:.65rem .85rem;border-left:4px solid var(--orange);font-size:.82rem;line-height:1.4;color:var(--text-2);box-shadow:0 1px 3px rgba(0,0,0,0.04);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">' +
-      '<div><b style="color:var(--text)">💡 Регламент этапа (' + curStg.role + '):</b> ' + (idStageHelp[curStageNum] || '') + '</div>' +
-      '<div style="display:flex;gap:.75rem;font-size:.8rem">' +
-        (t.materialsLink ? '<a href="' + escHtml(t.materialsLink) + '" target="_blank" rel="noopener noreferrer" style="color:var(--blue);font-weight:600">📷 Исходные материалы</a>' : '') +
-        (t.idLink ? '<a href="' + escHtml(t.idLink) + '" target="_blank" rel="noopener noreferrer" style="color:var(--green);font-weight:600">📐 Альбом ИД</a>' : '') +
+    '<details style="font-size:.78rem;color:var(--text-3);cursor:pointer">' +
+      '<summary style="font-weight:600;color:var(--text-2);margin-bottom:6px">Показать полную цепочку этапов (10 стадий)</summary>' +
+      '<div style="display:flex;gap:.25rem;align-items:center;overflow-x:auto;padding:8px 0">' + stepperHtml + '</div>' +
+      '<div style="background:#fff;border-radius:6px;padding:.5rem .75rem;border-left:3px solid var(--orange);font-size:.78rem;color:var(--text-2);margin-top:4px">' +
+        '<b>💡 Подсказка:</b> ' + (idStageHelp[curStageNum] || '') +
+      '</div>' +
+    '</details>' +
+  '</div>';
+
+  var curTab = S.cardTab || 'main';
+  var openRemCount = Number(t.openRemarksCount || 0);
+  var remarksTabBadge = openRemCount > 0
+    ? ' <span class="card-tab-badge badge-red">' + openRemCount + '</span>'
+    : '';
+
+  var tabsNav = '<div class="card-tabs-nav">' +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'main' ? 'active' : '') + '" data-tab="main" onclick="setCardTab(\'main\')">' +
+      '📌 Главное и Объект' +
+    '</button>' +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'items' ? 'active' : '') + '" data-tab="items" onclick="setCardTab(\'items\')">' +
+      '📦 Состав работ <span id="cardTabItemsBadge" class="card-tab-badge badge-gray"></span>' +
+    '</button>' +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'remarks' ? 'active' : '') + '" data-tab="remarks" onclick="setCardTab(\'remarks\')">' +
+      '⚠️ Замечания Сбера' + remarksTabBadge +
+    '</button>' +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'files' ? 'active' : '') + '" data-tab="files" onclick="setCardTab(\'files\')">' +
+      '📎 Документы и Фото' +
+    '</button>' +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'finance' ? 'active' : '') + '" data-tab="finance" onclick="setCardTab(\'finance\')">' +
+      '💰 Финансы' +
+    '</button>' +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'history' ? 'active' : '') + '" data-tab="history" onclick="setCardTab(\'history\')">' +
+      '🕒 История' +
+    '</button>' +
+  '</div>';
+
+  var rawExtraRows = (function() {
+    var knownKeys = [
+      'регион','адрес','тип объекта','тип работ','тип работ ','тип',
+      '№ госб','госб','№всп','№ всп','всп',
+      'дата заявки','дата окончания работ','текущяя дата','текущая дата',
+      'кол-во дней просрочки','дней просрочки','просрочка',
+      'статус','статус ','приоритет','ид','ид ',
+      'сумма договора','сумма договора ','стоимость за ед.','стоимость за ед',
+      ' удаленность','удаленность','удалённость',
+      'доп. расходы','доп расходы','тмц','тмц (материалы)','итого платит сбербанк',
+      'кол-во в заказе (портов)','в заказе','кол-во в заказе','факт','факт выходов',
+      'обследование','доступ','приемка','приёмка','оплата','статус ид',
+      'менеджер сбера','менеджер','контрагент','контакт на объекте','контакт',
+      'контактное лицо','телефон','контролер','контролёр',
+      'ссылка на тех.инфо','ссылка на техинфо','тех.инфо',
+      '№ документа в эдо','№ в эдо','номер в эдо','эдо',
+      '№ счета / сумма','№ счёта / сумма','счет','счёт',
+      'в эдо','внутренний комментарий','комментарий','комментарий из excel',
+      'дата распределения','дата выхода','срок ид','стадия ид',
+      'материалы','исходники','альбом'
+    ];
+    var raw = t.rawData || {};
+    var extra = Object.keys(raw).filter(function(k) {
+      return knownKeys.indexOf(k.toLowerCase().trim()) === -1 && raw[k] !== '' && raw[k] != null;
+    }).map(function(k) {
+      return [k, raw[k]];
+    });
+    if (!extra.length) return '';
+    function fmtRaw(v) {
+      var s = String(v);
+      if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10).split('-').reverse().join('.');
+      if (/^\d{2}\.\d{2}\.\d{4}/.test(s)) return s.slice(0,10);
+      if (/^https?:\/\//i.test(s)) return '<a href="'+s+'" target="_blank" rel="noopener noreferrer">🔗 Открыть</a>';
+      var n = parseFloat(s.replace(/\s/g,'').replace(',','.'));
+      if (!isNaN(n) && s.replace(/[\d\s.,]/g,'') === '') return n.toLocaleString('ru-RU');
+      return s;
+    }
+    var rows = extra.map(function(pair) {
+      return '<div class="field-row"><div class="field-lbl" style="color:var(--text-3)">'+pair[0]+'</div>' +
+        '<div class="field-val">'+fmtRaw(pair[1])+'</div></div>';
+    }).join('');
+    return '<div class="divider"></div>' +
+      '<div class="sec-title" style="margin-bottom:.5rem">Дополнительно из Excel</div>' +
+      rows;
+  })();
+
+  var phoneMatch = (t.contact || '').match(/(?:\+7|8)[\s\-(]?\d{3}[\s\-)]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}/);
+  var cleanPhone = phoneMatch ? phoneMatch[0].replace(/[^\d+]/g, '') : null;
+  var quickActionsBar = '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:.85rem">' +
+    '<a href="https://yandex.ru/maps/?text=' + encodeURIComponent('Россия, ' + mapFullAddr) + '" target="_blank" rel="noopener noreferrer" class="quick-contact-btn nav-btn">📍 Яндекс.Навигатор</a>' +
+    '<a href="https://2gis.ru/search/' + encodeURIComponent('Россия, ' + mapFullAddr) + '" target="_blank" rel="noopener noreferrer" class="quick-contact-btn nav-btn" style="background:#f0fdfa;color:#0f766e;border-color:#99f6e4">🗺️ 2ГИС</a>' +
+    (cleanPhone ? '<a href="tel:' + cleanPhone + '" class="quick-contact-btn call-btn">📞 Позвонить (' + escHtml(phoneMatch[0]) + ')</a>' : '') +
+  '</div>';
+
+  var paneMain = '<div id="cardTabPane-main" class="card-tab-pane" style="display:' + (curTab === 'main' ? 'block' : 'none') + '">' +
+    quickActionsBar +
+    '<div style="display:grid;grid-template-columns:1.1fr 0.9fr;gap:1rem;align-items:start">' +
+      '<div class="card p">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
+          '<div class="sec-title" style="margin:0">Объект и команда</div>' +
+          field('', 'archived') +
+        '</div>' +
+        field('Регион', 'region') +
+        field('Адрес объекта', 'address') +
+        field('Тип объекта', 'tipObj') +
+        field('Тип работ', 'workType') +
+        field('№ ГОСБ', 'gosb') +
+        field('№ ВСП', 'vsp') +
+        '<div class="divider"></div>' +
+        '<div class="sec-title" style="margin-bottom:.5rem">Команда и контакты</div>' +
+        field('Статус заявки', 'status') +
+        field('Приоритет', 'priority') +
+        field('Менеджер Сбера', 'manager') +
+        field('Контрагент (Основной)', 'contractor') +
+        field('Исполнитель (Наш)', 'assignee') +
+        (t.assignee && t.assignmentStatus ? '<div class="field-row"><div class="field-lbl">Статус назначения</div><div class="field-val">' +
+          (t.assignmentStatus === 'accepted' ? '<span class="badge b-green">Принял</span>' :
+          t.assignmentStatus === 'declined' ? '<span class="badge b-red">Отказался</span>' :
+          '<span class="badge b-gray">Ожидает подтверждения</span>') +
+        '</div></div>' : '') +
+        (t.assignee === (S.user.fullName || '') && t.assignmentStatus === 'pending'
+          ? '<div class="field-row"><div class="field-lbl"></div><div class="field-val" style="display:flex;gap:.5rem">' +
+              '<button class="btn btn-sm" onclick="acceptTask(\'' + t.id.replace(/'/g,"\\'") + '\')">✅ Принять заявку</button>' +
+              '<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="declineTask(\'' + t.id.replace(/'/g,"\\'") + '\')">❌ Отказаться</button>' +
+            '</div></div>'
+          : '') +
+        field('Контролёр', 'controller') +
+        field('Контакт на объекте', 'contact', 'textarea') +
+        '<div class="divider"></div>' +
+        '<div class="sec-title" style="margin-bottom:.5rem">Заметки и комментарии</div>' +
+        field('Внутренний комментарий', 'comment', 'textarea') +
+        field('Комментарий из Excel', 'excelComment', 'textarea') +
+        rawExtraRows +
+      '</div>' +
+      '<div style="display:flex;flex-direction:column;gap:1rem">' +
+        '<div class="card p">' +
+          '<div class="sec-title" style="margin-bottom:.5rem">Карта объекта</div>' +
+          mapHtml +
+        '</div>' +
+        '<div class="card p">' +
+          '<div class="sec-title" style="margin-bottom:.5rem">Сроки и обследование</div>' +
+          field('Дата заявки', 'dateZayavki', 'date') +
+          field('Дата окончания (план)', 'deadline', 'date') +
+          field('Дата выхода (факт)', 'dataVyhoda', 'date') +
+          field('Дата распределения', 'distributedAt', 'date') +
+          field('Обследование', 'obsledovanie') +
+          field('Доступ', 'dostup') +
+          field('Приёмка (фото)', 'priemka') +
+        '</div>' +
       '</div>' +
     '</div>' +
   '</div>';
 
-  var leftCol = '<div class="card p">' +
-    '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.5rem">' +
-      '<div class="sec-title" style="margin:0">Основные данные</div>' +
-      field('', 'archived') + // Статус записи (Активна/Архив) теперь компактно в углу
+  var itemsBlock = '<div class="card p" style="margin-bottom:1rem;border:1.5px solid var(--border)">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:.75rem">' +
+      '<div style="display:flex;align-items:center;gap:10px">' +
+        '<div class="sec-title" style="margin:0;font-size:1.05rem">📦 Состав работ и спецификация</div>' +
+        '<span id="cardItemsCountBadge" class="badge b-gray" style="font-size:.74rem">0 позиций</span>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:6px">' +
+        '<button class="btn btn-sm" onclick="addItemPrompt(\'' + eid + '\')">+ Добавить работу / ТМЦ</button>' +
+      '</div>' +
     '</div>' +
-    '<form id="cardForm" onsubmit="return false;">' +
-    
-    // БЛОК 1: ОБЪЕКТ И ФИНАНСЫ
-    field('Регион', 'region') +
-    field('Адрес объекта', 'address') +
-    field('Тип объекта', 'tipObj') +
-    field('Тип работ', 'workType') +
-    field('№ ГОСБ', 'gosb') +
-    field('№ ВСП', 'vsp') +
-    field('Сумма договора', 'amount', 'number') +
-    field('Стоимость за ед.', 'pricePerUnit', 'number') +
-    field('Транспорт / Удалёнка (₽)', 'distanceKm', 'number') +
-    field('Доп. расходы (₽)', 'extras', 'number') +
-    field('ТМЦ — Материалы (₽)', 'tmc', 'number') +
-    '<div class="field-row"><div class="field-lbl">Итого платит Сбер</div><div class="field-val" style="font-weight:700; color:var(--blue)">' + fmtMoney(getTaskFinance(t).total) + '</div></div>' +
-    field('В заказе (портов)', 'inOrder', 'number') +
-    field('Факт', 'fact', 'number') +
+    '<div id="cardItemsSummaryBar" style="display:flex;gap:16px;background:var(--bg);padding:8px 12px;border-radius:6px;margin-bottom:.75rem;font-size:.8rem;flex-wrap:wrap;align-items:center">' +
+      '<div>Сумма Сбера (вход): <b id="cardSummaryCust" style="color:var(--text)">0 ₽</b></div>' +
+      '<div>Сумма подрядчикам: <b id="cardSummaryCont" style="color:var(--text-2)">0 ₽</b></div>' +
+      '<div>Плановая маржа: <b id="cardSummaryMargin" style="color:var(--green)">0 ₽</b></div>' +
+    '</div>' +
+    '<div id="taskItemsList" class="t3">Загрузка позиций…</div>' +
+    '<div id="cardContractorOrdersBar" style="margin-top:.75rem;display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.78rem"></div>' +
+  '</div>';
 
-    '<div class="divider"></div>' +
-    
-    // БЛОК 2: КОМАНДА (Все назначения людей здесь)
-    '<div class="sec-title" style="margin-bottom:.5rem">Команда и контакты</div>' +
-    field('Статус заявки', 'status') +
-    field('Приоритет', 'priority') +
-    field('Менеджер Сбера', 'manager') +
-    field('Контрагент', 'contractor') +
-    field('Исполнитель (Наш)', 'assignee') +
-    (t.assignee && t.assignmentStatus ? '<div class="field-row"><div class="field-lbl">Статус назначения</div><div class="field-val">' +
-      (t.assignmentStatus === 'accepted' ? '<span class="badge b-green">Принял</span>' :
-      t.assignmentStatus === 'declined' ? '<span class="badge b-red">Отказался</span>' :
-      '<span class="badge b-gray">Ожидает подтверждения</span>') +
-    '</div></div>' : '') +
-    (t.assignee === (S.user.fullName || '') && t.assignmentStatus === 'pending'
-      ? '<div class="field-row"><div class="field-lbl"></div><div class="field-val" style="display:flex;gap:.5rem">' +
-          '<button class="btn btn-sm" onclick="acceptTask(\'' + t.id.replace(/'/g,"\\'") + '\')">✅ Принять заявку</button>' +
-          '<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="declineTask(\'' + t.id.replace(/'/g,"\\'") + '\')">❌ Отказаться</button>' +
-        '</div></div>'
-      : '') +
-    field('Контролёр', 'controller') +
-    field('Контакт на объекте', 'contact', 'textarea') +
-
-    '<div class="divider"></div>' +
-
-    // БЛОК 3: ХОД РАБОТ (Этапы и даты)
-    '<div class="sec-title" style="margin-bottom:.5rem">Ход работ</div>' +
-    field('Стадия ИД (0..9)', 'stageNum', 'number') +
-    field('Срок ИД (3 раб. дня)', 'stageDue', 'date') +
-    field('Этап производства', 'stage') +
-    field('Дата распределения', 'distributedAt', 'date') +
-    field('Дата заявки', 'dateZayavki', 'date') +
-    field('Дата окончания (план)', 'deadline', 'date') +
-    field('Дата выхода (факт)', 'dataVyhoda', 'date') +
-    field('Обследование', 'obsledovanie') +
-    field('Доступ', 'dostup') +
-    field('Приёмка (фото)', 'priemka') +
-    field('Оплата подрядчику', 'oplata') +
-    field('Статус ИД', 'idStatus') +
-
-    '<div class="divider"></div>' +
-
-    // БЛОК 4: ДОКУМЕНТЫ И ЗАМЕТКИ
-    '<div class="sec-title" style="margin-bottom:.5rem">Документы и комментарии</div>' +
-    field('Ссылка на материалы (исходники)', 'materialsLink', 'url') +
-    field('Ссылка на готовую ИД (альбом)', 'idLink', 'url') +
-    field('Ссылка на тех.инфо', 'techLink', 'url') +
-    field('№ документа в ЭДО', 'edoNumber') +
-    field('№ счёта / сумма', 'invoiceInfo') +
-    field('Заказ подписан на портале поставщика', 'supplierOrderSigned', 'checkbox') +
-    field('ИД загружена на портал поставщика', 'supplierIdUploaded', 'checkbox') +
-    field('Причина просрочки', 'overdueReason', 'textarea') +
-    field('В ЭДО', 'vedoStatus') +
-    field('Внутренний комментарий', 'comment', 'textarea') + // Твой внутренний коммент
-    field('Комментарий из Excel', 'excelComment', 'textarea') + // Коммент из файла
-    (function() {
-      // Показываем поля из rawData которые НЕ отображены выше
-      var knownKeys = [
-        'регион','адрес','тип объекта','тип работ','тип работ ','тип',
-        '№ госб','госб','№всп','№ всп','всп',
-        'дата заявки','дата окончания работ','текущяя дата','текущая дата',
-        'кол-во дней просрочки','дней просрочки','просрочка',
-        'статус','статус ','приоритет','ид','ид ',
-        'сумма договора','сумма договора ','стоимость за ед.','стоимость за ед',
-        ' удаленность','удаленность','удалённость',
-        'в заказе','факт','номер',
-        'менеджер сбера','менеджер сбера ','контакт',
-        'подрядчик, контакты','подрядчик, контакты ','подрядчик',
-        'обследование','доступ','дата выхода',
-        'приемка(фото),отпрвленно пректировщикам','приёмка','приемка',
-        'оплата подрядчику','оплата',
-        'ссылка на тех.информацию','ссылка на тех.информацию ',
-        '№ докумета в эдо','№ документа в эдо','№ докумета в эдо ',
-        '№ счета/сумма','№ счета/сумма ','в эдо','комментарий', 
-        'тмц', 'допы', 'тариф', 'удаленность'
-      ];
-      var raw = t.rawData || {};
-      var extra = [];
-      Object.keys(raw).forEach(function(k) {
-        var nk = k.trim().toLowerCase().replace(/\s+/g,' ');
-        if (knownKeys.indexOf(nk) === -1 && raw[k] && String(raw[k]).trim() !== '') {
-          extra.push([k, raw[k]]);
-        }
-      });
-      if (!extra.length) return '';
-      // Умное форматирование значения
-      function fmtRaw(v) {
-        var s = String(v);
-        // Дата в формате ДД.ММ.ГГГГ или ГГГГ-ММ-ДД
-        if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10).split('-').reverse().join('.');
-        if (/^\d{2}\.\d{2}\.\d{4}/.test(s)) return s.slice(0,10);
-        // Ссылка
-        if (/^https?:\/\//i.test(s)) return '<a href="'+s+'" target="_blank" rel="noopener noreferrer">🔗 Открыть</a>';
-        // Число с пробелами как разделителями тысяч — форматируем
-        var n = parseFloat(s.replace(/\s/g,'').replace(',','.'));
-        if (!isNaN(n) && s.replace(/[\d\s.,]/g,'') === '') return n.toLocaleString('ru-RU');
-        return s;
-      }
-      var rows = extra.map(function(pair) {
-        return '<div class="field-row"><div class="field-lbl" style="color:var(--text-3)">'+pair[0]+'</div>' +
-          '<div class="field-val">'+fmtRaw(pair[1])+'</div></div>';
-      }).join('');
-      return '<div class="divider"></div>' +
-        '<div class="sec-title" style="margin-bottom:.5rem">Дополнительно из Excel</div>' +
-        rows;
-    })() +
-    '</form>' +
+  var paneItems = '<div id="cardTabPane-items" class="card-tab-pane" style="display:' + (curTab === 'items' ? 'block' : 'none') + '">' +
+    itemsBlock +
   '</div>';
 
   var remarksBadge = Number(t.openRemarksCount || 0) > 0
@@ -504,10 +618,25 @@ function pageCard() {
     '<div id="remarksList" class="t3">Загрузка…</div>' +
   '</div>';
 
-  var rightCol = '<div style="display:flex;flex-direction:column;gap:1rem">' +
-    '<div class="card p"><div class="sec-title" style="margin-bottom:.5rem">Карта объекта</div>' + mapHtml + '</div>' +
-    '<div class="card p" id="attachmentsBlock"><div class="sec-title" style="margin-bottom:.5rem">Вложения</div><div id="attachmentsList" class="t3">Загрузка…</div>' +
-      '<div style="display:flex;gap:.4rem;margin-top:.6rem;flex-wrap:wrap">' +
+  var paneRemarks = '<div id="cardTabPane-remarks" class="card-tab-pane" style="display:' + (curTab === 'remarks' ? 'block' : 'none') + '">' +
+    remarksBlock +
+  '</div>';
+
+  var paneFiles = '<div id="cardTabPane-files" class="card-tab-pane" style="display:' + (curTab === 'files' ? 'block' : 'none') + '">' +
+    '<div class="card p mb">' +
+      '<div class="sec-title" style="margin-bottom:.5rem">Облачные ссылки на документацию</div>' +
+      field('Ссылка на материалы (исходники)', 'materialsLink', 'url') +
+      field('Ссылка на готовую ИД (альбом)', 'idLink', 'url') +
+      field('Ссылка на тех.инфо', 'techLink', 'url') +
+      field('Заказ подписан на портале поставщика', 'supplierOrderSigned', 'checkbox') +
+      field('ИД загружена на портал поставщика', 'supplierIdUploaded', 'checkbox') +
+    '</div>' +
+    '<div class="card p mb" id="attachmentsBlock">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
+        '<div class="sec-title" style="margin:0">Файлы и фотоотчёты к заявке</div>' +
+      '</div>' +
+      '<div id="attachmentsList" class="t3">Загрузка…</div>' +
+      '<div style="display:flex;gap:.4rem;margin-top:.8rem;flex-wrap:wrap">' +
         '<label class="btn btn-sm btn-ghost">📷 Фото<input type="file" multiple accept="image/*" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'photo_report\',this.files)"></label>' +
         '<label class="btn btn-sm btn-ghost">🗺️ Схема<input type="file" multiple accept="image/*,.pdf,.dwg" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'scheme\',this.files)"></label>' +
         '<label class="btn btn-sm btn-ghost">📋 Чек-лист<input type="file" multiple accept="image/*,.pdf,.xlsx,.xls,.docx" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'checklist\',this.files)"></label>' +
@@ -516,12 +645,46 @@ function pageCard() {
         '<label class="btn btn-sm btn-ghost">📊 Excel ПИ<input type="file" accept=".xlsx,.xls" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'pi_excel\',this.files)"></label>' +
       '</div>' +
     '</div>' +
-    remarksBlock +
-    '<div class="card p" id="portsBlock"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
-      '<div class="sec-title" style="margin:0">КЖ / Протокол измерений</div>' +
-      '<button class="btn btn-sm btn-ghost" onclick="addPortRow(\''+t.id+'\')">+ Порт</button>' +
-    '</div><div id="portsList" class="t3">Загрузка…</div></div>' +
-    '<div class="card p"><div class="sec-title" style="margin-bottom:.5rem">История изменений</div>' + histHtml + '</div>' +
+    '<div class="card p" id="portsBlock">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
+        '<div class="sec-title" style="margin:0">КЖ / Протокол измерений портов</div>' +
+        '<button class="btn btn-sm btn-ghost" onclick="addPortRow(\''+t.id+'\')">+ Порт</button>' +
+      '</div>' +
+      '<div id="portsList" class="t3">Загрузка…</div>' +
+    '</div>' +
+  '</div>';
+
+  var paneFinance = '<div id="cardTabPane-finance" class="card-tab-pane" style="display:' + (curTab === 'finance' ? 'block' : 'none') + '">' +
+    '<div class="card p mb">' +
+      '<div class="sec-title" style="margin-bottom:.5rem">Финансовые показатели договора</div>' +
+      field('Сумма договора', 'amount', 'number') +
+      field('Стоимость за ед.', 'pricePerUnit', 'number') +
+      field('Транспорт / Удалёнка (₽)', 'distanceKm', 'number') +
+      field('Доп. расходы (₽)', 'extras', 'number') +
+      field('ТМЦ — Материалы (₽)', 'tmc', 'number') +
+      '<div class="field-row"><div class="field-lbl" style="font-weight:700">Итого платит Сбер</div><div class="field-val" style="font-weight:700; font-size:1.1rem; color:var(--blue)">' + fmtMoney(getTaskFinance(t).total) + '</div></div>' +
+      '<div class="divider"></div>' +
+      field('В заказе (портов)', 'inOrder', 'number') +
+      field('Факт', 'fact', 'number') +
+      field('Оплата подрядчику', 'oplata') +
+    '</div>' +
+    '<div class="card p">' +
+      '<div class="sec-title" style="margin-bottom:.5rem">Счета и ЭДО</div>' +
+      field('№ документа в ЭДО', 'edoNumber') +
+      field('№ счёта / сумма', 'invoiceInfo') +
+      field('В ЭДО', 'vedoStatus') +
+      '<div style="display:flex;gap:.5rem;margin-top:.75rem;flex-wrap:wrap">' +
+        '<button class="btn btn-sm" onclick="exportDoc(\'invoice\',\''+eid+'\')" title="Счёт">📄 Выгрузить Счёт</button>' +
+        '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'act\',\''+eid+'\')" title="Акт">✔ Выгрузить Акт</button>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+
+  var paneHistory = '<div id="cardTabPane-history" class="card-tab-pane" style="display:' + (curTab === 'history' ? 'block' : 'none') + '">' +
+    '<div class="card p">' +
+      '<div class="sec-title" style="margin-bottom:.5rem">История изменений заявки</div>' +
+      histHtml +
+    '</div>' +
   '</div>';
 
   var hasDraft = Object.keys(S.cardDraft).length > 0;
@@ -532,6 +695,19 @@ function pageCard() {
         '<button class="btn btn-sm btn-ghost" id="cardResetBtn">Сбросить</button>' +
       '</div>'
     : '';
+
+  var mobileActionBar = '<div class="mobile-action-bar">' +
+    (hasDraft
+      ? '<button class="btn btn-sm btn-primary mobile-action-main-btn" onclick="saveCard()">💾 Сохранить</button>' +
+        '<button class="btn btn-sm btn-ghost" onclick="S.cardDraft={};renderApp()">✕</button>'
+      : (nextStepDef
+          ? '<button class="smart-action-btn-primary mobile-action-main-btn ' + (canStepNow && canAdvance ? '' : 'disabled') + '" onclick="' + (canStepNow && canAdvance ? 'advanceIdStep(\'' + eid + '\')' : (advanceBlockReason ? 'alert(\'' + advanceBlockReason + '\')' : '')) + '">' +
+              '▶ Шаг ' + (curStageNum + 1) + ': ' + nextStepDef.action +
+            '</button>'
+          : '<div style="flex:1;text-align:center;font-weight:700;color:var(--green)">✅ Заявка завершена</div>'
+        )
+    ) +
+  '</div>';
 
   var confirmModal = S.cardConfirmOpen
     ? '<div class="modal-overlay" id="cardConfirmOverlay">' +
@@ -554,33 +730,21 @@ function pageCard() {
       '</div>'
     : '';
 
-  var itemsBlock = '<div class="card p" style="margin-bottom:1rem;border:1.5px solid var(--border)">' +
-    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:.75rem">' +
-      '<div style="display:flex;align-items:center;gap:10px">' +
-        '<div class="sec-title" style="margin:0;font-size:1.05rem">📦 Состав работ и спецификация</div>' +
-        '<span id="cardItemsCountBadge" class="badge b-gray" style="font-size:.74rem">0 позиций</span>' +
-      '</div>' +
-      '<div style="display:flex;align-items:center;gap:6px">' +
-        '<button class="btn btn-sm" onclick="addItemPrompt(\'' + eid + '\')">+ Добавить работу / ТМЦ</button>' +
-      '</div>' +
-    '</div>' +
-    '<div id="cardItemsSummaryBar" style="display:flex;gap:16px;background:var(--bg);padding:8px 12px;border-radius:6px;margin-bottom:.75rem;font-size:.8rem;flex-wrap:wrap;align-items:center">' +
-      '<div>Сумма Сбера (вход): <b id="cardSummaryCust" style="color:var(--text)">0 ₽</b></div>' +
-      '<div>Сумма подрядчикам: <b id="cardSummaryCont" style="color:var(--text-2)">0 ₽</b></div>' +
-      '<div>Плановая маржа: <b id="cardSummaryMargin" style="color:var(--green)">0 ₽</b></div>' +
-    '</div>' +
-    '<div id="taskItemsList" class="t3">Загрузка позиций…</div>' +
-    '<div id="cardContractorOrdersBar" style="margin-top:.75rem;display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.78rem"></div>' +
-  '</div>';
-
   return hdr +
     cancelledBanner +
-    lifecycleBanner +
-    itemsBlock +
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start">' +
-      leftCol + rightCol +
-    '</div>' +
-    unsavedBar + confirmModal;
+    smartActionBox +
+    tabsNav +
+    '<form id="cardForm" onsubmit="return false;">' +
+      paneMain +
+      paneItems +
+      paneRemarks +
+      paneFiles +
+      paneFinance +
+      paneHistory +
+    '</form>' +
+    mobileActionBar +
+    unsavedBar +
+    confirmModal;
 }
 
 function refreshTaskItemsList(taskId) {
@@ -658,6 +822,8 @@ function refreshTaskItemsList(taskId) {
 function updateItemsSummary(taskId, items) {
   var countBadge = document.getElementById('cardItemsCountBadge');
   if (countBadge) countBadge.textContent = (items ? items.length : 0) + ' позиций';
+  var tabBadge = document.getElementById('cardTabItemsBadge');
+  if (tabBadge) tabBadge.textContent = (items && items.length) ? String(items.length) : '';
 
   var totalCust = 0, totalCont = 0;
   var contractorsMap = {};
