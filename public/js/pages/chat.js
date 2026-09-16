@@ -568,24 +568,34 @@ function sendAiMessage() {
         if (result.done) {
           S.aiStreaming = false; S.aiLoading = false;
           resetAiSendBtn();
-          S.aiMessages.push({ role: 'assistant', content: S.aiStreamText || '', time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) });
+          var finalMsg = S.aiStreamText || '⚠️ Нейросеть не вернула текст ответа. Проверьте доступность модели Ollama.';
+          S.aiMessages.push({ role: 'assistant', content: finalMsg, time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) });
           renderAiMessages();
           return;
         }
         buffer += decoder.decode(result.value, { stream: true });
         var lines = buffer.split('\n');
         buffer = lines.pop(); // последняя неполная строка
-        lines.forEach(function(line) {
-          var s = line.trim();
-          if (!s.startsWith('data:')) return;
+        for (var i = 0; i < lines.length; i++) {
+          var s = lines[i].trim();
+          if (!s.startsWith('data:')) continue;
           var payload = s.slice(5).trim();
-          if (payload === '[DONE]') return;
+          if (payload === '[DONE]') continue;
           try {
             var obj = JSON.parse(payload);
-            if (obj.error) throw new Error(obj.error);
-            if (obj.delta) { S.aiStreamText += obj.delta; renderAiStreamingReply(); }
-          } catch (e) { /* игнорируем */ }
-        });
+            if (obj.error) {
+              S.aiStreamText = '⚠️ Ошибка нейросети: ' + obj.error;
+              renderAiStreamingReply();
+              break;
+            }
+            if (obj.delta) {
+              S.aiStreamText += obj.delta;
+              renderAiStreamingReply();
+            }
+          } catch (e) {
+            console.error('SSE parse error:', e);
+          }
+        }
         return pump();
       });
     }

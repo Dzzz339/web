@@ -10,7 +10,7 @@ const router = express.Router();
 // env перекрывает (напр. для доступа с другой машины по Tailscale, или на прод через OpenAI/DeepSeek).
 const AI_BASE_URL = process.env.AI_BASE_URL || 'http://localhost:11434/v1';
 const AI_API_KEY  = process.env.AI_API_KEY  || 'ollama';
-const AI_MODEL    = process.env.AI_MODEL    || 'qwen2.5:14b';
+const AI_MODEL    = process.env.AI_MODEL    || 'qwen2.5:7b';
 const AI_DAILY_LIMIT = 50; // макс. сообщений (роль=user) в день на пользователя
 
 let _aiClient = null;
@@ -304,8 +304,7 @@ router.post('/chat', authenticateToken, async (req, res) => {
       model: AI_MODEL,
       messages,
       stream: true,
-      temperature: 0.3,
-      stream_options: { include_usage: true }
+      temperature: 0.3
     });
 
     for await (const chunk of stream) {
@@ -331,8 +330,9 @@ router.post('/chat', authenticateToken, async (req, res) => {
       [req.user.id, mode, fullReply || '', tokensUsed]
     );
   } catch (e) {
+    console.error('[AI Stream Error]:', e.message || e);
     try {
-      res.write('data: ' + JSON.stringify({ error: e.message }) + '\n\n');
+      res.write('data: ' + JSON.stringify({ error: e.message || 'Ошибка генерации ответа' }) + '\n\n');
       res.write('data: [DONE]\n\n');
       res.end();
     } catch (_) {}
