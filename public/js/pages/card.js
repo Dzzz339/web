@@ -99,9 +99,26 @@ function pageCard() {
     var isDirty = Object.prototype.hasOwnProperty.call(S.cardDraft, key);
     var val = isDirty ? S.cardDraft[key] : (t[key] || '');
     var inp = '';
-    if (key === 'status') inp = '<select name="'+key+'" data-key="'+key+'">'+statusOpts+'</select>';
+    if (key === 'status') {
+      inp = '<div style="display:flex;align-items:center;gap:8px">' +
+        stBadge(val) +
+        '<span class="t3" style="font-size:.72rem">🔒 Управляется регламентом шагов</span>' +
+      '</div>';
+    }
+    else if (key === 'stage') {
+      var stageNamesRu = { request: '1. Заявка', survey: '2. Обследование', install: '3. Монтаж', control: '4. Контроль', acceptance: '5. Приёмка', payment: '6. Оплата' };
+      inp = '<div style="display:flex;align-items:center;gap:8px">' +
+        '<span class="badge b-blue" style="font-size:.76rem">' + (stageNamesRu[val] || val || '—') + '</span>' +
+        '<span class="t3" style="font-size:.72rem">🔒 Синхронизируется автоматически</span>' +
+      '</div>';
+    }
+    else if (key === 'stageNum') {
+      inp = '<div style="display:flex;align-items:center;gap:8px">' +
+        idStageBadge(val) +
+        '<span class="t3" style="font-size:.72rem">🔒 Переход кнопкой «Шаг» выше</span>' +
+      '</div>';
+    }
     else if (key === 'priority') inp = '<select name="'+key+'" data-key="'+key+'">'+prioOpts+'</select>';
-    else if (key === 'stage') inp = '<select name="'+key+'" data-key="'+key+'"><option value="">—</option>'+stageOpts+'</select>';
     else if (key === 'assignee' && S.user.role === 'admin') inp = '<select name="'+key+'" data-key="'+key+'">' + assigneeOpts + '</select>';
     else if (key === 'contractor' && S.user.role === 'admin') inp = '<select name="'+key+'" data-key="'+key+'" style="width:100%">' + contractorOpts + '</select>';
     else if (type === 'textarea') inp = '<textarea name="'+key+'" data-key="'+key+'">'+val+'</textarea>';
@@ -243,11 +260,25 @@ function pageCard() {
     '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'act\',\''+eid+'\')" title="\u0410\u043a\u0442">&#x2714; \u0410\u043a\u0442</button>' +
     '<button class="btn btn-sm btn-ghost" onclick="window.print()" title="\u041f\u0435\u0447\u0430\u0442\u044c / PDF">&#x1F5A8; \u041f\u0435\u0447\u0430\u0442\u044c</button>';
 
+  var cancelBtn = t.status === 'cancelled'
+    ? '<span class="badge b-red" style="padding:6px 12px;font-weight:700">🚫 Заявка отменена' + (t.overdueReason ? ': ' + escHtml(t.overdueReason) : '') + '</span>'
+    : '<button class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="cancelTaskPrompt(\'' + eid + '\')" title="Отменить заявку с указанием причины">🚫 Отменить заявку</button>';
+
   var hdr = '<div class="card-hdr">' +
     '<button class="btn btn-sm btn-ghost" onclick="go(\'tasks\')">← Заявки</button>' +
     '<h1>'+t.id+'</h1>' +
     docBtns +
+    cancelBtn +
   '</div>';
+
+  var cancelledBanner = t.status === 'cancelled'
+    ? '<div class="banner banner-warn" style="background:#fee2e2;border:1.5px solid #f87171;margin-bottom:1rem">' +
+        '<div>' +
+          '<div class="banner-title" style="color:#b91c1c;font-size:.95rem">🚫 Заявка отменена</div>' +
+          '<div class="banner-body" style="color:#7f1d1d">Причина: <strong>' + escHtml(t.overdueReason || 'Причина не указана') + '</strong></div>' +
+        '</div>' +
+      '</div>'
+    : '';
 
   var curStageNum = Number(t.stageNum != null ? t.stageNum : 0);
   if (curStageNum < 0) curStageNum = 0;
@@ -543,6 +574,7 @@ function pageCard() {
   '</div>';
 
   return hdr +
+    cancelledBanner +
     lifecycleBanner +
     itemsBlock +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start">' +
@@ -916,6 +948,10 @@ function saveCard() {
   });
   data._history = hist;
 
+  delete data.status;
+  delete data.stage;
+  delete data.stageNum;
+
   api('/tasks/' + S.cardId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})
     .then(function(){
       Object.assign(t, data);
@@ -924,5 +960,29 @@ function saveCard() {
       renderApp();
     })
     .catch(function(e){ alert('Ошибка сохранения: ' + e.message); });
+}
+
+function cancelTaskPrompt(taskId) {
+  var reason = prompt('Укажите официальную причину отмены заявки:');
+  if (reason === null) return;
+  if (!reason.trim()) return alert('Причина отмены обязательна!');
+
+  api('/tasks/' + encodeURIComponent(taskId) + '/cancel', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: reason.trim() })
+  })
+  .then(function(res) {
+    if (res.error) return alert('Ошибка: ' + res.error);
+    var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
+    if (t) {
+      t.status = 'cancelled';
+      t.overdueReason = reason.trim();
+    }
+    renderApp();
+  })
+  .catch(function(err) {
+    alert('Ошибка отмены заявки: ' + (err.message || err));
+  });
 }
 // ─── PAGE: МАРШИ ─────────────────────────────────────────────────────────────

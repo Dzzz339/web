@@ -224,6 +224,7 @@ function advanceIdStep(taskId) {
     renderApp();
     if (S.page === 'card' && S.cardId === taskId) {
       refreshRemarksList(taskId);
+      refreshTaskItemsList(taskId);
     }
   })
   .catch(function(err){

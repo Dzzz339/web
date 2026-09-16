@@ -127,60 +127,10 @@ function pageKanban() {
 
 
 function moveTask(id, stage) {
-  var t = S.tasks.find(function(x){ return String(x.id) === String(id); });
-  if (!t) return;
-  
-  var now = new Date().toLocaleString('ru');
-  var author = S.user ? (S.user.full_name || S.user.username) : 'Система';
-  var hist = t._history || [];
-
-  var stageNames = {
-    request: '1. Заявка',
-    survey: '2. Обследование',
-    install: '3. Монтаж',
-    control: '4. Контроль',
-    acceptance: '5. Приёмка',
-    payment: '6. Оплата'
-  };
-
-  var oldStageName = stageNames[t.stage] || t.stage || '1. Заявка';
-  var newStageName = stageNames[stage] || stage;
-
-  if (t.stage !== stage) {
-    hist.push({ date: now, author: author, field: 'Этап (Канбан)', old: oldStageName, new: newStageName });
-  }
-
-  // Авто-статус по этапу
-  var newStatus = t.status;
-  if (stage === 'payment') {
-    newStatus = (t.status === 'paid') ? 'paid' : 'done';
-  } else if (stage === 'acceptance') {
-    newStatus = 'done';
-  } else if (stage === 'install' || stage === 'control' || stage === 'survey') {
-    if (t.status === 'pending' || !t.status) newStatus = 'progress';
-  } else if (stage === 'request') {
-    if (t.status === 'progress' && (!t.fact || Number(t.fact) === 0)) newStatus = 'pending';
-  }
-
-  api('/tasks/' + id, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ stage: stage, status: newStatus, _history: hist })
-  })
-  .then(function(){
-    t.stage = stage;
-    t.status = newStatus;
-    t._history = hist;
-    renderApp();
-  })
-  .catch(function(err){
-    console.error('Failed to move task:', err);
-    alert('Ошибка перемещения заявки: ' + (err.message || err));
-  });
+  alert('Перемещение заявки выполняется строго по регламентным шагам жизненного цикла через кнопку «▶ Шаг» на карточке.');
 }
 
 function setTaskStage(newStage) {
-  if (!S.cardId) return;
   moveTask(S.cardId, newStage);
 }
 

@@ -73,6 +73,22 @@ router.get('/tasks', authenticateToken, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }) }
 });
 
+// Получение одной заявки по ID
+router.get('/tasks/:id', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT t.*,
+        (SELECT COUNT(*) FROM remarks rm WHERE rm.task_id = t.id AND rm.resolved_at IS NULL)::integer AS open_remarks_count
+      FROM tasks t
+      WHERE t.id = $1
+    `, [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'Заявка не найдена' });
+    res.json(rowToTask(rows[0]));
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Создание одиночной заявки вручную (или через ИИ)
 router.post('/tasks', authenticateToken, async (req, res) => {
   try {
@@ -130,41 +146,7 @@ router.post('/tasks', authenticateToken, async (req, res) => {
 router.put('/tasks/:id', authenticateToken, async (req, res) => {
   try {
     const d = req.body
-    // --- УМНАЯ АВТОМАТИКА (Связка Этап <-> Статус) ---
-    // Выполняем только если меняется либо этап, либо статус
-    if (d.stage !== undefined || d.status !== undefined) {
-      
-      // 1. Авто-статус по этапу
-      if (d.stage === 'payment') {
-        d.status = (d.status === 'paid') ? 'paid' : 'done';
-      }
-      else if (d.stage === 'acceptance') {
-        d.status = 'done';
-      }
-      else if (d.stage === 'install' || d.stage === 'control' || d.stage === 'survey') {
-        if (d.status === 'pending' || !d.status) d.status = 'progress';
-      }
-      else if (d.stage === 'request') {
-        if (d.status === 'progress' && (!d.fact || Number(d.fact) === 0)) d.status = 'pending';
-      }
-
-      // 2. Авто-этап по статусу
-      if (d.status === 'cancelled') {
-        d.stage = ''; // Сбрасываем этап, если отменили
-      }
-      else if (d.status === 'paid') {
-        d.stage = 'payment'; // Логично, что если оплачено, то это этап оплаты
-      }
-    }
-
-    if (d.status === 'paid') {
-      pool.query(
-        `UPDATE invoices SET status='paid' WHERE task_id=$1 AND status IN ('issued','approved')`,
-        [req.params.id]
-      ).catch(err => console.error('Invoice auto-paid sync error:', err.message));
-    }
-
-        // Если меняется исполнитель — подтягиваем организацию, к которой он привязан
+    // Если меняется исполнитель — подтягиваем организацию, к которой он привязан
     if (d.assignee !== undefined && d.assignee) {
       try {
         const { rows: workerRows } = await pool.query(
@@ -184,46 +166,40 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
         address       = COALESCE($3, address),
         work_type     = COALESCE($4, work_type),
         deadline      = $5,
-        status        = COALESCE($6, status),
-        priority      = COALESCE($7, priority),
-        stage         = $8,
-        archived      = COALESCE($9, archived),
-        
-        -- ВОЗВРАЩАЕМ ЗАЩИТУ: Если Канбан прислал пустоту (NULL), оставляем старое значение
-        assignee      = COALESCE($10, assignee),
-        controller    = COALESCE($11, controller),
-        comment       = COALESCE($12, comment),
-        contact       = COALESCE($14, contact),
-        contractor    = COALESCE($18, contractor),
-
-        distributed_at = $13,
-        tech_link     = COALESCE($15, tech_link),
-        fact          = COALESCE($16::integer, fact),
-        overdue_days  = COALESCE($17::integer, overdue_days),
-        in_order      = COALESCE($19::integer, in_order),
-        amount        = COALESCE($20::numeric, amount),
-        distance_km   = COALESCE($21::numeric, distance_km),
-        price_per_unit= COALESCE($22::numeric, price_per_unit),
-        id_status     = COALESCE($23, id_status),
-        excel_comment = COALESCE($24, excel_comment),
-        edo_number    = COALESCE($25, edo_number),
-        invoice_info  = COALESCE($26, invoice_info),
-        vedo_status   = COALESCE($27, vedo_status),
-        history       = COALESCE($28::jsonb, history),
-        km_rate       = COALESCE($29::numeric, km_rate),
-        tmc           = COALESCE($30::numeric, tmc), 
-        extras        = COALESCE($31::numeric, extras),
-        supplier_order_signed = COALESCE($32::boolean, supplier_order_signed),
-        supplier_id_uploaded  = COALESCE($33::boolean, supplier_id_uploaded),
-        overdue_reason        = COALESCE($34, overdue_reason),
-        assignment_status     = COALESCE($35, assignment_status),
-        customer              = COALESCE($36, customer),
-        stage_num             = COALESCE($37::integer, stage_num),
-        manager_id            = COALESCE($38::integer, manager_id),
-        designer_id           = COALESCE($39::integer, designer_id),
-        materials_link        = COALESCE($40, materials_link),
-        id_link               = COALESCE($41, id_link),
-        stage_due             = $42,
+        priority      = COALESCE($6, priority),
+        archived      = COALESCE($7, archived),
+        assignee      = COALESCE($8, assignee),
+        controller    = COALESCE($9, controller),
+        comment       = COALESCE($10, comment),
+        distributed_at = $11,
+        contact       = COALESCE($12, contact),
+        tech_link     = COALESCE($13, tech_link),
+        fact          = COALESCE($14::integer, fact),
+        overdue_days  = COALESCE($15::integer, overdue_days),
+        contractor    = COALESCE($16, contractor),
+        in_order      = COALESCE($17::integer, in_order),
+        amount        = COALESCE($18::numeric, amount),
+        distance_km   = COALESCE($19::numeric, distance_km),
+        price_per_unit= COALESCE($20::numeric, price_per_unit),
+        id_status     = COALESCE($21, id_status),
+        excel_comment = COALESCE($22, excel_comment),
+        edo_number    = COALESCE($23, edo_number),
+        invoice_info  = COALESCE($24, invoice_info),
+        vedo_status   = COALESCE($25, vedo_status),
+        history       = COALESCE($26::jsonb, history),
+        km_rate       = COALESCE($27::numeric, km_rate),
+        tmc           = COALESCE($28::numeric, tmc), 
+        extras        = COALESCE($29::numeric, extras),
+        supplier_order_signed = COALESCE($30::boolean, supplier_order_signed),
+        supplier_id_uploaded  = COALESCE($31::boolean, supplier_id_uploaded),
+        overdue_reason        = COALESCE($32, overdue_reason),
+        assignment_status     = COALESCE($33, assignment_status),
+        customer              = COALESCE($34, customer),
+        manager_id            = COALESCE($35::integer, manager_id),
+        designer_id           = COALESCE($36::integer, designer_id),
+        materials_link        = COALESCE($37, materials_link),
+        id_link               = COALESCE($38, id_link),
+        stage_due             = $39,
         version               = version + 1,
         updated_at    = NOW()
       WHERE id = $1
@@ -233,23 +209,17 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       d.address     || null,
       d.workType    || null,
       safeDate(d.deadline),
-      d.status      || null,
       d.priority    || null,
-      d.stage       !== undefined ? d.stage : null,
       d.archived    !== undefined ? d.archived : null,
-      
-      // ИСПРАВЛЕНИЕ ЗДЕСЬ: !== undefined позволяет передать пустую строку "", чтобы ты мог стереть человека
       d.assignee    !== undefined ? d.assignee : null,
       d.controller  !== undefined ? d.controller : null,
       d.comment     !== undefined ? d.comment : null,
-      
       safeDate(d.distributedAt),
-      
       d.contact     !== undefined ? d.contact : null,
       d.techLink    || null,
       d.fact        !== undefined ? Number(d.fact)        : null,
       d.overdueDays !== undefined ? Number(d.overdueDays) : null,
-      d.contractor  !== undefined ? d.contractor : null,
+      d.contractor  !== undefined ? d.contractor          : null,
       d.inOrder     !== undefined ? Number(d.inOrder)     : null,
       d.amount      !== undefined ? Number(d.amount)      : null,
       d.distanceKm  !== undefined ? Number(d.distanceKm)  : null,
@@ -259,21 +229,20 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       d.edoNumber   || null,
       d.invoiceInfo || null,
       d.vedoStatus  || null,
-      d._history    ? JSON.stringify(d._history) : null,
-      d.kmRate      || null,
-      d.tmc         || null, 
-      d.extras      || null,
-      d.supplierOrderSigned !== undefined ? d.supplierOrderSigned : null,
-      d.supplierIdUploaded  !== undefined ? d.supplierIdUploaded  : null,
-      d.overdueReason       || null,
+      d.history     ? JSON.stringify(d.history) : null,
+      d.kmRate      !== undefined ? Number(d.kmRate)      : null,
+      d.tmc         !== undefined ? Number(d.tmc)         : null,
+      d.extras      !== undefined ? Number(d.extras)      : null,
+      d.supplierOrderSigned !== undefined ? Boolean(d.supplierOrderSigned) : null,
+      d.supplierIdUploaded  !== undefined ? Boolean(d.supplierIdUploaded)  : null,
+      d.overdueReason !== undefined ? d.overdueReason : null,
       d.assignmentStatus || null,
-      d.customer    || null,
-      d.stageNum    !== undefined ? Number(d.stageNum) : null,
-      d.managerId   !== undefined ? (d.managerId ? Number(d.managerId) : null) : null,
-      d.designerId  !== undefined ? (d.designerId ? Number(d.designerId) : null) : null,
-      d.materialsLink !== undefined ? d.materialsLink : null,
-      d.idLink      !== undefined ? d.idLink : null,
-      d.stageDue    ? new Date(d.stageDue) : null
+      d.customer || 'ПАО Сбербанк',
+      d.managerId   ? Number(d.managerId) : null,
+      d.designerId  ? Number(d.designerId) : null,
+      d.materialsLink || null,
+      d.idLink || null,
+      safeDate(d.stageDue)
     ]);
 
     // --- УВЕДОМЛЕНИЯ И EMAIL ДЛЯ ИСПОЛНИТЕЛЯ ---
@@ -384,18 +353,44 @@ router.post('/tasks/:id/advance', authenticateToken, async (req, res) => {
 
     const stepInfo = ID_STEPS[curStage];
 
-    // Шаг 0 (Монтаж начат) -> если нет менеджера, привязываем текущего
+    // Шаг 0 (Монтаж начат) -> если нет менеджера, привязываем текущего + проверяем наличие подрядчика
     let managerId = task.manager_id;
-    if (curStage === 0 && !managerId && hasRole(req.user, 'manager', 'admin', 'leader')) {
-      managerId = req.user.id;
+    if (curStage === 0) {
+      if (!managerId && hasRole(req.user, 'manager', 'admin', 'leader')) {
+        managerId = req.user.id;
+      }
+      const { rows: itemContractors } = await pool.query(
+        "SELECT id FROM task_items WHERE task_id=$1 AND contractor_name IS NOT NULL AND contractor_name != '' LIMIT 1",
+        [req.params.id]
+      );
+      if (!task.contractor && itemContractors.length === 0) {
+        return res.status(400).json({ error: 'Перед началом монтажа необходимо назначить подрядчика на заявку или в спецификации (блок «Состав работ»)' });
+      }
     }
 
-    // Шаг 2 (Материалы переданы) -> требуется ссылка или материалы
+    // Шаг 1 (Объект готов) -> проверяем факт или отметку позиций
+    if (curStage === 1) {
+      const factVal = Number(task.fact) || 0;
+      const { rows: itemRows } = await pool.query(
+        'SELECT id, status FROM task_items WHERE task_id=$1',
+        [req.params.id]
+      );
+      const hasDoneItems = itemRows.some(r => r.status === 'done' || r.status === 'progress');
+      if (factVal <= 0 && itemRows.length > 0 && !hasDoneItems) {
+        return res.status(400).json({ error: 'Для завершения объекта укажите фактическое количество (портов) или отметьте работы в спецификации' });
+      }
+    }
+
+    // Шаг 2 (Материалы переданы) -> требуется ссылка или прикрепленные файлы
     let materialsLink = task.materials_link || '';
     if (curStage === 2) {
       const trimmedLink = (link || '').trim();
-      if (!trimmedLink && !materialsLink) {
-        return res.status(400).json({ error: 'Для передачи материалов укажите ссылку на материалы (диск/архив)' });
+      const { rows: atts } = await pool.query(
+        "SELECT 1 FROM task_attachments WHERE task_id=$1 AND type IN ('photo_report', 'checklist', 'scheme') LIMIT 1",
+        [req.params.id]
+      );
+      if (!trimmedLink && !materialsLink && atts.length === 0) {
+        return res.status(400).json({ error: 'Для передачи материалов укажите ссылку на облачный диск (Яндекс.Диск) или прикрепите файлы/фотоотчёт к заявке' });
       }
       if (trimmedLink) materialsLink = trimmedLink;
     }
@@ -409,12 +404,16 @@ router.post('/tasks/:id/advance', authenticateToken, async (req, res) => {
       stageDue = businessDue(new Date().toISOString(), 3); // 3 рабочих дня
     }
 
-    // Шаг 4 (ИД готова) -> требуется ссылка на готовую ИД
+    // Шаг 4 (ИД готова) -> требуется ссылка на готовую ИД или прикрепленный альбом
     let idLink = task.id_link || '';
     if (curStage === 4) {
       const trimmedLink = (link || '').trim();
-      if (!trimmedLink && !idLink) {
-        return res.status(400).json({ error: 'Для подтверждения готовности ИД укажите ссылку на готовую документацию' });
+      const { rows: idAtts } = await pool.query(
+        "SELECT 1 FROM task_attachments WHERE task_id=$1 AND type IN ('pi_excel', 'act') LIMIT 1",
+        [req.params.id]
+      );
+      if (!trimmedLink && !idLink && idAtts.length === 0) {
+        return res.status(400).json({ error: 'Для подтверждения готовности ИД укажите ссылку на готовую документацию или прикрепите файл альбома' });
       }
       if (trimmedLink) idLink = trimmedLink;
     }
@@ -443,7 +442,14 @@ router.post('/tasks/:id/advance', authenticateToken, async (req, res) => {
     else if (nextStage === 6) { newStatus = 'progress'; newStageText = 'acceptance'; }
     else if (nextStage === 7) { newStatus = 'done'; newStageText = 'payment'; }
     else if (nextStage === 8) { newStatus = 'done'; newStageText = 'payment'; }
-    else if (nextStage === 9) { newStatus = 'paid'; newStageText = 'payment'; }
+    else if (nextStage === 9) {
+      newStatus = 'paid';
+      newStageText = 'payment';
+      pool.query(
+        `UPDATE invoices SET status='paid' WHERE task_id=$1 AND status IN ('issued','approved')`,
+        [req.params.id]
+      ).catch(err => console.error('Invoice auto-paid sync error:', err.message));
+    }
 
     // Лог в историю
     const history = Array.isArray(task.history) ? [...task.history] : [];
@@ -495,14 +501,14 @@ router.post('/tasks/:id/advance', authenticateToken, async (req, res) => {
         [recipientRoles]
       ).then(({ rows: recUsers }) => {
         recUsers.forEach(u => {
-          createNotification(
+          sendNotification(
             u.id,
-            `📌 Заявка ${task.id}: ${stepInfo.label}`,
-            `Переведена на этап: ${ID_STAGES[nextStage]}`,
+            `Заявка №${task.id} перешла на этап: ${ID_STAGES[nextStage]}`,
+            `/tasks?id=${task.id}`,
             task.id
           );
         });
-      }).catch(e => console.error('Advance notify error:', e.message));
+      }).catch(err => console.error('Notification error:', err.message));
     }
 
     const { rows: updatedRows } = await pool.query('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
@@ -558,6 +564,49 @@ router.post('/tasks/:id/undo', authenticateToken, async (req, res) => {
     res.json({ success: true, task: updatedTask, stageNum: prevStage });
   } catch(e) {
     console.error('Undo error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Отмена заявки с обязательным указанием причины
+router.post('/tasks/:id/cancel', authenticateToken, async (req, res) => {
+  try {
+    const { reason } = req.body || {};
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ error: 'Укажите причину отмены заявки' });
+    }
+    const { rows } = await pool.query('SELECT * FROM tasks WHERE id=$1', [req.params.id]);
+    const task = rows[0];
+    if (!task) return res.status(404).json({ error: 'Заявка не найдена' });
+
+    if (!hasRole(req.user, 'admin', 'leader', 'manager', 'dispatch')) {
+      return res.status(403).json({ error: 'У вас нет прав для отмены заявки' });
+    }
+
+    const history = Array.isArray(task.history) ? [...task.history] : [];
+    history.push({
+      date: new Date().toISOString(),
+      user: req.user.fullName || req.user.username,
+      userId: req.user.id,
+      action: 'Отмена заявки',
+      note: reason.trim()
+    });
+
+    await pool.query(`
+      UPDATE tasks SET
+        status = 'cancelled',
+        overdue_reason = $2,
+        history = $3::jsonb,
+        updated_at = NOW()
+      WHERE id = $1
+    `, [req.params.id, reason.trim(), JSON.stringify(history)]);
+
+    const { rows: updatedRows } = await pool.query('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
+    const updatedTask = rowToTask(updatedRows[0]);
+    io.emit('task-updated', updatedTask);
+    res.json({ success: true, task: updatedTask, status: 'cancelled' });
+  } catch(e) {
+    console.error('Cancel error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
