@@ -57,6 +57,29 @@ function pageData() {
           '</div>' +
         '</div>' +
 
+        // СЦЕНАРИЙ 4: СПРАВОЧНИКИ ПЕРСОНАЛА И ДОВЕРЕННОСТЕЙ
+        '<div class="card p">' +
+          '<div class="fw7 mb" style="font-size:1.05rem; display:flex; align-items:center; justify-content:space-between">' +
+            '<span>👷 Справочники: Специалисты и Доверенности</span>' +
+            '<span class="badge b-purple" style="font-size:.7rem">.docx / .xlsx</span>' +
+          '</div>' +
+          '<p class="t2 mb" style="font-size:.82rem">Загрузка списков полевых специалистов с паспортами и реестра доверенностей.</p>' +
+          '<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">' +
+            '<button type="button" class="btn btn-outline" style="border:1.5px dashed var(--border); padding:.75rem; border-radius:8px; text-align:center; cursor:pointer" onclick="document.getElementById(\'d_upload_spec\').click()">' +
+              '<input type="file" id="d_upload_spec" accept=".docx,.xlsx,.xls" style="display:none" onchange="uploadSpecialistsFile(this)">' +
+              '<div style="font-size:1.4rem">👷</div>' +
+              '<div class="fw6" style="font-size:.82rem; margin-top:4px">Специалисты</div>' +
+              '<div class="t3" style="font-size:.7rem">Word (.docx) / Excel</div>' +
+            '</button>' +
+            '<button type="button" class="btn btn-outline" style="border:1.5px dashed var(--border); padding:.75rem; border-radius:8px; text-align:center; cursor:pointer" onclick="document.getElementById(\'d_upload_poa\').click()">' +
+              '<input type="file" id="d_upload_poa" accept=".xlsx,.xls" style="display:none" onchange="uploadPoaFile(this)">' +
+              '<div style="font-size:1.4rem">📜</div>' +
+              '<div class="fw6" style="font-size:.82rem; margin-top:4px">Доверенности</div>' +
+              '<div class="t3" style="font-size:.7rem">Excel (.xlsx)</div>' +
+            '</button>' +
+          '</div>' +
+        '</div>' +
+
       '</div>' +
 
       // ПРАВАЯ КОЛОНКА: СЦЕНАРИЙ 3 (ОДИНОЧНАЯ ЗАЯВКА И ИИ)

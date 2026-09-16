@@ -31,6 +31,99 @@ function parseRussianDate(val) {
   return null;
 }
 
+export function execPython(scriptPath, args, callback) {
+  const isWin = process.platform === 'win32';
+  const candidates = isWin ? ['py', 'python', 'python3'] : ['python3', 'python', 'py'];
+  if (process.env.PYTHON_BIN) {
+    candidates.unshift(process.env.PYTHON_BIN);
+  }
+
+  function tryCandidate(idx) {
+    if (idx >= candidates.length) {
+      return callback(new Error('Интерпретатор Python 3 не найден в системе. Установите python3.'));
+    }
+    const bin = candidates[idx];
+    execFile(bin, [scriptPath, ...args], (err, stdout, stderr) => {
+      if (err && (err.code === 'ENOENT' || (stderr && (stderr.includes('not found') || stderr.includes('не найдено'))))) {
+        return tryCandidate(idx + 1);
+      }
+      callback(err, stdout, stderr);
+    });
+  }
+
+  tryCandidate(0);
+}
+
+export async function importSpecialistsFromXlsx(xlsxPath) {
+  if (!fs.existsSync(xlsxPath)) {
+    return { count: 0, error: 'Файл не найден' };
+  }
+
+  const wb = xlsx.readFile(xlsxPath);
+  const sheetName = wb.SheetNames[0];
+  const sheet = wb.Sheets[sheetName];
+  const rows = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+
+  if (!rows || rows.length < 2) {
+    return { count: 0, inserted: 0, updated: 0 };
+  }
+
+  const header = rows[0].map(h => String(h || '').trim().toLowerCase());
+  const nameIdx = header.findIndex(h => h.includes('фио') || h.includes('сотрудник') || h.includes('монтажник') || h.includes('специалист') || h.includes('фамилия'));
+  const phoneIdx = header.findIndex(h => h.includes('телефон') || h.includes('связь') || h.includes('номер'));
+  const passIdx = header.findIndex(h => h.includes('паспорт'));
+  const orgIdx = header.findIndex(h => h.includes('организаци') || h.includes('компани'));
+  const posIdx = header.findIndex(h => h.includes('должност') || h.includes('роль'));
+
+  let inserted = 0;
+  let updated = 0;
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || nameIdx === -1 || !row[nameIdx]) continue;
+
+    const fullName = String(row[nameIdx]).trim();
+    if (!fullName) continue;
+
+    const phone = phoneIdx !== -1 && row[phoneIdx] ? String(row[phoneIdx]).trim() : null;
+    const passportRaw = passIdx !== -1 && row[passIdx] ? String(row[passIdx]).trim() : null;
+    const org = orgIdx !== -1 && row[orgIdx] ? String(row[orgIdx]).trim() : 'ООО "Ультима"';
+    const pos = posIdx !== -1 && row[posIdx] ? String(row[posIdx]).trim() : 'Монтажник СКС';
+
+    const check = await pool.query('SELECT id FROM specialists WHERE full_name = $1 LIMIT 1', [fullName]);
+    if (check.rows.length === 0) {
+      await pool.query(
+        `INSERT INTO specialists (full_name, phone, passport_raw, organization, position)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [fullName, phone, passportRaw, org, pos]
+      );
+      inserted++;
+    } else {
+      await pool.query(
+        `UPDATE specialists SET
+           phone = COALESCE(NULLIF($1, ''), phone),
+           passport_raw = COALESCE(NULLIF($2, ''), passport_raw),
+           organization = COALESCE(NULLIF($3, ''), organization),
+           position = COALESCE(NULLIF($4, ''), position)
+         WHERE id = $5`,
+        [phone, passportRaw, org, pos, check.rows[0].id]
+      );
+      updated++;
+    }
+  }
+
+  console.log(`[DirectoriesImporter] Specialists xlsx: inserted ${inserted}, updated ${updated}`);
+  return { inserted, updated, total: rows.length - 1 };
+}
+
+export async function importSpecialistsFromFile(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.xlsx' || ext === '.xls') {
+    return importSpecialistsFromXlsx(filePath);
+  }
+  return importSpecialistsFromDocx(filePath);
+}
+
 export async function importSpecialistsFromDocx(docxPath) {
   const targetPath = docxPath || path.join(ROOT_DIR, 'документы', 'Dlya_poluchenia_dopuska.docx');
   if (!fs.existsSync(targetPath)) {
@@ -41,7 +134,7 @@ export async function importSpecialistsFromDocx(docxPath) {
   const scriptPath = path.join(ROOT_DIR, 'server', 'scripts', 'parse_docx_specialists.py');
   
   return new Promise((resolve, reject) => {
-    execFile('py', [scriptPath, targetPath], async (err, stdout, stderr) => {
+    execPython(scriptPath, [targetPath], async (err, stdout, stderr) => {
       if (err) {
         console.error('[DirectoriesImporter] Error parsing docx:', stderr || err.message);
         return reject(err);

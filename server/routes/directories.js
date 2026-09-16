@@ -1,11 +1,17 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
-import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import { pool } from '../config/db.js';
 import { authenticateToken } from '../middleware/auth.js';
-import { runFullImport } from '../services/directoriesImporter.js';
+import { uploadAttachment } from '../middleware/upload.js';
+import { 
+  runFullImport, 
+  importSpecialistsFromFile, 
+  importPowersOfAttorneyFromXlsx, 
+  syncContractorsFromPOA, 
+  execPython 
+} from '../services/directoriesImporter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -410,7 +416,7 @@ router.post('/tasks/:id/access-letter', authenticateToken, async (req, res) => {
     fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), 'utf-8');
 
     const scriptPath = path.join(ROOT_DIR, 'server', 'scripts', 'generate_access_letter.py');
-    execFile('py', [scriptPath, cfgPath], (pyErr, stdout, stderr) => {
+    execPython(scriptPath, [cfgPath], (pyErr, stdout, stderr) => {
       // Clean up config file
       try { if (fs.existsSync(cfgPath)) fs.unlinkSync(cfgPath); } catch (_) {}
 
@@ -440,7 +446,47 @@ router.post('/tasks/:id/access-letter', authenticateToken, async (req, res) => {
   }
 });
 
-// POST /api/directories/reimport - Force reimport from disk
+// POST /api/directories/upload-specialists - Upload specialists file (.docx or .xlsx)
+router.post('/directories/upload-specialists', authenticateToken, uploadAttachment.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'Файл не прикреплен' });
+  }
+  const uploadedPath = req.file.path;
+  try {
+    const result = await importSpecialistsFromFile(uploadedPath);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error('[UploadSpecialists] Error:', e);
+    res.status(500).json({ error: 'Ошибка обработки файла специалистов: ' + e.message });
+  } finally {
+    try { if (fs.existsSync(uploadedPath)) fs.unlinkSync(uploadedPath); } catch (_) {}
+  }
+});
+
+// POST /api/directories/upload-poa - Upload powers of attorney (.xlsx)
+router.post('/directories/upload-poa', authenticateToken, uploadAttachment.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'Файл не прикреплен' });
+  }
+  const uploadedPath = req.file.path;
+  try {
+    const poaResult = await importPowersOfAttorneyFromXlsx(uploadedPath);
+    let contrResult = { added: 0, updated: 0 };
+    try {
+      contrResult = await syncContractorsFromPOA();
+    } catch (cErr) {
+      console.warn('[UploadPOA] Warning syncing contractors:', cErr.message);
+    }
+    res.json({ ok: true, poa: poaResult, contractors: contrResult });
+  } catch (e) {
+    console.error('[UploadPOA] Error:', e);
+    res.status(500).json({ error: 'Ошибка обработки реестра доверенностей: ' + e.message });
+  } finally {
+    try { if (fs.existsSync(uploadedPath)) fs.unlinkSync(uploadedPath); } catch (_) {}
+  }
+});
+
+// POST /api/directories/reimport - Force reimport from disk (if files exist on server)
 router.post('/directories/reimport', authenticateToken, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Только для администраторов' });
   try {

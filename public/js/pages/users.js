@@ -70,12 +70,20 @@ function renderTeamActiveTabContent() {
 
   if (S.teamActiveTab === 'specialists') {
     if (topActions) {
-      topActions.innerHTML = `<button class="btn" onclick="openAddSpecialistModal()">+ Добавить специалиста</button>`;
+      topActions.innerHTML = `
+        <input type="file" id="input_upload_specialists" accept=".docx,.xlsx,.xls" style="display:none" onchange="uploadSpecialistsFile(this)">
+        <button class="btn btn-sm" style="background:#fff;border:1.5px solid var(--accent);color:var(--accent);font-weight:700;margin-right:8px" onclick="document.getElementById('input_upload_specialists').click()">📤 Загрузить специалистов (.docx / .xlsx)</button>
+        <button class="btn btn-sm" onclick="openAddSpecialistModal()">+ Добавить специалиста</button>
+      `;
     }
     renderSpecialistsView(container);
   } else if (S.teamActiveTab === 'poa') {
     if (topActions) {
-      topActions.innerHTML = `<button class="btn" onclick="openAddPoaModal()">+ Добавить доверенность</button>`;
+      topActions.innerHTML = `
+        <input type="file" id="input_upload_poa" accept=".xlsx,.xls" style="display:none" onchange="uploadPoaFile(this)">
+        <button class="btn btn-sm" style="background:#fff;border:1.5px solid var(--accent);color:var(--accent);font-weight:700;margin-right:8px" onclick="document.getElementById('input_upload_poa').click()">📤 Загрузить доверенности (.xlsx)</button>
+        <button class="btn btn-sm" onclick="openAddPoaModal()">+ Добавить доверенность</button>
+      `;
     }
     renderPoaView(container);
   } else {
@@ -94,6 +102,22 @@ function renderTeamActiveTabContent() {
 function renderSpecialistsView(container) {
   var q = (S.specSearch || '').toLowerCase();
   var withPass = S.specWithPassport;
+
+  if ((!S.specialists || S.specialists.length === 0) && !q && !withPass) {
+    container.innerHTML = `
+      <div class="card p" style="text-align:center; padding:3.5rem 1.5rem; background:rgba(234,88,12,.03); border:1.5px dashed var(--accent); border-radius:14px; margin-top:.5rem">
+        <div style="font-size:3rem; margin-bottom:12px">👷📋</div>
+        <h2 style="margin:0 0 10px 0; font-size:1.3rem">База специалистов пуста</h2>
+        <p style="color:var(--text-2); max-width:560px; margin:0 auto 1.5rem auto; font-size:.9rem; line-height:1.5">
+          Загрузите официальный документ Сбербанка (Word <b>.docx</b>) или таблицу Excel (<b>.xlsx</b>) с данными монтажников и паспортами. Система автоматически распознает ФИО, паспорта, телефоны и сформирует справочник.
+        </p>
+        <button class="btn btn-lg" onclick="document.getElementById('input_upload_specialists').click()" style="background:var(--accent); color:#fff; font-weight:700; padding:.8rem 2rem; font-size:1rem; border-radius:8px; cursor:pointer">
+          📤 Выбрать файл для загрузки (.docx / .xlsx)
+        </button>
+      </div>
+    `;
+    return;
+  }
 
   var list = (S.specialists || []).filter(function(s) {
     if (withPass && (!s.passport_raw || s.passport_raw.trim() === '')) return false;
@@ -288,6 +312,22 @@ function deleteSpecialist(id) {
 function renderPoaView(container) {
   var q = (S.poaSearch || '').toLowerCase();
   var filterStatus = S.poaFilterStatus || 'all';
+
+  if ((!S.powersOfAttorney || S.powersOfAttorney.length === 0) && !q && filterStatus === 'all') {
+    container.innerHTML = `
+      <div class="card p" style="text-align:center; padding:3.5rem 1.5rem; background:rgba(234,88,12,.03); border:1.5px dashed var(--accent); border-radius:14px; margin-top:.5rem">
+        <div style="font-size:3rem; margin-bottom:12px">📜📋</div>
+        <h2 style="margin:0 0 10px 0; font-size:1.3rem">Реестр доверенностей пуст</h2>
+        <p style="color:var(--text-2); max-width:560px; margin:0 auto 1.5rem auto; font-size:.9rem; line-height:1.5">
+          Загрузите файл реестра доверенностей в формате Excel (<b>.xlsx</b>). Система автоматически загрузит номера, подотчетных лиц, сроки действия и свяжет их с контрагентами и специалистами.
+        </p>
+        <button class="btn btn-lg" onclick="document.getElementById('input_upload_poa').click()" style="background:var(--accent); color:#fff; font-weight:700; padding:.8rem 2rem; font-size:1rem; border-radius:8px; cursor:pointer">
+          📤 Выбрать реестр доверенностей (.xlsx)
+        </button>
+      </div>
+    `;
+    return;
+  }
 
   var list = (S.powersOfAttorney || []).filter(function(p) {
     if (filterStatus !== 'all' && p.computed_status !== filterStatus) return false;
@@ -614,4 +654,72 @@ function addUser() {
 function deleteUser(id) {
   if(!confirm('Удалить пользователя?')) return;
   api('/users/' + id, { method: 'DELETE' }).then(() => renderApp());
+}
+
+function uploadSpecialistsFile(input) {
+  if (!input || !input.files || !input.files[0]) return;
+  var file = input.files[0];
+  var formData = new FormData();
+  formData.append('file', file);
+
+  var banner = document.getElementById('upload_spec_status');
+  if (banner) banner.innerHTML = '<div style="color:var(--accent);font-weight:600">⏳ Загрузка и распознавание специалистов...</div>';
+
+  var token = S.token || localStorage.getItem('token') || '';
+  fetch('/api/directories/upload-specialists', {
+    method: 'POST',
+    headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+    body: formData
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(res) {
+    if (res && res.error) {
+      alert('Ошибка при загрузке: ' + res.error);
+    } else {
+      alert('✅ Специалисты успешно загружены!\nДобавлено новых: ' + (res.inserted || 0) + '\nОбновлено: ' + (res.updated || 0) + '\nВсего в файле: ' + (res.total || 0));
+      pageUsers();
+    }
+  })
+  .catch(function(err) {
+    alert('Ошибка сети при загрузке файла: ' + (err.message || err));
+  })
+  .finally(function() {
+    input.value = '';
+    if (banner) banner.innerHTML = '';
+  });
+}
+
+function uploadPoaFile(input) {
+  if (!input || !input.files || !input.files[0]) return;
+  var file = input.files[0];
+  var formData = new FormData();
+  formData.append('file', file);
+
+  var banner = document.getElementById('upload_poa_status');
+  if (banner) banner.innerHTML = '<div style="color:var(--accent);font-weight:600">⏳ Загрузка реестра доверенностей и сопоставление контрагентов...</div>';
+
+  var token = S.token || localStorage.getItem('token') || '';
+  fetch('/api/directories/upload-poa', {
+    method: 'POST',
+    headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+    body: formData
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(res) {
+    if (res && res.error) {
+      alert('Ошибка при загрузке: ' + res.error);
+    } else {
+      var p = res.poa || {};
+      var c = res.contractors || {};
+      alert('✅ Реестр доверенностей успешно загружен!\nДоверенностей добавлено: ' + (p.inserted || 0) + '\nДоверенностей обновлено: ' + (p.updated || 0) + '\nКонтрагентов связано/обновлено: ' + ((c.added || 0) + (c.updated || 0)));
+      pageUsers();
+    }
+  })
+  .catch(function(err) {
+    alert('Ошибка сети при загрузке файла: ' + (err.message || err));
+  })
+  .finally(function() {
+    input.value = '';
+    if (banner) banner.innerHTML = '';
+  });
 }
