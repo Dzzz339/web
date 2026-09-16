@@ -10,7 +10,8 @@ import {
   importSpecialistsFromFile, 
   importPowersOfAttorneyFromXlsx, 
   syncContractorsFromPOA, 
-  execPython 
+  execPython,
+  generateAccessLetterDocxPureJs
 } from '../services/directoriesImporter.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -382,10 +383,20 @@ router.post('/tasks/:id/access-letter', authenticateToken, async (req, res) => {
     );
     const specialists = specsRes.rows;
 
-    const templatePath = path.join(ROOT_DIR, 'документы', 'Dlya_poluchenia_dopuska.docx');
-    if (!fs.existsSync(templatePath)) {
-      return res.status(500).json({ error: 'Шаблон письма Dlya_poluchenia_dopuska.docx не найден' });
+    const tplCustom = path.join(UPLOADS_DIR, 'templates', 'access_letter_template.docx');
+    const tplDefault = path.join(ROOT_DIR, 'документы', 'Dlya_poluchenia_dopuska.docx');
+    let templatePath = null;
+    if (fs.existsSync(tplCustom)) {
+      templatePath = tplCustom;
+    } else if (fs.existsSync(tplDefault)) {
+      templatePath = tplDefault;
     }
+
+    if (!templatePath) {
+      return res.status(500).json({ error: 'Шаблон письма не найден. Загрузите файл "Dlya_poluchenia_dopuska.docx" в разделе "Команда" или "Данные"' });
+    }
+
+    const templateBuf = fs.readFileSync(templatePath);
 
     // Build task info string
     const parts = [];
@@ -396,13 +407,7 @@ router.post('/tasks/:id/access-letter', authenticateToken, async (req, res) => {
     if (task.contact) parts.push(`Контакт: ${task.contact}`);
     const taskInfoStr = customTaskInfo || parts.join(', ');
 
-    const outFilename = `AccessLetter_${taskId}_${Date.now()}.docx`;
-    const outPath = path.join(UPLOADS_DIR, outFilename);
-    const cfgPath = path.join(UPLOADS_DIR, `cfg_${Date.now()}.json`);
-
     const cfg = {
-      template_path: templatePath,
-      output_path: outPath,
       contractor_name: contractorName || 'ООО "Ультима"',
       responsible_info: responsibleInfo || '8(923) 102-40-42, ПМ – Чайка Алексей Николаевич',
       task_info: taskInfoStr,
@@ -413,36 +418,17 @@ router.post('/tasks/:id/access-letter', authenticateToken, async (req, res) => {
       }))
     };
 
-    fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), 'utf-8');
+    const outBuf = generateAccessLetterDocxPureJs(templateBuf, cfg);
 
-    const scriptPath = path.join(ROOT_DIR, 'server', 'scripts', 'generate_access_letter.py');
-    execPython(scriptPath, [cfgPath], (pyErr, stdout, stderr) => {
-      // Clean up config file
-      try { if (fs.existsSync(cfgPath)) fs.unlinkSync(cfgPath); } catch (_) {}
+    const cleanTaskId = String(task.id).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const downloadName = `Pismo_na_dopusk_${cleanTaskId}.docx`;
 
-      if (pyErr) {
-        console.error('[AccessLetter] Generation failed:', stderr || pyErr.message);
-        return res.status(500).json({ error: 'Ошибка генерации документа: ' + (stderr || pyErr.message) });
-      }
-
-      if (!fs.existsSync(outPath)) {
-        return res.status(500).json({ error: 'Сгенерированный файл не найден' });
-      }
-
-      const cleanTaskId = String(task.id).replace(/[^a-zA-Z0-9_-]/g, '_');
-      const downloadName = `Pismo_na_dopusk_${cleanTaskId}.docx`;
-
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(downloadName)}`);
-      
-      const fileStream = fs.createReadStream(outPath);
-      fileStream.pipe(res);
-      fileStream.on('end', () => {
-        try { fs.unlinkSync(outPath); } catch (_) {}
-      });
-    });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(downloadName)}`);
+    res.send(outBuf);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error('[AccessLetter] Generation failed:', e);
+    res.status(500).json({ error: 'Ошибка генерации документа: ' + e.message });
   }
 });
 

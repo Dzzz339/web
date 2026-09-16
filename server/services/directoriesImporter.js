@@ -131,78 +131,213 @@ export async function importSpecialistsFromDocx(docxPath) {
     return { count: 0 };
   }
 
-  const scriptPath = path.join(ROOT_DIR, 'server', 'scripts', 'parse_docx_specialists.py');
-  
-  return new Promise((resolve, reject) => {
-    execPython(scriptPath, [targetPath], async (err, stdout, stderr) => {
-      if (err) {
-        console.error('[DirectoriesImporter] Error parsing docx:', stderr || err.message);
-        return reject(err);
-      }
-      try {
-        const specialists = JSON.parse(stdout);
-        let inserted = 0;
-        let updated = 0;
+  const buf = fs.readFileSync(targetPath);
+  const cfb = xlsx.CFB.read(buf, { type: 'buffer' });
+  const entry = xlsx.CFB.find(cfb, 'document.xml');
+  if (!entry || !entry.content) {
+    throw new Error('Не удалось прочитать document.xml в файле docx');
+  }
 
-        for (const s of specialists) {
-          const check = await pool.query(
-            'SELECT id FROM specialists WHERE full_name = $1 LIMIT 1',
-            [s.full_name]
-          );
+  const xmlStr = entry.content.toString('utf-8');
+  const tblRegex = /<w:tbl[\s>][\s\S]*?<\/w:tbl>/g;
+  const tables = xmlStr.match(tblRegex) || [];
+  if (tables.length === 0) {
+    return { count: 0, inserted: 0, updated: 0 };
+  }
 
-          // Find if there is a matching user account
-          const userMatch = await pool.query(
-            'SELECT id FROM users WHERE full_name ILIKE $1 OR username ILIKE $2 LIMIT 1',
-            [`%${s.full_name}%`, s.full_name.split(' ')[0]]
-          );
-          const userId = userMatch.rows[0]?.id || null;
+  const mainTable = tables[0];
+  const rowRegex = /<w:tr[\s>][\s\S]*?<\/w:tr>/g;
+  const rows = mainTable.match(rowRegex) || [];
 
-          if (check.rows.length === 0) {
-            await pool.query(
-              `INSERT INTO specialists (full_name, phone, passport_raw, passport_series_number, passport_issue_date, organization, position, user_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-              [
-                s.full_name,
-                s.phone || null,
-                s.passport_raw || null,
-                s.passport_series_number || null,
-                s.passport_issue_date || null,
-                s.organization || 'ООО "Ультима"',
-                s.position || 'Монтажник СКС',
-                userId
-              ]
-            );
-            inserted++;
-          } else {
-            await pool.query(
-              `UPDATE specialists 
-               SET phone = COALESCE(NULLIF($1, ''), phone),
-                   passport_raw = COALESCE(NULLIF($2, ''), passport_raw),
-                   passport_series_number = COALESCE(NULLIF($3, ''), passport_series_number),
-                   passport_issue_date = COALESCE(NULLIF($4, ''), passport_issue_date),
-                   position = COALESCE(NULLIF($5, ''), position),
-                   user_id = COALESCE(user_id, $6)
-               WHERE id = $7`,
-              [
-                s.phone || '',
-                s.passport_raw || '',
-                s.passport_series_number || '',
-                s.passport_issue_date || '',
-                s.position || '',
-                userId,
-                check.rows[0].id
-              ]
-            );
-            updated++;
-          }
-        }
-        console.log(`[DirectoriesImporter] Specialists docx: inserted ${inserted}, updated ${updated}`);
-        resolve({ inserted, updated, total: specialists.length });
-      } catch (parseErr) {
-        reject(parseErr);
-      }
+  const specialists = [];
+
+  for (let r = 0; r < rows.length; r++) {
+    const cellRegex = /<w:tc[\s>][\s\S]*?<\/w:tc>/g;
+    const cells = rows[r].match(cellRegex) || [];
+    const cellTexts = cells.map(cellXml => {
+      const textRegex = /<w:t[\s>][\s\S]*?<\/w:t>/g;
+      const texts = cellXml.match(textRegex) || [];
+      return texts.map(t => t.replace(/<[^>]+>/g, '')).join('').trim();
     });
-  });
+
+    if (cellTexts.length >= 4) {
+      const lastName = cellTexts[0];
+      const firstName = cellTexts[1] || '';
+      const middleName = cellTexts[2] || '';
+      const passport = cellTexts[3] || '';
+      const phone = cellTexts[4] || '';
+
+      if (!lastName || lastName.toLowerCase().includes('фамилия') || lastName.toLowerCase().includes('наименование')) continue;
+
+      const fullName = (lastName + ' ' + firstName + ' ' + middleName).trim();
+      if (!fullName) continue;
+
+      const snMatch = passport.match(/(\d{2}\s*\d{2})\s*(?:№\s*)?(\d{6})/);
+      const passportSn = snMatch ? (snMatch[1].replace(/\s+/g, '') + ' ' + snMatch[2]) : '';
+
+      const dateMatch = passport.match(/(\d{2}\.\d{2}\.\d{4})/);
+      const passportDate = dateMatch ? dateMatch[1] : '';
+
+      const pos = fullName.includes('Чайка Алексей') ? 'Руководитель проекта (ПМ)' : 'Монтажник СКС';
+
+      specialists.push({
+        full_name: fullName,
+        phone: phone,
+        passport_raw: passport,
+        passport_series_number: passportSn,
+        passport_issue_date: passportDate,
+        organization: 'ООО "Ультима"',
+        position: pos
+      });
+    }
+  }
+
+  // Also save template for access letters
+  try {
+    const tplDir = path.join(UPLOADS_DIR, 'templates');
+    if (!fs.existsSync(tplDir)) fs.mkdirSync(tplDir, { recursive: true });
+    fs.writeFileSync(path.join(tplDir, 'access_letter_template.docx'), buf);
+  } catch (_) {}
+
+  let inserted = 0;
+  let updated = 0;
+
+  for (const s of specialists) {
+    const check = await pool.query(
+      'SELECT id FROM specialists WHERE full_name = $1 LIMIT 1',
+      [s.full_name]
+    );
+
+    const userMatch = await pool.query(
+      'SELECT id FROM users WHERE full_name ILIKE $1 OR username ILIKE $2 LIMIT 1',
+      [`%${s.full_name}%`, s.full_name.split(' ')[0]]
+    );
+    const userId = userMatch.rows[0]?.id || null;
+
+    if (check.rows.length === 0) {
+      await pool.query(
+        `INSERT INTO specialists (full_name, phone, passport_raw, passport_series_number, passport_issue_date, organization, position, user_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          s.full_name,
+          s.phone || null,
+          s.passport_raw || null,
+          s.passport_series_number || null,
+          s.passport_issue_date || null,
+          s.organization || 'ООО "Ультима"',
+          s.position || 'Монтажник СКС',
+          userId
+        ]
+      );
+      inserted++;
+    } else {
+      await pool.query(
+        `UPDATE specialists 
+         SET phone = COALESCE(NULLIF($1, ''), phone),
+             passport_raw = COALESCE(NULLIF($2, ''), passport_raw),
+             passport_series_number = COALESCE(NULLIF($3, ''), passport_series_number),
+             passport_issue_date = COALESCE(NULLIF($4, ''), passport_issue_date),
+             position = COALESCE(NULLIF($5, ''), position),
+             user_id = COALESCE(user_id, $6)
+         WHERE id = $7`,
+        [
+          s.phone || '',
+          s.passport_raw || '',
+          s.passport_series_number || '',
+          s.passport_issue_date || '',
+          s.position || '',
+          userId,
+          check.rows[0].id
+        ]
+      );
+      updated++;
+    }
+  }
+
+  console.log(`[DirectoriesImporter] Specialists docx (pure JS): inserted ${inserted}, updated ${updated}`);
+  return { inserted, updated, total: specialists.length };
+}
+
+export function escapeXml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+export function generateAccessLetterDocxPureJs(templateBuf, config) {
+  const cfb = xlsx.CFB.read(templateBuf, { type: 'buffer' });
+  const entry = xlsx.CFB.find(cfb, 'document.xml');
+  if (!entry) throw new Error('document.xml not found in docx template');
+
+  let xml = entry.content.toString('utf-8');
+
+  const contrName = escapeXml(config.contractor_name || 'ООО "Ультима"');
+  xml = xml.replace(
+    /(<w:tr[\s\S]*?Наименование организации Подрядчика:\s*)([^<]*)([\s\S]*?<\/w:tr>)/,
+    (match, p1, p2, p3) => p1 + contrName + p3
+  );
+
+  let respStr = escapeXml(config.responsible_info || '8(923) 102-40-42, ПМ – Чайка Алексей Николаевич');
+  if (config.task_info) {
+    respStr += '&#10;Объект / Основание: ' + escapeXml(config.task_info);
+  }
+  xml = xml.replace(
+    /(<w:tr[\s\S]*?Контактный номер телефона[\s\S]*?<w:t>)([^<]*)(<\/w:t>)/,
+    (match, p1, p2, p3) => p1 + 'Контактный номер телефона, должность и ФИО ответственного за выполнение работ: ' + respStr + p3
+  );
+
+  const tblMatch = xml.match(/<w:tbl[\s>][\s\S]*?<\/w:tbl>/);
+  if (!tblMatch) throw new Error('Table not found in template');
+  const tblXml = tblMatch[0];
+
+  const rows = tblXml.match(/<w:tr[\s>][\s\S]*?<\/w:tr>/g) || [];
+  if (rows.length < 4) throw new Error('Template table does not have enough rows');
+
+  const headerRows = rows.slice(0, 3).join('');
+  const r3 = rows[3];
+
+  const specialists = config.specialists || [];
+  let newSpecRows = '';
+
+  for (const s of specialists) {
+    const fullName = (s.full_name || '').trim();
+    const parts = fullName.split(/\s+/);
+    const lastName = escapeXml(s.last_name || parts[0] || '');
+    const firstName = escapeXml(s.first_name || parts[1] || '');
+    const middleName = escapeXml(s.middle_name || parts.slice(2).join(' ') || '');
+    const passport = escapeXml(s.passport_raw || s.passport_series_number || 'Паспортные данные уточняются');
+    const phone = escapeXml(s.phone || '');
+
+    let rowXml = r3;
+    const cells = rowXml.match(/<w:tc[\s>][\s\S]*?<\/w:tc>/g) || [];
+    if (cells.length >= 5) {
+      const vals = [lastName, firstName, middleName, passport, phone];
+      const newCells = cells.map((cXml, idx) => {
+        if (idx < vals.length) {
+          return cXml.replace(/<w:t[\s>][\s\S]*?<\/w:t>/, `<w:t>${vals[idx]}</w:t>`);
+        }
+        return cXml;
+      });
+      let cellIdx = 0;
+      rowXml = rowXml.replace(/<w:tc[\s>][\s\S]*?<\/w:tc>/g, () => newCells[cellIdx++]);
+    }
+
+    newSpecRows += rowXml;
+  }
+
+  const newTblXml = tblXml.replace(
+    /<w:tr[\s>][\s\S]*?<\/w:tr>[\s\S]*?<\/w:tbl>/,
+    headerRows + newSpecRows + '</w:tbl>'
+  );
+
+  xml = xml.replace(tblXml, newTblXml);
+  entry.content = Buffer.from(xml, 'utf-8');
+
+  return xlsx.CFB.write(cfb, { type: 'buffer' });
 }
 
 export async function importPowersOfAttorneyFromXlsx(xlsxPath) {
@@ -566,4 +701,6 @@ export async function runFullImport() {
   console.log('[DirectoriesImporter] Full import finished successfully.');
   return { specialists: specRes, powersOfAttorney: poaRes, contractors: contrRes, archive: archRes };
 }
+
+
 
