@@ -17,7 +17,9 @@ var S = {
   kanbanQ: '', kanbanReg: '', kanbanMgr: '', kanbanCustomer: '',
   cardId: null, cardDraft: {}, cardConfirmOpen: false, cardTab: 'main', helpTab: 'quickstart',
   cpTaskId: null, cpMode: 'search', cpQuery: '',
-  marches: [], marchId: null
+  marches: [], marchId: null,
+  aiActive: false, aiMode: 'general', aiMessages: [], aiLoading: false, aiStreaming: false, aiStreamText: '',
+  supplyTab: 'stages'
 };
 
 // Векторные монохромные SVG-иконки (стиль Lucide / Feather)

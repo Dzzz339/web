@@ -66,6 +66,9 @@ function setCardTab(tabName) {
   if (tabName === 'main' && window._activeLeafletMap) {
     setTimeout(function(){ window._activeLeafletMap.invalidateSize(); }, 60);
   }
+  if (tabName === 'items' && S.cardId) {
+    loadCardMaterials(S.cardId);
+  }
 }
 window.setCardTab = setCardTab;
 
@@ -82,6 +85,7 @@ function openCard(id) {
   refreshPortsList(id);
   refreshRemarksList(id);
   refreshTaskItemsList(id);
+  loadCardMaterials(id);
 }
 
 function pageCard() {
@@ -603,8 +607,23 @@ function pageCard() {
     '<div id="cardContractorOrdersBar" style="margin-top:.75rem;display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.78rem"></div>' +
   '</div>';
 
+  var materialsBlock = '<div class="card p" id="cardMaterialsBlock" style="margin-top:1rem">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:.5rem">' +
+      '<div class="sec-title" style="margin:0">📦 Материалы и Чек-лист СКС</div>' +
+      '<div style="display:flex;gap:.4rem;align-items:center">' +
+        '<label class="btn btn-sm btn-ghost" style="cursor:pointer" title="Загрузить чек-лист Сбера (PDF)">' +
+          '📥 Загрузить PDF' +
+          '<input type="file" accept=".pdf" style="display:none" onchange="uploadChecklistPdf(this.files[0], \'' + eid + '\')">' +
+        '</label>' +
+        '<button class="btn btn-sm btn-ghost" onclick="recalculateTaskMaterials(\'' + eid + '\')" title="Пересчитать плановые нормы по типовику">🔄 Расчет</button>' +
+      '</div>' +
+    '</div>' +
+    '<div id="cardMaterialsContainer" class="t3">Загрузка материалов…</div>' +
+  '</div>';
+
   var paneItems = '<div id="cardTabPane-items" class="card-tab-pane" style="display:' + (curTab === 'items' ? 'block' : 'none') + '">' +
     itemsBlock +
+    materialsBlock +
   '</div>';
 
   var remarksBadge = Number(t.openRemarksCount || 0) > 0
@@ -1339,5 +1358,173 @@ function downloadAccessLetter(taskId) {
     }
   });
 }
+
+// ─── ЧЕК-ЛИСТ СБЕРА И СПЕЦИФИКАЦИЯ МАТЕРИАЛОВ В КАРТОЧКЕ ───────────────────────
+
+function uploadChecklistPdf(file, optTaskId) {
+  if (!file) return;
+  if (!file.name.match(/\.pdf$/i)) {
+    alert('Пожалуйста, выберите файл в формате PDF');
+    return;
+  }
+  var formData = new FormData();
+  formData.append('file', file);
+  if (optTaskId) formData.append('task_id', optTaskId);
+
+  var cardCont = document.getElementById('cardMaterialsContainer');
+  if (cardCont) cardCont.innerHTML = '<div style="color:var(--blue);font-weight:600">⏳ Идет распознавание чек-листа Сбера через pdfplumber…</div>';
+
+  fetch('/api/checklists/upload', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + S.token },
+    body: formData
+  })
+  .then(function(r) {
+    if (!r.ok) return r.json().then(function(j) { throw new Error(j.error || 'Ошибка распознавания'); });
+    return r.json();
+  })
+  .then(function(res) {
+    alert('✅ Чек-лист Сбера успешно распознан!\nЗаявка: ' + res.task_id + '\nПортов к монтажу: ' + (res.checklist.ports_install || 1));
+    api('/tasks').then(function(tasks) {
+      S.tasks = tasks;
+      openCard(res.task_id);
+    });
+  })
+  .catch(function(err) {
+    alert('❌ Ошибка загрузки чек-листа: ' + err.message);
+    if (optTaskId) loadCardMaterials(optTaskId);
+  });
+}
+
+function loadCardMaterials(taskId) {
+  var cont = document.getElementById('cardMaterialsContainer');
+  if (!cont) return;
+  cont.innerHTML = '<div class="t3">Загрузка спецификации…</div>';
+
+  Promise.all([
+    fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials', { headers: { 'Authorization': 'Bearer ' + S.token } }).then(function(r){ return r.json(); }),
+    fetch('/api/tasks/' + encodeURIComponent(taskId) + '/checklist', { headers: { 'Authorization': 'Bearer ' + S.token } }).then(function(r){ return r.json(); })
+  ])
+  .then(function(res) {
+    var materials = res[0] || [];
+    var checklist = res[1] || null;
+
+    var html = '';
+
+    // Блок краткой информации по чек-листу
+    if (checklist) {
+      html += '<div style="background:var(--bg);padding:8px 12px;border-radius:6px;margin-bottom:10px;font-size:.8rem;border:1px solid var(--border)">' +
+        '<div style="display:flex;justify-content:space-between;margin-bottom:4px">' +
+          '<strong>📋 Чек-лист обследования (СБС)</strong>' +
+          '<span class="badge b-blue">' + (checklist.zno_number || taskId) + '</span>' +
+        '</div>' +
+        '<div style="color:var(--text-2);line-height:1.4">' +
+          '<div>🔹 Портов: <strong>' + (checklist.ports_install || 1) + '</strong> | Потолок: <strong>' + (checklist.surface_type || '—') + '</strong> (H=' + (checklist.ceiling_height || '2') + 'м)</div>' +
+          '<div>🔹 Розетка: <strong>' + (checklist.socket_surface || '—') + '</strong> | Маркировка: <strong>' + (checklist.port_marking || 'ССМ 1') + '</strong></div>' +
+          (checklist.sbs_contact ? '<div>🔹 Контакт СБС: ' + escHtml(checklist.sbs_contact) + '</div>' : '') +
+        '</div>' +
+      '</div>';
+    }
+
+    if (!materials || !materials.length) {
+      html += '<div class="t3" style="margin-bottom:8px">Спецификация материалов ещё не рассчитана.</div>' +
+        '<button class="btn btn-sm" onclick="recalculateTaskMaterials(\'' + encodeURIComponent(taskId) + '\')">⚡ Рассчитать по типовику</button>';
+      cont.innerHTML = html;
+      return;
+    }
+
+    // Таблица материалов (план vs факт)
+    var allWrittenOff = materials.every(function(m){ return m.is_written_off; });
+
+    html += '<table style="width:100%;border-collapse:collapse;font-size:.82rem;margin-bottom:10px">' +
+      '<thead><tr style="border-bottom:1px solid var(--border);color:var(--text-3);text-align:left">' +
+        '<th style="padding:6px 4px">Материал</th>' +
+        '<th style="padding:6px 4px;text-align:right">План</th>' +
+        '<th style="padding:6px 4px;text-align:right">Факт</th>' +
+      '</tr></thead><tbody>';
+
+    materials.forEach(function(m) {
+      var isDone = m.is_written_off;
+      var factInput = isDone
+        ? '<span style="font-weight:700;color:var(--green)">' + (m.fact_qty != null ? m.fact_qty : m.plan_qty) + ' ' + m.unit + '</span>'
+        : '<input type="number" step="any" min="0" value="' + (m.fact_qty != null ? m.fact_qty : m.plan_qty) + '" id="fact_mat_' + m.material_id + '" style="width:65px;padding:3px 6px;text-align:right;font-size:.82rem">';
+
+      html += '<tr style="border-bottom:1px solid var(--border)">' +
+        '<td style="padding:6px 4px">' +
+          '<div style="font-weight:600">' + escHtml(m.name) + '</div>' +
+          (m.calc_details ? '<div style="font-size:.7rem;color:var(--text-3)">' + escHtml(m.calc_details) + '</div>' : '') +
+        '</td>' +
+        '<td style="padding:6px 4px;text-align:right;white-space:nowrap;color:var(--text-2)">' + m.plan_qty + ' ' + m.unit + '</td>' +
+        '<td style="padding:6px 4px;text-align:right;white-space:nowrap">' + factInput + '</td>' +
+      '</tr>';
+    });
+
+    html += '</tbody></table>';
+
+    if (allWrittenOff) {
+      html += '<div style="background:#ecfdf5;color:#065f46;padding:8px 12px;border-radius:6px;font-size:.8rem;font-weight:600;display:flex;align-items:center;gap:6px">' +
+        '<span>✅</span> ТМЦ списаны со склада подрядчика в полном объеме' +
+      '</div>';
+    } else {
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
+        '<button class="btn btn-sm btn-primary" onclick="writeOffTaskMaterials(\'' + encodeURIComponent(taskId) + '\')">✅ Списать ТМЦ по факту</button>' +
+        '<button class="btn btn-sm btn-ghost" onclick="recalculateTaskMaterials(\'' + encodeURIComponent(taskId) + '\')" title="Пересчитать нормы">🔄 Пересчитать</button>' +
+      '</div>';
+    }
+
+    cont.innerHTML = html;
+  })
+  .catch(function(err) {
+    cont.innerHTML = '<div style="color:var(--red)">Ошибка загрузки материалов: ' + err.message + '</div>';
+  });
+}
+
+function recalculateTaskMaterials(taskId) {
+  fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials/calculate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.token },
+    body: JSON.stringify({})
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(res) {
+    if (res.success) {
+      loadCardMaterials(taskId);
+    } else {
+      alert('Ошибка: ' + (res.error || 'не удалось рассчитать'));
+    }
+  });
+}
+
+function writeOffTaskMaterials(taskId) {
+  fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials', { headers: { 'Authorization': 'Bearer ' + S.token } })
+    .then(function(r){ return r.json(); })
+    .then(function(materials) {
+      if (!materials || !materials.length) return;
+      var items = [];
+      materials.forEach(function(m) {
+        var inp = document.getElementById('fact_mat_' + m.material_id);
+        var qty = inp ? parseFloat(inp.value) : parseFloat(m.plan_qty);
+        items.push({ material_id: m.material_id, quantity: isNaN(qty) ? m.plan_qty : qty });
+      });
+
+      if (!confirm('Подтвердить фактический расход и списать материалы с виртуального склада подрядчика?')) return;
+
+      fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials/write-off', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.token },
+        body: JSON.stringify({ items: items, comment: 'Списание по заявке ' + taskId })
+      })
+      .then(function(r){ return r.json(); })
+      .then(function(res) {
+        if (res.success) {
+          alert('✅ Материалы успешно списаны со склада подрядчика!');
+          loadCardMaterials(taskId);
+        } else {
+          alert('Ошибка списания: ' + (res.error || 'неизвестная ошибка'));
+        }
+      });
+    });
+}
+
 
 // ─── PAGE: МАРШИ ─────────────────────────────────────────────────────────────

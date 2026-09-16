@@ -409,6 +409,194 @@ export async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_checklists_task_id ON task_checklists(task_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_checklists_zno ON task_checklists(zno_number)`);
 
+  // Дополнительные колонки для task_checklists
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS ports_install INTEGER DEFAULT 0`);
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS ports_move INTEGER DEFAULT 0`);
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS ports_dismantle INTEGER DEFAULT 0`);
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS ports_restore INTEGER DEFAULT 0`);
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS surface_type TEXT`);
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS socket_surface TEXT`);
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS ceiling_height NUMERIC DEFAULT 2.5`);
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS has_cable_channel BOOLEAN DEFAULT false`);
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS cable_channel_size TEXT`);
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS add_cable_channel_needed BOOLEAN DEFAULT false`);
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS add_cable_channel_meters NUMERIC DEFAULT 0`);
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS has_tray BOOLEAN DEFAULT false`);
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS has_floor_passage BOOLEAN DEFAULT false`);
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS has_server_room BOOLEAN DEFAULT false`);
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS has_telecom_closet BOOLEAN DEFAULT false`);
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS patch_panel_needed BOOLEAN DEFAULT false`);
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS patch_panel_free_num TEXT`);
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS port_marking TEXT`);
+  await pool.query(`ALTER TABLE task_checklists ADD COLUMN IF NOT EXISTS raw_checklist_json JSONB DEFAULT '{}'`);
+
+  // Таблица переписки с ИИ-ассистентом
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ai_messages (
+      id          SERIAL PRIMARY KEY,
+      user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      mode        TEXT NOT NULL,          -- analytics | forecast | tech | general | parse_devices
+      role        TEXT NOT NULL,          -- user | assistant
+      content     TEXT NOT NULL,
+      tokens_used INTEGER DEFAULT 0,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_msg_user ON ai_messages(user_id, created_at)`);
+
+  // 1. Таблица материалов (ТМЦ)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS materials (
+      id              SERIAL PRIMARY KEY,
+      code            TEXT UNIQUE NOT NULL,
+      name            TEXT NOT NULL,
+      category        TEXT,                   -- 'cable', 'conduit', 'keystone', 'patchcord', 'hardware', 'box'
+      unit            TEXT NOT NULL DEFAULT 'шт',
+      package_qty     NUMERIC DEFAULT 1,     -- норма отгрузки / квант (бухта 305м, хлыст 2м)
+      package_unit    TEXT,                   -- 'бухта 305м', 'хлыст 2м', 'упаковка 100шт'
+      price_default   NUMERIC DEFAULT 0,
+      min_stock_alert NUMERIC DEFAULT 0,     -- неснижаемый порог остатка
+      is_active       BOOLEAN DEFAULT true,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_materials_code ON materials(code)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_materials_category ON materials(category)`);
+
+  // 2. Таблица складов (центральные, региональные, виртуальные склады подрядчиков)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS warehouses (
+      id            SERIAL PRIMARY KEY,
+      name          TEXT NOT NULL,
+      type          TEXT NOT NULL DEFAULT 'contractor', -- 'central', 'regional', 'contractor', 'transit'
+      contractor_id INTEGER REFERENCES contractors(id) ON DELETE CASCADE,
+      region        TEXT,
+      address       TEXT,
+      is_active     BOOLEAN DEFAULT true,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_warehouses_contractor ON warehouses(contractor_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_warehouses_type ON warehouses(type)`);
+
+  // 3. Остатки ТМЦ на складах / у подрядчиков
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS stock_balances (
+      id             SERIAL PRIMARY KEY,
+      warehouse_id   INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
+      material_id    INTEGER NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+      quantity       NUMERIC NOT NULL DEFAULT 0,  -- фактический остаток
+      reserved_qty   NUMERIC NOT NULL DEFAULT 0,  -- зарезервировано под заявки
+      in_transit_qty NUMERIC NOT NULL DEFAULT 0,  -- в пути
+      updated_at     TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(warehouse_id, material_id)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_stock_balances_wh ON stock_balances(warehouse_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_stock_balances_mat ON stock_balances(material_id)`);
+
+  // 4. Журнал товародвижений
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS stock_movements (
+      id                  SERIAL PRIMARY KEY,
+      movement_type       TEXT NOT NULL,      -- 'receipt', 'transfer', 'task_consumption', 'return', 'adjustment'
+      source_warehouse_id INTEGER REFERENCES warehouses(id) ON DELETE SET NULL,
+      target_warehouse_id INTEGER REFERENCES warehouses(id) ON DELETE SET NULL,
+      task_id             TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+      status              TEXT NOT NULL DEFAULT 'completed', -- 'draft', 'in_transit', 'completed', 'cancelled'
+      doc_number          TEXT,
+      comment             TEXT,
+      created_by          INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      confirmed_by        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at          TIMESTAMPTZ DEFAULT NOW(),
+      confirmed_at        TIMESTAMPTZ
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_stock_movements_task ON stock_movements(task_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_stock_movements_type ON stock_movements(movement_type)`);
+
+  // 5. Позиции товародвижения
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS stock_movement_items (
+      id          SERIAL PRIMARY KEY,
+      movement_id INTEGER NOT NULL REFERENCES stock_movements(id) ON DELETE CASCADE,
+      material_id INTEGER NOT NULL REFERENCES materials(id) ON DELETE RESTRICT,
+      quantity    NUMERIC NOT NULL,
+      unit_price  NUMERIC DEFAULT 0
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_stock_movement_items_mov ON stock_movement_items(movement_id)`);
+
+  // 6. Спецификация материалов заявки (план по типовику vs факт подрядчика)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS task_materials (
+      id             SERIAL PRIMARY KEY,
+      task_id        TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      material_id    INTEGER NOT NULL REFERENCES materials(id) ON DELETE RESTRICT,
+      plan_qty       NUMERIC NOT NULL DEFAULT 0,
+      fact_qty       NUMERIC DEFAULT 0,
+      calc_details   TEXT,
+      source         TEXT DEFAULT 'template', -- 'template', 'ai', 'manual'
+      is_written_off BOOLEAN DEFAULT false,
+      written_off_at TIMESTAMPTZ,
+      UNIQUE(task_id, material_id)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_materials_task ON task_materials(task_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_materials_mat ON task_materials(material_id)`);
+
+  // 7. Поставщики ТМЦ
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS suppliers (
+      id               SERIAL PRIMARY KEY,
+      name             TEXT NOT NULL,
+      contact          TEXT,
+      phone            TEXT,
+      email            TEXT,
+      lead_time_days   INTEGER DEFAULT 14,
+      min_order_amount NUMERIC DEFAULT 0,
+      is_active        BOOLEAN DEFAULT true,
+      created_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // 8. Заказы поставщикам
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS purchase_orders (
+      id                     SERIAL PRIMARY KEY,
+      order_number           TEXT UNIQUE NOT NULL,
+      supplier_id            INTEGER REFERENCES suppliers(id) ON DELETE SET NULL,
+      target_warehouse_id    INTEGER REFERENCES warehouses(id) ON DELETE SET NULL,
+      status                 TEXT NOT NULL DEFAULT 'draft', -- 'draft', 'ordered', 'in_transit', 'received', 'cancelled'
+      total_amount           NUMERIC DEFAULT 0,
+      order_date             DATE DEFAULT CURRENT_DATE,
+      expected_delivery_date DATE,
+      received_date          DATE,
+      notes                  TEXT,
+      created_by             INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at             TIMESTAMPTZ DEFAULT NOW(),
+      updated_at             TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_purchase_orders_supplier ON purchase_orders(supplier_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_purchase_orders_status ON purchase_orders(status)`);
+
+  // 9. Позиции заказа поставщику
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS purchase_order_items (
+      id                SERIAL PRIMARY KEY,
+      purchase_order_id INTEGER NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+      material_id       INTEGER NOT NULL REFERENCES materials(id) ON DELETE RESTRICT,
+      quantity          NUMERIC NOT NULL,
+      package_units     NUMERIC DEFAULT 1,
+      unit_price        NUMERIC DEFAULT 0,
+      total_price       NUMERIC DEFAULT 0
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_purchase_order_items_po ON purchase_order_items(purchase_order_id)`);
+
+  await seedMaterialsAndWarehouses();
+
   const userCount = await pool.query('SELECT COUNT(*) FROM users');
   if (parseInt(userCount.rows[0].count) === 0) {
     const salt = await bcrypt.genSalt(10);
@@ -451,3 +639,68 @@ export async function initDB() {
 
   console.log('DB initialized');
 }
+
+export async function seedMaterialsAndWarehouses() {
+  try {
+    // 1. Создаем Центральный склад по умолчанию
+    await pool.query(`
+      INSERT INTO warehouses (name, type, region, address)
+      SELECT 'Центральный склад', 'central', 'Москва', 'г. Москва'
+      WHERE NOT EXISTS (SELECT 1 FROM warehouses WHERE type = 'central');
+    `);
+
+    // 2. Создаем виртуальные склады для всех подрядчиков
+    await pool.query(`
+      INSERT INTO warehouses (name, type, contractor_id)
+      SELECT 'Склад ' || name_short, 'contractor', id
+      FROM contractors
+      WHERE id NOT IN (SELECT contractor_id FROM warehouses WHERE contractor_id IS NOT NULL);
+    `);
+
+    // 3. Базовый справочник материалов СКС (типовик Сбера)
+    const defaultMaterials = [
+      { code: 'CABLE-UTP-5E-CU', name: 'Кабель UTP 4 пары Cat.5e Cu (бухта 305м)', category: 'cable', unit: 'м', package_qty: 305, package_unit: 'бухта 305м', price: 45, min_alert: 610 },
+      { code: 'KEYSTONE-RJ45-5E', name: 'Модуль Keystone RJ-45 Cat.5e UTP', category: 'keystone', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 120, min_alert: 50 },
+      { code: 'PATCH-CORD-2M', name: 'Патч-корд UTP Cat.5e 2.0м', category: 'patchcord', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 150, min_alert: 40 },
+      { code: 'PATCH-CORD-1M', name: 'Патч-корд UTP Cat.5e 1.0м', category: 'patchcord', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 110, min_alert: 40 },
+      { code: 'FACEPLATE-1P', name: 'Лицевая панель / рамка суппорта 1 порт', category: 'hardware', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 80, min_alert: 30 },
+      { code: 'SURFACE-BOX-1P', name: 'Коробка накладная 1 порт RJ-45', category: 'box', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 95, min_alert: 30 },
+      { code: 'CORRUGATED-16', name: 'Труба гофрированная ПВХ ф16 с протяжкой', category: 'conduit', unit: 'м', package_qty: 100, package_unit: 'бухта 100м', price: 15, min_alert: 200 },
+      { code: 'CABLE-TRUNK-40X25', name: 'Кабель-канал 40х25 мм с крышкой (хлыст 2м)', category: 'conduit', unit: 'м', package_qty: 2, package_unit: 'хлыст 2м', price: 110, min_alert: 40 },
+      { code: 'CABLE-TRUNK-25X16', name: 'Кабель-канал 25х16 мм с крышкой (хлыст 2м)', category: 'conduit', unit: 'м', package_qty: 2, package_unit: 'хлыст 2м', price: 75, min_alert: 40 },
+      { code: 'PATCH-PANEL-24', name: 'Патч-панель 19" 1U 24 порта Cat.5e', category: 'hardware', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 2800, min_alert: 5 },
+      { code: 'CABLE-ORG-1U', name: 'Кабельный органайзер 19" 1U', category: 'hardware', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 650, min_alert: 5 },
+      { code: 'MARKING-LABEL', name: 'Маркировочные этикетки / бирки', category: 'hardware', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 5, min_alert: 100 }
+    ];
+
+    for (const m of defaultMaterials) {
+      await pool.query(`
+        INSERT INTO materials (code, name, category, unit, package_qty, package_unit, price_default, min_stock_alert)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (code) DO UPDATE SET
+          name = EXCLUDED.name,
+          category = EXCLUDED.category,
+          unit = EXCLUDED.unit,
+          package_qty = EXCLUDED.package_qty,
+          package_unit = EXCLUDED.package_unit
+      `, [m.code, m.name, m.category, m.unit, m.package_qty, m.package_unit, m.price, m.min_alert]);
+    }
+
+    // 4. Базовые поставщики ТМЦ
+    const defaultSuppliers = [
+      { name: 'ТД ТЕЛЕКОМ-СНАБ', contact: 'Иванов С.В.', phone: '+7 (495) 123-45-67', email: 'sales@telecom-snab.ru', lead_time_days: 14, min_order: 50000 },
+      { name: 'ЛКС Кабель-Системы', contact: 'Петрова Е.А.', phone: '+7 (495) 765-43-21', email: 'orders@lks-cable.ru', lead_time_days: 10, min_order: 30000 },
+      { name: 'СпецЭлектроКомплект', contact: 'Смирнов Д.М.', phone: '+7 (812) 555-88-99', email: 'zakaz@specelectro.ru', lead_time_days: 7, min_order: 15000 }
+    ];
+
+    for (const s of defaultSuppliers) {
+      await pool.query(`
+        INSERT INTO suppliers (name, contact, phone, email, lead_time_days, min_order_amount)
+        SELECT $1, $2, $3, $4, $5, $6
+        WHERE NOT EXISTS (SELECT 1 FROM suppliers WHERE name = $1);
+      `, [s.name, s.contact, s.phone, s.email, s.lead_time_days, s.min_order]);
+    }
+  } catch (err) {
+    console.error('[DB] Ошибка сидирования материалов/складов:', err);
+  }
+}

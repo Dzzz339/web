@@ -1113,4 +1113,15 @@
       .smart-action-stage {
         font-size: 1rem;
       }
-    }
+    }
+
+    /* ─── КАЛЬКУЛЯТОР МАТЕРИАЛОВ (AI) ─── */
+    .mcalc-root { width: 100%; }
+    .mcalc-devices { font-size:.85rem; color:var(--text); margin-bottom:10px; background:var(--orange-bg); padding:8px 12px; border-radius:8px; border:1px solid #fed7aa; }
+    .mcalc-table { width:100%; border-collapse:collapse; font-size:.82rem; margin:10px 0; }
+    .mcalc-table th { text-align:left; padding:8px 10px; background:var(--bg); color:var(--text-3); font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; border-bottom:2px solid var(--border); }
+    .mcalc-table td { padding:8px 10px; border-bottom:1px solid var(--border); }
+    .mcalc-row:hover td { background:#fff7ed; }
+    .mcalc-btn { margin-top:8px; border:1.5px solid var(--orange); color:var(--orange); }
+    .mcalc-btn:hover { background:var(--orange); color:#fff; }
+

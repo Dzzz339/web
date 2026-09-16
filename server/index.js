@@ -19,6 +19,8 @@ import analyticsRoutes from './routes/analytics.js';
 import marchesRoutes from './routes/marches.js';
 import tasksRoutes from './routes/tasks.js';
 import directoriesRoutes from './routes/directories.js';
+import aiRoutes from './routes/ai.js';
+import supplyRoutes from './routes/supply.js';
 
 const app = express();
 const server = createServer(app);
@@ -52,6 +54,8 @@ app.use('/api', analyticsRoutes);
 app.use('/api', marchesRoutes);
 app.use('/api', tasksRoutes);
 app.use('/api', directoriesRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api', supplyRoutes);
 
 // Инициализация WebSockets чата
 setupChatSocket(io);
