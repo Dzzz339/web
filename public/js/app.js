@@ -175,6 +175,11 @@ function renderNav() {
       topbarTitle.innerHTML = '<span class="topbar-title-icon">' + ICONS.profile + '</span><span>Мой профиль</span>';
     } else if (curItem) {
       topbarTitle.innerHTML = '<span class="topbar-title-icon">' + curItem.icon + '</span><span>' + escHtml(curItem.label) + '</span>';
+    } else if (S.page.startsWith('dash-')) {
+      var dashItem = NAV.find(function(it){ return it.id === 'dashboard'; });
+      var dashChild = dashItem && dashItem.children ? dashItem.children.find(function(c){ return c.id === S.page; }) : null;
+      var label = dashChild ? ('Обзор · ' + dashChild.label) : 'Обзор';
+      topbarTitle.innerHTML = '<span class="topbar-title-icon">' + (dashItem ? dashItem.icon : ICONS.dashboard) + '</span><span>' + escHtml(label) + '</span>';
     } else {
       topbarTitle.innerHTML = 'Stockeasy';
     }
@@ -313,6 +318,7 @@ function renderApp() {
   if      (S.page === 'dashboard' || S.page.startsWith('dash-')) setApp(pageDash());
   else if (S.page === 'users')     setApp(pageUsers());
   else if (S.page === 'logs')      setApp(pageLogs());
+  else if (S.page === 'aichat')    setApp(pageAiChat());
   else if (S.page === 'chat')      setApp(pageChat());
   else if (S.page === 'contractors') setApp(pageContractors());
   else if (S.page === 'supply')    setApp(pageSupply());

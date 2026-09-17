@@ -58,7 +58,7 @@ function pageDash(subSection) {
 
     return `
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem">
-        <h1 class="page-title" style="margin:0">Аналитика: Заказчики</h1>
+        <h1 class="page-title" style="margin:0; display:inline-flex; align-items:center; gap:8px"><span class="topbar-title-icon">${ICONS.analytics}</span><span>Аналитика: Заказчики</span></h1>
         <button class="btn btn-sm btn-ghost" onclick="go('dashboard')">← Назад в Обзор</button>
       </div>
       <p class="t3 mb" style="font-size:.85rem">Срез выполнения работ и объёмов в разрезе генеральных заказчиков.</p>
@@ -99,7 +99,7 @@ function pageDash(subSection) {
 
     return `
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem">
-        <h1 class="page-title" style="margin:0">Аналитика: Исполнители</h1>
+        <h1 class="page-title" style="margin:0; display:inline-flex; align-items:center; gap:8px"><span class="topbar-title-icon">${ICONS.analytics}</span><span>Аналитика: Исполнители</span></h1>
         <button class="btn btn-sm btn-ghost" onclick="go('dashboard')">← Назад в Обзор</button>
       </div>
       <div class="card tbl-wrap">
@@ -166,7 +166,7 @@ function pageDash(subSection) {
     var totalTmc = S.tasks.reduce(function(acc, t){ return acc + (t.tmc || 0); }, 0);
     return `
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem">
-        <h1 class="page-title" style="margin:0">Аналитика: Материалы (ТМЦ)</h1>
+        <h1 class="page-title" style="margin:0; display:inline-flex; align-items:center; gap:8px"><span class="topbar-title-icon">${ICONS.analytics}</span><span>Аналитика: Материалы (ТМЦ)</span></h1>
         <button class="btn btn-sm btn-ghost" onclick="go('dashboard')">← Назад в Обзор</button>
       </div>
       <div class="g3 mb">
