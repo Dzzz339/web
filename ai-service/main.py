@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 import asyncio
 
 app = FastAPI()
-
+#[eq]
 print("[AI-SERVICE] Предзагрузка EasyOCR...", flush=True)
 reader = easyocr.Reader(["ru", "en"], gpu=False, verbose=False)
 print("[AI-SERVICE] EasyOCR готов к работе!", flush=True)
