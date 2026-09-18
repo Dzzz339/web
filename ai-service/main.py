@@ -83,13 +83,14 @@ async def process_pdf_generator(file_bytes):
     await asyncio.sleep(0.05)
 
     payload = {
-        "model": "qwen2.5:7b",
+        "model": "qwen2.5:14b",
         "stream": False,
         "format": "json",
         "options": {
             "temperature": 0.0,
             "num_predict": 1000,
-            "num_ctx": 2048
+            "num_ctx": 2048,
+            "num_gpu": 0
         },
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},

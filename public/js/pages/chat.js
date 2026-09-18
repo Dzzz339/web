@@ -95,10 +95,10 @@ function pageChat() {
           <!-- Переключатели режима -->
           <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
             ${S.user && S.user.role === 'admin' ? `<button class="btn btn-sm btn-analytics-styled" id="ai-mode-analytics" onclick="setAiMode('analytics')">${ICONS.analytics} <span>Аналитика</span></button>` : ''}
-            ${S.user && S.user.role === 'admin' ? `<button class="btn btn-sm" id="ai-mode-forecast" onclick="setAiMode('forecast')">📦 Снабжение и прогноз</button>` : ''}
-            <button class="btn btn-sm" id="ai-mode-tech" onclick="setAiMode('tech')">🔧 Техпомощь</button>
-            <button class="btn btn-sm" id="ai-mode-general" onclick="setAiMode('general')">💬 Общий</button>
-            <button class="btn btn-sm" id="ai-mode-parse_devices" onclick="setAiMode('parse_devices')">🧮 Расчёт материалов</button>
+            ${S.user && S.user.role === 'admin' ? `<button class="btn btn-sm btn-analytics-styled" id="ai-mode-forecast" onclick="setAiMode('forecast')">${ICONS.box} <span>Снабжение и прогноз</span></button>` : ''}
+            <button class="btn btn-sm btn-analytics-styled" id="ai-mode-tech" onclick="setAiMode('tech')">${ICONS.tech} <span>Техпомощь</span></button>
+            <button class="btn btn-sm btn-analytics-styled" id="ai-mode-general" onclick="setAiMode('general')">${ICONS.chat} <span>Общий</span></button>
+            <button class="btn btn-sm btn-analytics-styled" id="ai-mode-parse_devices" onclick="setAiMode('parse_devices')">${ICONS.calc} <span>Расчёт материалов</span></button>
           </div>
 
           <!-- Поиск заявки для контекста -->
@@ -114,7 +114,7 @@ function pageChat() {
               <div id="ai-task-dropdown" class="ai-task-dropdown"></div>
               <select id="ai-task-select" style="display:none;"></select>
             </div>
-            <button class="btn btn-sm btn-ghost" onclick="insertAiCardContext()" title="Подставить данные заявки в вопрос">📎 Вставить контекст</button>
+            <button class="btn btn-sm btn-analytics-styled" onclick="insertAiCardContext()" title="Подставить данные заявки в вопрос">${ICONS.clip} <span>Вставить контекст</span></button>
           </div>
         </div>
 
@@ -130,12 +130,12 @@ function pageChat() {
         </div>
 
         <!-- Быстрые вопросы -->
-        <div style="padding:6px 16px; display:flex; gap:6px; flex-wrap:wrap; background:#fff; border-top:1px solid var(--border)">
-          <span style="font-size:.72rem; color:var(--text-3); align-self:center">Быстрый вопрос:</span>
-          <button class="btn btn-sm btn-ghost" style="font-size:.72rem; padding:2px 8px" onclick="quickAiAsk('Какие материалы сейчас в дефиците и требуют срочного заказа?')">📉 Дефицит ТМЦ</button>
-          <button class="btn btn-sm btn-ghost" style="font-size:.72rem; padding:2px 8px" onclick="quickAiAsk('Какой график заказов под ближайшие даты выхода на монтаж?')">📅 График под даты выхода</button>
-          <button class="btn btn-sm btn-ghost" style="font-size:.72rem; padding:2px 8px" onclick="quickAiAsk('Каковы свободные остатки кабеля и патч-панелей на центральном складе?')">🏢 Остатки на складе</button>
-          <button class="btn btn-sm btn-ghost" style="font-size:.72rem; padding:2px 8px" onclick="quickAiAsk('Какие поставки от поставщиков сейчас находятся в пути?')">🚚 Заказы в пути</button>
+        <div style="padding:8px 16px; display:flex; gap:8px; flex-wrap:wrap; background:#fff; border-top:1px solid var(--border); align-items:center;">
+          <span style="font-size:.72rem; color:var(--text-3); font-weight:600;">Быстрый вопрос:</span>
+          <button class="btn-quick-styled" onclick="quickAiAsk('Какие материалы сейчас в дефиците и требуют срочного заказа?')">📉 Дефицит ТМЦ</button>
+          <button class="btn-quick-styled" onclick="quickAiAsk('Какой график заказов под ближайшие даты выхода на монтаж?')">📅 График под даты выхода</button>
+          <button class="btn-quick-styled" onclick="quickAiAsk('Каковы свободные остатки кабеля и патч-панелей на центральном складе?')">🏢 Остатки на складе</button>
+          <button class="btn-quick-styled" onclick="quickAiAsk('Какие поставки от поставщиков сейчас находятся в пути?')">🚚 Заказы в пути</button>
         </div>
 
         <!-- ИИ-ввод -->
@@ -197,10 +197,10 @@ function pageAiChat() {
         <!-- Переключатели режима -->
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
           ${S.user && S.user.role === 'admin' ? `<button class="btn btn-sm btn-analytics-styled" id="ai-mode-analytics" onclick="setAiMode('analytics')">${ICONS.analytics} <span>Аналитика</span></button>` : ''}
-          ${S.user && S.user.role === 'admin' ? `<button class="btn btn-sm" id="ai-mode-forecast" onclick="setAiMode('forecast')">📦 Снабжение и прогноз</button>` : ''}
-          <button class="btn btn-sm" id="ai-mode-tech" onclick="setAiMode('tech')">🔧 Техпомощь</button>
-          <button class="btn btn-sm" id="ai-mode-general" onclick="setAiMode('general')">💬 Общий</button>
-          <button class="btn btn-sm" id="ai-mode-parse_devices" onclick="setAiMode('parse_devices')">🧮 Расчёт материалов</button>
+          ${S.user && S.user.role === 'admin' ? `<button class="btn btn-sm btn-analytics-styled" id="ai-mode-forecast" onclick="setAiMode('forecast')">${ICONS.box} <span>Снабжение и прогноз</span></button>` : ''}
+          <button class="btn btn-sm btn-analytics-styled" id="ai-mode-tech" onclick="setAiMode('tech')">${ICONS.tech} <span>Техпомощь</span></button>
+          <button class="btn btn-sm btn-analytics-styled" id="ai-mode-general" onclick="setAiMode('general')">${ICONS.chat} <span>Общий</span></button>
+          <button class="btn btn-sm btn-analytics-styled" id="ai-mode-parse_devices" onclick="setAiMode('parse_devices')">${ICONS.calc} <span>Расчёт материалов</span></button>
         </div>
 
         <!-- Поиск заявки для контекста -->
@@ -216,7 +216,7 @@ function pageAiChat() {
             <div id="ai-task-dropdown" class="ai-task-dropdown"></div>
             <select id="ai-task-select" style="display:none;"></select>
           </div>
-          <button class="btn btn-sm btn-ghost" onclick="insertAiCardContext()" title="Подставить данные заявки в вопрос">📎 Вставить контекст</button>
+          <button class="btn btn-sm btn-analytics-styled" onclick="insertAiCardContext()" title="Подставить данные заявки в вопрос">${ICONS.clip} <span>Вставить контекст</span></button>
         </div>
       </div>
 
@@ -232,12 +232,12 @@ function pageAiChat() {
       </div>
 
       <!-- Быстрые вопросы -->
-      <div style="padding:6px 16px; display:flex; gap:6px; flex-wrap:wrap; background:#fff; border-top:1px solid var(--border)">
-        <span style="font-size:.72rem; color:var(--text-3); align-self:center">Быстрый вопрос:</span>
-        <button class="btn btn-sm btn-ghost" style="font-size:.72rem; padding:2px 8px" onclick="quickAiAsk('Какие материалы сейчас в дефиците и требуют срочного заказа?')">📉 Дефицит ТМЦ</button>
-        <button class="btn btn-sm btn-ghost" style="font-size:.72rem; padding:2px 8px" onclick="quickAiAsk('Какой график заказов под ближайшие даты выхода на монтаж?')">📅 График под даты выхода</button>
-        <button class="btn btn-sm btn-ghost" style="font-size:.72rem; padding:2px 8px" onclick="quickAiAsk('Каковы свободные остатки кабеля и патч-панелей на центральном складе?')">🏢 Остатки на складе</button>
-        <button class="btn btn-sm btn-ghost" style="font-size:.72rem; padding:2px 8px" onclick="quickAiAsk('Какие поставки от поставщиков сейчас находятся в пути?')">🚚 Заказы в пути</button>
+      <div style="padding:8px 16px; display:flex; gap:8px; flex-wrap:wrap; background:#fff; border-top:1px solid var(--border); align-items:center;">
+        <span style="font-size:.72rem; color:var(--text-3); font-weight:600;">Быстрый вопрос:</span>
+        <button class="btn-quick-styled" onclick="quickAiAsk('Какие материалы сейчас в дефиците и требуют срочного заказа?')">📉 Дефицит ТМЦ</button>
+        <button class="btn-quick-styled" onclick="quickAiAsk('Какой график заказов под ближайшие даты выхода на монтаж?')">📅 График под даты выхода</button>
+        <button class="btn-quick-styled" onclick="quickAiAsk('Каковы свободные остатки кабеля и патч-панелей на центральном складе?')">🏢 Остатки на складе</button>
+        <button class="btn-quick-styled" onclick="quickAiAsk('Какие поставки от поставщиков сейчас находятся в пути?')">🚚 Заказы в пути</button>
       </div>
 
       <!-- Ввод -->
@@ -448,20 +448,16 @@ function setAiMode(mode) {
     parse_devices: 'Автоматический расчёт и бронирование материалов по спецификации'
   };
 
-  // Перекрашиваем кнопки режима
+  // Перекрашиваем кнопки режима в едином стиле
   modes.forEach(function(m) {
     var btn = document.getElementById('ai-mode-' + m);
     if (btn) {
-      var isActive = (m === mode);
-      if (m === 'analytics') {
-        if (isActive) {
-          btn.classList.add('active');
-        } else {
-          btn.classList.remove('active');
-        }
+      btn.style.background = '';
+      btn.style.color = '';
+      if (m === mode) {
+        btn.classList.add('active');
       } else {
-        btn.style.background = isActive ? 'var(--orange)' : '';
-        btn.style.color = isActive ? '#fff' : '';
+        btn.classList.remove('active');
       }
     }
   });
@@ -625,10 +621,11 @@ function checkAiHealth(showAlert) {
     if (data.status === 'ok') {
       badge.style.background = '#dcfce7';
       badge.style.color = '#15803d';
-      badge.textContent = '🟢 Ollama онлайн (' + (data.currentModel || 'qwen') + ')';
-      badge.title = 'Базовый адрес: ' + data.baseUrl + '\nДоступные модели: ' + (data.availableModels || []).join(', ') + '\nНажмите для повторной проверки';
+      var cpuLabel = (data.cpuOnly || data.cpu) ? ' · CPU' : '';
+      badge.textContent = '🟢 Ollama онлайн (' + (data.currentModel || 'qwen') + cpuLabel + ')';
+      badge.title = 'Базовый адрес: ' + data.baseUrl + '\nТекущая модель: ' + data.currentModel + (cpuLabel ? ' (режим CPU)' : '') + '\nДоступные модели: ' + (data.availableModels || []).join(', ') + '\nНажмите для повторной проверки';
       if (showAlert) {
-        alert('✅ Связь с Ollama установлена!\n\nБазовый URL: ' + data.baseUrl + '\nТекущая модель: ' + data.currentModel + '\nДоступные модели:\n' + (data.availableModels || []).join('\n'));
+        alert('✅ Связь с Ollama установлена!\n\nБазовый URL: ' + data.baseUrl + '\nТекущая модель: ' + data.currentModel + (cpuLabel ? ' (работает на CPU)' : '') + '\nДоступные модели:\n' + (data.availableModels || []).join('\n'));
       }
     } else {
       badge.style.background = '#fee2e2';

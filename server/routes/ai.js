@@ -10,7 +10,7 @@ const router = express.Router();
 // env перекрывает при необходимости.
 const AI_BASE_URL = process.env.AI_BASE_URL || 'http://host.docker.internal:11434/v1';
 const AI_API_KEY  = process.env.AI_API_KEY  || 'ollama';
-const AI_MODEL    = process.env.AI_MODEL    || 'qwen2.5:7b';
+const AI_MODEL    = process.env.AI_MODEL    || 'qwen2.5:14b';
 const AI_DAILY_LIMIT = 50; // макс. сообщений (роль=user) в день на пользователя
 
 let _aiClient = null;
@@ -36,7 +36,8 @@ router.get('/health', authenticateToken, async (req, res) => {
       status: 'ok',
       baseUrl: targetUrl,
       currentModel: AI_MODEL,
-      availableModels: models
+      availableModels: models,
+      cpuOnly: true
     });
   } catch (e) {
     // Если host.docker.internal не доступен (напр. локальный запуск вне Docker), пробуем localhost
@@ -51,6 +52,7 @@ router.get('/health', authenticateToken, async (req, res) => {
           baseUrl: 'http://localhost:11434/v1',
           currentModel: AI_MODEL,
           availableModels: models,
+          cpuOnly: true,
           fallback: true
         });
       } catch (_) {}
@@ -59,6 +61,7 @@ router.get('/health', authenticateToken, async (req, res) => {
       status: 'error',
       baseUrl: targetUrl,
       currentModel: AI_MODEL,
+      cpuOnly: true,
       error: e.message || String(e)
     });
   }
@@ -277,7 +280,12 @@ router.post('/chat', authenticateToken, async (req, res) => {
         model: AI_MODEL,
         messages: parseMessages,
         temperature: 0.1,
-        stream: false
+        stream: false,
+        extra_body: {
+          options: {
+            num_gpu: 0
+          }
+        }
       });
       const raw = (completion.choices[0].message.content || '').trim();
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
@@ -358,7 +366,12 @@ router.post('/chat', authenticateToken, async (req, res) => {
       model: AI_MODEL,
       messages,
       stream: true,
-      temperature: 0.3
+      temperature: 0.3,
+      extra_body: {
+        options: {
+          num_gpu: 0
+        }
+      }
     });
 
     for await (const chunk of stream) {

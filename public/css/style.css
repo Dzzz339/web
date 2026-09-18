@@ -1163,7 +1163,7 @@
       margin-bottom: 4px;
     }
 
-    /* ─── КНОПКА И ЗНАЧКИ «АНАЛИТИКА» (БЕЛАЯ ЗАЛИВКА, ОРАНЖЕВАЯ ОБВОДКА) ─── */
+    /* ─── КНОПКА И ЗНАЧКИ В ЕДИНОМ СТИЛЕ (БЕЛАЯ ЗАЛИВКА, ОРАНЖЕВАЯ ОБВОДКА) ─── */
     .btn-analytics-styled {
       background: #FFFFFF !important;
       border: 1.5px solid var(--orange) !important;
@@ -1190,11 +1190,42 @@
       vertical-align: middle;
       display: inline-block;
       flex-shrink: 0;
+      stroke: currentColor;
+    }
+    .btn-analytics-styled.active svg {
+      stroke: #FFFFFF !important;
     }
     .btn-analytics-styled.active svg rect,
-    .btn-analytics-styled.active svg path {
+    .btn-analytics-styled.active svg path,
+    .btn-analytics-styled.active svg circle,
+    .btn-analytics-styled.active svg line {
       stroke: #FFFFFF !important;
-      fill: rgba(255, 255, 255, 0.2) !important;
+    }
+    .btn-analytics-styled.active svg [fill="#FFFFFF"] {
+      fill: rgba(255, 255, 255, 0.25) !important;
+    }
+
+    /* ─── БЫСТРЫЕ ВОПРОСЫ В ЕДИНОМ СТИЛЕ ─── */
+    .btn-quick-styled {
+      background: #FFFFFF !important;
+      border: 1.5px solid #fed7aa !important;
+      color: var(--orange-dark) !important;
+      font-weight: 500 !important;
+      font-size: .75rem !important;
+      padding: 4px 10px !important;
+      border-radius: 6px !important;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+      transition: all 0.12s ease;
+    }
+    .btn-quick-styled:hover {
+      border-color: var(--orange) !important;
+      background: var(--orange-bg) !important;
+      color: var(--orange) !important;
+      box-shadow: 0 2px 5px rgba(255, 98, 0, 0.15);
     }
 
     /* ─── ЖИВОЙ ПОИСК ПО ЗАЯВКАМ ДЛЯ КОНТЕКСТА ─── */
