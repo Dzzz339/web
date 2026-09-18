@@ -92,19 +92,16 @@ function pageChat() {
             </div>
           </div>
 
-          <!-- Переключатели режима -->
-          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-            ${S.user && S.user.role === 'admin' ? `<button class="btn btn-sm btn-analytics-styled" id="ai-mode-analytics" onclick="setAiMode('analytics')">${ICONS.analytics} <span>Аналитика</span></button>` : ''}
-            ${S.user && S.user.role === 'admin' ? `<button class="btn btn-sm btn-analytics-styled" id="ai-mode-forecast" onclick="setAiMode('forecast')">${ICONS.box} <span>Снабжение и прогноз</span></button>` : ''}
-            <button class="btn btn-sm btn-analytics-styled" id="ai-mode-tech" onclick="setAiMode('tech')">${ICONS.tech} <span>Техпомощь</span></button>
-            <button class="btn btn-sm btn-analytics-styled" id="ai-mode-general" onclick="setAiMode('general')">${ICONS.chat} <span>Общий</span></button>
-            <button class="btn btn-sm btn-analytics-styled" id="ai-mode-parse_devices" onclick="setAiMode('parse_devices')">${ICONS.calc} <span>Расчёт материалов</span></button>
-            ${S.user && S.user.role === 'admin' ? `<button class="btn btn-sm btn-analytics-styled" id="wf-toggle-btn" onclick="toggleWorkflowPanel()" title="Построитель сценариев автоматизации">⚡ <span>Автоматизация</span></button>` : ''}
-          </div>
+          <!-- Панель управления Стоки: Автоматизация и контекст заявки -->
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            ${S.user && S.user.role === 'admin' ? `
+              <button class="btn btn-sm btn-analytics-styled ${S.workflowOpen ? 'active' : ''}" id="wf-toggle-btn" onclick="toggleWorkflowPanel()" title="Построитель сценариев автоматизации">
+                ⚡ <span>Автоматизация</span>
+              </button>
+            ` : ''}
 
-          <!-- Поиск заявки для контекста -->
-          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-            <div class="ai-task-search-wrap" id="ai-task-search-container">
+            <!-- Поиск заявки для контекста -->
+            <div class="ai-task-search-wrap" id="ai-task-search-container" style="flex:1; min-width:220px;">
               <div id="ai-task-selected-wrap" style="display:none; align-items:center; gap:8px;">
                 <div class="ai-task-selected-badge">
                   <span id="ai-task-selected-text"></span>
@@ -119,6 +116,9 @@ function pageChat() {
           </div>
         </div>
 
+        <!-- ПАНЕЛЬ АВТОМАТИЗАЦИИ (WORKFLOW) -->
+        <div id="workflow-panel" class="workflow-panel" style="display:${S.workflowOpen ? 'block' : 'none'};"></div>
+
         <!-- ИИ-сообщения -->
         <div id="ai-messages" style="flex:1; min-height:0; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; background:var(--bg)">
           <div style="text-align:center; color:var(--text-3); margin-top:2rem" id="ai-empty">
@@ -126,17 +126,18 @@ function pageChat() {
               ${ICONS.stocky}
             </div>
             <div style="font-weight:700; color:var(--text); font-size:1rem; margin-bottom:4px;">Привет! Я Стоки</div>
-            <div style="font-size:.82rem;">Выберите режим сверху или задайте вопрос по заявкам, оборудованию и ТМЦ</div>
+            <div style="font-size:.82rem;">Задайте любой вопрос по заявкам, аналитике, дефицитам ТМЦ, сметам или стандартам монтажа</div>
           </div>
         </div>
 
         <!-- Быстрые вопросы -->
         <div style="padding:8px 16px; display:flex; gap:8px; flex-wrap:wrap; background:#fff; border-top:1px solid var(--border); align-items:center;">
           <span style="font-size:.72rem; color:var(--text-3); font-weight:600;">Быстрый вопрос:</span>
+          <button class="btn-quick-styled" onclick="quickAiAsk('Дай общую аналитическую сводку по заявкам, суммам и критическим просрочкам')">📊 Сводка и просрочки</button>
           <button class="btn-quick-styled" onclick="quickAiAsk('Какие материалы сейчас в дефиците и требуют срочного заказа?')">📉 Дефицит ТМЦ</button>
           <button class="btn-quick-styled" onclick="quickAiAsk('Какой график заказов под ближайшие даты выхода на монтаж?')">📅 График под даты выхода</button>
           <button class="btn-quick-styled" onclick="quickAiAsk('Каковы свободные остатки кабеля и патч-панелей на центральном складе?')">🏢 Остатки на складе</button>
-          <button class="btn-quick-styled" onclick="quickAiAsk('Какие поставки от поставщиков сейчас находятся в пути?')">🚚 Заказы в пути</button>
+          <button class="btn-quick-styled" onclick="quickAiAsk('Рассчитай материалы: 10 АРМ, 4 точки Wi-Fi, 6 камер, 1 шкаф 19U')">🧮 Расчёт материалов</button>
         </div>
 
         <!-- ИИ-ввод -->
@@ -195,19 +196,16 @@ function pageAiChat() {
     <div class="card" style="display:flex; flex-direction:column; height:74vh; overflow:hidden; background:#fff;">
       <!-- ШАПКА РЕЖИМОВ И КОНТЕКСТА -->
       <div style="padding:12px 16px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:10px; background:#fafafa;">
-        <!-- Переключатели режима -->
-        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-          ${S.user && S.user.role === 'admin' ? `<button class="btn btn-sm btn-analytics-styled" id="ai-mode-analytics" onclick="setAiMode('analytics')">${ICONS.analytics} <span>Аналитика</span></button>` : ''}
-          ${S.user && S.user.role === 'admin' ? `<button class="btn btn-sm btn-analytics-styled" id="ai-mode-forecast" onclick="setAiMode('forecast')">${ICONS.box} <span>Снабжение и прогноз</span></button>` : ''}
-          <button class="btn btn-sm btn-analytics-styled" id="ai-mode-tech" onclick="setAiMode('tech')">${ICONS.tech} <span>Техпомощь</span></button>
-          <button class="btn btn-sm btn-analytics-styled" id="ai-mode-general" onclick="setAiMode('general')">${ICONS.chat} <span>Общий</span></button>
-          <button class="btn btn-sm btn-analytics-styled" id="ai-mode-parse_devices" onclick="setAiMode('parse_devices')">${ICONS.calc} <span>Расчёт материалов</span></button>
-          ${S.user && S.user.role === 'admin' ? `<button class="btn btn-sm btn-analytics-styled" id="wf-toggle-btn" onclick="toggleWorkflowPanel()" title="Построитель сценариев автоматизации">⚡ <span>Автоматизация</span></button>` : ''}
-        </div>
+        <!-- Панель управления Стоки: Автоматизация и контекст заявки -->
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          ${S.user && S.user.role === 'admin' ? `
+            <button class="btn btn-sm btn-analytics-styled ${S.workflowOpen ? 'active' : ''}" id="wf-toggle-btn" onclick="toggleWorkflowPanel()" title="Построитель сценариев автоматизации">
+              ⚡ <span>Автоматизация</span>
+            </button>
+          ` : ''}
 
-        <!-- Поиск заявки для контекста -->
-        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-          <div class="ai-task-search-wrap" id="ai-task-search-container">
+          <!-- Поиск заявки для контекста -->
+          <div class="ai-task-search-wrap" id="ai-task-search-container" style="flex:1; min-width:220px;">
             <div id="ai-task-selected-wrap" style="display:none; align-items:center; gap:8px;">
               <div class="ai-task-selected-badge">
                 <span id="ai-task-selected-text"></span>
@@ -222,6 +220,9 @@ function pageAiChat() {
         </div>
       </div>
 
+      <!-- ПАНЕЛЬ АВТОМАТИЗАЦИИ (WORKFLOW) -->
+      <div id="workflow-panel" class="workflow-panel" style="display:${S.workflowOpen ? 'block' : 'none'};"></div>
+
       <!-- ИИ-сообщения -->
       <div id="ai-messages" style="flex:1; min-height:0; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; background:var(--bg);">
         <div style="text-align:center; color:var(--text-3); margin-top:2rem" id="ai-empty">
@@ -229,17 +230,18 @@ function pageAiChat() {
             ${ICONS.stocky}
           </div>
           <div style="font-weight:700; color:var(--text); font-size:1rem; margin-bottom:4px;">Привет! Я Стоки</div>
-          <div style="font-size:.82rem;">Выберите режим сверху или задайте вопрос по заявкам, оборудованию и ТМЦ</div>
+          <div style="font-size:.82rem;">Задайте любой вопрос по заявкам, аналитике, дефицитам ТМЦ, сметам или стандартам монтажа</div>
         </div>
       </div>
 
       <!-- Быстрые вопросы -->
       <div style="padding:8px 16px; display:flex; gap:8px; flex-wrap:wrap; background:#fff; border-top:1px solid var(--border); align-items:center;">
         <span style="font-size:.72rem; color:var(--text-3); font-weight:600;">Быстрый вопрос:</span>
+        <button class="btn-quick-styled" onclick="quickAiAsk('Дай общую аналитическую сводку по заявкам, суммам и критическим просрочкам')">📊 Сводка и просрочки</button>
         <button class="btn-quick-styled" onclick="quickAiAsk('Какие материалы сейчас в дефиците и требуют срочного заказа?')">📉 Дефицит ТМЦ</button>
         <button class="btn-quick-styled" onclick="quickAiAsk('Какой график заказов под ближайшие даты выхода на монтаж?')">📅 График под даты выхода</button>
         <button class="btn-quick-styled" onclick="quickAiAsk('Каковы свободные остатки кабеля и патч-панелей на центральном складе?')">🏢 Остатки на складе</button>
-        <button class="btn-quick-styled" onclick="quickAiAsk('Какие поставки от поставщиков сейчас находятся в пути?')">🚚 Заказы в пути</button>
+        <button class="btn-quick-styled" onclick="quickAiAsk('Рассчитай материалы: 10 АРМ, 4 точки Wi-Fi, 6 камер, 1 шкаф 19U')">🧮 Расчёт материалов</button>
       </div>
 
       <!-- Ввод -->
@@ -440,49 +442,25 @@ function openAiChat() {
 }
 
 function setAiMode(mode) {
-  S.aiMode = mode;
-  var modes = ['analytics', 'forecast', 'tech', 'general', 'parse_devices'];
-  var desc = {
-    analytics: 'Отвечает по данным из БД (статистика, регионы, подрядчики, остатки)',
-    forecast: 'Прогноз дефицитов, дедлайны заказов под даты выхода, сроки поставки (Lead Times)',
-    tech: 'Технические вопросы по монтажу сетей и стандарты СКС',
-    general: 'Помощник Стоки с контекстом компании Stockeasy',
-    parse_devices: 'Автоматический расчёт и бронирование материалов по спецификации'
-  };
-
-  // Перекрашиваем кнопки режима в едином стиле
-  modes.forEach(function(m) {
-    var btn = document.getElementById('ai-mode-' + m);
-    if (btn) {
-      btn.style.background = '';
-      btn.style.color = '';
-      if (m === mode) {
-        btn.classList.add('active');
-      } else {
-        btn.classList.remove('active');
-      }
-    }
-  });
-
+  S.aiMode = mode || 'general';
   var label = document.getElementById('ai-mode-label');
-  if (label) label.textContent = '— ' + (desc[mode] || '');
+  if (label) label.textContent = '— универсальный помощник: аналитика, снабжение, ТМЦ, техпомощь';
 
   var input = document.getElementById('ai_text_input');
   if (input) {
-    input.placeholder = mode === 'analytics'
-      ? 'Например: сколько заявок в Москве? / какой регион просрочен?'
-      : mode === 'forecast'
-        ? 'Например: какие материалы в дефиците? / когда заказывать кабель под объекты?'
-        : mode === 'parse_devices'
-          ? 'Вставьте список оборудования: 5 АРМ, 2 точки WiFi, 4 камеры...'
-          : 'Задайте вопрос Стоки...';
+    input.placeholder = 'Спросите Стоки: аналитика по объектам, дефициты ТМЦ, сметы, подрядчики или стандарты...';
     input.focus();
   }
 }
 
 function initAiChat() {
   initAiTaskPicker();
-  setAiMode(S.aiMode || 'general');
+  setAiMode('general');
+  if (S.workflowOpen) {
+    renderWorkflowPanel();
+    var btn = document.getElementById('wf-toggle-btn');
+    if (btn) btn.classList.add('active');
+  }
   renderAiMessages();
   checkAiHealth(false);
 }
@@ -816,6 +794,17 @@ function sendAiMessage() {
     sendBtn.innerHTML = '<span class="stocky-spinner" style="border-top-color:#fff;border-color:rgba(255,255,255,0.35);margin-right:5px;"></span> Думает…';
   }
 
+  // Автоматическое определение расчёта спецификации оборудования / материалов
+  var isDeviceCalc = (mode === 'parse_devices') ||
+    /(?:расчёт|расчет|посчитай|рассчитай|смета).*(?:материал|тмц|оборудован|расходник)/i.test(text) ||
+    /(?:\d+\s*(?:арм|wifi|wi-fi|точек|камер|коммутатор|шкаф|сервер))/i.test(text);
+
+  if (isDeviceCalc) {
+    mode = 'parse_devices';
+  } else {
+    mode = 'general';
+  }
+
   // ─── РЕЖИМ: parse_devices (обычный JSON, без streaming) ─────────────────────
   if (mode === 'parse_devices') {
     S.aiLoading = true;
@@ -852,14 +841,12 @@ function sendAiMessage() {
     return;
   }
 
-  // ─── СТРИМИНГОВЫЕ РЕЖИМЫ (SSE) ───────────────────────────────────────────────
+  // ─── СТРИМИНГОВЫЙ ЕДИНЫЙ РЕЖИМ (SSE) ─────────────────────────────────────────
   S.aiLoading = true;
   S.aiStreaming = true;
   S.aiStreamText = '';
   
-  var loadSubtitle = mode === 'analytics'
-    ? 'Запрашиваю аналитику и считаю показатели по базе...'
-    : (mode === 'forecast' ? 'Прогнозирую дефициты и графики поставок ТМЦ...' : 'Формирую ответ...');
+  var loadSubtitle = 'Анализирую данные и формирую ответ...';
   showAiLoadingIndicator(loadSubtitle);
 
   fetch('/api/ai/chat', {
@@ -1046,20 +1033,11 @@ function toggleWorkflowPanel() {
     btn.classList.toggle('active', S.workflowOpen);
   }
   var panel = document.getElementById('workflow-panel');
-  if (S.workflowOpen) {
-    if (!panel) {
-      // Вставляем панель перед блоком сообщений
-      var msgs = document.getElementById('ai-messages');
-      if (msgs && msgs.parentElement) {
-        var div = document.createElement('div');
-        div.id = 'workflow-panel';
-        div.className = 'workflow-panel';
-        msgs.parentElement.insertBefore(div, msgs);
-      }
+  if (panel) {
+    panel.style.display = S.workflowOpen ? 'block' : 'none';
+    if (S.workflowOpen) {
+      renderWorkflowPanel();
     }
-    renderWorkflowPanel();
-  } else {
-    if (panel) panel.remove();
   }
 }
 
@@ -1088,8 +1066,8 @@ function renderWorkflowPanel() {
       ${stepsHtml}
     </div>
 
-    <div class="workflow-actions">
-      <button class="wf-btn-add" onclick="openAddStepMenu(this)" id="wf-add-btn">
+    <div class="workflow-actions" style="position:relative;">
+      <button class="wf-btn-add" onclick="openAddStepMenu(event, this)" id="wf-add-btn">
         ＋ Добавить шаг
       </button>
       ${hasSteps ? `
@@ -1240,10 +1218,13 @@ function updateWfParam(idx, key, value) {
 }
 
 // ── Меню добавления шага ─────────────────────────────────────────────────────
-function openAddStepMenu(btn) {
+function openAddStepMenu(e, btn) {
+  if (e && e.stopPropagation) e.stopPropagation();
   // Убираем уже открытое меню
   var existing = document.getElementById('wf-add-menu');
   if (existing) { existing.remove(); return; }
+
+  var parent = (btn && btn.parentElement) ? btn.parentElement : document.body;
 
   var menu = document.createElement('div');
   menu.id = 'wf-add-menu';
@@ -1259,7 +1240,7 @@ function openAddStepMenu(btn) {
 
   menu.innerHTML = items.map(function(it) {
     return `
-      <div class="wf-add-menu-item" onclick="addWorkflowStep('${it.type}')">
+      <div class="wf-add-menu-item" onclick="addWorkflowStep('${it.type}', event)">
         <div class="wf-menu-icon">${it.icon}</div>
         <div>
           <div style="font-weight:600;">${it.label}</div>
@@ -1269,11 +1250,12 @@ function openAddStepMenu(btn) {
     `;
   }).join('');
 
-  btn.appendChild(menu);
+  parent.appendChild(menu);
 }
 
 // ── Добавить шаг ─────────────────────────────────────────────────────────────
-function addWorkflowStep(type) {
+function addWorkflowStep(type, e) {
+  if (e && e.stopPropagation) e.stopPropagation();
   initWorkflowState();
   var typeInfo = WF_STEP_TYPES[type];
   S.workflowSteps.push({
