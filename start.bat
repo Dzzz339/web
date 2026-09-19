@@ -22,10 +22,8 @@ if not exist "node_modules" (
     echo Done!
 )
 
-:: Kill any process already using port 3000
-for /f "tokens=5" %%a in ('netstat -aon ^| find ":3000" ^| find "LISTENING"') do (
-    taskkill /f /pid %%a >nul 2>&1
-)
+:: Завершаем только предыдущие процессы Node.js, не трогая Docker и системные службы
+taskkill /f /im node.exe >nul 2>&1
 
 echo Starting Stockeasy on http://localhost:3000
 echo Do not close this window while using the app.
