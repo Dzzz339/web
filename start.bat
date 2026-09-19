@@ -25,13 +25,14 @@ if not exist "node_modules" (
 :: Завершаем только предыдущие процессы Node.js, не трогая Docker и системные службы
 taskkill /f /im node.exe >nul 2>&1
 
-echo Starting Stockeasy on http://localhost:3000
+echo Starting Stockeasy on http://localhost:3005
 echo Do not close this window while using the app.
 echo.
 
-start "" cmd /c "timeout /t 2 >nul && start http://localhost:3000"
+start "" cmd /c "timeout /t 2 >nul && start http://localhost:3005"
 
-set PORT=3000
+:: 1. Порт приложения
+set PORT=3005
 set DATABASE_URL=postgres://postgres@localhost:5432/stockeasy_db
 set DADATA_API_KEY=5312de9ffa05f9a68cc381ddbb8484385f032bd8
 set DADATA_SECRET_KEY=710ce98120d857761c5d1843eac9c04fa6944ee7
