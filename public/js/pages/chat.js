@@ -93,10 +93,13 @@ function pageChat() {
           </div>
 
           <!-- Панель управления Стоки: Автоматизация и контекст заявки -->
-          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
             ${S.user && S.user.role === 'admin' ? `
               <button class="btn btn-sm btn-analytics-styled ${S.workflowOpen ? 'active' : ''}" id="wf-toggle-btn" onclick="toggleWorkflowPanel()" title="Построитель сценариев автоматизации">
                 ⚡ <span>Автоматизация</span>
+              </button>
+              <button class="btn btn-sm btn-analytics-styled" onclick="openFullAutomationModal()" title="Центр полной автоматизации и типовых сценариев">
+                🎛️ <span>Полная автоматизация</span>
               </button>
             ` : ''}
 
@@ -197,10 +200,13 @@ function pageAiChat() {
       <!-- ШАПКА РЕЖИМОВ И КОНТЕКСТА -->
       <div style="padding:12px 16px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:10px; background:#fafafa;">
         <!-- Панель управления Стоки: Автоматизация и контекст заявки -->
-        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
           ${S.user && S.user.role === 'admin' ? `
             <button class="btn btn-sm btn-analytics-styled ${S.workflowOpen ? 'active' : ''}" id="wf-toggle-btn" onclick="toggleWorkflowPanel()" title="Построитель сценариев автоматизации">
               ⚡ <span>Автоматизация</span>
+            </button>
+            <button class="btn btn-sm btn-analytics-styled" onclick="openFullAutomationModal()" title="Центр полной автоматизации и типовых сценариев">
+              🎛️ <span>Полная автоматизация</span>
             </button>
           ` : ''}
 
@@ -1021,6 +1027,27 @@ var WF_STEP_TYPES = {
     badge: 'wf-badge-ask',
     desc: 'Передать заявки в ИИ для анализа',
     defaultParams: { question: '' }
+  },
+  notify_chat: {
+    label: 'Написать в чат',
+    icon: '💬',
+    badge: 'wf-badge-chat',
+    desc: 'Личное сообщение исполнителю по заявке',
+    defaultParams: { recipient: '', message: 'Внимание по заявке #{id} ({address}): пожалуйста, обновите статус.' }
+  },
+  notify_email: {
+    label: 'Сообщить на почту',
+    icon: '📧',
+    badge: 'wf-badge-email',
+    desc: 'Email-оповещение о просрочке / статусе',
+    defaultParams: { to: '', subject: 'Срочно: Просрочка по заявке #{id}', text: 'По заявке #{id} ({address}) зафиксирована просрочка {overdueDays} дн. Примите срочные меры.' }
+  },
+  notify_system: {
+    label: 'Системное уведомление',
+    icon: '🔔',
+    badge: 'wf-badge-notify',
+    desc: 'Колокольчик в системе',
+    defaultParams: { title: 'Внимание по заявке #{id}', text: 'Заявка #{id}: требуется внимание.' }
   }
 };
 
@@ -1057,7 +1084,10 @@ function renderWorkflowPanel() {
         ⚡ Построитель сценариев
         <span style="font-size:.72rem; font-weight:400; color:var(--text-3);">(${S.workflowSteps.length} шаг${S.workflowSteps.length === 1 ? '' : (S.workflowSteps.length >= 2 && S.workflowSteps.length <= 4 ? 'а' : 'ов')})</span>
       </div>
-      <div style="display:flex; gap:6px; align-items:center;">
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button class="btn btn-sm" onclick="openFullAutomationModal()" style="font-size:.73rem; padding:3px 9px; border:1px solid var(--orange); color:var(--orange); background:#fff; border-radius:6px; cursor:pointer; font-weight:600; display:inline-flex; align-items:center; gap:4px;">
+          🎛️ Шаблоны и полная настройка
+        </button>
         <span style="font-size:.72rem; color:var(--text-3);">Шаги выполняются слева направо</span>
       </div>
     </div>
@@ -1204,6 +1234,29 @@ function renderStepForm(step, idx) {
       return `
         <input type="text" placeholder="Вопрос Стоки по найденным заявкам…" value="${escHtml(p.question || '')}" oninput="updateWfParam(${idx},'question',this.value)" style="font-size:.76rem;">
       `;
+    case 'notify_chat':
+      return `
+        <div style="font-size:.72rem;color:var(--text-3);">Кому (пусто = исполнителю заявки):</div>
+        <input type="text" placeholder="Исполнитель из заявки или логин..." value="${escHtml(p.recipient || '')}" oninput="updateWfParam(${idx},'recipient',this.value)" style="font-size:.76rem;margin-bottom:4px;">
+        <div style="font-size:.72rem;color:var(--text-3);">Шаблон сообщения ({id}, {address}, {overdueDays}):</div>
+        <textarea rows="2" style="font-size:.75rem;width:100%;resize:vertical;" oninput="updateWfParam(${idx},'message',this.value)">${escHtml(p.message || '')}</textarea>
+      `;
+    case 'notify_email':
+      return `
+        <div style="font-size:.72rem;color:var(--text-3);">Email получателя (пусто = email исполнителя):</div>
+        <input type="text" placeholder="name@company.ru или имя..." value="${escHtml(p.to || '')}" oninput="updateWfParam(${idx},'to',this.value)" style="font-size:.76rem;margin-bottom:4px;">
+        <div style="font-size:.72rem;color:var(--text-3);">Тема письма:</div>
+        <input type="text" placeholder="Тема письма..." value="${escHtml(p.subject || '')}" oninput="updateWfParam(${idx},'subject',this.value)" style="font-size:.76rem;margin-bottom:4px;">
+        <div style="font-size:.72rem;color:var(--text-3);">Текст письма ({id}, {address}, {overdueDays}):</div>
+        <textarea rows="2" style="font-size:.75rem;width:100%;resize:vertical;" oninput="updateWfParam(${idx},'text',this.value)">${escHtml(p.text || '')}</textarea>
+      `;
+    case 'notify_system':
+      return `
+        <div style="font-size:.72rem;color:var(--text-3);">Заголовок уведомления:</div>
+        <input type="text" placeholder="Заголовок..." value="${escHtml(p.title || '')}" oninput="updateWfParam(${idx},'title',this.value)" style="font-size:.76rem;margin-bottom:4px;">
+        <div style="font-size:.72rem;color:var(--text-3);">Текст ({id}, {address}):</div>
+        <textarea rows="2" style="font-size:.75rem;width:100%;resize:vertical;" oninput="updateWfParam(${idx},'text',this.value)">${escHtml(p.text || '')}</textarea>
+      `;
     default:
       return '<div style="font-size:.75rem;color:var(--text-3);">Нет параметров</div>';
   }
@@ -1231,11 +1284,14 @@ function openAddStepMenu(e, btn) {
   menu.className = 'wf-add-menu';
 
   var items = [
-    { type: 'find',   icon: '🔍', label: 'Найти заявки',         sub: 'По региону, статусу, подрядчику' },
-    { type: 'assign', icon: '👤', label: 'Назначить подрядчика',  sub: 'Массовое обновление исполнителя' },
-    { type: 'status', icon: '🏷️', label: 'Изменить статус',       sub: 'Перевести в другой статус' },
-    { type: 'show',   icon: '📋', label: 'Показать список',       sub: 'Вывести таблицу в чат' },
-    { type: 'ask',    icon: '💬', label: 'Спросить Стоки',        sub: 'ИИ-анализ найденных заявок' }
+    { type: 'find',          icon: '🔍', label: 'Найти заявки',           sub: 'По региону, статусу, подрядчику' },
+    { type: 'assign',        icon: '👤', label: 'Назначить подрядчика',    sub: 'Массовое обновление исполнителя' },
+    { type: 'status',        icon: '🏷️', label: 'Изменить статус',         sub: 'Перевести в другой статус' },
+    { type: 'notify_chat',   icon: '💬', label: 'Написать человеку в чат', sub: 'Личное сообщение исполнителю' },
+    { type: 'notify_email',  icon: '📧', label: 'Сообщить на почту',       sub: 'Email о просрочке или статусе' },
+    { type: 'notify_system', icon: '🔔', label: 'Системное уведомление',   sub: 'Колокольчик в шапке' },
+    { type: 'show',          icon: '📋', label: 'Показать список',         sub: 'Вывести таблицу в чат' },
+    { type: 'ask',           icon: '🤖', label: 'Спросить Стоки',          sub: 'ИИ-анализ найденных заявок' }
   ];
 
   menu.innerHTML = items.map(function(it) {
@@ -1543,6 +1599,119 @@ function executeStepAsk(params, tasks) {
   });
 }
 
+// ── Подстановка переменных заявки в шаблон ───────────────────────────────────
+function formatWfTemplate(template, task) {
+  if (!template) return '';
+  task = task || {};
+  return template
+    .replace(/\{id\}/g, task.id || '')
+    .replace(/\{address\}/g, task.address || task.region || '')
+    .replace(/\{region\}/g, task.region || '')
+    .replace(/\{contractor\}/g, task.contractor || '')
+    .replace(/\{assignee\}/g, task.assignee || '')
+    .replace(/\{status\}/g, task.status || '')
+    .replace(/\{deadline\}/g, task.deadline || '')
+    .replace(/\{overdueDays\}/g, task.overdueDays || '0');
+}
+
+// Шаг: Отправка личного сообщения в чат исполнителю
+function executeStepNotifyChat(params, tasks) {
+  if (!tasks || !tasks.length) return Promise.resolve({ sent: 0, total: 0 });
+  var total = tasks.length;
+  var done = 0;
+  var sent = 0;
+
+  var promises = tasks.map(function(t) {
+    var recipientName = (params.recipient && params.recipient.trim()) ? params.recipient.trim() : (t.assignee || t.contractor);
+    var text = formatWfTemplate(params.message || 'Внимание по заявке #{id}: {address}', t);
+
+    return fetch('/api/automation/send-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.token },
+      body: JSON.stringify({
+        targetUserName: recipientName,
+        text: text,
+        taskId: t.id
+      })
+    }).then(function(r) {
+      done++;
+      wfSetProgress(Math.round((done / total) * 100), 'Отправка в чат ' + done + '/' + total);
+      if (r.ok) sent++;
+      return r.ok ? 1 : 0;
+    }).catch(function() { done++; return 0; });
+  });
+
+  return Promise.all(promises).then(function() {
+    return { sent: sent, total: total };
+  });
+}
+
+// Шаг: Отправка email о просрочке / статусе
+function executeStepNotifyEmail(params, tasks) {
+  if (!tasks || !tasks.length) return Promise.resolve({ sent: 0, total: 0 });
+  var total = tasks.length;
+  var done = 0;
+  var sent = 0;
+
+  var promises = tasks.map(function(t) {
+    var recipient = (params.to && params.to.trim()) ? params.to.trim() : (t.assignee || t.contractor);
+    var subject = formatWfTemplate(params.subject || '⚠️ Уведомление по заявке #{id}', t);
+    var text = formatWfTemplate(params.text || 'По заявке #{id} ({address}) зафиксирована просрочка {overdueDays} дн.', t);
+
+    return fetch('/api/automation/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.token },
+      body: JSON.stringify({
+        to: recipient,
+        subject: subject,
+        text: text,
+        taskId: t.id
+      })
+    }).then(function(r) {
+      done++;
+      wfSetProgress(Math.round((done / total) * 100), 'Отправка email ' + done + '/' + total);
+      if (r.ok) sent++;
+      return r.ok ? 1 : 0;
+    }).catch(function() { done++; return 0; });
+  });
+
+  return Promise.all(promises).then(function() {
+    return { sent: sent, total: total };
+  });
+}
+
+// Шаг: Создание системного колокольчик-уведомления
+function executeStepNotifySystem(params, tasks) {
+  if (!tasks || !tasks.length) return Promise.resolve({ created: 0, total: 0 });
+  var total = tasks.length;
+  var done = 0;
+  var created = 0;
+
+  var promises = tasks.map(function(t) {
+    var title = formatWfTemplate(params.title || 'Внимание по заявке #{id}', t);
+    var body = formatWfTemplate(params.text || 'Заявка #{id}: требуется внимание ({address}).', t);
+
+    return fetch('/api/automation/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.token },
+      body: JSON.stringify({
+        userName: t.assignee || null,
+        title: title,
+        body: body,
+        taskId: t.id
+      })
+    }).then(function(r) {
+      done++;
+      if (r.ok) created++;
+      return r.ok ? 1 : 0;
+    }).catch(function() { done++; return 0; });
+  });
+
+  return Promise.all(promises).then(function() {
+    return { created: created, total: total };
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚡ ГЛАВНЫЙ ОРКЕСТРАТОР СЦЕНАРИЯ
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1630,6 +1799,33 @@ function runWorkflow() {
             );
           }
         });
+      } else if (step.type === 'notify_chat') {
+        return executeStepNotifyChat(step.params || {}, contextTasks).then(function(res) {
+          var msg = 'Отправлено: ' + res.sent + ' из ' + res.total + ' сообщений в чат';
+          wfMarkStep(idx, 'done', msg);
+          addWorkflowChatMessage(
+            '<div>💬 <strong>Оповещение в личный чат</strong><br><span style="font-size:.8rem;color:var(--text-2);">' + msg + '</span></div>',
+            msg
+          );
+        });
+      } else if (step.type === 'notify_email') {
+        return executeStepNotifyEmail(step.params || {}, contextTasks).then(function(res) {
+          var msg = 'Отправлено: ' + res.sent + ' из ' + res.total + ' email';
+          wfMarkStep(idx, 'done', msg);
+          addWorkflowChatMessage(
+            '<div>📧 <strong>Email-оповещение</strong><br><span style="font-size:.8rem;color:var(--text-2);">' + msg + '</span></div>',
+            msg
+          );
+        });
+      } else if (step.type === 'notify_system') {
+        return executeStepNotifySystem(step.params || {}, contextTasks).then(function(res) {
+          var msg = 'Создано ' + res.created + ' системных уведомлений';
+          wfMarkStep(idx, 'done', msg);
+          addWorkflowChatMessage(
+            '<div>🔔 <strong>Системные уведомления</strong><br><span style="font-size:.8rem;color:var(--text-2);">' + msg + '</span></div>',
+            msg
+          );
+        });
       } else if (step.type === 'show') {
         return executeStepShow(contextTasks).then(function() {
           wfMarkStep(idx, 'done', 'Показано: ' + contextTasks.length);
@@ -1660,6 +1856,281 @@ function runWorkflow() {
     );
   });
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🎛️ ЦЕНТР ПОЛНОЙ АВТОМАТИЗАЦИИ И ТИПОВЫХ СЦЕНАРИЕВ
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var WF_PRESETS = [
+  {
+    id: 'preset_overdue',
+    title: '🚨 Контроль и эскалация просрочек',
+    desc: 'Находит просроченные заявки, отправляет email куратору, персональное сообщение в чат исполнителю и выводит список.',
+    tags: ['Типовой', 'Просрочки', 'Email + Чат'],
+    steps: [
+      { type: 'find', params: { region: '', status: '', contractor: '', overdue: true, minDays: '1' } },
+      { type: 'notify_email', params: { to: '', subject: '⚠️ Срочно: Просрочка по заявке #{id}', text: 'По объекту #{id} ({address}) зафиксирована задержка {overdueDays} дн. Срочно обновите статус.' } },
+      { type: 'notify_chat', params: { recipient: '', message: 'Внимание по заявке #{id} ({address}): просрочка {overdueDays} дн. Подготовьте отчет.' } },
+      { type: 'show', params: {} }
+    ]
+  },
+  {
+    id: 'preset_dispatch',
+    title: '📦 Распределение новых типовых заявок',
+    desc: 'Фильтрует новые заявки в ожидании (pending), назначает исполнителя/подрядчика, переводит в работу (progress) и уведомляет.',
+    tags: ['Типовой', 'Маршрутизация', 'Статусы'],
+    steps: [
+      { type: 'find', params: { region: '', status: 'pending', contractor: '', overdue: false } },
+      { type: 'assign', params: { assignee: '', contractor: '' } },
+      { type: 'status', params: { newStatus: 'progress' } },
+      { type: 'notify_chat', params: { recipient: '', message: 'Вам назначена новая заявка #{id} по адресу: {address}. Начинайте работы.' } },
+      { type: 'show', params: {} }
+    ]
+  },
+  {
+    id: 'preset_remind_out',
+    title: '🚚 Оповещение бригады о выезде на монтаж',
+    desc: 'Напоминает монтажникам в личный чат о запланированном выезде на объект и проверяет ТМЦ.',
+    tags: ['Монтажники', 'Чат', 'Колокольчик'],
+    steps: [
+      { type: 'find', params: { region: '', status: 'progress', contractor: '', overdue: false } },
+      { type: 'notify_chat', params: { recipient: '', message: 'Напоминание: запланирован выезд по заявке #{id} ({address}). Проверьте наличие материалов.' } },
+      { type: 'notify_system', params: { title: 'Выезд на объект #{id}', text: 'Заявка #{id}: запланирован выезд бригады ({address}).' } }
+    ]
+  },
+  {
+    id: 'preset_close_done',
+    title: '🏁 Массовое закрытие и сдача объектов',
+    desc: 'Переводит выполненные заявки (done) в статус «Закрыто» (closed) и выводит итоговую ведомость.',
+    tags: ['Закрытие', 'Отчетность'],
+    steps: [
+      { type: 'find', params: { region: '', status: 'done', contractor: '', overdue: false } },
+      { type: 'status', params: { newStatus: 'closed' } },
+      { type: 'show', params: {} }
+    ]
+  }
+];
+
+// Открыть окно полной автоматизации
+function openFullAutomationModal() {
+  var existing = document.getElementById('wf-full-modal');
+  if (existing) existing.remove();
+
+  var modal = document.createElement('div');
+  modal.id = 'wf-full-modal';
+  modal.className = 'wf-modal-overlay';
+  modal.onclick = function(e) {
+    if (e.target === modal) closeFullAutomationModal();
+  };
+
+  modal.innerHTML = `
+    <div class="wf-modal-container" onclick="event.stopPropagation()">
+      <div class="wf-modal-header">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div style="width:36px; height:36px; border-radius:10px; background:var(--orange-bg); color:var(--orange); display:flex; align-items:center; justify-content:center; font-size:1.2rem;">
+            🎛️
+          </div>
+          <div>
+            <div style="font-weight:700; font-size:1.15rem; color:var(--text);">Центр полной автоматизации</div>
+            <div style="font-size:.78rem; color:var(--text-3);">Управление сценариями обработки типовых заявок и рассылок</div>
+          </div>
+        </div>
+        <button class="wf-modal-close" onclick="closeFullAutomationModal()">✕</button>
+      </div>
+
+      <div class="wf-modal-body" id="wf-modal-body">
+        ${renderFullAutomationModalBody()}
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+}
+
+// Закрыть окно полной автоматизации
+function closeFullAutomationModal() {
+  var m = document.getElementById('wf-full-modal');
+  if (m) m.remove();
+}
+
+// Содержимое тела окна
+function renderFullAutomationModalBody() {
+  initWorkflowState();
+
+  // Сохраненные пользовательские сценарии из localStorage
+  var saved = [];
+  try {
+    saved = JSON.parse(localStorage.getItem('stockeasy_custom_scenarios') || '[]');
+  } catch(e) {}
+
+  var presetsHtml = WF_PRESETS.map(function(p) {
+    var tagsHtml = (p.tags || []).map(function(t){ return '<span class="wf-preset-tag">' + escHtml(t) + '</span>'; }).join('');
+    var stepsPills = p.steps.map(function(s, idx) {
+      var info = WF_STEP_TYPES[s.type] || { icon: '⚙️', label: s.type };
+      return '<span class="wf-preset-step-pill">' + info.icon + ' ' + escHtml(info.label) + '</span>';
+    }).join(' → ');
+
+    return `
+      <div class="wf-preset-card">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px;">
+          <div style="font-weight:700; font-size:.92rem; color:var(--text);">${escHtml(p.title)}</div>
+        </div>
+        <div style="font-size:.78rem; color:var(--text-2); line-height:1.45; margin-bottom:10px;">${escHtml(p.desc)}</div>
+        <div style="margin-bottom:10px; display:flex; gap:5px; flex-wrap:wrap;">${tagsHtml}</div>
+        <div style="font-size:.74rem; color:var(--text-3); margin-bottom:12px; background:#f9fafb; padding:8px 10px; border-radius:6px; border:1px solid #f3f4f6;">
+          <strong>Цепочка шагов:</strong><br><div style="margin-top:4px; display:flex; gap:4px; align-items:center; flex-wrap:wrap;">${stepsPills}</div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-sm btn-analytics-styled" onclick="loadPresetWorkflow('${p.id}', false)" style="flex:1;">
+            📥 Загрузить в конструктор
+          </button>
+          <button class="wf-btn-run" onclick="loadPresetWorkflow('${p.id}', true)" style="font-size:.78rem; padding:6px 12px;">
+            ▶ Запустить сразу
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  var savedHtml = saved.length ? saved.map(function(s, i) {
+    var stepsPills = (s.steps || []).map(function(st) {
+      var info = WF_STEP_TYPES[st.type] || { icon: '⚙️', label: st.type };
+      return '<span class="wf-preset-step-pill">' + info.icon + ' ' + escHtml(info.label) + '</span>';
+    }).join(' → ');
+
+    return `
+      <div class="wf-saved-item">
+        <div style="flex:1;">
+          <div style="font-weight:700; font-size:.88rem; color:var(--text);">${escHtml(s.name || 'Сценарий #' + (i+1))}</div>
+          <div style="font-size:.72rem; color:var(--text-3); margin-top:2px;">Сохранено: ${escHtml(s.date || '—')} · ${s.steps.length} шаг(ов)</div>
+          <div style="margin-top:6px; display:flex; gap:4px; align-items:center; flex-wrap:wrap;">${stepsPills}</div>
+        </div>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <button class="btn btn-sm" onclick="loadCustomWorkflow(${i})" style="font-size:.76rem; padding:4px 8px; border:1px solid var(--border); background:#fff;">Загрузить</button>
+          <button class="btn btn-sm" onclick="deleteCustomWorkflow(${i})" style="font-size:.76rem; padding:4px 8px; border:1px solid #fee2e2; color:#b91c1c; background:#fff;">✕</button>
+        </div>
+      </div>
+    `;
+  }).join('') : '<div style="font-size:.8rem; color:var(--text-3); padding:12px; text-align:center;">У вас пока нет сохранённых сценариев. Настройте шаги в конструкторе и сохраните как шаблон.</div>';
+
+  return `
+    <div style="margin-bottom:20px;">
+      <div style="font-weight:700; font-size:.96rem; margin-bottom:12px; display:flex; align-items:center; gap:6px; color:var(--text);">
+        <span>⚡ Готовые типовые сценарии</span>
+        <span style="font-size:.75rem; color:var(--text-3); font-weight:normal;">(нажмите, чтобы применить к вашим заявкам)</span>
+      </div>
+      <div class="wf-presets-grid">
+        ${presetsHtml}
+      </div>
+    </div>
+
+    <hr style="border:none; border-top:1px solid var(--border); margin:20px 0;">
+
+    <div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+        <div style="font-weight:700; font-size:.96rem; color:var(--text);">
+          💾 Мои сохранённые сценарии (${saved.length})
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input type="text" id="wf-save-name-input" placeholder="Название текущего сценария..." style="font-size:.78rem; padding:5px 10px; border:1px solid var(--border); border-radius:6px; min-width:200px;">
+          <button class="btn btn-sm btn-analytics-styled" onclick="saveCurrentWorkflowAsPreset()">
+            💾 Сохранить текущий
+          </button>
+        </div>
+      </div>
+      <div class="wf-saved-list">
+        ${savedHtml}
+      </div>
+    </div>
+  `;
+}
+
+// Загрузить готовый пресет
+function loadPresetWorkflow(presetId, andRun) {
+  var preset = WF_PRESETS.find(function(p){ return p.id === presetId; });
+  if (!preset) return;
+
+  initWorkflowState();
+  S.workflowSteps = JSON.parse(JSON.stringify(preset.steps));
+  S.workflowOpen = true;
+
+  var panel = document.getElementById('workflow-panel');
+  if (panel) panel.style.display = 'block';
+
+  var btn = document.getElementById('wf-toggle-btn');
+  if (btn) btn.classList.add('active');
+
+  renderWorkflowPanel();
+  closeFullAutomationModal();
+
+  if (andRun) {
+    setTimeout(function() { runWorkflow(); }, 150);
+  } else {
+    alert('Сценарий «' + preset.title + '» загружен в конструктор. Проверьте параметры и нажмите «▶ Запустить».');
+  }
+}
+
+// Сохранить текущую цепочку шагов как свой сценарий
+function saveCurrentWorkflowAsPreset() {
+  initWorkflowState();
+  if (!S.workflowSteps.length) {
+    alert('Конструктор пуст. Добавьте шаги перед сохранением.');
+    return;
+  }
+  var inp = document.getElementById('wf-save-name-input');
+  var name = (inp && inp.value.trim()) ? inp.value.trim() : ('Сценарий ' + new Date().toLocaleDateString('ru'));
+
+  var saved = [];
+  try { saved = JSON.parse(localStorage.getItem('stockeasy_custom_scenarios') || '[]'); } catch(e) {}
+
+  saved.push({
+    name: name,
+    date: new Date().toLocaleString('ru', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }),
+    steps: JSON.parse(JSON.stringify(S.workflowSteps))
+  });
+
+  try {
+    localStorage.setItem('stockeasy_custom_scenarios', JSON.stringify(saved));
+  } catch(e) {}
+
+  var body = document.getElementById('wf-modal-body');
+  if (body) body.innerHTML = renderFullAutomationModalBody();
+  alert('Сценарий «' + name + '» успешно сохранён!');
+}
+
+// Загрузить пользовательский сценарий
+function loadCustomWorkflow(idx) {
+  var saved = [];
+  try { saved = JSON.parse(localStorage.getItem('stockeasy_custom_scenarios') || '[]'); } catch(e) {}
+  if (!saved[idx]) return;
+
+  initWorkflowState();
+  S.workflowSteps = JSON.parse(JSON.stringify(saved[idx].steps || []));
+  S.workflowOpen = true;
+
+  var panel = document.getElementById('workflow-panel');
+  if (panel) panel.style.display = 'block';
+
+  var btn = document.getElementById('wf-toggle-btn');
+  if (btn) btn.classList.add('active');
+
+  renderWorkflowPanel();
+  closeFullAutomationModal();
+  alert('Пользовательский сценарий «' + saved[idx].name + '» загружен в конструктор.');
+}
+
+// Удалить пользовательский сценарий
+function deleteCustomWorkflow(idx) {
+  if (!confirm('Удалить этот сохранённый сценарий?')) return;
+  var saved = [];
+  try { saved = JSON.parse(localStorage.getItem('stockeasy_custom_scenarios') || '[]'); } catch(e) {}
+  saved.splice(idx, 1);
+  try { localStorage.setItem('stockeasy_custom_scenarios', JSON.stringify(saved)); } catch(e) {}
+
+  var body = document.getElementById('wf-modal-body');
+  if (body) body.innerHTML = renderFullAutomationModalBody();
+}
+
 
 
 function reserveMaterials(btn, materials) {

@@ -10,7 +10,7 @@ const router = express.Router();
 // env перекрывает при необходимости.
 const AI_BASE_URL = process.env.AI_BASE_URL || 'http://host.docker.internal:11434/v1';
 const AI_API_KEY  = process.env.AI_API_KEY  || 'ollama';
-const AI_MODEL    = process.env.AI_MODEL    || 'qwen2.5:14b';
+const AI_MODEL    = process.env.AI_MODEL    || 'qwen-cpu:latest';
 const AI_DAILY_LIMIT = 50; // макс. сообщений (роль=user) в день на пользователя
 
 let _aiClient = null;
@@ -78,36 +78,30 @@ async function runAnalyticsSql() {
         COUNT(*) FILTER (WHERE overdue_days > 0) AS overdue,
         SUM(amount) AS revenue
       FROM tasks WHERE archived = false` },
-    { name: 'По регионам (топ-10)', sql: `
-      SELECT region, COUNT(*) AS cnt, SUM(amount) AS revenue,
-        COUNT(*) FILTER (WHERE overdue_days > 0) AS overdue
-      FROM tasks WHERE archived = false
+    { name: 'Топ-10 регионов по объёму', sql: `
+      SELECT region, COUNT(*) AS cnt, SUM(amount) AS amount
+      FROM tasks WHERE archived = false AND region IS NOT NULL
       GROUP BY region ORDER BY cnt DESC LIMIT 10` },
-    { name: 'По подрядчикам (топ-10)', sql: `
-      SELECT contractor, COUNT(*) AS cnt, AVG(overdue_days) AS avg_overdue
-      FROM tasks WHERE archived = false AND contractor IS NOT NULL
-      GROUP BY contractor ORDER BY cnt DESC LIMIT 10` },
-    { name: 'Просроченные (топ-10)', sql: `
-      SELECT id, region, address, deadline, overdue_days, assignee
-      FROM tasks WHERE overdue_days > 0 AND archived = false
+    { name: 'Топ-10 подрядчиков по задержкам', sql: `
+      SELECT assignee, COUNT(*) AS total,
+        COUNT(*) FILTER (WHERE overdue_days > 0) AS overdue_cnt,
+        ROUND(AVG(overdue_days) FILTER (WHERE overdue_days > 0), 1) AS avg_delay_days
+      FROM tasks WHERE archived = false AND assignee IS NOT NULL
+      GROUP BY assignee HAVING COUNT(*) FILTER (WHERE overdue_days > 0) > 0
+      ORDER BY overdue_cnt DESC LIMIT 10` },
+    { name: 'Критические просрочки (топ-10)', sql: `
+      SELECT id, assignee, region, address, deadline, overdue_days
+      FROM tasks WHERE archived = false AND overdue_days > 0
       ORDER BY overdue_days DESC LIMIT 10` },
-    { name: 'По статусам', sql: `
-      SELECT status, COUNT(*) AS cnt, SUM(amount) AS revenue
-      FROM tasks WHERE archived = false GROUP BY status` },
-    { name: 'Остатки материалов на центральном складе', sql: `
-      SELECT m.code, m.name, sb.quantity, sb.reserved_qty, (sb.quantity - sb.reserved_qty) AS free_qty, m.unit
+    { name: 'Статусы задач', sql: `
+      SELECT status, COUNT(*) AS cnt FROM tasks WHERE archived = false GROUP BY status` },
+    { name: 'Остатки материалов центрального склада (топ-10)', sql: `
+      SELECT m.name, sb.quantity, sb.reserved_qty, m.unit
       FROM stock_balances sb
-      JOIN warehouses w ON sb.warehouse_id = w.id
-      JOIN materials m ON sb.material_id = m.id
-      WHERE w.type = 'central'
-      ORDER BY sb.quantity DESC LIMIT 10` },
-    { name: 'Материалы с дефицитом или ниже нормы', sql: `
-      SELECT m.code, m.name, sb.quantity, m.min_stock_alert, m.unit
-      FROM stock_balances sb
-      JOIN warehouses w ON sb.warehouse_id = w.id
-      JOIN materials m ON sb.material_id = m.id
-      WHERE w.type = 'central' AND sb.quantity <= m.min_stock_alert
-      LIMIT 10` }
+      JOIN materials m ON m.id = sb.material_id
+      JOIN warehouses w ON w.id = sb.warehouse_id
+      WHERE w.is_central = true
+      ORDER BY sb.quantity DESC LIMIT 10` }
   ];
   const results = [];
   for (const q of queries) {
@@ -121,52 +115,65 @@ async function runAnalyticsSql() {
   return results;
 }
 
-// SQL-запросы для режима "Снабжение и прогноз"
+// SQL-запросы для прогноза снабжения
 async function runForecastContextSql() {
   const queries = [
-    { name: 'Ближайшие проекты и даты выхода (монтаж)', sql: `
-      SELECT t.id, t.region, t.address, t.data_vyhoda, t.deadline, t.in_order, t.contractor,
-        COALESCE(json_agg(json_build_object('code', m.code, 'name', m.name, 'plan_qty', tm.plan_qty, 'fact_qty', tm.fact_qty)) FILTER (WHERE m.id IS NOT NULL), '[]') AS materials
-      FROM tasks t
-      LEFT JOIN task_materials tm ON tm.task_id = t.id AND tm.is_written_off = false
-      LEFT JOIN materials m ON tm.material_id = m.id
-      WHERE t.archived = false AND t.status IN ('progress', 'pending')
-      GROUP BY t.id, t.region, t.address, t.data_vyhoda, t.deadline, t.in_order, t.contractor
-      ORDER BY COALESCE(t.data_vyhoda, t.deadline, '2099-01-01') ASC LIMIT 10` },
-    { name: 'Текущие свободные остатки (Центральный склад)', sql: `
-      SELECT m.code, m.name, sb.quantity, sb.reserved_qty, (sb.quantity - sb.reserved_qty) AS free_stock, sb.in_transit_qty, m.unit, m.package_unit
-      FROM stock_balances sb
-      JOIN warehouses w ON sb.warehouse_id = w.id
-      JOIN materials m ON sb.material_id = m.id
-      WHERE w.type = 'central'
-      ORDER BY m.name ASC LIMIT 15` },
-    { name: 'Критический дефицит ТМЦ под активные заявки', sql: `
-      SELECT m.code, m.name, m.unit, m.package_qty, m.package_unit,
-        SUM(tm.plan_qty - tm.fact_qty) AS total_demand,
-        COALESCE(sb_agg.free_qty, 0) AS free_stock
+    { name: 'Ближайшие выходы на монтаж (15 объектов)', sql: `
+      SELECT id, region, address, data_vyhoda, deadline, work_type
+      FROM tasks
+      WHERE archived = false AND (data_vyhoda IS NOT NULL OR deadline IS NOT NULL)
+      ORDER BY COALESCE(data_vyhoda, deadline) ASC LIMIT 15` },
+    { name: 'Спрос на материалы под запланированные задачи', sql: `
+      SELECT m.name, SUM(tm.quantity) AS total_demand, m.unit
       FROM task_materials tm
-      JOIN materials m ON tm.material_id = m.id
-      JOIN tasks t ON tm.task_id = t.id AND t.archived = false AND t.status IN ('progress', 'pending')
+      JOIN materials m ON m.id = tm.material_id
+      JOIN tasks t ON t.id = tm.task_id
+      WHERE t.archived = false AND t.status IN ('pending', 'progress')
+      GROUP BY m.name, m.unit ORDER BY total_demand DESC LIMIT 15` },
+    { name: 'Свободные складские остатки (Центральный склад)', sql: `
+      SELECT m.name, sb.quantity, sb.reserved_qty, (sb.quantity - sb.reserved_qty) AS free_stock, m.unit
+      FROM stock_balances sb
+      JOIN materials m ON m.id = sb.material_id
+      JOIN warehouses w ON w.id = sb.warehouse_id
+      WHERE w.is_central = true AND (sb.quantity - sb.reserved_qty) > 0
+      ORDER BY free_stock DESC LIMIT 15` },
+    { name: 'Потенциальный дефицит материалов', sql: `
+      SELECT
+        m.name,
+        COALESCE(dem.total_demand, 0) AS required,
+        COALESCE(stk.free_stock, 0) AS free_stock,
+        (COALESCE(dem.total_demand, 0) - COALESCE(stk.free_stock, 0)) AS shortage,
+        m.unit
+      FROM materials m
+      JOIN (
+        SELECT tm.material_id, SUM(tm.quantity) AS total_demand
+        FROM task_materials tm
+        JOIN tasks t ON t.id = tm.task_id
+        WHERE t.archived = false AND t.status IN ('pending', 'progress')
+        GROUP BY tm.material_id
+      ) dem ON dem.material_id = m.id
       LEFT JOIN (
-        SELECT material_id, SUM(quantity - reserved_qty) AS free_qty
-        FROM stock_balances JOIN warehouses w ON stock_balances.warehouse_id = w.id
-        WHERE w.type = 'central'
-        GROUP BY material_id
-      ) sb_agg ON sb_agg.material_id = m.id
-      WHERE tm.is_written_off = false
-      GROUP BY m.id, m.code, m.name, m.unit, m.package_qty, m.package_unit, sb_agg.free_qty
-      HAVING SUM(tm.plan_qty - tm.fact_qty) > COALESCE(sb_agg.free_qty, 0)` },
+        SELECT sb.material_id, (sb.quantity - sb.reserved_qty) AS free_stock
+        FROM stock_balances sb
+        JOIN warehouses w ON w.id = sb.warehouse_id WHERE w.is_central = true
+      ) stk ON stk.material_id = m.id
+      WHERE (COALESCE(dem.total_demand, 0) - COALESCE(stk.free_stock, 0)) > 0
+      ORDER BY shortage DESC LIMIT 10` },
     { name: 'Заказы поставщикам в пути', sql: `
-      SELECT po.order_number, s.name AS supplier, po.expected_delivery_date, po.status,
-        m.name AS material, poi.quantity, m.unit
+      SELECT po.order_number, s.name AS supplier, po.expected_delivery_date,
+        COUNT(poi.id) AS items_cnt, SUM(poi.quantity) AS total_units
       FROM purchase_orders po
-      JOIN suppliers s ON po.supplier_id = s.id
+      JOIN suppliers s ON s.id = po.supplier_id
       JOIN purchase_order_items poi ON poi.purchase_order_id = po.id
-      JOIN materials m ON poi.material_id = m.id
-      WHERE po.status IN ('ordered', 'in_transit')
+      WHERE po.status IN ('ordered', 'shipped')
+      GROUP BY po.id, po.order_number, s.name, po.expected_delivery_date
       ORDER BY po.expected_delivery_date ASC LIMIT 10` },
-    { name: 'Поставщики и сроки поставки (Lead Times)', sql: `
-      SELECT name, lead_time_days, contact, phone FROM suppliers WHERE is_active = true` }
+    { name: 'Сроки поставки у поставщиков (Lead Time)', sql: `
+      SELECT s.name AS supplier, s.lead_time_days, COUNT(DISTINCT poi.material_id) AS catalog_size
+      FROM suppliers s
+      LEFT JOIN purchase_orders po ON po.supplier_id = s.id
+      LEFT JOIN purchase_order_items poi ON poi.purchase_order_id = po.id
+      GROUP BY s.id, s.name, s.lead_time_days ORDER BY s.lead_time_days ASC LIMIT 10` }
   ];
   const results = [];
   for (const q of queries) {
@@ -205,7 +212,20 @@ function buildAiSystemPrompt(mode) {
 4. СМЕТНЫЙ РАСЧЕТ И МАТЕРИАЛЫ:
 - Нормы: UTP Cat5e ~35м на АРМ, 40м на точку Wi-Fi, 30м на камеру, 60м на стойку; гофра 70% от кабеля; по 1 модулю RJ-45 и патч-корду на порт; патч-панели 24 порта.
 
-5. ОПЕРАТИВНАЯ ПОМОЩЬ:
+5. АВТОМАТИЗАЦИЯ И ТИПОВЫЕ СЦЕНАРИИ (WORKFLOW):
+- Ты глубоко знаешь встроенный конструктор автоматизации Stockeasy (кнопка «⚡ Автоматизация» и «🎛️ Полная автоматизация»).
+- Доступные шаги автоматизации:
+  • 🔍 Найти заявки (фильтрация: регион, статус, подрядчик, просрочка от N дней)
+  • 👤 Назначить подрядчика / исполнителя (массовое обновление ответственных)
+  • 🏷️ Изменить статус (перевод в pending / progress / done / closed)
+  • 💬 Написать человеку в чат (персональное уведомление исполнителю по заявке)
+  • 📧 Сообщить на почту о просрочке (email-оповещение куратору или подрядчику)
+  • 🔔 Системное уведомление (колокольчик в шапке)
+  • 📋 Показать список (вывод таблицы объектов в чат)
+  • 💬 Спросить Стоки (ИИ-анализ выбранных заявок)
+- Когда пользователь спрашивает про автоматизацию типовых заявок, настройку сценариев или решение рутинных задач — предлагай готовые цепочки из этих блоков, объясняй параметры и подсказывай запуск через «Полную автоматизацию».
+
+6. ОПЕРАТИВНАЯ ПОМОЩЬ:
 - Составление деловых писем кураторам, инструкций монтажникам, разбор замечаний по конкретным заявкам из <card_context>.
 
 Держись делового, практичного и доброжелательного тона.` + RULES;
