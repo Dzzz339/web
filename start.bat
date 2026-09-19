@@ -36,8 +36,8 @@ set PORT=3005
 
 :: 2. База данных на порту 5433 и сервисы Dadata
 set PGPORT=5433
-set PGPASSWORD=postgres
-set DATABASE_URL=postgres://postgres:postgres@localhost:5433/stockeasy_db
+set PGPASSWORD=M9L4E22DPU4sUrU3tAnN
+set DATABASE_URL=postgres://postgres:M9L4E22DPU4sUrU3tAnN@localhost:5433/stockeasy_db
 set DADATA_API_KEY=5312de9ffa05f9a68cc381ddbb8484385f032bd8
 set DADATA_SECRET_KEY=710ce98120d857761c5d1843eac9c04fa6944ee7
 set AI_MODEL=qwen-cpu:latest
