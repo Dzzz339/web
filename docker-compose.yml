@@ -1,0 +1,78 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: stockeasy-db
+    restart: always
+    environment:
+      POSTGRES_DB: stockeasy_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: M9L4E22DPU4sUrU3tAnN
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+
+  ai:
+    build: ./ai-service
+    container_name: stockeasy-ai
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - PDF_AI_MODEL=qwen2.5:7b
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  web:
+    image: ghcr.io/dzzz339/web:latest
+    container_name: stockeasy-web
+    restart: always
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./uploads:/app/uploads
+    environment:
+      - DATABASE_URL=postgresql://postgres:M9L4E22DPU4sUrU3tAnN@db:5432/stockeasy_db
+      - AI_SERVICE_URL=http://ai:8000
+      - AI_BASE_URL=http://host.docker.internal:11434/v1
+      - AI_MODEL=qwen-cpu:latest
+      - JWT_SECRET=hahahksdjscndufn4738
+      - DADATA_API_KEY=5312de9ffa05f9a68cc381ddbb8484385f032bd8
+      - RESEND_API_KEY=re_jQNMxkMm_4j4g2PW88VWxTCf7JJHCyQ11
+      - PORT=3000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - db
+      - ai
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: stockeasy-watchtower
+    restart: always
+    environment:
+      - DOCKER_API_VERSION=1.44
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 60 stockeasy-web
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: stockeasy-caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - web
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
