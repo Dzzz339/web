@@ -22,23 +22,31 @@ if not exist "node_modules" (
     echo Done!
 )
 
-:: Kill any process already using port 3000
-for /f "tokens=5" %%a in ('netstat -aon ^| find ":3000" ^| find "LISTENING"') do (
-    taskkill /f /pid %%a >nul 2>&1
-)
+:: Завершаем только предыдущие процессы Node.js, не трогая Docker и системные службы
+taskkill /f /im node.exe >nul 2>&1
 
-echo Starting Stockeasy on http://localhost:3000
+echo Starting Stockeasy on http://localhost:3005
 echo Do not close this window while using the app.
 echo.
 
-start "" cmd /c "timeout /t 2 >nul && start http://localhost:3000"
+start "" cmd /c "timeout /t 2 >nul && start http://localhost:3005"
 
-set DATABASE_URL=postgres://postgres@localhost:5432/stockeasy_db
+:: 1. Порт приложения
+set PORT=3005
+
+:: 2. База данных на порту 5433 с вашим паролем
+set PGPORT=5433
+set PGPASSWORD=M9L4E22DPU4sUrU3tAnN
+set DATABASE_URL=postgres://postgres:M9L4E22DPU4sUrU3tAnN@localhost:5433/stockeasy_db
 set DADATA_API_KEY=5312de9ffa05f9a68cc381ddbb8484385f032bd8
 set DADATA_SECRET_KEY=710ce98120d857761c5d1843eac9c04fa6944ee7
+
+:: 3. Подключение к Ollama и модель CPU
 set AI_MODEL=qwen-cpu:latest
+set AI_BASE_URL=http://127.0.0.1:11434/v1
 set OLLAMA_NUM_GPU=0
 set CUDA_VISIBLE_DEVICES=
+
 node server/index.js
 
 pause
