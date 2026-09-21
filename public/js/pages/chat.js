@@ -133,15 +133,6 @@ function pageChat() {
           </div>
         </div>
 
-        <!-- Быстрые вопросы -->
-        <div style="padding:8px 16px; display:flex; gap:8px; flex-wrap:wrap; background:#fff; border-top:1px solid var(--border); align-items:center;">
-          <span style="font-size:.72rem; color:var(--text-3); font-weight:600;">Быстрый вопрос:</span>
-          <button class="btn-quick-styled" onclick="quickAiAsk('Дай общую аналитическую сводку по заявкам, суммам и критическим просрочкам')">📊 Сводка и просрочки</button>
-          <button class="btn-quick-styled" onclick="quickAiAsk('Какие материалы сейчас в дефиците и требуют срочного заказа?')">📉 Дефицит ТМЦ</button>
-          <button class="btn-quick-styled" onclick="quickAiAsk('Какой график заказов под ближайшие даты выхода на монтаж?')">📅 График под даты выхода</button>
-          <button class="btn-quick-styled" onclick="quickAiAsk('Каковы свободные остатки кабеля и патч-панелей на центральном складе?')">🏢 Остатки на складе</button>
-          <button class="btn-quick-styled" onclick="quickAiAsk('Рассчитай материалы: 10 АРМ, 4 точки Wi-Fi, 6 камер, 1 шкаф 19U')">🧮 Расчёт материалов</button>
-        </div>
 
         <!-- ИИ-ввод -->
         <div id="ai-input-area" style="padding:10px 16px; border-top:1px solid var(--border); display:flex; gap:10px; background:#fff">
@@ -240,15 +231,6 @@ function pageAiChat() {
         </div>
       </div>
 
-      <!-- Быстрые вопросы -->
-      <div style="padding:8px 16px; display:flex; gap:8px; flex-wrap:wrap; background:#fff; border-top:1px solid var(--border); align-items:center;">
-        <span style="font-size:.72rem; color:var(--text-3); font-weight:600;">Быстрый вопрос:</span>
-        <button class="btn-quick-styled" onclick="quickAiAsk('Дай общую аналитическую сводку по заявкам, суммам и критическим просрочкам')">📊 Сводка и просрочки</button>
-        <button class="btn-quick-styled" onclick="quickAiAsk('Какие материалы сейчас в дефиците и требуют срочного заказа?')">📉 Дефицит ТМЦ</button>
-        <button class="btn-quick-styled" onclick="quickAiAsk('Какой график заказов под ближайшие даты выхода на монтаж?')">📅 График под даты выхода</button>
-        <button class="btn-quick-styled" onclick="quickAiAsk('Каковы свободные остатки кабеля и патч-панелей на центральном складе?')">🏢 Остатки на складе</button>
-        <button class="btn-quick-styled" onclick="quickAiAsk('Рассчитай материалы: 10 АРМ, 4 точки Wi-Fi, 6 камер, 1 шкаф 19U')">🧮 Расчёт материалов</button>
-      </div>
 
       <!-- Ввод -->
       <div id="ai-input-area" style="padding:10px 16px; border-top:1px solid var(--border); display:flex; gap:10px; background:#fff">
@@ -694,23 +676,91 @@ function renderAiMessages() {
   scrollAiToBottom();
 }
 
+// ─── ПЛАВНЫЙ ВЫВОД ТЕКСТА СТОКИ (TYPEWRITER BUFFER) ──────────────────────────
+var _aiSmoothTicker = null;
+var _aiCurrentLength = 0;
+var _aiStreamTargetText = '';
+var _aiStreamIsDone = false;
+var _aiStreamOnComplete = null;
+
+function startAiSmoothTyping(onComplete) {
+  stopAiSmoothTyping();
+  _aiCurrentLength = 0;
+  _aiStreamTargetText = '';
+  _aiStreamIsDone = false;
+  _aiStreamOnComplete = onComplete || null;
+
+  _aiSmoothTicker = setInterval(function() {
+    var box = document.getElementById('ai-messages');
+    if (!box) {
+      stopAiSmoothTyping();
+      return;
+    }
+    var streamEl = document.getElementById('ai-stream-box');
+    if (!streamEl) {
+      removeAiLoadingIndicator();
+      var div = document.createElement('div');
+      div.id = 'ai-stream-box';
+      div.className = 'ai-msg-content';
+      div.style.cssText = 'align-self:flex-start; max-width:82%; background:#fff; border:1px solid var(--border); border-radius:10px; padding:10px 14px; box-shadow:var(--shadow)';
+      div.innerHTML = '<div style="font-size:.72rem; font-weight:700; color:var(--orange); margin-bottom:4px; display:flex; align-items:center; gap:6px;"><span style="width:16px;height:16px;display:inline-flex;">' + ICONS.stocky + '</span> Стоки</div><div class="ai-stream-text" style="font-size:.85rem; color:var(--text); white-space:pre-wrap; word-break:break-word"></div>';
+      box.appendChild(div);
+      streamEl = div;
+    }
+
+    var targetLen = _aiStreamTargetText.length;
+    var textSlot = streamEl.querySelector('.ai-stream-text') || streamEl.lastElementChild;
+
+    if (_aiCurrentLength < targetLen) {
+      // Адаптивная скорость: чем больше накопилось в буфере, тем быстрее печатаем
+      var diff = targetLen - _aiCurrentLength;
+      var step = 1;
+      if (diff > 120) step = 10;
+      else if (diff > 60) step = 5;
+      else if (diff > 25) step = 3;
+      else if (diff > 8) step = 2;
+
+      _aiCurrentLength = Math.min(_aiCurrentLength + step, targetLen);
+      if (textSlot) {
+        textSlot.textContent = _aiStreamTargetText.slice(0, _aiCurrentLength);
+        var cursor = document.createElement('span');
+        cursor.className = 'ai-stream-cursor';
+        textSlot.appendChild(cursor);
+      }
+      scrollAiToBottom();
+    } else if (_aiStreamIsDone && _aiCurrentLength >= targetLen) {
+      if (textSlot) {
+        textSlot.textContent = _aiStreamTargetText;
+      }
+      stopAiSmoothTyping();
+      if (_aiStreamOnComplete) {
+        var cb = _aiStreamOnComplete;
+        _aiStreamOnComplete = null;
+        cb(_aiStreamTargetText);
+      }
+    }
+  }, 20);
+}
+
+function feedAiStreamText(text) {
+  _aiStreamTargetText = text || '';
+}
+
+function finishAiStream(onComplete) {
+  _aiStreamIsDone = true;
+  if (onComplete) _aiStreamOnComplete = onComplete;
+}
+
+function stopAiSmoothTyping() {
+  if (_aiSmoothTicker) {
+    clearInterval(_aiSmoothTicker);
+    _aiSmoothTicker = null;
+  }
+}
+
 function renderAiStreamingReply() {
   removeAiLoadingIndicator();
-  var box = document.getElementById('ai-messages');
-  if (!box) return;
-  var streamEl = document.getElementById('ai-stream-box');
-  if (!streamEl) {
-    var div = document.createElement('div');
-    div.id = 'ai-stream-box';
-    div.className = 'ai-msg-content';
-    div.style.cssText = 'align-self:flex-start; max-width:82%; background:#fff; border:1px solid var(--border); border-radius:10px; padding:10px 14px; box-shadow:var(--shadow)';
-    div.innerHTML = '<div style="font-size:.72rem; font-weight:700; color:var(--orange); margin-bottom:4px; display:flex; align-items:center; gap:6px;"><span style="width:16px;height:16px;display:inline-flex;">' + ICONS.stocky + '</span> Стоки</div><div style="font-size:.85rem; color:var(--text); white-space:pre-wrap; word-break:break-word"></div>';
-    box.appendChild(div);
-    streamEl = div;
-  }
-  var content = streamEl.lastElementChild;
-  content.textContent = S.aiStreamText || '';
-  scrollAiToBottom();
+  feedAiStreamText(S.aiStreamText || '');
 }
 
 function scrollAiToBottom() {
@@ -855,6 +905,15 @@ function sendAiMessage() {
   var loadSubtitle = 'Анализирую данные и формирую ответ...';
   showAiLoadingIndicator(loadSubtitle);
 
+  startAiSmoothTyping(function(finalMsg) {
+    removeAiLoadingIndicator();
+    S.aiStreaming = false; S.aiLoading = false;
+    resetAiSendBtn();
+    finalMsg = finalMsg || '⚠️ Нейросеть не вернула текст ответа. Проверьте доступность модели Ollama.';
+    S.aiMessages.push({ role: 'assistant', content: finalMsg, time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) });
+    renderAiMessages();
+  });
+
   fetch('/api/ai/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.token },
@@ -874,12 +933,14 @@ function sendAiMessage() {
     function pump() {
       return reader.read().then(function(result) {
         if (result.done) {
-          removeAiLoadingIndicator();
-          S.aiStreaming = false; S.aiLoading = false;
-          resetAiSendBtn();
-          var finalMsg = S.aiStreamText || '⚠️ Нейросеть не вернула текст ответа. Проверьте доступность модели Ollama.';
-          S.aiMessages.push({ role: 'assistant', content: finalMsg, time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) });
-          renderAiMessages();
+          finishAiStream(function(finalMsg) {
+            removeAiLoadingIndicator();
+            S.aiStreaming = false; S.aiLoading = false;
+            resetAiSendBtn();
+            finalMsg = finalMsg || '⚠️ Нейросеть не вернула текст ответа. Проверьте доступность модели Ollama.';
+            S.aiMessages.push({ role: 'assistant', content: finalMsg, time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) });
+            renderAiMessages();
+          });
           return;
         }
 
@@ -916,6 +977,7 @@ function sendAiMessage() {
     }
     return pump();
   }).catch(function(err) {
+    stopAiSmoothTyping();
     removeAiLoadingIndicator();
     if (err && err.limit) {
       S.aiMessages.push({ role: 'assistant', content: '⚠️ ' + err.message, time: '' });
@@ -1569,13 +1631,24 @@ function executeStepAsk(params, tasks) {
       var buffer = '';
       S.aiStreamText = '';
 
+      startAiSmoothTyping(function(finalMsg) {
+        removeAiLoadingIndicator();
+        finalMsg = finalMsg || '⚠️ Нет ответа от модели';
+        S.aiMessages.push({ role: 'assistant', content: finalMsg, time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) });
+        renderAiMessages();
+        resolve();
+      });
+
       function pump() {
         reader.read().then(function(result) {
           if (result.done) {
-            var finalMsg = S.aiStreamText || '⚠️ Нет ответа от модели';
-            S.aiMessages.push({ role: 'assistant', content: finalMsg, time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) });
-            renderAiMessages();
-            resolve();
+            finishAiStream(function(finalMsg) {
+              removeAiLoadingIndicator();
+              finalMsg = finalMsg || '⚠️ Нет ответа от модели';
+              S.aiMessages.push({ role: 'assistant', content: finalMsg, time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) });
+              renderAiMessages();
+              resolve();
+            });
             return;
           }
           buffer += decoder.decode(result.value, { stream: true });
