@@ -1,4 +1,5 @@
 import sys
+import os
 import json
 import time
 import requests
@@ -83,7 +84,7 @@ async def process_pdf_generator(file_bytes):
     await asyncio.sleep(0.05)
 
     payload = {
-        "model": "qwen-cpu:latest",
+        "model": os.getenv("PDF_AI_MODEL", "qwen2.5:7b"),
         "stream": False,
         "format": "json",
         "options": {

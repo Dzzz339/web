@@ -1718,4 +1718,20 @@
       background: #fff;
     }
 
+    /* Плавный курсор печати ответа Стоки */
+    @keyframes aiCursorBlink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+    .ai-stream-cursor {
+      display: inline-block;
+      width: 7px;
+      height: 14px;
+      background-color: var(--orange, #e05e00);
+      vertical-align: -2px;
+      margin-left: 3px;
+      border-radius: 2px;
+      animation: aiCursorBlink 0.75s infinite;
+    }
+
 
