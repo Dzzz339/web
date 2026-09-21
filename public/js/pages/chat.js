@@ -696,6 +696,24 @@ function startAiSmoothTyping(onComplete) {
       stopAiSmoothTyping();
       return;
     }
+
+    var targetLen = _aiStreamTargetText.length;
+
+    // Пока нейросеть думает и нет текста — кружок загрузки («Стоки думает...») крутится
+    if (targetLen === 0) {
+      if (_aiStreamIsDone) {
+        removeAiLoadingIndicator();
+        stopAiSmoothTyping();
+        if (_aiStreamOnComplete) {
+          var cb = _aiStreamOnComplete;
+          _aiStreamOnComplete = null;
+          cb('');
+        }
+      }
+      return;
+    }
+
+    // Первый реальный текст пришел — убираем спиннер и создаем блок ответа
     var streamEl = document.getElementById('ai-stream-box');
     if (!streamEl) {
       removeAiLoadingIndicator();
@@ -708,7 +726,6 @@ function startAiSmoothTyping(onComplete) {
       streamEl = div;
     }
 
-    var targetLen = _aiStreamTargetText.length;
     var textSlot = streamEl.querySelector('.ai-stream-text') || streamEl.lastElementChild;
 
     if (_aiCurrentLength < targetLen) {
@@ -946,7 +963,6 @@ function sendAiMessage() {
 
         if (!hasStreamStarted) {
           hasStreamStarted = true;
-          removeAiLoadingIndicator();
         }
 
         buffer += decoder.decode(result.value, { stream: true });
