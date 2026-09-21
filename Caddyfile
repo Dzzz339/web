@@ -1,0 +1,11 @@
+stockeasy.ru {
+    redir https://app.stockeasy.ru{uri} permanent
+}
+
+app.stockeasy.ru {
+    reverse_proxy web:3000
+}
+
+cloud.stockeasy.ru {
+    reverse_proxy host.docker.internal:8080
+}
