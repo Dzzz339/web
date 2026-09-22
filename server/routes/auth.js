@@ -20,9 +20,9 @@ router.post('/login', async (req, res) => {
     const validPassword = await bcrypt.compare(password, user.password_hash);
     if (!validPassword) return res.status(401).json({ error: 'Неверный пароль' });
 
-    // Создаем токен (в него упаковываем ID, роль и ФИО)
+    // Создаем токен (в него упаковываем ID, роль, ФИО и закрепленные регионы)
     const token = jwt.sign(
-      { id: user.id, role: user.role, fullName: user.full_name, contractorId: user.contractor_id },
+      { id: user.id, role: user.role, fullName: user.full_name, contractorId: user.contractor_id, assignedRegions: user.assigned_regions },
       JWT_SECRET,
       { expiresIn: '24h' }
     );
@@ -35,7 +35,8 @@ router.post('/login', async (req, res) => {
         role: user.role,
         fullName: user.full_name,
         email: user.email,
-        avatarUrl: user.avatar_url
+        avatarUrl: user.avatar_url,
+        assignedRegions: user.assigned_regions
       }
     });
   } catch (e) {
@@ -47,7 +48,7 @@ router.post('/login', async (req, res) => {
 router.get('/profile', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT u.id, u.username, u.role, u.full_name, u.email, u.avatar_url, u.contractor_id, u.created_at, c.name_short AS contractor_name
+      SELECT u.id, u.username, u.role, u.full_name, u.email, u.avatar_url, u.contractor_id, u.created_at, u.assigned_regions, c.name_short AS contractor_name
       FROM users u
       LEFT JOIN contractors c ON c.id = u.contractor_id
       WHERE u.id = $1
@@ -61,6 +62,7 @@ router.get('/profile', authenticateToken, async (req, res) => {
       fullName: user.full_name,
       email: user.email,
       avatarUrl: user.avatar_url,
+      assignedRegions: user.assigned_regions,
       contractorId: user.contractor_id,
       contractorName: user.contractor_name,
       createdAt: user.created_at

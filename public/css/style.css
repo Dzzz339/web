@@ -582,6 +582,10 @@
     .b-green { background: #DCFCE7; color: #15803D; }
     .b-gray { background: #F4F4F5; color: #71717A; }
     .b-blue { background: #DBEAFE; color: #1D4ED8; }
+    .b-purple { background: #F3E8FF; color: #7E22CE; }
+    .b-cyan { background: #CFFAFE; color: #0E7490; }
+    .b-yellow { background: #FEF3C7; color: #B45309; }
+    .b-teal { background: #CCFBF1; color: #0F766E; }
     .b-request { background: #F1F5F9; color: #475569; }
     .b-survey { background: #F3E8FF; color: #7E22CE; }
     .b-install { background: #FFEDD5; color: #C2410C; }

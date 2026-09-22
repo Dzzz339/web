@@ -14,3 +14,21 @@ export function authenticateToken(req, res, next) {
     next();
   });
 }
+
+export function requireRole(...allowedRoles) {
+  return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'Требуется авторизация' });
+    const userRole = String(req.user.role || '').toLowerCase();
+    // Администратор всегда имеет полный доступ
+    if (userRole === 'admin') return next();
+    
+    // Поддержка алиаса worker -> installer
+    const normalizedRole = userRole === 'worker' ? 'installer' : userRole;
+    const normalizedAllowed = allowedRoles.map(r => String(r).toLowerCase() === 'worker' ? 'installer' : String(r).toLowerCase());
+
+    if (normalizedAllowed.includes(normalizedRole)) {
+      return next();
+    }
+    return res.status(403).json({ error: 'Недостаточно прав доступа для роли «' + (req.user.role || 'нет роли') + '»' });
+  };
+}

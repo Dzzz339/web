@@ -148,22 +148,56 @@ export async function initDB() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS passport_issue_date DATE`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS passport_code TEXT`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS passport_scan_url TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_regions TEXT`);
 
-  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'executor'`);
+  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'subcontractor'`);
+  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS contract_number TEXT`);
+  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS contract_date DATE`);
+  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS curator_name TEXT`);
+  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS curator_phone TEXT`);
+  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS curator_email TEXT`);
+  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS comment TEXT`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contractors_type ON contractors(type)`);
+
+  // Классификация и нормализация типов контрагентов (Заказчики, Поставщики, Подрядчики СМР)
+  await pool.query(`
+    UPDATE contractors SET type = 'customer' 
+    WHERE inn IN ('7707083893', '2901004169') 
+       OR name_short ILIKE '%сбербанк%' 
+       OR name_short ILIKE '%осфр%' 
+       OR name_short ILIKE '%пенсионный%' 
+       OR name_short ILIKE '%социальный фонд%';
+  `);
+
+  await pool.query(`
+    UPDATE contractors SET type = 'supplier' 
+    WHERE name_short ILIKE '%электротехмонтаж%' 
+       OR name_short ILIKE '%этм%' 
+       OR name_short ILIKE '%русский свет%' 
+       OR name_short ILIKE '%деловые линии%' 
+       OR name_short ILIKE '%сдэк%' 
+       OR name_short ILIKE '%пэк%' 
+       OR name_short ILIKE '%дкс%' 
+       OR name_short ILIKE '%рубеж%';
+  `);
+
+  await pool.query(`
+    UPDATE contractors SET type = 'subcontractor' 
+    WHERE type = 'executor' OR type = 'internal' OR type IS NULL;
+  `);
 
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS customer TEXT DEFAULT 'ПАО Сбербанк'`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_customer ON tasks(customer)`);
 
   await pool.query(`
-    INSERT INTO contractors (inn, name_short, name_full, type, status)
-    VALUES ('7707083893', 'ПАО СБЕРБАНК', 'Публичное акционерное общество «Сбербанк России»', 'customer', 'active')
+    INSERT INTO contractors (inn, name_short, name_full, type, status, contract_number)
+    VALUES ('7707083893', 'ПАО СБЕРБАНК', 'Публичное акционерное общество «Сбербанк России»', 'customer', 'active', 'ГК-СБЕР-2024')
     ON CONFLICT (inn) DO UPDATE SET type = 'customer';
   `);
   await pool.query(`
-    INSERT INTO contractors (inn, name_short, name_full, type, status)
-    VALUES ('540208866750', 'ООО «К10»', 'Общество с ограниченной ответственностью «К10»', 'internal', 'active')
-    ON CONFLICT (inn) DO UPDATE SET type = 'internal';
+    INSERT INTO contractors (inn, name_short, name_full, type, status, contract_number)
+    VALUES ('2901004169', 'ОСФР по Архангельской обл.', 'Отделение Фонда пенсионного и социального страхования РФ по Архангельской обл. и НАО', 'customer', 'active', '0224100001826000158')
+    ON CONFLICT (inn) DO UPDATE SET type = 'customer';
   `);
 
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS stage_num INTEGER DEFAULT 0`);

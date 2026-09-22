@@ -1,7 +1,7 @@
 // public/js/pages/users.js - Команда: Специалисты, Доверенности, Учетные записи
 
 function pageUsers() {
-  S.teamActiveTab = S.teamActiveTab || 'specialists';
+  S.teamActiveTab = S.teamActiveTab || 'users';
   S.specSearch = S.specSearch || '';
   S.specWithPassport = S.specWithPassport !== undefined ? S.specWithPassport : false;
   S.poaFilterStatus = S.poaFilterStatus || 'all';
@@ -23,22 +23,22 @@ function pageUsers() {
     <div style="margin-bottom:1rem">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:1rem">
         <div>
-          <h1 class="page-title" style="margin:0">Команда и Специалисты</h1>
-          <div style="font-size:.82rem; color:var(--text-3); margin-top:2px">Единая база полевых сотрудников, паспортов, доверенностей и доступов к системе</div>
+          <h1 class="page-title" style="margin:0">Люди</h1>
+          <div style="font-size:.82rem; color:var(--text-3); margin-top:2px">Сотрудники компании (8 ролей), реестр доверенностей и база полевых монтажников</div>
         </div>
         <div id="team_top_actions"></div>
       </div>
 
       <!-- ВЕРХНИЕ ВКЛАДКИ -->
       <div style="display:flex; gap:8px; border-bottom:1.5px solid var(--border); padding-bottom:6px; margin-bottom:1.25rem; flex-wrap:wrap">
-        <button class="btn btn-sm ${S.teamActiveTab === 'specialists' ? '' : 'btn-ghost'}" onclick="setTeamTab('specialists')">
-          👷 Специалисты и монтажники <span id="badge_specs_count" style="opacity:.8">(${S.specialists ? S.specialists.length : '...'})</span>
+        <button class="btn btn-sm ${S.teamActiveTab === 'users' ? '' : 'btn-ghost'}" onclick="setTeamTab('users')">
+          👥 Сотрудники (8 ролей) <span id="badge_users_count" style="opacity:.8">(${S.users ? S.users.length : '...'})</span>
         </button>
         <button class="btn btn-sm ${S.teamActiveTab === 'poa' ? '' : 'btn-ghost'}" onclick="setTeamTab('poa')">
           📜 Реестр доверенностей <span id="badge_poa_count" style="opacity:.8">(${S.powersOfAttorney ? S.powersOfAttorney.length : '...'})</span>
         </button>
-        <button class="btn btn-sm ${S.teamActiveTab === 'users' ? '' : 'btn-ghost'}" onclick="setTeamTab('users')">
-          👤 Доступ в систему <span id="badge_users_count" style="opacity:.8">(${S.users ? S.users.length : '...'})</span>
+        <button class="btn btn-sm ${S.teamActiveTab === 'specialists' ? '' : 'btn-ghost'}" onclick="setTeamTab('specialists')">
+          👷 База полевых монтажников <span id="badge_specs_count" style="opacity:.8">(${S.specialists ? S.specialists.length : '...'})</span>
         </button>
       </div>
     </div>
@@ -517,11 +517,18 @@ function renderUsersView(container) {
     var passInfo = u.passport_series_number 
       ? '<div style="font-size:.72rem;color:var(--text-3);margin-top:2px">Паспорт: ' + escHtml(u.passport_series_number) + '</div>' 
       : '';
+    var rInfo = getUserRoleInfo(u.role);
+    var regBadge = u.assigned_regions ? '<div style="font-size:.72rem;color:var(--text-3);margin-top:2px" title="Закрепленные регионы">📍 ' + escHtml(u.assigned_regions) + '</div>' : '';
+
     return `
       <tr style="border-bottom: 1px solid var(--border)">
         <td style="padding: 10px 12px"><b>#${u.id}</b></td>
         <td style="padding: 10px 12px; font-weight:600">${escHtml(u.username)}</td>
-        <td style="padding: 10px 12px">${badge(u.role === 'admin' ? 'b-red' : 'b-gray', u.role === 'admin' ? 'Админ' : 'Монтажник')}${u.contractor_name ? '<div style="font-size:.72rem;color:var(--text-3);margin-top:2px">' + escHtml(u.contractor_name) + '</div>' : ''}</td>
+        <td style="padding: 10px 12px">
+          <span class="badge ${rInfo.badgeClass}" style="white-space:nowrap" title="${escHtml(rInfo.description)}">${rInfo.icon} ${rInfo.name}</span>
+          ${regBadge}
+          ${u.contractor_name ? '<div style="font-size:.72rem;color:var(--text-3);margin-top:2px">' + escHtml(u.contractor_name) + '</div>' : ''}
+        </td>
         <td style="padding: 10px 12px">
           <div style="font-weight:600">${escHtml(u.full_name || '—')}</div>
           ${passInfo}
@@ -530,7 +537,7 @@ function renderUsersView(container) {
         <td style="padding: 10px 12px; color:var(--text-2)">${escHtml(u.email || '—')}</td>
         <td style="padding: 10px 12px; color:var(--text-3); font-size:.75rem">${new Date(u.created_at).toLocaleDateString('ru')}</td>
         <td style="padding: 10px 12px; text-align:right">
-          <button class="btn btn-sm btn-ghost" onclick="editUser(${u.id})" title="Редактировать (вкл. паспорт)">✏️</button>
+          <button class="btn btn-sm btn-ghost" onclick="editUser(${u.id})" title="Редактировать сотрудника">✏️</button>
           ${u.username !== S.user.username ? `<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteUser(${u.id})" title="Удалить">✕</button>` : ''}
         </td>
       </tr>
@@ -543,18 +550,18 @@ function renderUsersView(container) {
     <!-- ФОРМА ДОБАВЛЕНИЯ (СКРЫТА ПО УМОЛЧАНИЮ) -->
     <div id="user_add_card" class="card p mb" style="display:${formOpen ? 'block' : 'none'}; border:1.5px solid var(--orange); animation: fadeIn 0.15s ease;">
       <div class="sec-title" style="margin-bottom:.75rem">Новый сотрудник с доступом в программу</div>
-      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:.75rem; margin-bottom:1rem">
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:.75rem; margin-bottom:1rem">
         <input id="nu_name" type="text" placeholder="Логин *">
         <input id="nu_pass" type="password" placeholder="Пароль *">
-        <input id="nu_full" type="text" placeholder="ФИО (как в Excel)">
+        <input id="nu_full" type="text" placeholder="ФИО (как в паспорте)">
         <input id="nu_phone" type="text" placeholder="Телефон для связи">
         <input id="nu_email" type="email" placeholder="Email для писем">
         <select id="nu_role">
-          <option value="worker">Монтажник (Worker)</option>
-          <option value="admin">Администратор (Admin)</option>
+          ${STOCK_ROLE_LIST.map(function(r) { return '<option value="' + r.code + '">' + r.icon + ' ' + r.name + ' (' + r.description + ')</option>'; }).join('')}
         </select>
+        <input id="nu_regions" type="text" placeholder="Закрепленные регионы (для Менеджера)">
         <select id="nu_contractor">
-          <option value="">— Без контрагента —</option>
+          <option value="">— Без контрагента (Штатный) —</option>
           ${(S.contractors || []).map(function(c) { return '<option value="' + c.id + '">' + escHtml(c.name_short) + '</option>'; }).join('')}
         </select>
       </div>
@@ -600,16 +607,15 @@ function editUser(id) {
   showModal('✏️ Редактировать пользователя #' + id, [
     { key: 'username', label: 'Логин', value: user.username, required: true },
     { key: 'password', label: 'Новый пароль (оставьте пустым, если не меняется)', type: 'password', value: '' },
-    { key: 'fullName', label: 'ФИО (как в Excel)', value: user.full_name || '' },
+    { key: 'fullName', label: 'ФИО (полностью)', value: user.full_name || '' },
     { key: 'phone',    label: 'Телефон (для связи и допусков)', value: user.phone || '' },
     { key: 'email',    label: 'Email для писем', value: user.email || '' },
-    { key: 'role',     label: 'Роль', type: 'select', value: user.role, options: [
-        { value: 'worker', label: 'Монтажник (Worker)' },
-        { value: 'admin',  label: 'Администратор (Admin)' }
-      ]
+    { key: 'role',     label: 'Роль в системе (8 ролей)', type: 'select', value: user.role || 'installer', options:
+        STOCK_ROLE_LIST.map(function(r) { return { value: r.code, label: r.icon + ' ' + r.name + ' — ' + r.description }; })
     },
-    { key: 'contractorId', label: 'Контрагент', type: 'select', value: user.contractor_id || '', options:
-        [{ value: '', label: '— Без контрагента —' }].concat((S.contractors || []).map(function(c) { return { value: c.id, label: c.name_short }; }))
+    { key: 'assignedRegions', label: 'Закрепленные регионы (для Менеджера)', value: user.assigned_regions || '', placeholder: 'Москва, Тюмень, Санкт-Петербург' },
+    { key: 'contractorId', label: 'Привязка к контрагенту', type: 'select', value: user.contractor_id || '', options:
+        [{ value: '', label: '— Без контрагента (Штатный) —' }].concat((S.contractors || []).map(function(c) { return { value: c.id, label: c.name_short }; }))
     },
     { key: 'passportSeriesNumber', label: 'Паспорт: Серия и Номер', value: user.passport_series_number || '' },
     { key: 'passportIssuedBy',     label: 'Паспорт: Кем выдан', value: user.passport_issued_by || '' },
@@ -636,6 +642,7 @@ function addUser() {
     phone:    document.getElementById('nu_phone') ? document.getElementById('nu_phone').value.trim() : null,
     email:    document.getElementById('nu_email').value.trim(),
     role:     document.getElementById('nu_role').value,
+    assignedRegions: document.getElementById('nu_regions') ? document.getElementById('nu_regions').value.trim() : null,
     contractorId: document.getElementById('nu_contractor').value || null
   };
   if(!data.username || !data.password) return alert('Заполните логин и пароль');

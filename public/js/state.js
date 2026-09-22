@@ -45,6 +45,75 @@ var ICONS = {
   logout:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>'
 };
 
+// ─── 8 РОЛЕЙ СИСТЕМЫ ────────────────────────────────────────────────────────
+var STOCK_ROLES = {
+  admin: {
+    code: 'admin',
+    name: 'Администратор',
+    icon: '⚙️',
+    badgeClass: 'b-red',
+    description: 'Полный доступ, системные настройки'
+  },
+  director: {
+    code: 'director',
+    name: 'Руководитель',
+    icon: '👔',
+    badgeClass: 'b-purple',
+    description: 'Сквозной обзор, общая аналитика, отчеты'
+  },
+  manager: {
+    code: 'manager',
+    name: 'Менеджер',
+    icon: '📋',
+    badgeClass: 'b-blue',
+    description: 'Ведение заявок, аналитика по регионам'
+  },
+  to_engineer: {
+    code: 'to_engineer',
+    name: 'Специалист ТО',
+    icon: '🛠️',
+    badgeClass: 'b-cyan',
+    description: 'Внешние контракты, ТЗ, данные по заказчикам'
+  },
+  logistics: {
+    code: 'logistics',
+    name: 'Специалист по логистике',
+    icon: '📦',
+    badgeClass: 'b-yellow',
+    description: 'Склады, ТМЦ, снабжение, отгрузки'
+  },
+  designer: {
+    code: 'designer',
+    name: 'Проектировщик',
+    icon: '📐',
+    badgeClass: 'b-teal',
+    description: 'Сроки, материалы, схемы, выпуск ИД'
+  },
+  accountant: {
+    code: 'accountant',
+    name: 'Финансист',
+    icon: '💳',
+    badgeClass: 'b-green',
+    description: 'Финансовая аналитика, счета, оплаты КС-2/КС-3'
+  },
+  installer: {
+    code: 'installer',
+    name: 'Монтажник',
+    icon: '👷',
+    badgeClass: 'b-gray',
+    description: 'Полевой интерфейс, наряды, списание ТМЦ'
+  }
+};
+
+var STOCK_ROLE_LIST = Object.values(STOCK_ROLES);
+
+function getUserRoleInfo(roleCode) {
+  if (!roleCode) return STOCK_ROLES.installer;
+  var r = String(roleCode).trim().toLowerCase();
+  if (r === 'worker') return STOCK_ROLES.installer;
+  return STOCK_ROLES[r] || { code: r, name: r, icon: '👤', badgeClass: 'b-gray', description: '' };
+}
+
 var NAV_SECTIONS = [
   {
     title: 'ОСНОВНОЕ',
@@ -76,10 +145,10 @@ var NAV_SECTIONS = [
     ]
   },
   {
-    title: 'УПРАВЛЕНИЕ',
+    title: 'СПРАВОЧНИКИ',
     items: [
-      { id: 'contractors', icon: ICONS.contractors, label: 'Контрагенты' },
-      { id: 'users',       icon: ICONS.users,       label: 'Команда' }
+      { id: 'contractors', icon: ICONS.contractors, label: 'Организации' },
+      { id: 'users',       icon: ICONS.users,       label: 'Люди' }
     ]
   },
   {

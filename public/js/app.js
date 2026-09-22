@@ -189,13 +189,39 @@ function renderNav() {
   if (navEl) {
     navEl.innerHTML = '';
     NAV_SECTIONS.forEach(function(sec) {
-      // Фильтруем пункты по роли пользователя
+      // Фильтруем пункты по роли пользователя (8 ролей)
       var visibleItems = sec.items.filter(function(item) {
-        if (S.user && S.user.role === 'worker' && (item.id === 'dashboard' || item.id === 'data' || item.id === 'supply')) {
-          return false;
+        if (!S.user) return false;
+        var role = String(S.user.role || '').toLowerCase();
+        if (role === 'admin') return true; // Администратор видит всё
+
+        // Монтажник (полевой)
+        if (role === 'worker' || role === 'installer') {
+          return item.id === 'tasks' || item.id === 'chat' || item.id === 'help';
         }
-        if ((item.id === 'users' || item.id === 'logs' || item.id === 'contractors') && (!S.user || S.user.role !== 'admin')) {
-          return false;
+        // Руководитель
+        if (role === 'director') {
+          return item.id !== 'data' && item.id !== 'logs';
+        }
+        // Менеджер
+        if (role === 'manager') {
+          return ['dashboard', 'tasks', 'kanban', 'marches', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
+        }
+        // Специалист ТО
+        if (role === 'to_engineer') {
+          return ['tasks', 'kanban', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
+        }
+        // Специалист по логистике
+        if (role === 'logistics') {
+          return ['supply', 'tasks', 'marches', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
+        }
+        // Проектировщик
+        if (role === 'designer') {
+          return ['tasks', 'kanban', 'chat', 'aichat', 'help'].includes(item.id);
+        }
+        // Финансист
+        if (role === 'accountant') {
+          return ['dashboard', 'tasks', 'contractors', 'chat', 'help'].includes(item.id);
         }
         return true;
       });
@@ -265,7 +291,8 @@ function renderNav() {
   // Рендерим футер сайдбара (пользователь + выход)
   if (footerEl) {
     var userName = (S.user && (S.user.fullName || S.user.username)) || 'Пользователь';
-    var userRole = (S.user && S.user.role === 'admin') ? 'Администратор' : 'Исполнитель';
+    var rInfo = getUserRoleInfo(S.user && S.user.role);
+    var userRole = rInfo.icon + ' ' + rInfo.name;
     var initial = (userName.trim()[0] || 'U').toUpperCase();
     var isProfileActive = S.page === 'profile';
     var avatarInner = (S.user && S.user.avatarUrl) 
@@ -273,7 +300,7 @@ function renderNav() {
       : initial;
 
     footerEl.innerHTML = 
-      '<div class="sidebar-user' + (isProfileActive ? ' active' : '') + '" onclick="go(\'profile\')" title="' + escHtml(userName) + ' (' + userRole + ') — Профиль">' +
+      '<div class="sidebar-user' + (isProfileActive ? ' active' : '') + '" onclick="go(\'profile\')" title="' + escHtml(userName) + ' (' + rInfo.name + ') — Профиль">' +
         '<div class="sidebar-user-avatar">' + avatarInner + '</div>' +
         '<div class="sidebar-user-info">' +
           '<div class="sidebar-user-name">' + escHtml(userName) + '</div>' +

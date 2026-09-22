@@ -5,30 +5,98 @@ import { syncContractorsFromPOA } from '../services/directoriesImporter.js';
 
 const router = express.Router();
 
-// Получить список всех подрядчиков (только для Админа)
+// Получить список всех контрагентов (доступно всем офисным ролям)
 router.get('/contractors', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
+  const role = String(req.user.role || '').toLowerCase();
+  if (role === 'worker' || role === 'installer') {
+    return res.status(403).json({ error: 'Нет доступа для полевого монтажника' });
+  }
   try {
-    const { rows } = await pool.query('SELECT * FROM contractors ORDER BY name_short ASC');
+    const { type } = req.query;
+    let query = `
+      SELECT c.*, 
+        (SELECT COUNT(*) FROM specialists s WHERE s.contractor_id = c.id) AS specialists_count
+      FROM contractors c
+    `;
+    const params = [];
+    if (type && type !== 'all') {
+      query += ' WHERE c.type = $1';
+      params.push(type);
+    }
+    query += ' ORDER BY c.name_short ASC';
+    const { rows } = await pool.query(query, params);
     res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Создать нового подрядчика
+// Получить специалистов конкретного подрядчика СМР
+router.get('/contractors/:id/specialists', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT s.*, 
+        COALESCE(
+          json_agg(json_build_object(
+            'id', p.id,
+            'number', p.number,
+            'valid_until', p.valid_until,
+            'contractor', p.contractor_name
+          )) FILTER (WHERE p.id IS NOT NULL), '[]'
+        ) AS active_poas
+      FROM specialists s
+      LEFT JOIN powers_of_attorney p ON p.specialist_id = s.id AND (p.valid_until IS NULL OR p.valid_until >= CURRENT_DATE)
+      WHERE s.contractor_id = $1
+      GROUP BY s.id
+      ORDER BY s.full_name ASC
+    `, [req.params.id]);
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Добавить монтажника напрямую к подрядчику
+router.post('/contractors/:id/specialists', authenticateToken, async (req, res) => {
+  const role = String(req.user.role || '').toLowerCase();
+  if (!['admin', 'director', 'manager'].includes(role)) {
+    return res.status(403).json({ error: 'Недостаточно прав' });
+  }
+  try {
+    const { fullName, phone, passportRaw, passportSeriesNumber, passportIssuedBy, passportIssueDate, passportCode, position } = req.body;
+    if (!fullName) return res.status(400).json({ error: 'ФИО специалиста обязательно' });
+    
+    const { rows } = await pool.query(`
+      INSERT INTO specialists (
+        full_name, phone, passport_raw, passport_series_number, passport_issued_by,
+        passport_issue_date, passport_code, position, contractor_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING *
+    `, [
+      fullName.trim(), phone || null, passportRaw || null, passportSeriesNumber || null,
+      passportIssuedBy || null, passportIssueDate || null, passportCode || null,
+      position || 'Монтажник СКС', req.params.id
+    ]);
+    res.json(rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Создать нового подрядчика/контрагента
 router.post('/contractors', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
+  const role = String(req.user.role || '').toLowerCase();
+  if (!['admin', 'director', 'manager'].includes(role)) {
+    return res.status(403).json({ error: 'Создание контрагентов доступно только Администратору, Руководителю и Менеджеру' });
+  }
   try {
     const d = req.body;
     const { rows } = await pool.query(`
       INSERT INTO contractors (
         inn, kpp, name_short, name_full, address_legal, director, 
-        bank_name, bik, account_corr, account_pay, phone, email, type
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        bank_name, bik, account_corr, account_pay, phone, email, type,
+        contract_number, contract_date, curator_name, curator_phone, curator_email, comment
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
       RETURNING *
     `, [
       d.inn, d.kpp || null, d.name_short, d.name_full || null, d.address_legal || null, d.director || null,
       d.bank_name || null, d.bik || null, d.account_corr || null, d.account_pay || null, d.phone || null, d.email || null,
-      d.type || 'executor'
+      d.type || 'subcontractor',
+      d.contract_number || null, d.contract_date || null, d.curator_name || null, d.curator_phone || null, d.curator_email || null, d.comment || null
     ]);
     res.json(rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -36,7 +104,10 @@ router.post('/contractors', authenticateToken, async (req, res) => {
 
 // Обновить данные подрядчика
 router.put('/contractors/:id', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
+  const role = String(req.user.role || '').toLowerCase();
+  if (!['admin', 'director', 'manager'].includes(role)) {
+    return res.status(403).json({ error: 'Редактирование контрагентов доступно только Администратору, Руководителю и Менеджеру' });
+  }
   try {
     const d = req.body;
     await pool.query(`
@@ -55,11 +126,18 @@ router.put('/contractors/:id', authenticateToken, async (req, res) => {
         email = COALESCE($13, email),
         status = COALESCE($14, status),
         type = COALESCE($15, type),
+        contract_number = COALESCE($16, contract_number),
+        contract_date = COALESCE($17, contract_date),
+        curator_name = COALESCE($18, curator_name),
+        curator_phone = COALESCE($19, curator_phone),
+        curator_email = COALESCE($20, curator_email),
+        comment = COALESCE($21, comment),
         updated_at = NOW()
       WHERE id = $1
     `, [
       req.params.id, d.inn, d.kpp, d.name_short, d.name_full, d.address_legal, d.director,
-      d.bank_name, d.bik, d.account_corr, d.account_pay, d.phone, d.email, d.status, d.type
+      d.bank_name, d.bik, d.account_corr, d.account_pay, d.phone, d.email, d.status, d.type,
+      d.contract_number, d.contract_date, d.curator_name, d.curator_phone, d.curator_email, d.comment
     ]);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -67,7 +145,10 @@ router.put('/contractors/:id', authenticateToken, async (req, res) => {
 
 // Удалить подрядчика
 router.delete('/contractors/:id', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
+  const role = String(req.user.role || '').toLowerCase();
+  if (!['admin', 'director'].includes(role)) {
+    return res.status(403).json({ error: 'Удаление контрагентов доступно только Администратору и Руководителю' });
+  }
   try {
     await pool.query('DELETE FROM contractors WHERE id = $1', [req.params.id]);
     res.json({ success: true });

@@ -8,3 +8,7 @@ desktop/dist/
 uploads/archive/
 uploads/templates/
 uploads/*.docx
+ТЗ/
+*.docx.txt
+*.docx
+scratch/

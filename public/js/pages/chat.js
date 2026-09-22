@@ -24,7 +24,7 @@ function pageChat() {
           </div>
           <div style="overflow:hidden;">
             <div style="font-weight:600; font-size:.85rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escHtml(displayName)}</div>
-            <div style="font-size:.7rem; color:var(--text-3)">${u.role === 'admin' ? 'Администратор' : 'Монтажник'}</div>
+            <div style="font-size:.7rem; color:var(--text-3)">${(function(){ var r = getUserRoleInfo(u.role); return r.icon + ' ' + r.name; })()}</div>
           </div>
         </div>
       `;
