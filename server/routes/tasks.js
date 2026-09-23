@@ -200,6 +200,9 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
         materials_link        = COALESCE($37, materials_link),
         id_link               = COALESCE($38, id_link),
         stage_due             = $39,
+        macro_status          = COALESCE($40, macro_status),
+        active_processes      = COALESCE($41::jsonb, active_processes),
+        customer_id           = COALESCE($42::integer, customer_id),
         version               = version + 1,
         updated_at    = NOW()
       WHERE id = $1
@@ -242,7 +245,10 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       d.designerId  ? Number(d.designerId) : null,
       d.materialsLink || null,
       d.idLink || null,
-      safeDate(d.stageDue)
+      safeDate(d.stageDue),
+      d.macroStatus || null,
+      d.activeProcesses ? JSON.stringify(d.activeProcesses) : null,
+      d.customerId ? Number(d.customerId) : null
     ]);
 
     // --- УВЕДОМЛЕНИЯ И EMAIL ДЛЯ ИСПОЛНИТЕЛЯ ---

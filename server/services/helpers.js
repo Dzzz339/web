@@ -60,6 +60,9 @@ export function rowToTask(r) {
     materialsLink: r.materials_link || '',
     idLink:        r.id_link || '',
     stageDue:      r.stage_due ? new Date(r.stage_due).toISOString() : null,
+    macroStatus:   r.macro_status || 'new',
+    activeProcesses: r.active_processes || ['0'],
+    customerId:    r.customer_id ? Number(r.customer_id) : null,
     openRemarksCount: Number(r.open_remarks_count) || 0,
   };
 }

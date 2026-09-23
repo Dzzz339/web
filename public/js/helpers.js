@@ -166,6 +166,29 @@ function idStageBadge(stageNum) {
   return '<span class="badge ' + colorCls + '" style="font-size:.75rem;padding:2px 7px" title="Этап ' + s + ': ' + stg.name + ' (' + stg.role + ')">' + stg.icon + ' ' + s + '. ' + stg.name + '</span>';
 }
 
+var MACRO_STATUSES = {
+  new: { code: 'new', name: 'Новая', color: '#6B7280', badgeClass: 'b-gray', icon: '📥', step: 0 },
+  review: { code: 'review', name: 'Рассмотрение', color: '#3B82F6', badgeClass: 'b-blue', icon: '🔍', step: 1 },
+  in_progress: { code: 'in_progress', name: 'В работе', color: '#8B5CF6', badgeClass: 'b-purple', icon: '🤝', step: 2 },
+  assigned: { code: 'assigned', name: 'Назначено исполнителю', color: '#EC4899', badgeClass: 'b-pink', icon: '📋', step: 3 },
+  install: { code: 'install', name: 'В монтаже', color: '#F59E0B', badgeClass: 'b-install', icon: '🔧', step: 4 },
+  smr_done: { code: 'smr_done', name: 'СМР выполнено', color: '#10B981', badgeClass: 'b-green', icon: '🏁', step: 5 },
+  correction: { code: 'correction', name: 'На исправлении', color: '#EF4444', badgeClass: 'b-red', icon: '⚠️', step: 6 },
+  id_in_progress: { code: 'id_in_progress', name: 'ИД в разработке', color: '#06B6D4', badgeClass: 'b-cyan', icon: '📐', step: 7 },
+  id_delivered: { code: 'id_delivered', name: 'ИД передана', color: '#6366F1', badgeClass: 'b-control', icon: '✉️', step: 8 },
+  accepted: { code: 'accepted', name: 'Готово, принято', color: '#059669', badgeClass: 'b-acceptance', icon: '✅', step: 9 },
+  billing: { code: 'billing', name: 'Передано в оплату', color: '#0D9488', badgeClass: 'b-payment', icon: '💳', step: 10 },
+  paid: { code: 'paid', name: 'Оплачено', color: '#16A34A', badgeClass: 'b-green', icon: '💰', step: 11 },
+  archived: { code: 'archived', name: 'В архиве', color: '#4B5563', badgeClass: 'b-gray', icon: '📁', step: 12 }
+};
+
+function macroStatusBadge(code) {
+  var s = String(code || 'new').toLowerCase();
+  var st = MACRO_STATUSES[s] || MACRO_STATUSES.new;
+  return '<span class="badge ' + (st.badgeClass || 'b-gray') + '" style="font-size:.78rem;padding:3px 8px;font-weight:600" title="' + escHtml(st.name) + '">' +
+    st.icon + ' ' + escHtml(st.name) + '</span>';
+}
+
 function hasUserRole(user) {
   if (!user) return false;
   var wanted = Array.prototype.slice.call(arguments, 1);

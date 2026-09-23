@@ -279,6 +279,11 @@ function pageCard() {
     }
   }, 150);
 
+  setTimeout(function(){
+    loadCardSubcontracts(t.id);
+    loadCardDocuments(t.id);
+  }, 50);
+
   var eid = t.id.replace(/'/g, "\\'");
   var stageLabel = {request:'\u0417\u0430\u044f\u0432\u043a\u0430',survey:'\u041e\u0431\u0441\u043b\u0435\u0434\u043e\u0432\u0430\u043d\u0438\u0435',install:'\u041c\u043e\u043d\u0442\u0430\u0436',control:'\u041a\u043e\u043d\u0442\u0440\u043e\u043b\u044c',acceptance:'\u041f\u0440\u0438\u0451\u043c\u043a\u0430',payment:'\u041e\u043f\u043b\u0430\u0442\u0430'};
   var stageOpts = ['request','survey','install','control','acceptance','payment'].map(function(v){
@@ -296,9 +301,20 @@ function pageCard() {
     ? '<span class="badge b-red" style="padding:6px 12px;font-weight:700">🚫 Заявка отменена' + (t.overdueReason ? ': ' + escHtml(t.overdueReason) : '') + '</span>'
     : '<button class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="cancelTaskPrompt(\'' + eid + '\')" title="Отменить заявку с указанием причины">🚫 Отменить заявку</button>';
 
-  var hdr = '<div class="card-hdr">' +
+  var macroStatusHtml = '<div style="display:flex;align-items:center;gap:6px">' +
+    macroStatusBadge(t.macroStatus || 'new') +
+    '<select class="btn btn-sm" onchange="changeTaskMacroStatus(\'' + eid + '\', this.value)" style="background:var(--card);font-size:.78rem;padding:3px 6px;border:1px solid var(--border)">' +
+      Object.keys(MACRO_STATUSES).map(function(k){
+        var curMs = (t.macroStatus || 'new').toLowerCase();
+        return '<option value="' + k + '"' + (curMs === k ? ' selected' : '') + '>' + MACRO_STATUSES[k].icon + ' ' + MACRO_STATUSES[k].name + '</option>';
+      }).join('') +
+    '</select>' +
+  '</div>';
+
+  var hdr = '<div class="card-hdr" style="flex-wrap:wrap;gap:10px">' +
     '<button class="btn btn-sm btn-ghost" onclick="go(\'tasks\')">← Заявки</button>' +
-    '<h1>'+t.id+'</h1>' +
+    '<h1 style="margin:0">'+t.id+'</h1>' +
+    macroStatusHtml +
     docBtns +
     cancelBtn +
   '</div>';
@@ -459,7 +475,7 @@ function pageCard() {
       '📌 Главное и Объект' +
     '</button>' +
     '<button type="button" class="card-tab-btn ' + (curTab === 'items' ? 'active' : '') + '" data-tab="items" onclick="setCardTab(\'items\')">' +
-      '📦 Состав работ <span id="cardTabItemsBadge" class="card-tab-badge badge-gray"></span>' +
+      '🤝 Субподряды и Спецификация <span id="cardTabItemsBadge" class="card-tab-badge badge-gray"></span>' +
     '</button>' +
     '<button type="button" class="card-tab-btn ' + (curTab === 'remarks' ? 'active' : '') + '" data-tab="remarks" onclick="setCardTab(\'remarks\')">' +
       '⚠️ Замечания Сбера' + remarksTabBadge +
@@ -621,7 +637,19 @@ function pageCard() {
     '<div id="cardMaterialsContainer" class="t3">Загрузка материалов…</div>' +
   '</div>';
 
+  var subcontractsBlock = '<div class="card p" style="margin-bottom:1rem;border:1.5px solid var(--border)">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:.75rem">' +
+      '<div>' +
+        '<div class="sec-title" style="margin:0;font-size:1.05rem">🤝 Исходящие поручения субподрядчикам</div>' +
+        '<div style="font-size:.78rem;color:var(--text-3);margin-top:2px">Назначение подрядчиков (СКС, ВОЛС, ПНР), формирование Заказ-нарядов и Писем на допуск</div>' +
+      '</div>' +
+      '<button class="btn btn-sm btn-primary" onclick="openSubcontractModal(\'' + eid + '\')">+ Назначить подрядчика</button>' +
+    '</div>' +
+    '<div id="cardSubcontractsContainer" class="t3">Загрузка субподрядов…</div>' +
+  '</div>';
+
   var paneItems = '<div id="cardTabPane-items" class="card-tab-pane" style="display:' + (curTab === 'items' ? 'block' : 'none') + '">' +
+    subcontractsBlock +
     itemsBlock +
     materialsBlock +
   '</div>';
@@ -642,16 +670,22 @@ function pageCard() {
     remarksBlock +
   '</div>';
 
-  var paneFiles = '<div id="cardTabPane-files" class="card-tab-pane" style="display:' + (curTab === 'files' ? 'block' : 'none') + '">' +
-    '<div class="card p mb" style="border:1.5px solid var(--orange);background:#fffcf5">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">' +
-        '<div>' +
-          '<div style="font-weight:700;font-size:1rem;color:var(--text)">📄 Официальное письмо на допуск (Word .docx)</div>' +
-          '<div style="font-size:.82rem;color:var(--text-2);margin-top:2px">Сформировать и скачать письмо в Сбербанк с паспортными данными и контактами назначенных монтажников</div>' +
-        '</div>' +
-        '<button class="btn btn-sm" onclick="openAccessLetterModal(\'' + eid + '\')">📄 Сформировать допуск</button>' +
+  var docsRegistryBlock = '<div class="card p mb" style="border:1.5px solid var(--border)">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:.75rem">' +
+      '<div>' +
+        '<div class="sec-title" style="margin:0;font-size:1.05rem">📑 Реестр сформированных документов</div>' +
+        '<div style="font-size:.78rem;color:var(--text-3);margin-top:2px">Официальные документы по объекту: Заказ-наряды, Письма на допуск, Доверенности М-2, Реестры ИД</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+        '<button class="btn btn-sm btn-primary" onclick="generateTaskRegistryDoc(\'' + eid + '\')">📑 Сформировать Реестр ИД (.docx)</button>' +
+        '<button class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\'' + eid + '\')">📄 Допуск на объект</button>' +
       '</div>' +
     '</div>' +
+    '<div id="cardDocumentsContainer" class="t3">Загрузка документов…</div>' +
+  '</div>';
+
+  var paneFiles = '<div id="cardTabPane-files" class="card-tab-pane" style="display:' + (curTab === 'files' ? 'block' : 'none') + '">' +
+    docsRegistryBlock +
     '<div class="card p mb">' +
       '<div class="sec-title" style="margin-bottom:.5rem">Облачные ссылки на документацию</div>' +
       field('Ссылка на материалы (исходники)', 'materialsLink', 'url') +
@@ -1526,5 +1560,346 @@ function writeOffTaskMaterials(taskId) {
     });
 }
 
+
+function changeTaskMacroStatus(taskId, newStatus) {
+  if (!newStatus) return;
+  var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ macroStatus: newStatus })
+  })
+  .then(function() {
+    if (t) t.macroStatus = newStatus;
+    renderApp();
+  })
+  .catch(function(err) {
+    alert('Ошибка смены статуса: ' + err.message);
+  });
+}
+
+function loadCardSubcontracts(taskId) {
+  var cont = document.getElementById('cardSubcontractsContainer');
+  if (!cont) return;
+  api('/tasks/' + encodeURIComponent(taskId) + '/subcontracts')
+    .then(function(subs) {
+      if (!Array.isArray(subs) || !subs.length) {
+        cont.innerHTML = '<div style="background:var(--bg);padding:14px;border-radius:8px;text-align:center;color:var(--text-3);font-size:.85rem">' +
+          '<span>Субподрядчики на объект еще не назначены.</span> ' +
+          '<button class="btn btn-sm btn-link" onclick="openSubcontractModal(\'' + escHtml(taskId) + '\')">+ Назначить исполнителя на СКС/ВОЛС</button>' +
+        '</div>';
+        return;
+      }
+
+      var html = '<div style="display:flex;flex-direction:column;gap:10px">';
+      subs.forEach(function(sub) {
+        var statusMap = {
+          assigned: { label: 'Назначен', cls: 'b-pink' },
+          in_progress: { label: 'В монтаже', cls: 'b-install' },
+          smr_done: { label: 'СМР выполнено', cls: 'b-green' },
+          correction: { label: 'На исправлении', cls: 'b-red' },
+          accepted: { label: 'Принято', cls: 'b-acceptance' },
+          paid: { label: 'Оплачено', cls: 'b-payment' }
+        };
+        var st = statusMap[sub.status] || { label: sub.status, cls: 'b-gray' };
+        var priceStr = Number(sub.price_agreed || 0) > 0 ? fmtMoney(sub.price_agreed) : '—';
+        var deadlineStr = sub.deadline ? sub.deadline.slice(0, 10).split('-').reverse().join('.') : '—';
+
+        html += '<div style="border:1.5px solid var(--border);border-radius:8px;padding:12px;background:#fff">' +
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:8px">' +
+            '<div>' +
+              '<div style="font-weight:700;font-size:.95rem;color:var(--text)">' + escHtml(sub.contractor_name || 'Подрядчик не выбран') + '</div>' +
+              '<div style="font-size:.78rem;color:var(--text-3)">ИНН: ' + escHtml(sub.contractor_inn || '—') + (sub.contractor_phone ? ' • Тел: ' + escHtml(sub.contractor_phone) : '') + '</div>' +
+            '</div>' +
+            '<div style="display:flex;align-items:center;gap:8px">' +
+              '<span class="badge ' + st.cls + '" style="font-size:.78rem;padding:3px 8px;font-weight:600">' + st.label + '</span>' +
+              '<select class="btn btn-sm btn-ghost" onchange="changeSubcontractStatus(\'' + escHtml(taskId) + '\', ' + sub.id + ', this.value)" style="padding:2px 6px;font-size:.75rem">' +
+                '<option value="assigned"' + (sub.status === 'assigned' ? ' selected' : '') + '>Назначен</option>' +
+                '<option value="in_progress"' + (sub.status === 'in_progress' ? ' selected' : '') + '>В монтаже</option>' +
+                '<option value="smr_done"' + (sub.status === 'smr_done' ? ' selected' : '') + '>СМР выполнено</option>' +
+                '<option value="correction"' + (sub.status === 'correction' ? ' selected' : '') + '>На исправлении</option>' +
+                '<option value="accepted"' + (sub.status === 'accepted' ? ' selected' : '') + '>Принято</option>' +
+                '<option value="paid"' + (sub.status === 'paid' ? ' selected' : '') + '>Оплачено</option>' +
+              '</select>' +
+            '</div>' +
+          '</div>' +
+
+          '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:8px;background:var(--bg);padding:8px 10px;border-radius:6px;font-size:.8rem;margin-bottom:10px">' +
+            '<div>Вид работ: <b>' + escHtml(sub.work_type) + '</b></div>' +
+            '<div>Сумма субподряда: <b style="color:var(--blue)">' + priceStr + '</b></div>' +
+            '<div>Срок (дедлайн): <b>' + deadlineStr + '</b></div>' +
+            '<div>Монтажник: <b>' + escHtml(sub.installer_fio || 'Не назначен') + '</b></div>' +
+            (sub.installer_phone ? '<div>Телефон: ' + escHtml(sub.installer_phone) + '</div>' : '') +
+            (sub.auto_number ? '<div>Авто: ' + escHtml(sub.auto_number) + '</div>' : '') +
+          '</div>' +
+
+          '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+            '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+              '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'order_subcontract\')" title="Сформировать Заказ-наряд (Приложение 2 к Договору)">📄 Заказ-наряд (.docx)</button>' +
+              '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'permit_letter\')" title="Сформировать официальное письмо на допуск монтажников">🪪 Допуск (.docx)</button>' +
+              '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'power_attorney\')" title="Сформировать доверенность М-2 на получение ТМЦ">📦 Доверенность М-2 (.docx)</button>' +
+            '</div>' +
+            '<div style="display:flex;gap:6px">' +
+              '<button class="btn btn-sm btn-ghost" onclick="openSubcontractModal(\'' + escHtml(taskId) + '\', ' + sub.id + ')" title="Редактировать">✏️</button>' +
+              '<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteSubcontract(\'' + escHtml(taskId) + '\', ' + sub.id + ')" title="Удалить">🗑️</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      });
+      html += '</div>';
+      cont.innerHTML = html;
+    })
+    .catch(function(err) {
+      cont.innerHTML = '<div style="color:var(--red)">Ошибка загрузки субподрядов: ' + escHtml(err.message) + '</div>';
+    });
+}
+
+function openSubcontractModal(taskId, editId) {
+  var old = document.getElementById('_subcontract_modal');
+  if (old) old.remove();
+
+  var contractors = S.contractors || [];
+  var contrOptions = '<option value="">-- Выберите организацию --</option>' +
+    contractors.map(function(c){
+      return '<option value="' + c.id + '">' + escHtml(c.name_short) + ' (ИНН ' + escHtml(c.inn) + ')</option>';
+    }).join('');
+
+  var modal = document.createElement('div');
+  modal.id = '_subcontract_modal';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = '<div class="modal-box" style="max-width:560px;width:95%">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">' +
+      '<h3 style="margin:0">🤝 Назначить субподрядчика</h3>' +
+      '<button class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_subcontract_modal\').remove()">✕</button>' +
+    '</div>' +
+
+    '<div style="display:flex;flex-direction:column;gap:10px">' +
+      '<div>' +
+        '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Организация / Подрядчик *</label>' +
+        '<select id="subm_contractor" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' + contrOptions + '</select>' +
+      '</div>' +
+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+        '<div>' +
+          '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Вид работ *</label>' +
+          '<select id="subm_work_type" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+            '<option value="Монтаж СКС">Монтаж СКС</option>' +
+            '<option value="Сварка и монтаж ВОЛС">Сварка и монтаж ВОЛС</option>' +
+            '<option value="Пусконаладочные работы (ПНР)">Пусконаладочные работы (ПНР)</option>' +
+            '<option value="Обследование объекта">Обследование объекта</option>' +
+            '<option value="Электромонтажные работы">Электромонтажные работы</option>' +
+          '</select>' +
+        '</div>' +
+        '<div>' +
+          '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Согласованная цена (₽)</label>' +
+          '<input type="number" id="subm_price" placeholder="0" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+        '</div>' +
+      '</div>' +
+
+      '<div>' +
+        '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Дедлайн (срок сдачи)</label>' +
+        '<input type="date" id="subm_deadline" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+      '</div>' +
+
+      '<div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">' +
+        '<div style="font-weight:700;font-size:.82rem;color:var(--text);margin-bottom:6px">Данные монтажника (для Заказ-наряда и Допуска):</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">' +
+          '<div>' +
+            '<label style="display:block;font-size:.75rem;color:var(--text-3);margin-bottom:3px">ФИО монтажника</label>' +
+            '<input type="text" id="subm_installer_fio" placeholder="Иванов И.И." style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+          '</div>' +
+          '<div>' +
+            '<label style="display:block;font-size:.75rem;color:var(--text-3);margin-bottom:3px">Телефон</label>' +
+            '<input type="text" id="subm_installer_phone" placeholder="+7 (900) 000-00-00" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+          '<div>' +
+            '<label style="display:block;font-size:.75rem;color:var(--text-3);margin-bottom:3px">Паспортные данные</label>' +
+            '<input type="text" id="subm_installer_pass" placeholder="Серия, номер, кем выдан" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+          '</div>' +
+          '<div>' +
+            '<label style="display:block;font-size:.75rem;color:var(--text-3);margin-bottom:3px">Автомобиль (госномер)</label>' +
+            '<input type="text" id="subm_auto" placeholder="х777хх 178" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div>' +
+        '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Примечание</label>' +
+        '<textarea id="subm_comment" rows="2" placeholder="Особые условия, график работ..." style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem;resize:vertical"></textarea>' +
+      '</div>' +
+    '</div>' +
+
+    '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:1.25rem;border-top:1px solid var(--border);padding-top:10px">' +
+      '<button class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_subcontract_modal\').remove()">Отмена</button>' +
+      '<button class="btn btn-sm btn-primary" onclick="saveSubcontract(\'' + escHtml(taskId) + '\')">Сохранить субподряд</button>' +
+    '</div>' +
+  '</div>';
+
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
+}
+
+function saveSubcontract(taskId) {
+  var contractorId = document.getElementById('subm_contractor').value;
+  var workType = document.getElementById('subm_work_type').value;
+  var price = parseFloat(document.getElementById('subm_price').value) || 0;
+  var deadline = document.getElementById('subm_deadline').value || null;
+  var fio = document.getElementById('subm_installer_fio').value.trim();
+  var phone = document.getElementById('subm_installer_phone').value.trim();
+  var pass = document.getElementById('subm_installer_pass').value.trim();
+  var auto = document.getElementById('subm_auto').value.trim();
+  var comment = document.getElementById('subm_comment').value.trim();
+
+  if (!contractorId) return alert('Выберите подрядчика!');
+  if (!workType) return alert('Укажите вид работ!');
+
+  var body = {
+    contractor_id: parseInt(contractorId),
+    work_type: workType,
+    price_agreed: price,
+    deadline: deadline,
+    installer_fio: fio,
+    installer_phone: phone,
+    installer_passport: pass,
+    auto_number: auto,
+    comment: comment
+  };
+
+  api('/tasks/' + encodeURIComponent(taskId) + '/subcontracts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  .then(function(res) {
+    if (res.error) throw new Error(res.error);
+    var modal = document.getElementById('_subcontract_modal');
+    if (modal) modal.remove();
+    loadCardSubcontracts(taskId);
+    loadCardDocuments(taskId);
+  })
+  .catch(function(err) {
+    alert('Ошибка назначения подрядчика: ' + err.message);
+  });
+}
+
+function changeSubcontractStatus(taskId, subId, newStatus) {
+  api('/subcontracts/' + subId, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: newStatus })
+  })
+  .then(function() {
+    loadCardSubcontracts(taskId);
+  })
+  .catch(function(err) {
+    alert('Ошибка смены статуса: ' + err.message);
+  });
+}
+
+function deleteSubcontract(taskId, subId) {
+  if (!confirm('Удалить данный субподряд?')) return;
+  api('/subcontracts/' + subId, { method: 'DELETE' })
+    .then(function() {
+      loadCardSubcontracts(taskId);
+      loadCardDocuments(taskId);
+    })
+    .catch(function(err) {
+      alert('Ошибка удаления: ' + err.message);
+    });
+}
+
+function generateSubcontractDoc(taskId, subcontractId, docType) {
+  api('/tasks/' + encodeURIComponent(taskId) + '/documents/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ doc_type: docType, subcontract_id: subcontractId })
+  })
+  .then(function(res) {
+    if (res.error) throw new Error(res.error);
+    var link = document.createElement('a');
+    link.href = res.file_url;
+    link.download = (res.title || 'document') + '.docx';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    loadCardDocuments(taskId);
+  })
+  .catch(function(err) {
+    alert('Ошибка формирования документа: ' + err.message);
+  });
+}
+
+function generateTaskRegistryDoc(taskId) {
+  api('/tasks/' + encodeURIComponent(taskId) + '/documents/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ doc_type: 'id_registry' })
+  })
+  .then(function(res) {
+    if (res.error) throw new Error(res.error);
+    var link = document.createElement('a');
+    link.href = res.file_url;
+    link.download = (res.title || 'registry_id') + '.docx';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    loadCardDocuments(taskId);
+  })
+  .catch(function(err) {
+    alert('Ошибка формирования Реестра ИД: ' + err.message);
+  });
+}
+
+function loadCardDocuments(taskId) {
+  var cont = document.getElementById('cardDocumentsContainer');
+  if (!cont) return;
+  api('/tasks/' + encodeURIComponent(taskId) + '/documents')
+    .then(function(docs) {
+      if (!Array.isArray(docs) || !docs.length) {
+        cont.innerHTML = '<div style="color:var(--text-3);font-size:.82rem">Официальные документы пока не сформированы. Нажмите «Сформировать Реестр ИД» или сгенерируйте Заказ-наряд во вкладке субподрядов.</div>';
+        return;
+      }
+
+      var html = '<table class="table" style="font-size:.82rem;margin-top:.4rem">' +
+        '<thead><tr>' +
+          '<th>Документ</th>' +
+          '<th>№ и Дата</th>' +
+          '<th>Сформировал</th>' +
+          '<th>Действия</th>' +
+        '</tr></thead><tbody>';
+
+      docs.forEach(function(d) {
+        var dateStr = d.doc_date ? d.doc_date.slice(0, 10).split('-').reverse().join('.') : '—';
+        html += '<tr>' +
+          '<td><a href="' + escHtml(d.file_url) + '" download style="font-weight:600;display:flex;align-items:center;gap:6px">📄 ' + escHtml(d.title) + '</a></td>' +
+          '<td style="white-space:nowrap">' + escHtml(d.doc_number || '—') + ' от ' + dateStr + '</td>' +
+          '<td style="white-space:nowrap;color:var(--text-2)">' + escHtml(d.created_by_name || 'Система') + '</td>' +
+          '<td style="white-space:nowrap">' +
+            '<a href="' + escHtml(d.file_url) + '" download class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:.75rem">📥 Скачать</a> ' +
+            '<button class="btn btn-sm btn-ghost" style="color:var(--red);padding:2px 6px;font-size:.75rem" onclick="deleteCardDocument(\'' + escHtml(taskId) + '\', ' + d.id + ')">🗑️</button>' +
+          '</td>' +
+        '</tr>';
+      });
+
+      html += '</tbody></table>';
+      cont.innerHTML = html;
+    })
+    .catch(function(err) {
+      cont.innerHTML = '<div style="color:var(--red)">Ошибка реестра документов: ' + escHtml(err.message) + '</div>';
+    });
+}
+
+function deleteCardDocument(taskId, docId) {
+  if (!confirm('Удалить документ из реестра?')) return;
+  api('/documents/' + docId, { method: 'DELETE' })
+    .then(function() {
+      loadCardDocuments(taskId);
+    })
+    .catch(function(err) {
+      alert('Ошибка удаления: ' + err.message);
+    });
+}
 
 // ─── PAGE: МАРШИ ─────────────────────────────────────────────────────────────

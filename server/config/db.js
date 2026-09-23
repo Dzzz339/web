@@ -51,6 +51,26 @@ export async function initDB() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS contractor_id INTEGER REFERENCES contractors(id) ON DELETE SET NULL`);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS specialists (
+      id                      SERIAL PRIMARY KEY,
+      full_name               TEXT NOT NULL,
+      phone                   TEXT,
+      passport_series_number  TEXT,
+      passport_issued_by      TEXT,
+      passport_issue_date     TEXT,
+      passport_code           TEXT,
+      passport_raw            TEXT,
+      organization            TEXT DEFAULT 'ООО "Ультима"',
+      position                TEXT DEFAULT 'Монтажник СКС',
+      contractor_id           INTEGER REFERENCES contractors(id) ON DELETE SET NULL,
+      user_id                 INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at              TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_specialists_name ON specialists(full_name)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_specialists_contractor ON specialists(contractor_id)`);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS tasks (
       id          TEXT PRIMARY KEY,
       sheet       TEXT,
@@ -207,9 +227,63 @@ export async function initDB() {
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS materials_link TEXT DEFAULT ''`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS id_link TEXT DEFAULT ''`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS stage_due TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS macro_status TEXT DEFAULT 'new'`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS active_processes JSONB DEFAULT '["0"]'`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS customer_id INTEGER REFERENCES contractors(id) ON DELETE SET NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_stage_num ON tasks(stage_num)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_manager_id ON tasks(manager_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_designer_id ON tasks(designer_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_macro_status ON tasks(macro_status)`);
+
+  // Таблица исходящих субподрядов (1 входящая заявка -> N исполнителей)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS task_subcontracts (
+      id                 SERIAL PRIMARY KEY,
+      task_id            TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      contractor_id      INTEGER REFERENCES contractors(id) ON DELETE SET NULL,
+      work_type          TEXT NOT NULL,
+      status             TEXT NOT NULL DEFAULT 'assigned',
+      assigned_date      DATE DEFAULT CURRENT_DATE,
+      deadline           DATE,
+      price_agreed       NUMERIC DEFAULT 0,
+      specialist_id      INTEGER REFERENCES specialists(id) ON DELETE SET NULL,
+      installer_fio      TEXT,
+      installer_phone    TEXT,
+      installer_passport TEXT,
+      auto_number        TEXT,
+      tmc_issued         JSONB DEFAULT '[]',
+      report_photos      JSONB DEFAULT '[]',
+      cable_journal      TEXT,
+      comment            TEXT,
+      created_at         TIMESTAMPTZ DEFAULT NOW(),
+      updated_at         TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_subcontracts_task_id ON task_subcontracts(task_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_subcontracts_contractor_id ON task_subcontracts(contractor_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_subcontracts_status ON task_subcontracts(status)`);
+
+  // Реестр сформированных и прикрепленных документов
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS task_documents (
+      id              SERIAL PRIMARY KEY,
+      task_id         TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      subcontract_id  INTEGER REFERENCES task_subcontracts(id) ON DELETE SET NULL,
+      doc_type        TEXT NOT NULL,
+      doc_number      TEXT,
+      doc_date        DATE DEFAULT CURRENT_DATE,
+      title           TEXT NOT NULL,
+      file_url        TEXT NOT NULL,
+      file_type       TEXT DEFAULT 'docx',
+      meta            JSONB DEFAULT '{}',
+      status          TEXT DEFAULT 'generated',
+      created_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_docs_task_id ON task_documents(task_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_docs_subcontract_id ON task_documents(subcontract_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_docs_type ON task_documents(doc_type)`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS remarks (
@@ -312,25 +386,6 @@ export async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_items_task_id ON task_items(task_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_items_contractor_id ON task_items(contractor_id)`);
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS specialists (
-      id                      SERIAL PRIMARY KEY,
-      full_name               TEXT NOT NULL,
-      phone                   TEXT,
-      passport_series_number  TEXT,
-      passport_issued_by      TEXT,
-      passport_issue_date     TEXT,
-      passport_code           TEXT,
-      passport_raw            TEXT,
-      organization            TEXT DEFAULT 'ООО "Ультима"',
-      position                TEXT DEFAULT 'Монтажник СКС',
-      contractor_id           INTEGER REFERENCES contractors(id) ON DELETE SET NULL,
-      user_id                 INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      created_at              TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_specialists_name ON specialists(full_name)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_specialists_contractor ON specialists(contractor_id)`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS powers_of_attorney (
@@ -667,8 +722,21 @@ export async function initDB() {
       END
       WHERE stage_num IS NULL OR stage_num = 0;
     `);
+
+    await pool.query(`
+      UPDATE tasks SET macro_status = CASE
+        WHEN stage_num >= 9 OR LOWER(COALESCE(oplata, '')) ~ '(оплач|да|\\+)' OR status = 'paid' THEN 'paid'
+        WHEN stage_num >= 7 OR LOWER(COALESCE(priemka, '')) ~ '(принят|да|\\+)' OR status = 'done' THEN 'accepted'
+        WHEN stage_num = 6 THEN 'id_delivered'
+        WHEN stage_num = 5 THEN 'id_in_progress'
+        WHEN stage_num = 4 OR stage_num = 3 THEN 'install'
+        WHEN stage_num = 2 OR stage_num = 1 THEN 'assigned'
+        ELSE 'new'
+      END
+      WHERE macro_status IS NULL OR macro_status = 'new';
+    `);
   } catch(err) {
-    console.error('Stage backfill migration error:', err.message);
+    console.error('Stage/macro_status backfill migration error:', err.message);
   }
 
   console.log('DB initialized');

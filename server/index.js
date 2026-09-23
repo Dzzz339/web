@@ -22,6 +22,8 @@ import directoriesRoutes from './routes/directories.js';
 import aiRoutes from './routes/ai.js';
 import supplyRoutes from './routes/supply.js';
 import automationRoutes from './routes/automation.js';
+import subcontractsRoutes from './routes/subcontracts.js';
+import documentsRoutes from './routes/documents.js';
 
 const app = express();
 const server = createServer(app);
@@ -65,6 +67,8 @@ app.use('/api', directoriesRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api', supplyRoutes);
 app.use('/api/automation', automationRoutes);
+app.use('/api', subcontractsRoutes);
+app.use('/api', documentsRoutes);
 
 // Инициализация WebSockets чата
 setupChatSocket(io);
