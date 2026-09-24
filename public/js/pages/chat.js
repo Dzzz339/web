@@ -700,16 +700,14 @@ function renderAiMessages() {
       footerHtml = `
         <div class="ai-msg-footer">
           <div class="ai-rating-actions">
-            <button type="button" class="ai-feedback-btn ${isLiked ? 'active-like' : ''}" onclick="rateAiMessage(${idx}, 'like')" title="Хороший ответ (Норм)">
-              <span>👍</span>
-              <span class="ai-rate-label">${isLiked ? 'Норм' : 'Норм'}</span>
+            <button type="button" class="ai-feedback-btn ${isLiked ? 'active-like' : ''}" onclick="rateAiMessage(${idx}, 'like')">
+              ${ICONS.thumbUp}
             </button>
-            <button type="button" class="ai-feedback-btn ${isDisliked ? 'active-dislike' : ''}" onclick="rateAiMessage(${idx}, 'dislike')" title="Не понравилось (Дизлайк)">
-              <span>👎</span>
-              <span class="ai-rate-label">${isDisliked ? 'Дизлайк' : 'Дизлайк'}</span>
+            <button type="button" class="ai-feedback-btn ${isDisliked ? 'active-dislike' : ''}" onclick="rateAiMessage(${idx}, 'dislike')">
+              ${ICONS.thumbDown}
             </button>
-            <button type="button" class="ai-feedback-btn" onclick="copyAiMessageText(${idx})" title="Скопировать ответ в буфер обмена">
-              <span>📋</span>
+            <button type="button" class="ai-feedback-btn" onclick="copyAiMessageText(${idx})">
+              ${ICONS.copy}
             </button>
           </div>
           <div class="ai-msg-time">${m.time || ''}</div>
