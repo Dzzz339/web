@@ -313,30 +313,34 @@ function pageKanban() {
         'ondragend="kanbanCardDragEnd(event)" ' +
         'onclick="openCard(\'' + tid + '\')" style="cursor:pointer">' +
 
-        // 1. Верхняя строка: Номер, Заказчик, Замечания, Приоритет
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:4px">' +
-          '<div style="display:flex;align-items:center;gap:4px;overflow:hidden">' +
+        // 1. Верхняя строка: Номер заявки + Замечания, Приоритет справа
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">' +
+          '<div style="display:flex;align-items:center;gap:4px">' +
             '<span style="font-weight:700;color:var(--orange);font-size:.82rem">№ ' + escHtml(t.id) + '</span>' +
-            (custName ? '<span class="kcard-customer-tag" title="Заказчик: ' + escHtml(custName) + '">' + escHtml(custName) + '</span>' : '') +
             (openRem > 0 ? '<span class="badge b-red" style="font-size:.65rem;padding:1px 5px" title="Неустраненные замечания: ' + openRem + '">⚠️ ' + openRem + '</span>' : '') +
           '</div>' +
           prBadge(t.priority) +
         '</div>' +
 
-        // 2. Название / Адрес
+        // 2. Вторая строка: Заказчик слева, Регион справа
+        '<div style="display:flex;justify-content:space-between;align-items:center;font-size:.69rem;margin-bottom:3px;gap:4px">' +
+          '<span class="kcard-customer-tag" title="Заказчик: ' + escHtml(custName || 'Заказчик') + '">' +
+            '🏛️ ' + escHtml(custName || 'Заказчик') +
+          '</span>' +
+          '<span style="color:var(--text-3);white-space:nowrap">📍 ' + escHtml(t.region || '—') + '</span>' +
+        '</div>' +
+
+        // 3. Название / Адрес
         '<div class="kcard-title" title="' + escHtml(t.address || t.title || 'Без адреса') + '">' +
           escHtml(t.address || t.title || 'Без адреса') +
         '</div>' +
 
-        // 3. Регион и Дедлайн
-        '<div style="font-size:.72rem;color:var(--text-3);margin-bottom:4px;display:flex;justify-content:space-between;align-items:center">' +
-          '<span>📍 ' + escHtml(t.region || '—') + '</span>' +
+        // 4. Исполнитель слева, Срок / Просрочка справа
+        '<div style="font-size:.72rem;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center">' +
+          '<span style="color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;margin-right:6px" title="' + escHtml(t.contractor || t.assignee || 'Не назначен') + '">' +
+            '👤 ' + escHtml(t.contractor || t.assignee || 'Не назначен') +
+          '</span>' +
           dueBadge +
-        '</div>' +
-
-        // 4. Исполнитель / Подрядчик
-        '<div style="font-size:.72rem;color:var(--text-2);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + escHtml(t.contractor || t.assignee || 'Не назначен') + '">' +
-          '👤 ' + escHtml(t.contractor || t.assignee || 'Не назначен') +
         '</div>' +
 
         // 5. Прогресс портов и Финансы
@@ -346,24 +350,40 @@ function pageKanban() {
           '<span style="font-weight:700;color:var(--blue)">' + fmtMoney(fin.total || t.amount) + '</span>' +
         '</div>' +
 
-        // 6. Подвал карточки: Текущий макро-статус, селектор быстрой смены и кнопка шага
-        '<div style="display:flex;align-items:center;justify-content:space-between;gap:4px;margin-top:6px" onclick="event.stopPropagation()">' +
-          '<select class="kcard-status-select" onchange="changeTaskMacroStatus(\'' + tid + '\', this.value)" title="Сменить макро-статус">' +
+        // 6. Подвал карточки (ВАРИАНТ 1: ДВУХЪЯРУСНЫЙ):
+        // Ярус 1: Выпадающий список макро-статуса + кнопка отката
+        '<div style="display:flex;align-items:center;gap:4px;margin-top:6px" onclick="event.stopPropagation()">' +
+          '<select class="kcard-status-select" onchange="changeTaskMacroStatus(\'' + tid + '\', this.value)" title="Макро-статус процесса">' +
             statusOptions +
           '</select>' +
-          '<div style="display:flex;gap:3px;align-items:center">' +
-            (canUndo ? '<button class="btn btn-xs btn-ghost" onclick="undoIdStep(\'' + tid + '\')" title="Откатить шаг регламента назад" style="padding:2px 5px;font-size:.72rem">↩</button>' : '') +
-            (nextStep ? '<button class="btn btn-xs ' + (canStep ? '' : 'disabled') + '" onclick="advanceIdStep(\'' + tid + '\')" ' + (canStep ? '' : 'title="Требуется роль: ' + nextStep.role + '"') + ' style="padding:2px 7px;font-size:.7rem;font-weight:700;background:var(--orange);color:#fff;border:none">▶ ' + nextStep.action + '</button>' : '') +
-          '</div>' +
+          (canUndo ? '<button type="button" class="btn btn-xs btn-ghost" onclick="undoIdStep(\'' + tid + '\')" title="Откатить шаг регламента назад" style="padding:3px 6px;font-size:.76rem;border:1px solid var(--border);border-radius:6px;background:#f8fafc;color:var(--text-2);flex-shrink:0">↩</button>' : '') +
         '</div>' +
+
+        // Ярус 2: Кнопка шага регламента во ВСЮ ширину карточки (никогда не вылезает)
+        (nextStep ? (
+          '<div style="margin-top:4px" onclick="event.stopPropagation()">' +
+            '<button type="button" class="kcard-step-btn ' + (canStep ? '' : 'disabled') + '" onclick="advanceIdStep(\'' + tid + '\')" ' +
+            (canStep ? '' : 'title="Требуется роль: ' + nextStep.role + '"') + '>' +
+              '▶ ' + escHtml(nextStep.action) +
+            '</button>' +
+          '</div>'
+        ) : '') +
 
       '</div>';
     });
 
     board += '<div class="kcol" id="kcol-' + col.id + '">' +
-      '<div class="kcol-hdr ' + col.cls + '" style="display:flex;justify-content:space-between;align-items:center">' +
-        '<span>' + col.icon + ' ' + col.label + ' (' + colTasks.length + ')</span>' +
-        '<span style="font-size:.68rem;opacity:.95;font-weight:600">' + fmtMoney(colAmt) + '</span>' +
+      '<div class="kcol-hdr ' + col.cls + '">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px">' +
+          '<span style="font-weight:700;display:flex;align-items:center;gap:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+            col.icon + ' ' + col.label +
+          '</span>' +
+          '<span class="kcol-cnt-badge">' + colTasks.length.toLocaleString('ru') + '</span>' +
+        '</div>' +
+        '<div class="kcol-sum-line">' +
+          '<span style="opacity:.85">Объем:</span>' +
+          '<span style="font-weight:700">' + fmtMoney(colAmt) + '</span>' +
+        '</div>' +
       '</div>' +
       '<div style="font-size:.69rem;color:var(--text-3);margin:-.25rem 0 .45rem 2px;line-height:1.25">' +
         '<b>' + col.processRange + ':</b> ' + col.desc +
