@@ -42,6 +42,13 @@
       z-index: 120;
       border-right: 1px solid #27272A;
       user-select: none;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    .sidebar::-webkit-scrollbar {
+      display: none;
+      width: 0;
+      height: 0;
     }
     .sidebar.collapsed {
       width: 64px;
@@ -157,6 +164,13 @@
       display: flex;
       flex-direction: column;
       gap: 2px;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    .sidebar-nav::-webkit-scrollbar {
+      display: none;
+      width: 0;
+      height: 0;
     }
     .sidebar-sec-title {
       font-size: 0.68rem;
@@ -1794,40 +1808,54 @@
     }
     .ai-feedback-btn {
       background: transparent;
-      border: 1px solid #e5e7eb;
+      border: 1px solid transparent;
       border-radius: 6px;
-      padding: 3px 8px;
-      font-size: 0.72rem;
-      color: #6b7280;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      color: #9ca3af;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 4px;
+      justify-content: center;
       transition: all 0.15s ease;
-      line-height: 1.2;
       user-select: none;
+      box-sizing: border-box;
+    }
+    .ai-feedback-btn svg {
+      width: 15px;
+      height: 15px;
+      stroke-width: 1.85px;
+      display: block;
+      transition: transform 0.12s ease;
     }
     .ai-feedback-btn:hover {
-      background: #f9fafb;
-      border-color: #d1d5db;
-      color: #374151;
+      background: #f4f4f5;
+      border-color: #e4e4e7;
+      color: #3f3f46;
+    }
+    .ai-feedback-btn:hover svg {
+      transform: scale(1.08);
     }
     .ai-feedback-btn.active-like {
       background: #dcfce7 !important;
       border-color: #86efac !important;
       color: #15803d !important;
-      font-weight: 600;
       box-shadow: 0 1px 2px rgba(22, 163, 74, 0.15);
+    }
+    .ai-feedback-btn.active-like svg {
+      stroke: #15803d;
+      fill: rgba(22, 163, 74, 0.2);
     }
     .ai-feedback-btn.active-dislike {
       background: #fee2e2 !important;
       border-color: #fca5a5 !important;
       color: #b91c1c !important;
-      font-weight: 600;
       box-shadow: 0 1px 2px rgba(220, 38, 38, 0.15);
     }
-    .ai-feedback-btn .ai-rate-label {
-      font-size: 0.72rem;
+    .ai-feedback-btn.active-dislike svg {
+      stroke: #b91c1c;
+      fill: rgba(185, 28, 28, 0.2);
     }
     .ai-msg-time {
       font-size: 0.65rem;
