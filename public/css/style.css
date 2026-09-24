@@ -1771,25 +1771,6 @@
       display: inline-block;
     }
 
-    .ai-stream-inline-stop-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      margin-top: 8px;
-      padding: 3px 8px;
-      border: 1px solid #fca5a5;
-      background: #fff5f5;
-      color: #b91c1c;
-      border-radius: 6px;
-      font-size: 0.72rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-    .ai-stream-inline-stop-btn:hover {
-      background: #fee2e2;
-      border-color: #f87171;
-    }
 
     /* Подвал сообщения ИИ с отметками и временем */
     .ai-msg-footer {
