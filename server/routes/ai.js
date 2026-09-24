@@ -307,12 +307,13 @@ router.post('/chat', authenticateToken, async (req, res) => {
         `INSERT INTO ai_messages (user_id, mode, role, content) VALUES ($1,'parse_devices','user',$2)`,
         [req.user.id, text]
       );
-      await pool.query(
-        `INSERT INTO ai_messages (user_id, mode, role, content, tokens_used) VALUES ($1,'parse_devices','assistant',$2,$3)`,
+      const asstIns = await pool.query(
+        `INSERT INTO ai_messages (user_id, mode, role, content, tokens_used) VALUES ($1,'parse_devices','assistant',$2,$3) RETURNING id`,
         [req.user.id, JSON.stringify(parsed), completion.usage?.total_tokens || 0]
       );
       return res.json({
         success: true,
+        messageId: asstIns.rows[0]?.id,
         reply: parsed.reply || parsed.comment || 'Рассчитан перечень материалов по нормам СКС на основе оборудования:',
         parsed: parsed.parsed || {},
         materials: parsed.materials || {}
@@ -357,6 +358,17 @@ router.post('/chat', authenticateToken, async (req, res) => {
     { role: 'user', content: text }
   ];
 
+  // Контроллер отмены для остановки запроса при разрыве или явной остановке пользователем
+  const abortController = new AbortController();
+  let clientDisconnected = false;
+
+  req.on('close', () => {
+    if (!res.writableEnded) {
+      clientDisconnected = true;
+      abortController.abort();
+    }
+  });
+
   // Записываем сообщение пользователя сразу (чтобы лимит учёлся даже при обрыве)
   const userIns = await pool.query(
     `INSERT INTO ai_messages (user_id, mode, role, content) VALUES ($1,$2,'user',$3) RETURNING id`,
@@ -387,9 +399,14 @@ router.post('/chat', authenticateToken, async (req, res) => {
           num_gpu: 0
         }
       }
+    }, {
+      signal: abortController.signal
     });
 
     for await (const chunk of stream) {
+      if (clientDisconnected || abortController.signal.aborted) {
+        break;
+      }
       const delta = chunk.choices && chunk.choices[0] && chunk.choices[0].delta
         ? (chunk.choices[0].delta.content || '')
         : '';
@@ -402,16 +419,36 @@ router.post('/chat', authenticateToken, async (req, res) => {
       }
     }
 
-    res.write('data: [DONE]\n\n');
-    res.end();
-
-    // Сохраняем ответ ассистента
-    await pool.query(
+    // Сохраняем ответ ассистента в базу данных
+    const asstIns = await pool.query(
       `INSERT INTO ai_messages (user_id, mode, role, content, tokens_used)
-       VALUES ($1,$2,'assistant',$3,$4)`,
+       VALUES ($1,$2,'assistant',$3,$4) RETURNING id, created_at`,
       [req.user.id, mode, fullReply || '', tokensUsed]
     );
+    const assistantMsgId = asstIns.rows[0]?.id;
+
+    res.write('data: ' + JSON.stringify({ done: true, messageId: assistantMsgId }) + '\n\n');
+    res.write('data: [DONE]\n\n');
+    res.end();
   } catch (e) {
+    if (clientDisconnected || abortController.signal.aborted || e.name === 'AbortError') {
+      console.log(`[AI Stream] Генерация остановлена пользователем (user_id: ${req.user.id})`);
+      if (fullReply && fullReply.trim()) {
+        try {
+          await pool.query(
+            `INSERT INTO ai_messages (user_id, mode, role, content, tokens_used)
+             VALUES ($1,$2,'assistant',$3,$4)`,
+            [req.user.id, mode, fullReply.trim() + ' [генерация остановлена]', tokensUsed]
+          );
+        } catch (_) {}
+      } else {
+        try {
+          await pool.query('DELETE FROM ai_messages WHERE id=$1', [userMsgId]);
+        } catch (_) {}
+      }
+      return;
+    }
+
     console.error('[AI Stream Error]:', e.message || e);
     let errMsg = e.message || 'Ошибка генерации ответа';
     if (errMsg.includes('ECONNREFUSED') || errMsg.includes('Connection error') || errMsg.includes('fetch failed')) {
@@ -426,4 +463,65 @@ router.post('/chat', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /api/ai/history — загрузка истории переписки с ИИ и оценок
+router.get('/history', authenticateToken, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 40, 100);
+    const { rows } = await pool.query(
+      `SELECT id, mode, role, content, rating, rating_comment, tokens_used, created_at
+       FROM ai_messages
+       WHERE user_id = $1
+       ORDER BY id DESC
+       LIMIT $2`,
+      [req.user.id, limit]
+    );
+    rows.reverse();
+    return res.json({ success: true, messages: rows });
+  } catch (e) {
+    console.error('[AI History Error]:', e);
+    return res.status(500).json({ error: 'Ошибка загрузки истории сообщений' });
+  }
+});
+
+// POST /api/ai/messages/:id/rate — поставить отметку ответу ИИ (like / dislike / null)
+router.post('/messages/:id/rate', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { rating, comment } = req.body || {};
+
+  if (rating !== null && rating !== undefined && !['like', 'dislike'].includes(rating)) {
+    return res.status(400).json({ error: 'Неверное значение оценки (ожидается: like, dislike или null)' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE ai_messages
+       SET rating = $1, rating_comment = $2, updated_at = NOW()
+       WHERE id = $3 AND user_id = $4
+       RETURNING id, role, rating, rating_comment`,
+      [rating || null, comment || null, id, req.user.id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Сообщение не найдено' });
+    }
+
+    return res.json({ success: true, message: rows[0] });
+  } catch (e) {
+    console.error('[AI Rate Error]:', e);
+    return res.status(500).json({ error: 'Ошибка сохранения оценки' });
+  }
+});
+
+// DELETE /api/ai/history — очистить историю диалога с ИИ
+router.delete('/history', authenticateToken, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM ai_messages WHERE user_id = $1', [req.user.id]);
+    return res.json({ success: true });
+  } catch (e) {
+    console.error('[AI Clear History Error]:', e);
+    return res.status(500).json({ error: 'Не удалось очистить историю' });
+  }
+});
+
 export default router;
+

@@ -42,6 +42,13 @@
       z-index: 120;
       border-right: 1px solid #27272A;
       user-select: none;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    .sidebar::-webkit-scrollbar {
+      display: none;
+      width: 0;
+      height: 0;
     }
     .sidebar.collapsed {
       width: 64px;
@@ -157,6 +164,13 @@
       display: flex;
       flex-direction: column;
       gap: 2px;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    .sidebar-nav::-webkit-scrollbar {
+      display: none;
+      width: 0;
+      height: 0;
     }
     .sidebar-sec-title {
       font-size: 0.68rem;
@@ -1754,5 +1768,114 @@
       border-radius: 2px;
       animation: aiCursorBlink 0.75s infinite;
     }
+
+    /* Кнопка остановки генерации ответа */
+    .btn-ai-stop {
+      background: #fee2e2 !important;
+      color: #b91c1c !important;
+      border: 1px solid #fca5a5 !important;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn-ai-stop:hover {
+      background: #fecaca !important;
+      color: #991b1b !important;
+      border-color: #f87171 !important;
+    }
+    .btn-ai-stop .stop-icon {
+      font-size: 11px;
+      line-height: 1;
+      display: inline-block;
+    }
+
+
+    /* Подвал сообщения ИИ с отметками и временем */
+    .ai-msg-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 8px;
+      padding-top: 6px;
+      border-top: 1px solid rgba(0, 0, 0, 0.06);
+    }
+    .ai-rating-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .ai-feedback-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      color: #9ca3af;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      user-select: none;
+      box-sizing: border-box;
+    }
+    .ai-feedback-btn svg {
+      width: 15px;
+      height: 15px;
+      stroke-width: 1.85px;
+      display: block;
+      transition: transform 0.12s ease;
+    }
+    .ai-feedback-btn:hover {
+      background: #f4f4f5;
+      border-color: #e4e4e7;
+      color: #3f3f46;
+    }
+    .ai-feedback-btn:hover svg {
+      transform: scale(1.08);
+    }
+    .ai-feedback-btn.active-like {
+      background: #dcfce7 !important;
+      border-color: #86efac !important;
+      color: #15803d !important;
+      box-shadow: 0 1px 2px rgba(22, 163, 74, 0.15);
+    }
+    .ai-feedback-btn.active-like svg {
+      stroke: #15803d;
+      fill: rgba(22, 163, 74, 0.2);
+    }
+    .ai-feedback-btn.active-dislike {
+      background: #fee2e2 !important;
+      border-color: #fca5a5 !important;
+      color: #b91c1c !important;
+      box-shadow: 0 1px 2px rgba(220, 38, 38, 0.15);
+    }
+    .ai-feedback-btn.active-dislike svg {
+      stroke: #b91c1c;
+      fill: rgba(185, 28, 28, 0.2);
+    }
+    .ai-msg-time {
+      font-size: 0.65rem;
+      color: var(--text-3);
+      white-space: nowrap;
+    }
+    .ai-stopped-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.72rem;
+      color: #b91c1c;
+      background: #fee2e2;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-top: 6px;
+      font-style: italic;
+    }
+
 
 
