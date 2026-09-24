@@ -754,15 +754,17 @@ function startAiSmoothTyping(onComplete) {
     }
     var streamEl = document.getElementById('ai-stream-box');
     if (!streamEl) {
+      if (!_aiStreamTargetText && !_aiStreamIsDone) {
+        return;
+      }
       removeAiLoadingIndicator();
       var div = document.createElement('div');
       div.id = 'ai-stream-box';
       div.className = 'ai-msg-content';
       div.style.cssText = 'align-self:flex-start; max-width:82%; background:#fff; border:1px solid var(--border); border-radius:10px; padding:10px 14px; box-shadow:var(--shadow)';
       div.innerHTML = `
-        <div style="font-size:.72rem; font-weight:700; color:var(--orange); margin-bottom:4px; display:flex; align-items:center; justify-content:space-between;">
-          <span style="display:flex; align-items:center; gap:6px;"><span style="width:16px;height:16px;display:inline-flex;">${ICONS.stocky}</span> Стоки</span>
-          <button type="button" class="ai-stream-inline-stop-btn" onclick="stopAiGeneration()" title="Остановить генерацию (Esc)">⏹️ Остановить</button>
+        <div style="font-size:.72rem; font-weight:700; color:var(--orange); margin-bottom:4px; display:flex; align-items:center; gap:6px;">
+          <span style="width:16px;height:16px;display:inline-flex;">${ICONS.stocky}</span> Стоки
         </div>
         <div class="ai-stream-text" style="font-size:.85rem; color:var(--text); white-space:pre-wrap; word-break:break-word"></div>
       `;
@@ -1136,14 +1138,6 @@ function stopAiGeneration() {
     S.aiMessages.push({
       role: 'assistant',
       content: partialText,
-      stopped: true,
-      time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
-    });
-  } else {
-    S.aiMessages = S.aiMessages || [];
-    S.aiMessages.push({
-      role: 'assistant',
-      content: '*(генерация ответа остановлена)*',
       stopped: true,
       time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
     });
