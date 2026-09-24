@@ -102,7 +102,7 @@ var STAGE_DESCS = [
   'Выезд на замеры, согласование схемы и доступа',
   'Прокладка кабеля, монтаж портов на объекте',
   'Прозвонка портов, чек-лист и контрольный фотоотчет',
-  'Подписание исполнительной документации (ИД со Сбером)',
+  'Подписание исполнительной документации (ИД Заказчиком)',
   'Выставление счета, оплата от заказчика, расчёт с подрядчиком'
 ];
 
@@ -135,8 +135,8 @@ var ID_STEPS = [
   { step: 2, title: 'Материалы переданы', role: 'manager', toStage: 3, action: 'Передать материалы' },
   { step: 3, title: 'Взял ИД в работу', role: 'designer', toStage: 4, action: 'Взять ИД в работу' },
   { step: 4, title: 'ИД готова', role: 'designer', toStage: 5, action: 'Завершить ИД' },
-  { step: 5, title: 'ИД отправлена в Сбер', role: 'dispatch', toStage: 6, action: 'Отправить в Сбер' },
-  { step: 6, title: 'Сбер принял ИД', role: 'dispatch', toStage: 7, action: 'Сбер принял ИД' },
+  { step: 5, title: 'ИД отправлена Заказчику', role: 'dispatch', toStage: 6, action: 'Отправить Заказчику' },
+  { step: 6, title: 'Заказчик принял ИД', role: 'dispatch', toStage: 7, action: 'Заказчик принял ИД' },
   { step: 7, title: 'Передано на оплату', role: 'payments', toStage: 8, action: 'Передать на оплату' },
   { step: 8, title: 'Оплачено', role: 'payments', toStage: 9, action: 'Подтвердить оплату' }
 ];
@@ -148,7 +148,7 @@ var ID_STAGES = [
   { num: 3, name: 'Очередь ИД', icon: '📦', role: 'Проектировщик' },
   { num: 4, name: 'Проектирование', icon: '📐', role: 'Проектировщик' },
   { num: 5, name: 'Готова к отправке', icon: '✉️', role: 'Отдел отправки' },
-  { num: 6, name: 'Ждёт приёмки Сбером', icon: '⏳', role: 'Отдел отправки' },
+  { num: 6, name: 'Ждёт приёмки Заказчиком', icon: '⏳', role: 'Отдел отправки' },
   { num: 7, name: 'К оплате', icon: '📝', role: 'Бухгалтерия' },
   { num: 8, name: 'Ждёт оплаты', icon: '💳', role: 'Бухгалтерия' },
   { num: 9, name: 'Завершена', icon: '✅', role: 'Завершено' }
@@ -189,6 +189,25 @@ function macroStatusBadge(code) {
     st.icon + ' ' + escHtml(st.name) + '</span>';
 }
 
+function changeTaskMacroStatus(taskId, newStatus, callback) {
+  if (!newStatus) return;
+  var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
+  return api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ macroStatus: newStatus })
+  })
+  .then(function() {
+    if (t) t.macroStatus = newStatus;
+    if (typeof callback === 'function') callback(null, newStatus);
+    else renderApp();
+  })
+  .catch(function(err) {
+    alert('Ошибка смены статуса: ' + (err.message || err));
+    if (typeof callback === 'function') callback(err);
+  });
+}
+
 function hasUserRole(user) {
   if (!user) return false;
   var wanted = Array.prototype.slice.call(arguments, 1);
@@ -220,7 +239,7 @@ function advanceIdStep(taskId) {
     return alert('Действие «' + stepDef.action + '» доступно только для роли: ' + stepDef.role + ' (или admin/leader)');
   }
   if (s === 6 && Number(t.openRemarksCount || 0) > 0) {
-    return alert('Нельзя принять ИД: у объекта есть открытые замечания Сбера (' + t.openRemarksCount + ' шт.). Сначала устраните замечания!');
+    return alert('Нельзя принять ИД: у объекта есть открытые замечания Заказчика (' + t.openRemarksCount + ' шт.). Сначала устраните замечания!');
   }
 
   var link = '';
@@ -291,7 +310,7 @@ function refreshRemarksList(taskId) {
   api('/tasks/' + encodeURIComponent(taskId) + '/remarks')
     .then(function(list){
       if (!list || !list.length) {
-        box.innerHTML = '<div class="t3" style="font-size:.8rem;padding:.4rem 0">Замечаний от Сбера нет</div>';
+        box.innerHTML = '<div class="t3" style="font-size:.8rem;padding:.4rem 0">Замечаний от Заказчика нет</div>';
         return;
       }
       var html = list.map(function(r){
@@ -330,7 +349,7 @@ function refreshRemarksList(taskId) {
 }
 
 function addRemarkPrompt(taskId) {
-  var text = prompt('Введите суть замечания Сбера:');
+  var text = prompt('Введите суть замечания Заказчика:');
   if (text === null) return;
   if (!text.trim()) return alert('Текст замечания обязателен!');
   var link = prompt('Ссылка на файл или лист замечаний (необязательно):', '');

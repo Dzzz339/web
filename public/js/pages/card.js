@@ -1561,22 +1561,7 @@ function writeOffTaskMaterials(taskId) {
 }
 
 
-function changeTaskMacroStatus(taskId, newStatus) {
-  if (!newStatus) return;
-  var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
-  api('/tasks/' + encodeURIComponent(taskId), {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ macroStatus: newStatus })
-  })
-  .then(function() {
-    if (t) t.macroStatus = newStatus;
-    renderApp();
-  })
-  .catch(function(err) {
-    alert('Ошибка смены статуса: ' + err.message);
-  });
-}
+// changeTaskMacroStatus определена глобально в public/js/helpers.js
 
 function loadCardSubcontracts(taskId) {
   var cont = document.getElementById('cardSubcontractsContainer');

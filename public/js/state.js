@@ -14,7 +14,7 @@ var S = {
   taskArch: 'no',
   taskStage: '', taskSort: '', taskView: 'all',
   taskFinanceMode: 'customer', taskDistanceFilter: '',
-  kanbanQ: '', kanbanReg: '', kanbanMgr: '', kanbanCustomer: '',
+  kanbanQ: '', kanbanReg: '', kanbanMgr: '', kanbanCustomer: '', kanbanQuick: 'all',
   cardId: null, cardDraft: {}, cardConfirmOpen: false, cardTab: 'main', helpTab: 'quickstart',
   cpTaskId: null, cpMode: 'search', cpQuery: '',
   marches: [], marchId: null,
