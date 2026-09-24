@@ -443,6 +443,10 @@ export async function initDB() {
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_msg_user ON ai_messages(user_id, created_at)`);
+  await pool.query(`ALTER TABLE ai_messages ADD COLUMN IF NOT EXISTS rating TEXT`);
+  await pool.query(`ALTER TABLE ai_messages ADD COLUMN IF NOT EXISTS rating_comment TEXT`);
+  await pool.query(`ALTER TABLE ai_messages ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_msg_rating ON ai_messages(rating)`);
 
   // 1. Таблица материалов (ТМЦ)
   await pool.query(`
