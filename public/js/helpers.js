@@ -457,7 +457,10 @@ function getTaskContractorFinance(t) {
       var clean = String(t.oplata).replace(/[^\d.,]/g, '').replace(',', '.');
       parsedOplata = parseFloat(clean) || 0;
     }
-    if (parsedOplata > 0) {
+    // Защита: в поле oplata у некоторых заявок лежат 10-значные номера платежек (напр. 4503903976).
+    // Реальная сумма выплаты монтажнику по заявке не может превышать 500 тыс. руб. или сумму договора.
+    var taskAmt = Number(t.amount || 0);
+    if (parsedOplata > 0 && parsedOplata < 500000 && (!taskAmt || parsedOplata <= taskAmt * 1.5)) {
       total = parsedOplata;
       var count = Number(t.fact) || Number(t.inOrder) || 1;
       unitPrice = count > 0 ? Math.round(total / count) : total;

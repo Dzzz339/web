@@ -444,31 +444,31 @@ function pageTasks() {
     var dlHtml = dlDate ? ('<div style="font-weight:600">' + dlDate + '</div>' + odBadge) : (odBadge || '<span class="t3">—</span>');
     var colDeadline = '<td style="vertical-align:top;white-space:nowrap;font-size:.8rem">' + dlHtml + '</td>';
 
-    // 4. Адрес объекта (вместо неинформативного региона)
+    // 4. Адрес объекта (компактно с тултипом, без распирания таблицы)
     var addrText = t.address || t.title || '—';
-    var colAddress = '<td style="vertical-align:top;min-width:240px;max-width:380px">' +
-      '<div style="font-weight:600;color:var(--text);line-height:1.25;font-size:.82rem" title="' + escHtml(addrText) + '">' +
+    var colAddress = '<td style="vertical-align:top;max-width:190px">' +
+      '<div style="font-weight:600;color:var(--text);line-height:1.25;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + escHtml(addrText) + '">' +
         highlight(addrText, q) +
       '</div>' +
-      (t.vsp ? '<div class="t3" style="font-size:.7rem;margin-top:2px">№ ВСП: ' + escHtml(t.vsp) + '</div>' : '') +
+      (t.vsp ? '<div class="t3" style="font-size:.7rem;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">№ ВСП: ' + escHtml(t.vsp) + '</div>' : '') +
     '</td>';
 
-    // 5. Что делать (вид работ)
+    // 5. Что делать (вид работ - компактный бейдж)
     var wt = t.workType || 'СКС';
-    var colWork = '<td style="vertical-align:top;white-space:nowrap">' +
-      '<span class="badge b-gray" style="font-size:.74rem;font-weight:600" title="' + escHtml(wt) + '">' + escHtml(wt) + '</span>' +
+    var colWork = '<td style="vertical-align:top;max-width:105px">' +
+      '<span class="badge b-gray" style="font-size:.74rem;font-weight:600;display:inline-block;max-width:105px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(wt) + '">' + escHtml(wt) + '</span>' +
     '</td>';
 
     // 6. Сколько (порты: факт / в заказе)
     var factPorts = Number(t.fact || 0);
     var inOrderPorts = Number(t.inOrder || 0);
     var colQty = '<td style="vertical-align:top;white-space:nowrap;font-weight:700;font-size:.82rem">' +
-      factPorts + ' / ' + inOrderPorts + ' <span class="t3" style="font-size:.68rem;font-weight:normal">портов</span>' +
+      factPorts + ' / ' + inOrderPorts + ' <span class="t3" style="font-size:.68rem;font-weight:normal">п.</span>' +
     '</td>';
 
     // 7. Подрядчик / Исполнитель
-    var colContr = '<td style="vertical-align:top">' +
-      '<button class="btn-link" style="text-align:left;max-width:180px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem" onclick="openContractorPicker(\'' + tid + '\')" title="' + escHtml(t.contractor || 'Назначить подрядчика') + '">' +
+    var colContr = '<td style="vertical-align:top;max-width:125px">' +
+      '<button class="btn-link" style="text-align:left;max-width:125px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem" onclick="openContractorPicker(\'' + tid + '\')" title="' + escHtml(t.contractor || 'Назначить подрядчика') + '">' +
         (t.contractor ? ('👤 ' + escHtml(t.contractor)) : '<span class="t3" style="border-bottom:1px dashed var(--orange);color:var(--orange)">+ Назначить</span>') +
       '</button>' +
     '</td>';
@@ -530,18 +530,18 @@ function pageTasks() {
     totals +
     '<div class="card tbl-wrap">' +
       '<table class="tasks-table"><thead><tr>' +
-        '<th style="min-width:130px">Номер</th>' +
-        '<th style="min-width:85px">Дата</th>' +
-        '<th style="min-width:95px">Дедлайн</th>' +
-        '<th style="min-width:240px">Адрес объекта</th>' +
-        '<th style="min-width:90px">Что делать</th>' +
-        '<th style="min-width:95px">Сколько</th>' +
-        '<th style="min-width:140px">Подрядчик</th>' +
+        '<th style="width:115px">Номер</th>' +
+        '<th style="width:80px">Дата</th>' +
+        '<th style="width:85px">Дедлайн</th>' +
+        '<th style="width:190px">Адрес объекта</th>' +
+        '<th style="width:105px">Что делать</th>' +
+        '<th style="width:85px">Сколько</th>' +
+        '<th style="width:125px">Подрядчик</th>' +
         (finMode === 'customer'
-          ? '<th style="min-width:105px" title="Стоимость за единицу / объем работ">Почём (Сбер)</th><th style="min-width:135px" title="Итоговая сумма договора Сбера с удаленностью">За сколько</th>'
-          : '<th style="min-width:105px" title="Ставка подрядчика за единицу">Почём (Подряд)</th><th style="min-width:150px" title="Общая сумма к выплате подрядчику и плановая маржа генподрядчика">За сколько</th>'
+          ? '<th style="width:90px" title="Стоимость за единицу / объем работ">Почём (Сбер)</th><th style="width:125px" title="Итоговая сумма договора Сбера с удаленностью">За сколько</th>'
+          : '<th style="width:90px" title="Ставка подрядчика за единицу">Почём (Подряд)</th><th style="width:130px" title="Общая сумма к выплате подрядчику и плановая маржа генподрядчика">За сколько</th>'
         ) +
-        '<th style="width:40px"></th>' +
+        '<th style="width:36px"></th>' +
       '</tr></thead><tbody>' + tableRows + more + '</tbody></table>' +
     '</div>' +
     renderContractorPicker();
