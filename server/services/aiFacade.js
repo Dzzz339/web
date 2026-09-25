@@ -53,22 +53,44 @@ async function refreshEntityCache() {
   return _entityCache;
 }
 
+const STOP_WORDS = new Set([
+  'сколько', 'заявок', 'заявка', 'заявки', 'заявку', 'заявкам', 'заявках',
+  'выполнил', 'выполнила', 'выполнено', 'выполнили', 'выполнить',
+  'сделал', 'сделала', 'сделано', 'сделали', 'сдать', 'сдал', 'сдала', 'сдано', 'сдали',
+  'закрыл', 'закрыла', 'закрыто', 'закрыли', 'работе', 'монтаж', 'монтажник',
+  'подрядчик', 'подрядчика', 'подрядчику', 'подрядчиком', 'подрядчике',
+  'исполнитель', 'исполнителя', 'исполнителю', 'исполнителем',
+  'менеджер', 'менеджера', 'менеджеру', 'менеджером',
+  'контролер', 'контролера', 'контролеру', 'контролером',
+  'инженер', 'инженера', 'инженеру', 'инженером',
+  'объект', 'объекта', 'объекту', 'объектом', 'объекте', 'объекты', 'объектов',
+  'проект', 'проекты', 'проектов', 'статус', 'оплата', 'оплачено', 'неоплачено',
+  'замечания', 'брак', 'претензии', 'сбербанк', 'сбер', 'пао', 'ооо', 'зао', 'ип',
+  'привет', 'стоки', 'здравствуйте', 'добрый', 'день', 'вечер', 'утро',
+  'подскажи', 'скажи', 'покажи', 'найди', 'есть', 'было', 'будет',
+  'когда', 'почему', 'зачем', 'куда', 'откуда', 'какой', 'какая', 'какие', 'каких',
+  'всего', 'пожалуйста', 'спасибо'
+]);
+
 /**
- * Получение основы (стемминга) для русского слова (простое нормализованное сопоставление)
+ * Получение основы (стемминга) для русского слова (нормализованное сопоставление)
  */
 function getStem(word) {
   if (!word || word.length < 3) return '';
   const clean = word.toLowerCase().replace(/[^а-яa-z0-9]/g, '');
   if (clean.length <= 4) return clean;
-  // Срезаем падежные окончания в русском языке
-  return clean.replace(/(?:ому|ему|ого|его|ыми|ими|ами|ями|ов|ев|ей|ой|ей|ям|ам|ом|ем|ах|ях|ую|юю|ое|ее|ые|ие|ый|ий|ой|а|я|у|ю|е|о|ы|и)$/i, '');
+  // Срезаем падежные окончания в русском языке (включая падежи фамилий: -ым, -им, -ина)
+  const stripped = clean.replace(/(?:ыми|ими|ами|ями|ому|ему|ого|его|овой|евой|иной|ыной|ове|еве|ине|ыне|ов|ев|ей|ой|ям|ам|ом|ем|ах|ях|ую|юю|ое|ее|ые|ие|ый|ий|ым|им|а|я|у|ю|е|о|ы|и)$/i, '');
+  if (stripped.length >= 3) return stripped;
+  return clean.slice(0, 4);
 }
 
 /**
  * Извлечение ключевых сущностей из текста вопроса пользователя
  */
 export async function extractEntities(queryText) {
-  const text = (queryText || '').toLowerCase();
+  const rawText = queryText || '';
+  const text = rawText.toLowerCase();
   const cache = await refreshEntityCache();
 
   let matchedRegion = null;
@@ -81,48 +103,105 @@ export async function extractEntities(queryText) {
     matchedTaskId = taskMatch[1];
   }
 
+  // Разбиваем запрос на значимые слова (без зависимости от сломанных \b в JS RegExp для кириллицы)
+  const queryWords = text.split(/[^а-яa-z0-9]+/).filter(w => w.length >= 3);
+
   // 2. Поиск региона
   for (const reg of cache.regions) {
     const regLower = reg.toLowerCase();
-    // Прямое вхождение названия региона
     if (text.includes(regLower)) {
       matchedRegion = reg;
       break;
     }
-    // Поиск по корням слов (например "архангельск" найдет "по архангельску")
-    const words = regLower.split(/[\s,.-]+/);
+    const words = regLower.split(/[\s,.-]+/).filter(w => !['обл', 'область', 'край', 'г', 'город', 'р-н', 'район'].includes(w.toLowerCase()) && w.length >= 3);
     for (const w of words) {
       const stem = getStem(w);
-      if (stem.length >= 4) {
-        const regex = new RegExp(`\\b${stem}[а-я]*\\b`, 'i');
-        if (regex.test(text)) {
-          matchedRegion = reg;
-          break;
-        }
+      if (stem.length >= 3 && queryWords.some(qw => qw.startsWith(stem) || stem.startsWith(qw) || qw === stem)) {
+        matchedRegion = reg;
+        break;
       }
     }
     if (matchedRegion) break;
   }
 
-  // 3. Поиск подрядчика / исполнителя
+  // 3. Поиск подрядчика / исполнителя из кеша
   for (const cont of cache.contractors) {
     const contLower = cont.toLowerCase();
     if (contLower.length >= 3 && text.includes(contLower)) {
       matchedContractor = cont;
       break;
     }
-    const words = contLower.split(/[\s,.-]+/);
+    const words = contLower.split(/[\s,.-]+/).filter(w => !['ип', 'ооо', 'зао', 'ао'].includes(w.toLowerCase()) && w.length >= 3);
     for (const w of words) {
       const stem = getStem(w);
-      if (stem.length >= 4) {
-        const regex = new RegExp(`\\b${stem}[а-я]*\\b`, 'i');
-        if (regex.test(text)) {
-          matchedContractor = cont;
+      if (stem.length >= 3 && queryWords.some(qw => qw.startsWith(stem) || stem.startsWith(qw) || qw === stem)) {
+        matchedContractor = cont;
+        break;
+      }
+    }
+    if (matchedContractor) break;
+  }
+
+  // 4. Fallback-извлечение персоны / подрядчика, если кеш промахнулся или еще не содержит его
+  if (!matchedContractor) {
+    let candidateName = null;
+
+    // 4.1 Извлечение по паттернам действий (выполнил Х, сдал Х, у Х, подрядчик Х и т.д.)
+    const actionPatternMatch = rawText.match(/(?:выполнил[а-я]*|сдал[а-я]*|сделал[а-я]*|закрыл[а-я]*|у\s+|по\s+|подрядчик[а-я]*|исполнител[а-я]*|монтажник[а-я]*|инженер[а-я]*|менеджер[а-я]*|контролер[а-я]*|кто такой|кто такая)\s+([А-ЯЁа-яёA-Za-z]{3,})/i);
+    if (actionPatternMatch) {
+      const cand = actionPatternMatch[1];
+      if (!STOP_WORDS.has(cand.toLowerCase())) {
+        candidateName = cand;
+      }
+    }
+
+    // 4.2 Извлечение слов с заглавной буквы (фамилии, имена)
+    if (!candidateName) {
+      const capitalizedWords = rawText.match(/[А-ЯЁ][а-яё]{2,}/g) || [];
+      for (const cap of capitalizedWords) {
+        if (!STOP_WORDS.has(cap.toLowerCase())) {
+          candidateName = cap;
           break;
         }
       }
     }
-    if (matchedContractor) break;
+
+    // 4.3 Любое осмысленное слово, не входящее в stop-words (если в вопросе есть "заявок" / "выполнил")
+    if (!candidateName) {
+      const nonStopWords = queryWords.filter(w => !STOP_WORDS.has(w));
+      if (nonStopWords.length === 1) {
+        candidateName = nonStopWords[0];
+      }
+    }
+
+    if (candidateName) {
+      const candStem = getStem(candidateName) || candidateName;
+      try {
+        const dbLookup = await pool.query(`
+          SELECT DISTINCT name FROM (
+            SELECT contractor AS name FROM tasks WHERE archived = false AND contractor ILIKE $1
+            UNION
+            SELECT assignee AS name FROM tasks WHERE archived = false AND assignee ILIKE $1
+            UNION
+            SELECT manager AS name FROM tasks WHERE archived = false AND manager ILIKE $1
+            UNION
+            SELECT controller AS name FROM tasks WHERE archived = false AND controller ILIKE $1
+            UNION
+            SELECT name_short AS name FROM contractors WHERE name_short ILIKE $1 OR name_full ILIKE $1
+            UNION
+            SELECT full_name AS name FROM users WHERE full_name ILIKE $1 OR username ILIKE $1
+          ) c LIMIT 1
+        `, [`%${candStem}%`]);
+
+        if (dbLookup.rows.length > 0 && dbLookup.rows[0].name) {
+          matchedContractor = dbLookup.rows[0].name;
+        } else {
+          matchedContractor = candidateName;
+        }
+      } catch (_) {
+        matchedContractor = candidateName;
+      }
+    }
   }
 
   // Определение тематических акцентов вопроса
@@ -147,7 +226,8 @@ export async function getRegionSummary(regionName) {
   try {
     const cleanWords = String(regionName).split(/[\s,.-]+/).filter(w => !['обл', 'область', 'край', 'г', 'город', 'р-н', 'район'].includes(w.toLowerCase()) && w.length >= 3);
     const primaryWord = cleanWords[0] || regionName;
-    const pattern = `%${primaryWord}%`;
+    const stem = getStem(primaryWord) || primaryWord;
+    const pattern = `%${stem}%`;
     const aggSql = `
       SELECT
         COUNT(*) AS total_count,
@@ -252,7 +332,8 @@ export async function getContractorSummary(contractorName) {
   try {
     const cleanWords = String(contractorName).split(/[\s,.-]+/).filter(w => !['ип', 'ооо', 'зао', 'ао'].includes(w.toLowerCase()) && w.length >= 3);
     const primaryWord = cleanWords[0] || contractorName;
-    const pattern = `%${primaryWord}%`;
+    const stem = getStem(primaryWord) || primaryWord;
+    const pattern = `%${stem}%`;
 
     // 0. Поиск сотрудника в таблице пользователей
     let userProfile = null;
@@ -262,6 +343,16 @@ export async function getContractorSummary(contractorName) {
         [pattern]
       );
       if (uRes.rows.length) userProfile = uRes.rows[0];
+    } catch (_) {}
+
+    // 0.1 Поиск организации/подрядчика в таблице contractors
+    let contractorProfile = null;
+    try {
+      const cRes = await pool.query(
+        `SELECT id, inn, name_short, name_full, status FROM contractors WHERE name_short ILIKE $1 OR name_full ILIKE $1 LIMIT 1`,
+        [pattern]
+      );
+      if (cRes.rows.length) contractorProfile = cRes.rows[0];
     } catch (_) {}
 
     const aggSql = `
@@ -342,6 +433,7 @@ export async function getContractorSummary(contractorName) {
     return {
       contractorName,
       userProfile,
+      contractorProfile,
       agg,
       sampleTasks
     };
@@ -473,7 +565,7 @@ export async function getRemarksSummary(filterPattern) {
  * Формирование итогового текстового контекста для подачи в LLM
  */
 export async function buildContextForQuery(queryText, user) {
-  if (!user || user.role !== 'admin') {
+  if (!user) {
     return '';
   }
 
@@ -550,13 +642,22 @@ export async function buildContextForQuery(queryText, user) {
       contextParts.push(`=== СРЕЗ ПО СОТРУДНИКУ / ПОДРЯДЧИКУ: ${entities.contractor} ===\n[${contData.error}]`);
     } else {
       const a = contData.agg;
-      const totalAmt = Number(a.total_amount || 0).toLocaleString('ru-RU');
-      const paidAmt = Number(a.firm_paid_amount || 0).toLocaleString('ru-RU');
-      const hungAmt = Number(a.hung_unpaid_amount || 0).toLocaleString('ru-RU');
       const up = contData.userProfile;
+      const cp = contData.contractorProfile;
+      const totalCount = Number(a.total_count || 0);
 
-      let text = `=== ДЕТАЛЬНЫЙ АНАЛИТИЧЕСКИЙ СРЕЗ ПО СОТРУДНИКУ / ПОДРЯДЧИКУ: ${contData.contractorName} ===
-${up ? `Профиль в системе Stockeasy: ${up.full_name || up.username} (роль: ${up.role === 'admin' ? 'Администратор' : up.role === 'manager' ? 'Менеджер' : 'Исполнитель / Монтажник'})\n` : ''}Всего связано с сотрудником/подрядчиком: ${a.total_count} заявок на сумму ${totalAmt} руб.
+      if (totalCount === 0) {
+        let text = `=== СРЕЗ ПО СОТРУДНИКУ / ПОДРЯДЧИКУ: ${contData.contractorName} ===
+${up ? `Профиль сотрудника в системе Stockeasy: ${up.full_name || up.username} (роль: ${up.role === 'admin' ? 'Администратор' : up.role === 'manager' ? 'Менеджер' : 'Исполнитель / Монтажник'})\n` : ''}${cp ? `Организация/подрядчик: ${cp.name_short || cp.name_full} (ИНН: ${cp.inn || '—'}, Статус: ${cp.status || 'активен'})\n` : ''}В базе данных Stockeasy по запросу "${contData.contractorName}" не числится ни одной заявки (всего заявок: 0, выполнено: 0, в работе: 0).
+ВАЖНО ДЛЯ ОТВЕТА: Четко и прямо сообщи пользователю, что по сотруднику/подрядчику "${contData.contractorName}" в системе числится 0 заявок (нет ни выполненных, ни активных). Ни в коем случае не запрашивай дополнительную информацию.`;
+        contextParts.push(text);
+      } else {
+        const totalAmt = Number(a.total_amount || 0).toLocaleString('ru-RU');
+        const paidAmt = Number(a.firm_paid_amount || 0).toLocaleString('ru-RU');
+        const hungAmt = Number(a.hung_unpaid_amount || 0).toLocaleString('ru-RU');
+
+        let text = `=== ДЕТАЛЬНЫЙ АНАЛИТИЧЕСКИЙ СРЕЗ ПО СОТРУДНИКУ / ПОДРЯДЧИКУ: ${contData.contractorName} ===
+${up ? `Профиль в системе Stockeasy: ${up.full_name || up.username} (роль: ${up.role === 'admin' ? 'Администратор' : up.role === 'manager' ? 'Менеджер' : 'Исполнитель / Монтажник'})\n` : ''}${cp ? `Организация/подрядчик: ${cp.name_short || cp.name_full} (ИНН: ${cp.inn || '—'})\n` : ''}Всего связано с сотрудником/подрядчиком: ${a.total_count} заявок на сумму ${totalAmt} руб.
 
 [Выполнение монтажа (отвечает за монтаж и сдачу исходных данных ИД)]
 • Работу ВЫПОЛНИЛ: ${a.contractor_done_count} из ${a.total_count} заявок (статусы "готово", "принято", "оплачено")
@@ -569,16 +670,17 @@ ${up ? `Профиль в системе Stockeasy: ${up.full_name || up.usernam
 
 [Список заявок]:`;
 
-      if (contData.sampleTasks && contData.sampleTasks.length) {
-        contData.sampleTasks.forEach(t => {
-          const isPaid = (t.oplata || '').toLowerCase().includes('оплачен');
-          const isDone = (t.status === 'done') || ['готово', 'принято'].includes((t.priemka || '').toLowerCase());
-          const remark = t.comment || t.excel_comment || '';
-          text += `\n• Заявка #${t.id} [${t.region || ''}]: ${t.address || '—'} | Монтаж: ${isDone ? 'готово (сдано)' : 'в работе'} | Оплата компании: ${isPaid ? 'оплачена' : 'НЕ ОПЛАЧЕНА (повисла)'} | Сумма: ${Number(t.amount || 0).toLocaleString('ru-RU')} руб.${remark ? ' | Замечание: ' + remark : ''}`;
-        });
-      }
+        if (contData.sampleTasks && contData.sampleTasks.length) {
+          contData.sampleTasks.forEach(t => {
+            const isPaid = (t.oplata || '').toLowerCase().includes('оплачен');
+            const isDone = (t.status === 'done') || ['готово', 'принято'].includes((t.priemka || '').toLowerCase());
+            const remark = t.comment || t.excel_comment || '';
+            text += `\n• Заявка #${t.id} [${t.region || ''}]: ${t.address || '—'} | Монтаж: ${isDone ? 'готово (сдано)' : 'в работе'} | Оплата компании: ${isPaid ? 'оплачена' : 'НЕ ОПЛАЧЕНА (повисла)'} | Сумма: ${Number(t.amount || 0).toLocaleString('ru-RU')} руб.${remark ? ' | Замечание: ' + remark : ''}`;
+          });
+        }
 
-      contextParts.push(text);
+        contextParts.push(text);
+      }
     }
   }
 

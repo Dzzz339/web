@@ -329,7 +329,7 @@ router.post('/chat', authenticateToken, async (req, res) => {
 
   // Собираем точечный или сводный срез базы данных через безопасный фасад
   let context = '';
-  if (req.user && req.user.role === 'admin') {
+  if (req.user) {
     try {
       const isSupplyQuery = /(?:склад|тмц|материал|кабель|дефицит|поставк|остат)/i.test(text);
       const [facadeContext, forecastCtx] = await Promise.all([
