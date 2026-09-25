@@ -72,6 +72,11 @@ router.get('/specialists', authenticateToken, async (req, res) => {
 
     query += ` ORDER BY s.passport_raw IS NOT NULL DESC, s.full_name ASC`;
 
+    if (req.query.limit) {
+      params.push(parseInt(req.query.limit));
+      query += ` LIMIT $${params.length}`;
+    }
+
     const { rows } = await pool.query(query, params);
     res.json(rows);
   } catch (e) {
@@ -79,10 +84,12 @@ router.get('/specialists', authenticateToken, async (req, res) => {
   }
 });
 
-// POST /api/specialists - Create specialist
+// POST /api/specialists - Create or update specialist (avoiding duplicates)
 router.post('/specialists', authenticateToken, async (req, res) => {
   try {
     const {
+      specialist_id,
+      specialistId,
       full_name,
       phone,
       passport_series_number,
@@ -97,6 +104,49 @@ router.post('/specialists', authenticateToken, async (req, res) => {
 
     if (!full_name || !full_name.trim()) {
       return res.status(400).json({ error: 'ФИО специалиста обязательно' });
+    }
+
+    let targetId = specialist_id || specialistId ? parseInt(specialist_id || specialistId) : null;
+    if (!targetId) {
+      const { rows: existingRows } = await pool.query(
+        'SELECT id FROM specialists WHERE LOWER(TRIM(full_name)) = LOWER($1) LIMIT 1',
+        [full_name.trim()]
+      );
+      if (existingRows.length > 0) {
+        targetId = existingRows[0].id;
+      }
+    }
+
+    if (targetId) {
+      const { rows } = await pool.query(
+        `UPDATE specialists SET
+          full_name = COALESCE(NULLIF($1, ''), full_name),
+          phone = COALESCE(NULLIF($2, ''), phone),
+          passport_series_number = COALESCE(NULLIF($3, ''), passport_series_number),
+          passport_issued_by = COALESCE(NULLIF($4, ''), passport_issued_by),
+          passport_issue_date = COALESCE(NULLIF($5, ''), passport_issue_date),
+          passport_code = COALESCE(NULLIF($6, ''), passport_code),
+          passport_raw = COALESCE(NULLIF($7, ''), passport_raw),
+          organization = COALESCE(NULLIF($8, ''), organization),
+          position = COALESCE(NULLIF($9, ''), position),
+          contractor_id = COALESCE($10, contractor_id)
+        WHERE id = $11
+        RETURNING *`,
+        [
+          full_name.trim(),
+          phone || null,
+          passport_series_number || null,
+          passport_issued_by || null,
+          passport_issue_date || null,
+          passport_code || null,
+          passport_raw || null,
+          organization || null,
+          position || null,
+          contractor_id ? parseInt(contractor_id) : null,
+          targetId
+        ]
+      );
+      return res.json(rows[0]);
     }
 
     const { rows } = await pool.query(
