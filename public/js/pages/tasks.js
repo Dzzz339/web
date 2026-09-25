@@ -5,6 +5,47 @@ function clearFilters() {
   renderApp();
 }
 
+function toggleTasksFilters() {
+  S.tasksFiltersOpen = !S.tasksFiltersOpen;
+  renderApp();
+}
+
+function applyTasksFilters() {
+  var v = function(id) { var el = document.getElementById(id); return el ? el.value : ''; };
+  S.taskReg = v('treg');
+  S.taskCustomer = v('tcust');
+  S.taskMgr = v('tmgr');
+  S.taskStage = v('tstage');
+  S.taskSt = v('tst');
+  S.taskPr = v('tpr');
+  S.taskOverdue = v('tovd');
+  S.taskYear = v('tyr');
+  S.taskContractor = v('tcontr');
+  S.taskDistanceFilter = v('tdist');
+  S.taskSort = v('tsort');
+  S.taskArch = v('tarch') || 'no';
+  var qEl = document.getElementById('tq');
+  if (qEl) S.taskQ = qEl.value.trim();
+  S.tasksFiltersOpen = false;
+  renderApp();
+}
+
+function removeTaskFilter(key) {
+  if (key === 'reg') S.taskReg = '';
+  else if (key === 'cust') S.taskCustomer = '';
+  else if (key === 'mgr') S.taskMgr = '';
+  else if (key === 'stage') S.taskStage = '';
+  else if (key === 'st') S.taskSt = '';
+  else if (key === 'pr') S.taskPr = '';
+  else if (key === 'ovd') S.taskOverdue = '';
+  else if (key === 'dist') S.taskDistanceFilter = '';
+  else if (key === 'contr') S.taskContractor = '';
+  else if (key === 'yr') S.taskYear = '';
+  else if (key === 'arch') S.taskArch = 'no';
+  else if (key === 'sort') S.taskSort = '';
+  renderApp();
+}
+
 function setTaskFinanceMode(mode) {
   S.taskFinanceMode = mode;
   renderApp();
@@ -166,7 +207,52 @@ function pageTasks() {
     return '<option value="'+safe+'"'+(cur===v?' selected':'')+'>'+v+'</option>';
   }).join('');}
 
-  var hasFilter = q||st||pr||reg||mgr||yr||ovd||cust||contr||distFilter||S.taskArch==='yes'||S.taskStage||(S.taskView && S.taskView !== 'all');
+  // Сбор активных фильтров для бейджа и чипсов
+  var activeFilters = [];
+  if (reg) activeFilters.push({ key: 'reg', label: '📍 ' + reg });
+  if (cust) activeFilters.push({ key: 'cust', label: '🏛️ ' + cust });
+  if (mgr) activeFilters.push({ key: 'mgr', label: '👔 ' + mgr });
+  if (S.taskStage) {
+    var stageLabels = {
+      'new': '📥 Новые (за сегодня)',
+      'review': '🔍 На проверке ТЗ',
+      'rejected': '⛔ Отклонены',
+      'in_progress': '🤝 Поиск подрядчика',
+      'assigned': '📋 Назначено / ТМЦ',
+      'install': '🔧 В монтаже',
+      'smr_done': '🏁 СМР выполнено',
+      'id_in_progress': '📐 ИД в разработке',
+      'accepted': '🏛️ На приёмке',
+      'billing': '💳 На оплате',
+      'paid': '💰 Оплачено',
+      'request': 'Заявка',
+      'survey': 'Обследование',
+      'control': 'Контроль'
+    };
+    activeFilters.push({ key: 'stage', label: '📋 ' + (stageLabels[S.taskStage] || S.taskStage) });
+  }
+  if (st) {
+    var stLabels = { 'pending': 'Не распределено', 'progress': 'В работе', 'done': 'Готово', 'paid': 'Оплачен', 'cancelled': 'Отменен' };
+    activeFilters.push({ key: 'st', label: 'Статус: ' + (stLabels[st] || st) });
+  }
+  if (pr) {
+    var prLabels = { 'high': '🔴 Высокий', 'medium': '🟡 Средний', 'low': '🟢 Низкий' };
+    activeFilters.push({ key: 'pr', label: 'Приоритет: ' + (prLabels[pr] || pr) });
+  }
+  if (ovd === 'yes') activeFilters.push({ key: 'ovd', label: '⏳ С просрочкой' });
+  if (ovd === 'no') activeFilters.push({ key: 'ovd', label: '✓ Без просрочки' });
+  if (distFilter === 'has') activeFilters.push({ key: 'dist', label: '🚗 С удаленностью' });
+  if (distFilter === 'none') activeFilters.push({ key: 'dist', label: '🏢 Без удаленности' });
+  if (distFilter === 'gt5k') activeFilters.push({ key: 'dist', label: '💰 Удаленность > 5 000 ₽' });
+  if (distFilter === 'gt10k') activeFilters.push({ key: 'dist', label: '💰 Удаленность > 10 000 ₽' });
+  if (contr) activeFilters.push({ key: 'contr', label: '👤 ' + contr });
+  if (yr) activeFilters.push({ key: 'yr', label: '📅 ' + yr });
+  if (S.taskArch === 'yes') activeFilters.push({ key: 'arch', label: '📦 Архив' });
+  if (S.taskSort === 'date_desc') activeFilters.push({ key: 'sort', label: '↓ Свежие сначала' });
+  if (S.taskSort === 'date_asc') activeFilters.push({ key: 'sort', label: '↑ Старые сначала' });
+
+  var activeCount = activeFilters.length;
+  var hasFilter = activeCount > 0 || !!q;
 
   var sumTransportAll = filtered.reduce(function(s,t){ return s + Number(t.distanceKm || 0); }, 0);
   var sumContAll = filtered.reduce(function(s, t) { return s + getTaskContractorFinance(t).total; }, 0);
@@ -176,15 +262,143 @@ function pageTasks() {
   var sumMargin = sumAll - sumContAll;
   var marginPct = sumAll > 0 ? Math.round(sumMargin / sumAll * 100) : 0;
 
-  var modeSwitcher = isWorker ? '' : '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;flex-wrap:wrap;gap:8px">' +
-    '<div style="display:flex;align-items:center;gap:4px;background:#f1f5f9;padding:3px 4px;border-radius:8px;border:1px solid var(--border)">' +
-      '<button type="button" class="btn btn-sm ' + (finMode === 'customer' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskFinanceMode(\'customer\')" style="font-size:.78rem;padding:4px 12px;height:auto">🏦 Заказчик (Сбер)</button>' +
-      '<button type="button" class="btn btn-sm ' + (finMode === 'contractor' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskFinanceMode(\'contractor\')" style="font-size:.78rem;padding:4px 12px;height:auto">🤝 Подрядчики</button>' +
-    '</div>' +
-    '<div style="font-size:.76rem;color:var(--text-3)">' + (finMode === 'customer' ? 'Отображаются цены, удаленность и общая стоимость по Заказчику (Сбер)' : 'Отображаются ставки, транспортные и выплаты подрядчикам') + '</div>' +
+  var modeSwitcher = isWorker ? '' : '<div style="display:flex;align-items:center;gap:4px;background:#f1f5f9;padding:3px 4px;border-radius:8px;border:1px solid var(--border)">' +
+    '<button type="button" class="btn btn-sm ' + (finMode === 'customer' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskFinanceMode(\'customer\')" style="font-size:.78rem;padding:4px 12px;height:auto">🏦 Заказчик (Сбер)</button>' +
+    '<button type="button" class="btn btn-sm ' + (finMode === 'contractor' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskFinanceMode(\'contractor\')" style="font-size:.78rem;padding:4px 12px;height:auto">🤝 Подрядчики</button>' +
   '</div>';
 
-  var totals = '<div class="card p mb" style="display:grid;grid-template-columns:repeat(7,1fr);gap:.5rem;padding:.75rem 1rem">' +
+  var topControls = '<div style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.65rem;align-items:center;justify-content:space-between">' +
+    '<div style="display:flex;flex:1;min-width:300px;gap:.45rem;align-items:center">' +
+      '<input id="tq" type="text" placeholder="🔍 Поиск по номеру, адресу, исполнителю..." style="flex:1;min-width:200px;height:36px" value="' + escHtml(q) + '">' +
+      '<button type="button" class="btn btn-sm ' + (S.tasksFiltersOpen ? 'btn-primary' : (activeCount > 0 ? 'btn-secondary' : 'btn-ghost')) + '" onclick="toggleTasksFilters()" style="display:inline-flex;align-items:center;gap:6px;height:36px;white-space:nowrap;padding:0 12px">' +
+        '⚙️ Фильтры' + (activeCount > 0 ? ' <span class="badge ' + (S.tasksFiltersOpen ? 'b-white' : 'b-blue') + '" style="font-size:.7rem;padding:2px 7px">' + activeCount + '</span>' : '') + ' ' + (S.tasksFiltersOpen ? '▴' : '▾') +
+      '</button>' +
+      (hasFilter ? '<button type="button" class="btn btn-sm btn-ghost" onclick="clearFilters()" title="Сбросить все фильтры" style="height:36px">✕ Сброс</button>' : '') +
+    '</div>' +
+    modeSwitcher +
+  '</div>';
+
+  var filtersPanelHtml = S.tasksFiltersOpen
+    ? ('<div class="card p-3 mb-3" style="background:#f8fafc;border:1.5px solid var(--border);border-radius:10px;margin-bottom:1rem;padding:14px 18px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid #e2e8f0;padding-bottom:8px">' +
+          '<span style="font-weight:700;font-size:.85rem;color:var(--text);display:flex;align-items:center;gap:6px">' +
+            '⚙️ Параметры отбора заявок' +
+            (activeCount > 0 ? ' <span class="badge b-blue" style="font-size:.7rem;padding:2px 7px">' + activeCount + ' акт.</span>' : '') +
+          '</span>' +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="toggleTasksFilters()">Свернуть ▴</button>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px">' +
+          // Группа 1: География и Заказчик
+          '<div style="display:flex;flex-direction:column;gap:8px">' +
+            '<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--text-3);letter-spacing:.3px">📍 География и Заказчик</div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Заказчик</label><select id="tcust" style="width:100%"><option value="">Все заказчики</option>' + mkOpts(customers, cust) + '</select></div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Регион</label><select id="treg" style="width:100%"><option value="">Все регионы</option>' + mkOpts(regions, reg) + '</select></div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Менеджер Заказчика</label><select id="tmgr" style="width:100%"><option value="">Все менеджеры</option>' + mkOpts(managers, mgr) + '</select></div>' +
+          '</div>' +
+          // Группа 2: Статусы и Сроки
+          '<div style="display:flex;flex-direction:column;gap:8px">' +
+            '<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--text-3);letter-spacing:.3px">⏱️ Статусы и Сроки</div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Процесс / Этап регламента</label>' +
+              '<select id="tstage" style="width:100%">' +
+                '<option value="">Все этапы (любой)</option>' +
+                '<option value="new"' + (S.taskStage==='new'?' selected':'') + '>📥 1. Новые (за сегодня)</option>' +
+                '<option value="review"' + (S.taskStage==='review'?' selected':'') + '>🔍 2. На проверке ТЗ</option>' +
+                '<option value="rejected"' + (S.taskStage==='rejected'?' selected':'') + '>⛔ 3. Отклонены / Доработка</option>' +
+                '<option value="in_progress"' + (S.taskStage==='in_progress'?' selected':'') + '>🤝 4. В поиске подрядчика</option>' +
+                '<option value="assigned"' + (S.taskStage==='assigned'?' selected':'') + '>📋 5. Назначено / ТМЦ</option>' +
+                '<option value="install"' + (S.taskStage==='install'?' selected':'') + '>🔧 6. В монтаже (СМР)</option>' +
+                '<option value="smr_done"' + (S.taskStage==='smr_done'?' selected':'') + '>🏁 7. СМР выполнено</option>' +
+                '<option value="id_in_progress"' + (S.taskStage==='id_in_progress'?' selected':'') + '>📐 8. ИД в разработке</option>' +
+                '<option value="accepted"' + (S.taskStage==='accepted'?' selected':'') + '>🏛️ 9. На приёмке Заказчиком</option>' +
+                '<option value="billing"' + (S.taskStage==='billing'?' selected':'') + '>💳 10. На оплате</option>' +
+                '<option value="paid"' + (S.taskStage==='paid'?' selected':'') + '>💰 11. Оплачено и закрыто</option>' +
+              '</select>' +
+            '</div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Статус задачи</label>' +
+              '<select id="tst" style="width:100%">' +
+                '<option value="">Все статусы</option>' +
+                '<option value="pending"' + (st==='pending'?' selected':'') + '>Не распределено</option>' +
+                '<option value="progress"' + (st==='progress'?' selected':'') + '>В работе</option>' +
+                '<option value="done"' + (st==='done'?' selected':'') + '>Готово</option>' +
+                '<option value="paid"' + (st==='paid'?' selected':'') + '>Оплачен</option>' +
+                '<option value="cancelled"' + (st==='cancelled'?' selected':'') + '>Отменен</option>' +
+              '</select>' +
+            '</div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Соблюдение сроков</label>' +
+              '<select id="tovd" style="width:100%">' +
+                '<option value="">Любой срок</option>' +
+                '<option value="yes"' + (ovd==='yes'?' selected':'') + '>⛔ С просрочкой</option>' +
+                '<option value="no"' + (ovd==='no'?' selected':'') + '>✓ Без просрочки</option>' +
+              '</select>' +
+            '</div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Год / Лист импорта</label><select id="tyr" style="width:100%"><option value="">Все годы / листы</option>' + mkOpts(years, yr) + '</select></div>' +
+          '</div>' +
+          // Группа 3: Исполнители и Экономика
+          '<div style="display:flex;flex-direction:column;gap:8px">' +
+            '<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--text-3);letter-spacing:.3px">👤 Исполнители и Экономика</div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Контрагент / Субподрядчик</label><select id="tcontr" style="width:100%"><option value="">Все контрагенты</option>' + mkOpts(contractors, contr) + '</select></div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Удаленность</label>' +
+              '<select id="tdist" style="width:100%">' +
+                '<option value="">Удаленность: Все</option>' +
+                '<option value="has"' + (distFilter==='has'?' selected':'') + '>🚗 С удаленностью (&gt;0 ₽)</option>' +
+                '<option value="none"' + (distFilter==='none'?' selected':'') + '>🏢 Без удаленности (0 ₽)</option>' +
+                '<option value="gt5k"' + (distFilter==='gt5k'?' selected':'') + '>💰 Удаленность &gt; 5 000 ₽</option>' +
+                '<option value="gt10k"' + (distFilter==='gt10k'?' selected':'') + '>💰 Удаленность &gt; 10 000 ₽</option>' +
+              '</select>' +
+            '</div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Приоритет</label>' +
+              '<select id="tpr" style="width:100%">' +
+                '<option value="">Все приоритеты</option>' +
+                '<option value="high"' + (pr==='high'?' selected':'') + '>🔴 Высокий</option>' +
+                '<option value="medium"' + (pr==='medium'?' selected':'') + '>🟡 Средний</option>' +
+                '<option value="low"' + (pr==='low'?' selected':'') + '>🟢 Низкий</option>' +
+              '</select>' +
+            '</div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Сортировка</label>' +
+              '<select id="tsort" style="width:100%">' +
+                '<option value=""' + (S.taskSort===''?' selected':'') + '>Порядок по умолчанию</option>' +
+                '<option value="date_desc"' + (S.taskSort==='date_desc'?' selected':'') + '>📅 Свежие сначала</option>' +
+                '<option value="date_asc"' + (S.taskSort==='date_asc'?' selected':'') + '>📅 Старые сначала</option>' +
+              '</select>' +
+            '</div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Архив</label>' +
+              '<select id="tarch" style="width:100%">' +
+                '<option value="no"' + (S.taskArch==='no'?' selected':'') + '>Только активные</option>' +
+                '<option value="yes"' + (S.taskArch==='yes'?' selected':'') + '>Архив</option>' +
+                '<option value=""' + (S.taskArch===''?' selected':'') + '>Все (с архивом)</option>' +
+              '</select>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        // Нижняя панель действий
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:12px;border-top:1px solid #e2e8f0;flex-wrap:wrap;gap:8px">' +
+          '<div>' +
+            (hasFilter ? '<button type="button" class="btn btn-sm btn-ghost" onclick="clearFilters()">✕ Сбросить все фильтры</button>' : '') +
+          '</div>' +
+          '<div style="display:flex;gap:8px;align-items:center">' +
+            '<button type="button" class="btn btn-sm btn-ghost" onclick="toggleTasksFilters()">Свернуть</button>' +
+            '<button type="button" class="btn btn-sm btn-primary" style="font-weight:700;padding:6px 22px" onclick="applyTasksFilters()">' +
+              '🔍 Показать (' + fmtN(filtered.length) + ')' +
+            '</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>')
+    : '';
+
+  var chipsHtml = (activeFilters.length > 0)
+    ? ('<div style="display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;margin-bottom:.65rem">' +
+        '<span style="font-size:.72rem;color:var(--text-3);font-weight:600">Активные фильтры:</span>' +
+        activeFilters.map(function(af) {
+          return '<span class="badge" style="background:#e0f2fe;color:#0369a1;padding:3px 8px;font-size:.74rem;display:inline-flex;align-items:center;gap:5px;border-radius:6px;border:1px solid #bae6fd">' +
+            escHtml(af.label) +
+            ' <button type="button" style="background:none;border:none;cursor:pointer;color:#0369a1;font-weight:700;padding:0 2px;line-height:1" onclick="removeTaskFilter(\'' + af.key + '\')" title="Снять фильтр">✕</button>' +
+          '</span>';
+        }).join('') +
+        '<button type="button" class="btn-link" style="font-size:.74rem;margin-left:4px" onclick="clearFilters()">Сбросить всё</button>' +
+      '</div>')
+    : '';
+
+  var totals = '<div class="card p mb" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.5rem;padding:.75rem 1rem">' +
     (finMode === 'customer'
       ? (statBox('Заявок', fmtN(filtered.length), 'из '+fmtN(S.tasks.length), 'var(--orange)') +
          statBox('Общая стоимость', fmtMoney(sumAll), 'с удаленкой', null) +
@@ -203,161 +417,132 @@ function pageTasks() {
     ) +
   '</div>';
 
-  // Подсчет заявок по Quick Views (быстрым ролевым табам)
-  var qvCounts = {
-    all: S.tasks.filter(function(t){ return !t.archived; }).length,
-    montage: S.tasks.filter(function(t){ return !t.archived && (t.stageNum == null || t.stageNum <= 2); }).length,
-    id_queue: S.tasks.filter(function(t){ return !t.archived && t.stageNum === 3; }).length,
-    design: S.tasks.filter(function(t){ return !t.archived && t.stageNum === 4; }).length,
-    sber: S.tasks.filter(function(t){ return !t.archived && (t.stageNum === 5 || t.stageNum === 6); }).length,
-    remarks: S.tasks.filter(function(t){ return !t.archived && Number(t.openRemarksCount) > 0; }).length,
-    payment: S.tasks.filter(function(t){ return !t.archived && (t.stageNum === 7 || t.stageNum === 8); }).length,
-    done: S.tasks.filter(function(t){ return !t.archived && t.stageNum === 9; }).length,
-  };
-
-  var curView = S.taskView || 'all';
-  var quickViews = [
-    { id: 'all',      label: 'Все',                 cnt: qvCounts.all },
-    { id: 'montage',  label: '🔧 В монтаже',        cnt: qvCounts.montage },
-    { id: 'id_queue', label: '📦 Очередь ИД',       cnt: qvCounts.id_queue },
-    { id: 'design',   label: '📐 В проектировании', cnt: qvCounts.design },
-    { id: 'sber',     label: '📫 В Сбере',          cnt: qvCounts.sber },
-    { id: 'remarks',  label: '⛔ Замечания Сбера',   cnt: qvCounts.remarks, isRed: qvCounts.remarks > 0 },
-    { id: 'payment',  label: '💳 К оплате',         cnt: qvCounts.payment },
-    { id: 'done',     label: '✅ Завершена',         cnt: qvCounts.done }
-  ];
-
-  var stageTabsHtml = '<div style="display:flex;gap:.35rem;overflow-x:auto;padding-bottom:.4rem;margin-bottom:.65rem">';
-  quickViews.forEach(function(qv) {
-    var isActive = (curView === qv.id);
-    var btnCls = isActive ? 'btn btn-sm' : 'btn btn-sm btn-ghost';
-    var badgeStyle = qv.isRed ? 'background:var(--red);color:#fff;border-radius:10px;padding:1px 6px;margin-left:4px' : 'opacity:.7;margin-left:3px';
-    stageTabsHtml += '<button class="' + btnCls + '" onclick="setTaskViewFilter(\'' + qv.id + '\')" style="white-space:nowrap;font-size:.76rem;padding:3px 9px">' +
-      qv.label + ' <span style="' + badgeStyle + '">(' + qv.cnt + ')</span>' +
-    '</button>';
-  });
-  stageTabsHtml += '</div>';
-
   var tableRows = '';
   filtered.slice(0, 300).forEach(function(t) {
-    var od = t.overdueDays > 0
-      ? '<span style="color:var(--red);font-weight:600">+' + t.overdueDays + ' дн</span>'
-      : '<span class="t3">—</span>';
-    
     var tid = (t.id || '').replace(/'/g, "\\'");
     var fin = getTaskFinance(t);
     var cFin = getTaskContractorFinance(t);
 
-    var financeCells = (finMode === 'customer')
-      ? (
-          '<td style="white-space:nowrap; color:var(--text-2)" title="Цена за единицу / объем">' + (fin.unitPrice > 0 ? fmtMoney(fin.unitPrice) : '<span class="t3">—</span>') + '</td>' +
-          '<td style="white-space:nowrap; color:' + (fin.transport > 0 ? 'var(--text)' : 'var(--text-3)') + '" title="Сумма за удаленность">' + (fin.transport > 0 ? fmtMoney(fin.transport) : '<span class="t3">—</span>') + '</td>' +
-          '<td style="white-space:nowrap; font-weight:700; color:var(--blue)" title="Общая стоимость договора">' + fmtMoney(fin.total) + '</td>'
-        )
-      : (
-          '<td style="white-space:nowrap; color:var(--text-2)" title="Ставка / цена подрядчика">' + (cFin.unitPrice > 0 ? fmtMoney(cFin.unitPrice) : '<span class="t3">—</span>') + '</td>' +
-          '<td style="white-space:nowrap; color:' + (cFin.transport > 0 ? 'var(--text)' : 'var(--text-3)') + '" title="Транспортные расходы подрядчику">' + (cFin.transport > 0 ? fmtMoney(cFin.transport) : '<span class="t3">—</span>') + '</td>' +
-          '<td style="white-space:nowrap; font-weight:700; color:var(--orange-dark)" title="Общая сумма к выплате подрядчику">' + (cFin.total > 0 ? fmtMoney(cFin.total) : '<span class="t3">—</span>') + '</td>'
-        );
+    // 1. Номер + статус + маркер высокого приоритета
+    var isHighPr = (t.priority === 'high');
+    var prMark = isHighPr ? '<span title="Высокий приоритет" style="color:var(--red);font-size:.85rem;margin-right:3px">🔴</span>' : '';
+    var stBdg = '<div style="margin-top:3px">' + stBadge(t.status) + (Number(t.openRemarksCount) > 0 ? ' <span class="badge b-red" style="font-size:.65rem;padding:1px 4px" title="Замечания">⚠️ ' + t.openRemarksCount + '</span>' : '') + '</div>';
+    var colNumber = '<td style="vertical-align:top;white-space:nowrap">' +
+      prMark + '<button class="btn-link" style="font-weight:700;font-size:.84rem" onclick="openCard(\'' + tid + '\')">⇒ ' + highlight(t.id, q) + '</button>' +
+      stBdg +
+    '</td>';
+
+    // 2. Дата заявки
+    var dateFormatted = t.dateZayavki ? t.dateZayavki.slice(0, 10).split('-').reverse().join('.') : '<span class="t3">—</span>';
+    var colDate = '<td style="vertical-align:top;white-space:nowrap;color:var(--text-2);font-size:.8rem">' + dateFormatted + '</td>';
+
+    // 3. Дедлайн + просрочка
+    var dlDate = t.deadline ? t.deadline.slice(0, 10).split('-').reverse().join('.') : '';
+    var odBadge = (t.overdueDays > 0)
+      ? '<div style="color:var(--red);font-weight:700;font-size:.72rem">+' + t.overdueDays + ' дн</div>'
+      : '';
+    var dlHtml = dlDate ? ('<div style="font-weight:600">' + dlDate + '</div>' + odBadge) : (odBadge || '<span class="t3">—</span>');
+    var colDeadline = '<td style="vertical-align:top;white-space:nowrap;font-size:.8rem">' + dlHtml + '</td>';
+
+    // 4. Адрес объекта (компактно с тултипом, без распирания таблицы)
+    var addrText = t.address || t.title || '—';
+    var colAddress = '<td style="vertical-align:top;max-width:190px">' +
+      '<div style="font-weight:600;color:var(--text);line-height:1.25;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + escHtml(addrText) + '">' +
+        highlight(addrText, q) +
+      '</div>' +
+      (t.vsp ? '<div class="t3" style="font-size:.7rem;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">№ ВСП: ' + escHtml(t.vsp) + '</div>' : '') +
+    '</td>';
+
+    // 5. Что делать (вид работ - компактный бейдж)
+    var wt = t.workType || 'СКС';
+    var colWork = '<td style="vertical-align:top;max-width:105px">' +
+      '<span class="badge b-gray" style="font-size:.74rem;font-weight:600;display:inline-block;max-width:105px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(wt) + '">' + escHtml(wt) + '</span>' +
+    '</td>';
+
+    // 6. Сколько (порты: факт / в заказе)
+    var factPorts = Number(t.fact || 0);
+    var inOrderPorts = Number(t.inOrder || 0);
+    var colQty = '<td style="vertical-align:top;white-space:nowrap;font-weight:700;font-size:.82rem">' +
+      factPorts + ' / ' + inOrderPorts + ' <span class="t3" style="font-size:.68rem;font-weight:normal">п.</span>' +
+    '</td>';
+
+    // 7. Подрядчик / Исполнитель
+    var colContr = '<td style="vertical-align:top;max-width:125px">' +
+      '<button class="btn-link" style="text-align:left;max-width:125px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem" onclick="openContractorPicker(\'' + tid + '\')" title="' + escHtml(t.contractor || 'Назначить подрядчика') + '">' +
+        (t.contractor ? ('👤 ' + escHtml(t.contractor)) : '<span class="t3" style="border-bottom:1px dashed var(--orange);color:var(--orange)">+ Назначить</span>') +
+      '</button>' +
+    '</td>';
+
+    // 8 & 9. Почём и За сколько
+    var colPrice = '';
+    var colTotal = '';
+
+    if (finMode === 'customer') {
+      // Почём Заказчик
+      colPrice = '<td style="vertical-align:top;white-space:nowrap;color:var(--text-2);font-size:.8rem" title="Тариф Заказчика за единицу">' +
+        (fin.unitPrice > 0 ? (fmtMoney(fin.unitPrice) + '<span class="t3" style="font-size:.68rem">/ед</span>') : '<span class="t3">—</span>') +
+      '</td>';
+      // За сколько Заказчик
+      colTotal = '<td style="vertical-align:top;white-space:nowrap">' +
+        '<div style="font-weight:700;color:var(--blue);font-size:.84rem" title="Общая сумма договора Сбера">' + fmtMoney(fin.total) + '</div>' +
+        (fin.transport > 0 ? '<div class="t3" style="font-size:.68rem" title="Удаленность (транспорт)">🚗 +' + fmtMoney(fin.transport) + '</div>' : '') +
+      '</td>';
+    } else {
+      // Почём Подрядчик
+      colPrice = '<td style="vertical-align:top;white-space:nowrap;color:var(--text-2);font-size:.8rem" title="Ставка подрядчика за единицу">' +
+        (cFin.unitPrice > 0 ? (fmtMoney(cFin.unitPrice) + '<span class="t3" style="font-size:.68rem">/ед</span>') : '<span class="t3">—</span>') +
+      '</td>';
+      // За сколько Подрядчик (+ маржа)
+      var marginRow = fin.total > cFin.total ? (fin.total - cFin.total) : 0;
+      var marginPctRow = fin.total > 0 ? Math.round(marginRow / fin.total * 100) : 0;
+      colTotal = '<td style="vertical-align:top;white-space:nowrap">' +
+        '<div style="font-weight:700;color:var(--orange-dark);font-size:.84rem" title="Сумма к выплате подрядчику">' + (cFin.total > 0 ? fmtMoney(cFin.total) : '<span class="t3">—</span>') + '</div>' +
+        (cFin.transport > 0 ? '<div class="t3" style="font-size:.68rem" title="Транспортные расходы подрядчику">🚗 ' + fmtMoney(cFin.transport) + '</div>' : '') +
+        (marginRow > 0 ? '<div style="font-size:.68rem;color:var(--green);font-weight:600" title="Плановая маржа ГК (Заказчик минус Подрядчик)">маржа +' + fmtMoney(marginRow) + ' (' + marginPctRow + '%)</div>' : '') +
+      '</td>';
+    }
+
+    // 10. Действия
+    var colActions = '<td style="vertical-align:top;text-align:right"><button class="btn btn-sm btn-ghost btn-icon" onclick="exportTask(\'' + tid + '\')" title="Экспорт заявки / печать">&#x2B07;</button></td>';
 
     tableRows += '<tr>' +
-      // Номер с подсветкой
-      '<td><button class="btn-link" onclick="openCard(\'' + tid + '\')">⇒ ' + highlight(t.id, q) + '</button></td>' +
-      
-      // Дата (тут подсвечивать нечего, формат меняется)
-      '<td style="white-space:nowrap;color:var(--text-2);font-size:.8rem">' + (t.dateZayavki ? t.dateZayavki.slice(0, 10).split('-').reverse().join('.') : '<span class="t3">—</span>') + '</td>' +
-      
-      // Регион
-      '<td>' + highlight(t.region || '', q) + '</td>' +
-      
-      '<td style="white-space:nowrap; font-weight:600">' + (t.fact || 0) + ' / ' + (t.inOrder || 0) + '</td>' +
-
-      // Контрагент — кликабельная ячейка, открывает попап выбора/добавления
-      '<td><button class="btn-link" onclick="openContractorPicker(\'' + tid + '\')">' +
-        (t.contractor ? escHtml(t.contractor) : '<span class="t3">+ Добавить</span>') +
-      '</button></td>' +
-
-      // Статусы и кнопки (тут подсветка не нужна, это бейджи)
-      '<td>' + prBadge(t.priority) + '</td>' +
-      '<td>' + od + '</td>' +
-      '<td>' + idStageBadge(t.stageNum) + (Number(t.openRemarksCount) > 0 ? ' <span class="badge b-red" style="font-size:.68rem;padding:1px 5px" title="Открытые замечания Сбера">⚠️ ' + t.openRemarksCount + '</span>' : '') + '</td>' +
-      '<td>' + stBadge(t.status) + '</td>' +
-
-      financeCells +
-      '<td><button class="btn btn-sm btn-ghost btn-icon" onclick="exportTask(\'' + tid + '\')">&#x2B07;</button></td>' +
+      colNumber +
+      colDate +
+      colDeadline +
+      colAddress +
+      colWork +
+      colQty +
+      colContr +
+      colPrice +
+      colTotal +
+      colActions +
     '</tr>';
   });
 
-  var more = filtered.length>300
-    ? '<tr><td colspan="13" style="text-align:center;padding:1rem;color:var(--text-3)">… ещё '+(filtered.length-300)+' заявок — уточните фильтр</td></tr>'
+  var more = filtered.length > 300
+    ? '<tr><td colspan="10" style="text-align:center;padding:1rem;color:var(--text-3)">… ещё ' + (filtered.length - 300) + ' заявок — уточните фильтр</td></tr>'
     : '';
 
   return '<h1 class="page-title">Заявки</h1>' +
-    '<div style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.75rem;align-items:center">' +
-      '<input id="tq" type="text" placeholder="Поиск по номеру, адресу..." style="flex:2;min-width:200px" value="'+q+'">' +
-      '<select id="tst"><option value="">Все статусы</option>' +
-        '<option value="pending"'  + (st==='pending'?' selected':'')  + '>Не распределено</option>' +
-        '<option value="progress"' + (st==='progress'?' selected':'') + '>В работе</option>' +
-        '<option value="done"'     + (st==='done'?' selected':'')     + '>Готово</option>' +
-        '<option value="paid"'     + (st==='paid'?' selected':'')     + '>Оплачен</option>' +
-        '<option value="cancelled"'+ (st==='cancelled'?' selected':'')+ '>Отменен</option>' +
-      '</select>' +
-      '<select id="tpr"><option value="">Все приоритеты</option>' +
-        '<option value="high"'+(pr==='high'?' selected':'')+'>🔴 Высокий</option>' +
-        '<option value="medium"'+(pr==='medium'?' selected':'')+'>🟡 Средний</option>' +
-        '<option value="low"'+(pr==='low'?' selected':'')+'>🟢 Низкий</option>' +
-      '</select>' +
-      '<select id="tcust"><option value="">Все заказчики</option>'+mkOpts(customers,cust)+'</select>' +
-      '<select id="treg"><option value="">Все регионы</option>'+mkOpts(regions,reg)+'</select>' +
-      '<select id="tmgr"><option value="">Все менеджеры</option>'+mkOpts(managers,mgr)+'</select>' +
-      '<select id="tyr"><option value="">Все годы</option>'+mkOpts(years,yr)+'</select>' +
-      '<select id="tovd"><option value="">Любые</option>' +
-        '<option value="yes"'+(ovd==='yes'?' selected':'')+'>⛔ Просроченные</option>' +
-        '<option value="no"'+(ovd==='no'?' selected':'')+'>✓ Без просрочки</option>' +
-      '</select>' +
-      '<select id="tdist">' +
-        '<option value="">Удаленность: Все</option>' +
-        '<option value="has"'  + (distFilter==='has'?' selected':'')  + '>🚗 С удаленностью (&gt;0 ₽)</option>' +
-        '<option value="none"' + (distFilter==='none'?' selected':'') + '>🏢 Без удаленности (0 ₽)</option>' +
-        '<option value="gt5k"' + (distFilter==='gt5k'?' selected':'') + '>💰 Удаленность &gt; 5 000 ₽</option>' +
-        '<option value="gt10k"'+ (distFilter==='gt10k'?' selected':'')+ '>💰 Удаленность &gt; 10 000 ₽</option>' +
-      '</select>' +
-      // ВОТ ОН, СЕЛЕКТОР АРХИВА:
-      '<select id="tarch">' +
-        '<option value="no"' + (S.taskArch==='no'?' selected':'') + '>Активные</option>' +
-        '<option value="yes"' + (S.taskArch==='yes'?' selected':'') + '>Архив</option>' +
-        '<option value=""' + (S.taskArch===''?' selected':'') + '>Все (с архивом)</option>' +
-      '</select>' +
-      '<select id="tstage">' +
-        '<option value="">Все этапы</option>' +
-        '<option value="request"' + (S.taskStage==='request'?' selected':'') + '>Заявка</option>' +
-        '<option value="survey"' + (S.taskStage==='survey'?' selected':'') + '>Обследование</option>' +
-        '<option value="install"' + (S.taskStage==='install'?' selected':'') + '>Монтаж</option>' +
-        '<option value="control"' + (S.taskStage==='control'?' selected':'') + '>Контроль</option>' +
-        '<option value="acceptance"' + (S.taskStage==='acceptance'?' selected':'') + '>Приёмка</option>' +
-        '<option value="payment"' + (S.taskStage==='payment'?' selected':'') + '>Оплата</option>' +
-      '</select>' +
-      '<select id="tsort">' +
-        '<option value=""'+(S.taskSort===''?' selected':'')+'>Порядок по умолчанию</option>' +
-        '<option value="date_desc"'+(S.taskSort==='date_desc'?' selected':'')+'>📅 Новые сначала</option>' +
-        '<option value="date_asc"'+(S.taskSort==='date_asc'?' selected':'')+'>📅 Старые сначала</option>' +
-      '</select>' +
-      '<select id="tcontr"><option value="">Все контрагенты</option>' + mkOpts(contractors, contr) + '</select>' +
-      (hasFilter||S.taskSort ? '<button class="btn btn-sm btn-ghost" onclick="clearFilters()">✕ Сбросить</button>' : '') +
-    '</div>' +
-    stageTabsHtml +
-    modeSwitcher +
+    topControls +
+    filtersPanelHtml +
+    chipsHtml +
     totals +
     '<div class="card tbl-wrap">' +
       '<table class="tasks-table"><thead><tr>' +
-        '<th>Номер</th><th>Дата</th><th>Регион</th><th>Порты</th><th>Контрагент</th>' +
-        '<th>Приоритет</th><th>Просрочка</th><th>Этап</th><th>Статус</th>' +
+        '<th style="width:115px">Номер</th>' +
+        '<th style="width:80px">Дата</th>' +
+        '<th style="width:85px">Дедлайн</th>' +
+        '<th style="width:190px">Адрес объекта</th>' +
+        '<th style="width:105px">Что делать</th>' +
+        '<th style="width:85px">Сколько</th>' +
+        '<th style="width:125px">Подрядчик</th>' +
         (finMode === 'customer'
-          ? '<th title="Стоимость за единицу / объем работ">Цена</th><th title="Сумма за удаленность (транспортные расходы)">Удаленность</th><th title="Итоговая сумма договора Сбера">Общая стоимость</th>'
-          : '<th title="Ставка / стоимость работ подрядчика">Цена подрядчика</th><th title="Транспортные расходы подрядчику">Транспортные</th><th title="Общая сумма к выплате подрядчику">Общая подрядчику</th>'
+          ? '<th style="width:90px" title="Стоимость за единицу / объем работ">Почём (Сбер)</th><th style="width:125px" title="Итоговая сумма договора Сбера с удаленностью">За сколько</th>'
+          : '<th style="width:90px" title="Ставка подрядчика за единицу">Почём (Подряд)</th><th style="width:130px" title="Общая сумма к выплате подрядчику и плановая маржа генподрядчика">За сколько</th>'
         ) +
-        '<th></th>' +
-      '</tr></thead><tbody>'+tableRows+more+'</tbody></table>' +
+        '<th style="width:36px"></th>' +
+      '</tr></thead><tbody>' + tableRows + more + '</tbody></table>' +
     '</div>' +
     renderContractorPicker();
 }

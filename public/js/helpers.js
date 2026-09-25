@@ -169,6 +169,7 @@ function idStageBadge(stageNum) {
 var MACRO_STATUSES = {
   new: { code: 'new', name: 'Новая', color: '#6B7280', badgeClass: 'b-gray', icon: '📥', step: 0 },
   review: { code: 'review', name: 'Рассмотрение', color: '#3B82F6', badgeClass: 'b-blue', icon: '🔍', step: 1 },
+  rejected: { code: 'rejected', name: 'Отклонена / Доработка', color: '#EF4444', badgeClass: 'b-red', icon: '⛔', step: 1.5 },
   in_progress: { code: 'in_progress', name: 'В работе', color: '#8B5CF6', badgeClass: 'b-purple', icon: '🤝', step: 2 },
   assigned: { code: 'assigned', name: 'Назначено исполнителю', color: '#EC4899', badgeClass: 'b-pink', icon: '📋', step: 3 },
   install: { code: 'install', name: 'В монтаже', color: '#F59E0B', badgeClass: 'b-install', icon: '🔧', step: 4 },
@@ -428,7 +429,17 @@ function getTaskContractorFinance(t) {
   var unitPrice = 0;
   var total = 0;
 
-  if (items && items.length > 0) {
+  // 1. Если есть назначенные субподряды с зафиксированной стоимостью
+  if (t.subcontracts && Array.isArray(t.subcontracts) && t.subcontracts.length > 0) {
+    t.subcontracts.forEach(function(s) {
+      total += Number(s.price_agreed || 0);
+    });
+    work = total;
+    var count = Number(t.fact) || Number(t.inOrder) || 1;
+    unitPrice = count > 0 ? Math.round(work / count) : work;
+  }
+  // 2. Если есть спецификация с заполненными ставками подрядчика
+  else if (items && items.length > 0 && items.some(function(it){ return (Number(it.price_contractor || it.priceContractor) || 0) > 0; })) {
     items.forEach(function(it) {
       var q = Number(it.quantity) || 1;
       var pr = Number(it.price_contractor || it.priceContractor) || 0;
@@ -438,22 +449,40 @@ function getTaskContractorFinance(t) {
       transport += Number(it.distance_km || it.distanceKm) || 0;
     });
     total = work + transport;
-  } else {
+  } 
+  // 3. Если есть явная сумма оплаты из исходного реестра (t.oplata)
+  else {
     var parsedOplata = 0;
     if (t.oplata) {
       var clean = String(t.oplata).replace(/[^\d.,]/g, '').replace(',', '.');
       parsedOplata = parseFloat(clean) || 0;
     }
-    if (parsedOplata > 0) {
+    // Защита: в поле oplata у некоторых заявок лежат 10-значные номера платежек (напр. 4503903976).
+    // Реальная сумма выплаты монтажнику по заявке не может превышать 500 тыс. руб. или сумму договора.
+    var taskAmt = Number(t.amount || 0);
+    if (parsedOplata > 0 && parsedOplata < 500000 && (!taskAmt || parsedOplata <= taskAmt * 1.5)) {
       total = parsedOplata;
       var count = Number(t.fact) || Number(t.inOrder) || 1;
       unitPrice = count > 0 ? Math.round(total / count) : total;
       work = total;
     } else {
-      unitPrice = 0;
-      transport = 0;
-      work = 0;
-      total = 0;
+      // 4. Нормативный расчет ставки субподряда по регламенту П0–П10
+      var ports = Number(t.fact) || Number(t.inOrder) || 0;
+      var custFin = getTaskFinance(t);
+      
+      if (ports > 0) {
+        unitPrice = ports >= 3 ? 3750 : (ports === 2 ? 4250 : 5000);
+        work = ports * unitPrice;
+      } else if (custFin.work > 0) {
+        work = Math.round(custFin.work * 0.58);
+        unitPrice = work;
+      }
+      
+      if (custFin.transport > 0) {
+        transport = Math.round(custFin.transport * 0.75);
+      }
+      
+      total = work + transport;
     }
   }
 
@@ -525,7 +554,9 @@ function showModal(title, fields, onSave) {
     } else if (f.type === 'textarea') {
       inp = '<textarea id="mf_' + f.key + '" rows="3" placeholder="' + escHtml(f.placeholder||'') + '" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:.9rem;resize:vertical">' + escHtml(String(f.value||'')) + '</textarea>';
     } else {
-      inp = '<input id="mf_' + f.key + '" type="' + (f.type||'text') + '" value="' + escHtml(String(f.value||'')) + '" placeholder="' + escHtml(f.placeholder||'') + '" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:.9rem">';
+      var acWrapperStart = f.autocomplete ? '<div class="modal-ac-wrapper">' : '';
+      var acWrapperEnd = f.autocomplete ? '<div id="mf_sugg_' + f.key + '" class="modal-suggest-dropdown" style="display:none"></div></div><div id="mf_badge_' + f.key + '" class="modal-ac-badge" style="display:none"></div>' : '';
+      inp = acWrapperStart + '<input id="mf_' + f.key + '" type="' + (f.type||'text') + '" value="' + escHtml(String(f.value||'')) + '" placeholder="' + escHtml(f.placeholder||'') + '" autocomplete="off" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:.9rem">' + acWrapperEnd;
     }
     return '<div style="margin-bottom:.85rem">' +
       '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.03em">' +
@@ -538,7 +569,9 @@ function showModal(title, fields, onSave) {
 
   var modal = document.createElement('div');
   modal.id = '_mmodal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(2px)';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(2px)';
+  modal._extraData = {};
+
   modal.innerHTML =
     '<div style="background:#fff;border-radius:14px;padding:1.5rem;width:100%;max-width:480px;box-shadow:0 12px 48px rgba(0,0,0,.22);max-height:90vh;overflow-y:auto">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">' +
@@ -555,18 +588,205 @@ function showModal(title, fields, onSave) {
   document.body.appendChild(modal);
   modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
 
+  // Map of form input elements for easy cross-referencing
+  var formInputs = {};
+  fields.forEach(function(f) {
+    formInputs[f.key] = document.getElementById('mf_' + f.key);
+  });
+
   // Навешиваем onInput колбеки если заданы в полях
   fields.forEach(function(f) {
     if (!f.onInput) return;
-    var el = document.getElementById('mf_' + f.key);
+    var el = formInputs[f.key];
     if (el) el.addEventListener('input', function() { f.onInput(el.value); });
+  });
+
+  // Навешиваем автодополнение autocomplete
+  fields.forEach(function(f) {
+    if (!f.autocomplete) return;
+    var ac = f.autocomplete;
+    var inp = formInputs[f.key];
+    var suggBox = document.getElementById('mf_sugg_' + f.key);
+    var badgeBox = document.getElementById('mf_badge_' + f.key);
+    if (!inp || !suggBox) return;
+
+    var timer = null;
+    var activeIdx = -1;
+    var currentItems = [];
+
+    function hideSugg() {
+      suggBox.style.display = 'none';
+      suggBox.innerHTML = '';
+      activeIdx = -1;
+      currentItems = [];
+    }
+
+    function renderSuggList(items) {
+      currentItems = items || [];
+      activeIdx = -1;
+      if (!currentItems.length) {
+        suggBox.innerHTML = '<div class="modal-suggest-empty">Ничего не найдено в базе</div>';
+        suggBox.style.display = 'block';
+        return;
+      }
+      var html = currentItems.map(function(item, idx) {
+        var itemBody = ac.renderItem ? ac.renderItem(item) : ('<div style="font-weight:600">' + escHtml(ac.getValue ? ac.getValue(item) : (item.name || item.title || '')) + '</div>');
+        return '<div class="modal-suggest-item" data-idx="' + idx + '">' + itemBody + '</div>';
+      }).join('');
+      suggBox.innerHTML = html;
+      suggBox.style.display = 'block';
+
+      var itemEls = suggBox.querySelectorAll('.modal-suggest-item');
+      itemEls.forEach(function(el) {
+        var idx = parseInt(el.getAttribute('data-idx'));
+        el.addEventListener('mouseenter', function() {
+          highlightIdx(idx);
+        });
+        el.addEventListener('mousedown', function(e) {
+          e.preventDefault();
+          selectItem(currentItems[idx]);
+        });
+      });
+    }
+
+    function highlightIdx(idx) {
+      activeIdx = idx;
+      var itemEls = suggBox.querySelectorAll('.modal-suggest-item');
+      itemEls.forEach(function(el, i) {
+        if (i === activeIdx) {
+          el.classList.add('is-active');
+          if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+        } else {
+          el.classList.remove('is-active');
+        }
+      });
+    }
+
+    function selectItem(item) {
+      if (!item) return;
+      var val = ac.getValue ? ac.getValue(item) : (item.name || item.title || '');
+      inp.value = val;
+      hideSugg();
+
+      if (badgeBox) {
+        var text = ac.badgeText ? ac.badgeText(item) : ('✓ Выбрано: <b>' + escHtml(val) + '</b>');
+        badgeBox.innerHTML = '<span>' + text + '</span>' +
+          '<button type="button" class="modal-ac-badge-reset">Сбросить</button>';
+        badgeBox.style.display = 'flex';
+        var resetBtn = badgeBox.querySelector('.modal-ac-badge-reset');
+        if (resetBtn) {
+          resetBtn.addEventListener('click', function() {
+            badgeBox.style.display = 'none';
+            badgeBox.innerHTML = '';
+            delete modal._extraData[f.key + '_selected'];
+            if (ac.onClear) ac.onClear(formInputs, modal);
+            inp.focus();
+          });
+        }
+      }
+
+      modal._extraData[f.key + '_selected'] = item;
+      if (ac.onSelect) {
+        ac.onSelect(item, formInputs, modal);
+      }
+    }
+
+    inp.addEventListener('input', function() {
+      clearTimeout(timer);
+      var q = inp.value.trim();
+      var minChars = ac.minChars != null ? ac.minChars : 2;
+
+      // Если изменили текст после выбора — сбрасываем бейдж
+      if (badgeBox && badgeBox.style.display !== 'none') {
+        badgeBox.style.display = 'none';
+        badgeBox.innerHTML = '';
+        delete modal._extraData[f.key + '_selected'];
+        if (ac.onClear) ac.onClear(formInputs, modal);
+      }
+
+      if (q.length < minChars) {
+        hideSugg();
+        return;
+      }
+
+      timer = setTimeout(function() {
+        var res = ac.search(q);
+        if (res && typeof res.then === 'function') {
+          res.then(function(items) {
+            if (inp.value.trim() === q) {
+              renderSuggList(items);
+            }
+          }).catch(function(e) {
+            console.error('Autocomplete search error:', e);
+            hideSugg();
+          });
+        } else if (Array.isArray(res)) {
+          renderSuggList(res);
+        }
+      }, ac.debounceMs || 180);
+    });
+
+    inp.addEventListener('keydown', function(e) {
+      if (suggBox.style.display !== 'none' && currentItems.length > 0) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          var next = activeIdx + 1;
+          if (next >= currentItems.length) next = 0;
+          highlightIdx(next);
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          var prev = activeIdx - 1;
+          if (prev < 0) prev = currentItems.length - 1;
+          highlightIdx(prev);
+          return;
+        }
+        if (e.key === 'Enter') {
+          if (activeIdx >= 0 && activeIdx < currentItems.length) {
+            e.preventDefault();
+            e.stopPropagation();
+            selectItem(currentItems[activeIdx]);
+            return;
+          }
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          hideSugg();
+          return;
+        }
+      }
+    });
+
+    inp.addEventListener('blur', function() {
+      setTimeout(function() {
+        hideSugg();
+      }, 200);
+    });
+  });
+
+  // Закрытие выпадающих списков при клике вне
+  document.addEventListener('click', function onDocClick(e) {
+    if (!document.getElementById('_mmodal')) {
+      document.removeEventListener('click', onDocClick);
+      return;
+    }
+    fields.forEach(function(f) {
+      if (!f.autocomplete) return;
+      var el = formInputs[f.key];
+      var wrap = el ? el.closest('.modal-ac-wrapper') : null;
+      if (wrap && !wrap.contains(e.target)) {
+        var box = document.getElementById('mf_sugg_' + f.key);
+        if (box) box.style.display = 'none';
+      }
+    });
   });
 
   document.getElementById('_msave').onclick = function() {
     var data = {};
     var ok = true;
     fields.forEach(function(f) {
-      var el = document.getElementById('mf_' + f.key);
+      var el = formInputs[f.key];
       if (!el) return;
       data[f.key] = el.value.trim !== undefined ? el.value.trim() : el.value;
       if (f.required && !data[f.key]) {
@@ -576,20 +796,27 @@ function showModal(title, fields, onSave) {
       }
     });
     if (!ok) return;
+    if (modal._extraData) {
+      Object.assign(data, modal._extraData);
+    }
     modal.remove();
-    onSave(data);
+    onSave(data, modal);
   };
 
   modal.addEventListener('keydown', function(e){
     if (e.key === 'Escape') modal.remove();
     if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+      var openDropdown = modal.querySelector('.modal-suggest-dropdown:not([style*="display: none"]):not([style*="display:none"])');
+      if (openDropdown && openDropdown.querySelector('.modal-suggest-item.is-active')) {
+        return;
+      }
       var btn = document.getElementById('_msave');
       if (btn) btn.click();
     }
   });
 
   setTimeout(function(){
-    var el = document.getElementById('mf_' + fields[0].key);
+    var el = formInputs[fields[0].key];
     if (el) { el.focus(); if (el.select) el.select(); }
   }, 60);
 }

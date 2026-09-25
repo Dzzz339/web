@@ -15,6 +15,7 @@ var S = {
   taskStage: '', taskSort: '', taskView: 'all',
   taskFinanceMode: 'customer', taskDistanceFilter: '',
   kanbanQ: '', kanbanReg: '', kanbanMgr: '', kanbanCustomer: '', kanbanQuick: 'all',
+  kanbanPhase: 'all', kanbanAutoCollapseEmpty: true, kanbanCollapsedCols: {},
   cardId: null, cardDraft: {}, cardConfirmOpen: false, cardTab: 'main', helpTab: 'quickstart',
   cpTaskId: null, cpMode: 'search', cpQuery: '',
   marches: [], marchId: null,

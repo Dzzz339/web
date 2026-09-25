@@ -225,7 +225,52 @@ function onSpecPassportToggle(checked) {
 
 function openAddSpecialistModal() {
   showModal('👷 Новый специалист', [
-    { key: 'fullName', label: 'ФИО специалиста', required: true },
+    { 
+      key: 'fullName', 
+      label: 'ФИО специалиста', 
+      required: true,
+      placeholder: 'Начните вводить ФИО (например: Иванов Иван)...',
+      hint: '💡 При вводе ФИО система ищет специалистов в базе и автоматически заполнит телефон, организацию и паспортные данные',
+      autocomplete: {
+        minChars: 2,
+        search: function(q) {
+          return api('/specialists?q=' + encodeURIComponent(q) + '&limit=15');
+        },
+        renderItem: function(s) {
+          var cName = s.contractor_name || s.organization || 'ООО "Ультима"';
+          var hasPass = s.passport_series_number || s.passport_raw;
+          var passText = s.passport_series_number ? ('🪪 Паспорт: ' + s.passport_series_number) : (hasPass ? '🪪 Паспорт заполнен' : '⚠️ Паспорт не заполнен');
+          var phone = s.phone || 'Нет тел.';
+          return `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px">
+              <strong style="color:var(--text); font-size:.85rem">${escHtml(s.full_name)}</strong>
+              <span class="badge b-gray" style="font-size:.68rem">${escHtml(s.position || 'Монтажник')}</span>
+            </div>
+            <div style="font-size:.75rem; color:var(--text-3); display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+              <span>📞 ${escHtml(phone)}</span>
+              <span>${passText}</span>
+              <span style="color:var(--text-2); margin-left:auto">🏢 ${escHtml(cName)}</span>
+            </div>
+          `;
+        },
+        getValue: function(s) { return s.full_name; },
+        badgeText: function(s) {
+          return `✓ Найден в базе (#${s.id}): <b>${escHtml(s.full_name)}</b> · Данные заполнены, запись обновится при сохранении`;
+        },
+        onSelect: function(s, inputs, modal) {
+          modal._extraData.specialistId = s.id;
+          if (inputs.position && s.position) inputs.position.value = s.position;
+          if (inputs.organization && s.organization) inputs.organization.value = s.organization;
+          if (inputs.phone && s.phone) inputs.phone.value = s.phone;
+          if (inputs.contractorId && s.contractor_id != null) inputs.contractorId.value = String(s.contractor_id);
+          if (inputs.passportRaw && s.passport_raw) inputs.passportRaw.value = s.passport_raw;
+          if (inputs.passportSeriesNumber && s.passport_series_number) inputs.passportSeriesNumber.value = s.passport_series_number;
+        },
+        onClear: function(inputs, modal) {
+          delete modal._extraData.specialistId;
+        }
+      }
+    },
     { key: 'position', label: 'Должность', value: 'Монтажник СКС' },
     { key: 'organization', label: 'Организация', value: 'ООО "Ультима"' },
     { key: 'phone', label: 'Номер телефона', placeholder: '+7 (999) 000-00-00' },
@@ -239,6 +284,7 @@ function openAddSpecialistModal() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        specialist_id: d.specialistId || null,
         full_name: d.fullName,
         position: d.position,
         organization: d.organization,
@@ -433,8 +479,62 @@ function onPoaSearch(val) {
 function openAddPoaModal() {
   showModal('📜 Новая доверенность', [
     { key: 'number', label: 'Номер доверенности', placeholder: '0УБП-000450', required: true },
-    { key: 'personName', label: 'Подотчетное лицо (ФИО)', required: true },
-    { key: 'contractorName', label: 'Контрагент (ЭТМ, Деловые линии и др.)', placeholder: 'АО Электротехмонтаж' },
+    { 
+      key: 'personName', 
+      label: 'Подотчетное лицо (ФИО)', 
+      required: true,
+      placeholder: 'Начните вводить ФИО сотрудника...',
+      hint: '💡 Выберите сотрудника или монтажника из справочника',
+      autocomplete: {
+        minChars: 2,
+        search: function(q) {
+          return api('/specialists?q=' + encodeURIComponent(q) + '&limit=15');
+        },
+        renderItem: function(s) {
+          var cName = s.contractor_name || s.organization || 'ООО "Ультима"';
+          return `
+            <div style="font-weight:600; font-size:.85rem; color:var(--text)">${escHtml(s.full_name)}</div>
+            <div style="font-size:.75rem; color:var(--text-3); margin-top:2px">
+              ${escHtml(s.position || 'Специалист')} · 🏢 ${escHtml(cName)}
+            </div>
+          `;
+        },
+        getValue: function(s) { return s.full_name; },
+        badgeText: function(s) {
+          return `✓ Выбрано лицо: <b>${escHtml(s.full_name)}</b>`;
+        },
+        onSelect: function(s, inputs, modal) {
+          if (inputs.organization && s.organization) {
+            inputs.organization.value = s.organization;
+          }
+        }
+      }
+    },
+    { 
+      key: 'contractorName', 
+      label: 'Контрагент (ЭТМ, Деловые линии и др.)', 
+      placeholder: 'АО Электротехмонтаж',
+      hint: '💡 Подсказка из списка контрагентов',
+      autocomplete: {
+        minChars: 2,
+        search: function(q) {
+          var low = q.toLowerCase();
+          var matched = (S.contractors || []).filter(function(c) {
+            return (c.name_short && c.name_short.toLowerCase().includes(low)) ||
+                   (c.name_full && c.name_full.toLowerCase().includes(low)) ||
+                   (c.inn && c.inn.includes(low));
+          }).slice(0, 15);
+          return Promise.resolve(matched);
+        },
+        renderItem: function(c) {
+          return `
+            <div style="font-weight:600; font-size:.85rem; color:var(--text)">${escHtml(c.name_short)}</div>
+            <div style="font-size:.75rem; color:var(--text-3); margin-top:2px">ИНН: ${escHtml(c.inn || '—')}</div>
+          `;
+        },
+        getValue: function(c) { return c.name_short; }
+      }
+    },
     { key: 'organization', label: 'Организация выдачи', value: 'ООО "Ультима"' },
     { key: 'issueDate', label: 'Дата выдачи', type: 'date' },
     { key: 'validUntil', label: 'Срок действия', type: 'date' }

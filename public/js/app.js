@@ -326,6 +326,10 @@ function renderApp() {
     setApp(pageLogin());
     return;
   }
+  if (document.body) {
+    document.body.classList.toggle('page-kanban-active', S.page === 'kanban');
+  }
+
   // 1. ЗАПОМИНАЕМ ФОКУС (Безопасно)
   var activeEl = document.activeElement;
   var activeId = (activeEl && activeEl.id) ? activeEl.id : null;
@@ -516,6 +520,28 @@ function bindEvents() {
   if (kmgr) kmgr.addEventListener('change', function(){ S.kanbanMgr = this.value; renderApp(); });
   var kcust = document.getElementById('kcust');
   if (kcust) kcust.addEventListener('change', function(){ S.kanbanCustomer = this.value; renderApp(); });
+
+  // kanban horizontal mousewheel scroll
+  if (S.page === 'kanban') {
+    var kBoard = document.querySelector('.kanban');
+    if (kBoard) {
+      kBoard.addEventListener('wheel', function(e) {
+        var cards = e.target.closest('.kcol-cards');
+        var isAtLimit = false;
+        if (cards) {
+          var atTop = cards.scrollTop <= 0 && e.deltaY < 0;
+          var atBottom = (cards.scrollTop + cards.clientHeight >= cards.scrollHeight - 2) && e.deltaY > 0;
+          isAtLimit = atTop || atBottom;
+        }
+        if (!cards || isAtLimit) {
+          if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+            kBoard.scrollLeft += e.deltaY;
+            e.preventDefault();
+          }
+        }
+      }, { passive: false });
+    }
+  }
   // add task
   var tarch = document.getElementById('tarch');
   if (tarch) tarch.addEventListener('change', function(){ S.taskArch = this.value; renderApp(); });
@@ -557,39 +583,18 @@ function bindEvents() {
   if (cardConfirmCancelBtn) cardConfirmCancelBtn.addEventListener('click', function(){ S.cardConfirmOpen = false; renderApp(); });
   var cardConfirmOkBtn = document.getElementById('cardConfirmOkBtn');
   if (cardConfirmOkBtn) cardConfirmOkBtn.addEventListener('click', saveCard);
-  // task filters
+  // task filters: быстрый поиск с дебаунсом
   var tq = document.getElementById('tq');
-
-
-   if (tq) {
+  if (tq) {
     tq.addEventListener('input', function() {
       var val = this.value;
-      // Очищаем старый таймер, если пользователь нажал клавишу быстрее, чем через 300мс
       clearTimeout(searchTimeout); 
-      
-      // Ставим новый таймер
       searchTimeout = setTimeout(function() {
         S.taskQ = val;
         renderApp(); 
       }, 300);
     });
   }
-  var tst = document.getElementById('tst');
-  if (tst) tst.addEventListener('change', function(){ S.taskSt = this.value; renderApp(); });
-  var tpr = document.getElementById('tpr');
-  if (tpr) tpr.addEventListener('change', function(){ S.taskPr = this.value; renderApp(); });
-  var tcust = document.getElementById('tcust');
-  if (tcust) tcust.addEventListener('change', function(){ S.taskCustomer = this.value; renderApp(); });
-  var treg = document.getElementById('treg');
-  if (treg) treg.addEventListener('change', function(){ S.taskReg = this.value; renderApp(); });
-  var tmgr = document.getElementById('tmgr');
-  if (tmgr) tmgr.addEventListener('change', function(){ S.taskMgr = this.value; renderApp(); });
-  var tyr = document.getElementById('tyr');
-  if (tyr) tyr.addEventListener('change', function(){ S.taskYear = this.value; renderApp(); });
-  var tovd = document.getElementById('tovd');
-  if (tovd) tovd.addEventListener('change', function(){ S.taskOverdue = this.value; renderApp(); });
-  var tdist = document.getElementById('tdist');
-  if (tdist) tdist.addEventListener('change', function(){ S.taskDistanceFilter = this.value; renderApp(); });
   // file upload
   var ufile = document.getElementById('ufile');
   if (ufile) ufile.addEventListener('change', function(){ if(this.files[0]) doUpload(this.files[0]); });

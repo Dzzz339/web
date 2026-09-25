@@ -657,7 +657,51 @@ function viewContractorDetails(contractorId) {
 
 function openAddInstallerModal(contractorId, contractorName) {
   showModal('👷 Новый монтажник в штат «' + contractorName + '»', [
-    { key: 'fullName', label: 'ФИО монтажника (полностью)', required: true },
+    { 
+      key: 'fullName', 
+      label: 'ФИО монтажника (полностью)', 
+      required: true,
+      placeholder: 'Начните вводить ФИО (например: Иванов Иван)...',
+      hint: '💡 При вводе ФИО система ищет специалистов в базе и автоматически заполнит телефон и паспортные данные',
+      autocomplete: {
+        minChars: 2,
+        search: function(q) {
+          return api('/specialists?q=' + encodeURIComponent(q) + '&limit=15');
+        },
+        renderItem: function(s) {
+          var cName = s.contractor_name || s.organization || 'ООО "Ультима"';
+          var hasPass = s.passport_series_number || s.passport_raw;
+          var passText = s.passport_series_number ? ('🪪 Паспорт: ' + s.passport_series_number) : (hasPass ? '🪪 Паспорт заполнен' : '⚠️ Паспорт не заполнен');
+          var phone = s.phone || 'Нет тел.';
+          return `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px">
+              <strong style="color:var(--text); font-size:.85rem">${escHtml(s.full_name)}</strong>
+              <span class="badge b-gray" style="font-size:.68rem">${escHtml(s.position || 'Монтажник')}</span>
+            </div>
+            <div style="font-size:.75rem; color:var(--text-3); display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+              <span>📞 ${escHtml(phone)}</span>
+              <span>${passText}</span>
+              <span style="color:var(--text-2); margin-left:auto">🏢 ${escHtml(cName)}</span>
+            </div>
+          `;
+        },
+        getValue: function(s) { return s.full_name; },
+        badgeText: function(s) {
+          var cName = s.contractor_name || s.organization || 'ООО "Ультима"';
+          return `✓ Найден в базе (#${s.id}): <b>${escHtml(s.full_name)}</b> · Будет прикреплен к «${escHtml(contractorName)}» (ранее: ${escHtml(cName)})`;
+        },
+        onSelect: function(s, inputs, modal) {
+          modal._extraData.specialistId = s.id;
+          if (inputs.phone && s.phone) inputs.phone.value = s.phone;
+          if (inputs.position && s.position) inputs.position.value = s.position;
+          if (inputs.passportSeriesNumber && s.passport_series_number) inputs.passportSeriesNumber.value = s.passport_series_number;
+          if (inputs.passportRaw && s.passport_raw) inputs.passportRaw.value = s.passport_raw;
+        },
+        onClear: function(inputs, modal) {
+          delete modal._extraData.specialistId;
+        }
+      }
+    },
     { key: 'phone', label: 'Телефон монтажника', placeholder: '+7 (999) 000-00-00' },
     { key: 'position', label: 'Должность', value: 'Монтажник СКС' },
     { key: 'passportSeriesNumber', label: 'Серия и Номер паспорта', placeholder: '5014 123456' },
@@ -667,6 +711,7 @@ function openAddInstallerModal(contractorId, contractorName) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        specialistId: d.specialistId || null,
         fullName: d.fullName,
         phone: d.phone,
         position: d.position,
@@ -675,9 +720,15 @@ function openAddInstallerModal(contractorId, contractorName) {
       })
     }).then(function(res) {
       if (res && res.error) return alert(res.error);
-      alert('✅ Монтажник успешно прикреплен к подрядчику!');
+      var msg = d.specialistId ? 
+        ('✅ Монтажник успешно прикреплен к подрядчику «' + contractorName + '»!') :
+        ('✅ Монтажник создан и прикреплен к «' + contractorName + '»!');
+      alert(msg);
       viewContractorDetails(contractorId);
       api('/contractors').then(list => { S.contractors = list; renderApp(); });
+      if (S.specialists) {
+        api('/specialists').then(specs => { S.specialists = specs; });
+      }
     });
   });
 }
