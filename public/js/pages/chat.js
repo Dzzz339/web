@@ -87,8 +87,11 @@ function pageChat() {
               <span>Стоки</span>
               <span id="ai-mode-label" style="font-size:.75rem; color:var(--text-3); font-weight:normal;"></span>
             </div>
-            <div id="ai-health-status" style="font-size:.72rem; padding:3px 10px; border-radius:12px; background:#f3f4f6; color:#6b7280; font-weight:600; cursor:pointer;" onclick="checkAiHealth(true)" title="Проверить статус связи с Ollama">
-              ⏳ Проверка связи...
+            <div style="display:flex; align-items:center; gap:8px;">
+              <button type="button" class="btn btn-sm btn-ghost" onclick="clearAiChatHistory()" style="font-size:.72rem; padding:3px 8px; color:var(--text-3);" title="Очистить диалог со Стоки">🗑️ Очистить</button>
+              <div id="ai-health-status" style="font-size:.72rem; padding:3px 10px; border-radius:12px; background:#f3f4f6; color:#6b7280; font-weight:600; cursor:pointer;" onclick="checkAiHealth(true)" title="Проверить статус связи с Ollama">
+                ⏳ Проверка связи...
+              </div>
             </div>
           </div>
 
@@ -136,7 +139,7 @@ function pageChat() {
 
         <!-- ИИ-ввод -->
         <div id="ai-input-area" style="padding:10px 16px; border-top:1px solid var(--border); display:flex; gap:10px; background:#fff">
-          <input id="ai_text_input" type="text" placeholder="Задайте вопрос Стоки..." style="flex:1" onkeydown="if(event.key==='Enter') sendAiMessage()">
+          <input id="ai_text_input" type="text" placeholder="Задайте вопрос Стоки..." style="flex:1" onkeydown="if(event.key==='Enter') sendAiMessage(); if(event.key==='Escape') stopAiGeneration();">
           <button class="btn" id="ai-send-btn" onclick="sendAiMessage()">Отправить ➔</button>
         </div>
         ` : `
@@ -182,8 +185,11 @@ function pageAiChat() {
           <div style="font-size:.78rem; color:var(--text-3);" id="ai-mode-label">Умный помощник Stockeasy</div>
         </div>
       </div>
-      <div id="ai-health-status" style="font-size:.75rem; padding:4px 12px; border-radius:12px; background:#f3f4f6; color:#6b7280; font-weight:600; cursor:pointer;" onclick="checkAiHealth(true)" title="Проверить статус связи с Ollama">
-        ⏳ Проверка связи...
+      <div style="display:flex; align-items:center; gap:8px;">
+        <button type="button" class="btn btn-sm btn-ghost" onclick="clearAiChatHistory()" style="font-size:.75rem; padding:4px 10px; color:var(--text-3);" title="Очистить диалог со Стоки">🗑️ Очистить</button>
+        <div id="ai-health-status" style="font-size:.75rem; padding:4px 12px; border-radius:12px; background:#f3f4f6; color:#6b7280; font-weight:600; cursor:pointer;" onclick="checkAiHealth(true)" title="Проверить статус связи с Ollama">
+          ⏳ Проверка связи...
+        </div>
       </div>
     </div>
 
@@ -234,7 +240,7 @@ function pageAiChat() {
 
       <!-- Ввод -->
       <div id="ai-input-area" style="padding:10px 16px; border-top:1px solid var(--border); display:flex; gap:10px; background:#fff">
-        <input id="ai_text_input" type="text" placeholder="Задайте вопрос Стоки..." style="flex:1" onkeydown="if(event.key==='Enter') sendAiMessage()">
+        <input id="ai_text_input" type="text" placeholder="Задайте вопрос Стоки..." style="flex:1" onkeydown="if(event.key==='Enter') sendAiMessage(); if(event.key==='Escape') stopAiGeneration();">
         <button class="btn" id="ai-send-btn" onclick="sendAiMessage()">Отправить ➔</button>
       </div>
     </div>
@@ -451,6 +457,29 @@ function initAiChat() {
   }
   renderAiMessages();
   checkAiHealth(false);
+
+  // Загружаем историю переписки со Стоки, если ещё не загружалась в этой сессии
+  if (!S.aiHistoryLoaded) {
+    api('/ai/history').then(function(res) {
+      if (res && res.messages && res.messages.length) {
+        S.aiHistoryLoaded = true;
+        S.aiMessages = res.messages.map(function(m) {
+          var time = m.created_at ? new Date(m.created_at).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) : '';
+          return {
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            rating: m.rating,
+            ratingComment: m.rating_comment,
+            time: time
+          };
+        });
+        renderAiMessages();
+      }
+    }).catch(function(e) {
+      console.warn('Не удалось загрузить историю диалога со Стоки:', e);
+    });
+  }
 }
 
 // ─── ЖИВОЙ ПОИСК ЗАЯВОК ДЛЯ КОНТЕКСТА ─────────────────────────────────────────
@@ -641,6 +670,14 @@ function removeAiLoadingIndicator() {
   if (loader) loader.remove();
 }
 
+function formatAiMessageContent(rawText) {
+  var escaped = escHtml(rawText || '');
+  // Находим [#12345] или [Заявка #12345] или #12345 и превращаем в кликабельные кнопки для перехода к карточке заявки
+  return escaped.replace(/\[?(?:заявка\s*)?#(\d{1,8})\]?/gi, function(match, id) {
+    return '<button type="button" class="ai-task-link-badge" onclick="openCard(\'' + id + '\')" title="Открыть карточку заявки #' + id + '">#' + id + '</button>';
+  });
+}
+
 function renderAiMessages() {
   var box = document.getElementById('ai-messages');
   if (!box) return;
@@ -651,24 +688,51 @@ function renderAiMessages() {
           ${ICONS.stocky}
         </div>
         <div style="font-weight:700; color:var(--text); font-size:1rem; margin-bottom:4px;">Привет! Я Стоки</div>
-        <div style="font-size:.82rem;">Выберите режим сверху или задайте вопрос по заявкам, оборудованию и ТМЦ</div>
+        <div style="font-size:.82rem;">Задайте любой вопрос по заявкам, аналитике, дефицитам ТМЦ, сметам или стандартам монтажа</div>
       </div>
     `;
     return;
   }
-  var html = S.aiMessages.map(function(m) {
+  var html = S.aiMessages.map(function(m, idx) {
     var isUser = m.role === 'user';
     var bg = isUser ? 'var(--orange-bg)' : '#fff';
     var align = isUser ? 'flex-end' : 'flex-start';
     var border = isUser ? '1px solid #fed7aa' : '1px solid var(--border)';
-    var contentHtml = m.isHtml ? m.isHtml : ('<div style="font-size:.85rem; color:var(--text); white-space:pre-wrap; word-break:break-word" class="ai-msg-content">' + escHtml(m.content) + '</div>');
+    var contentHtml = m.isHtml ? m.isHtml : ('<div style="font-size:.85rem; color:var(--text); white-space:pre-wrap; word-break:break-word" class="ai-msg-content">' + (isUser ? escHtml(m.content) : formatAiMessageContent(m.content)) + '</div>');
+    var stoppedTag = m.stopped ? '<div class="ai-stopped-tag">⏹️ Генерация остановлена</div>' : '';
+
+    var footerHtml = '';
+    if (!isUser) {
+      var isLiked = m.rating === 'like';
+      var isDisliked = m.rating === 'dislike';
+      footerHtml = `
+        <div class="ai-msg-footer">
+          <div class="ai-rating-actions">
+            <button type="button" class="ai-feedback-btn ${isLiked ? 'active-like' : ''}" onclick="rateAiMessage(${idx}, 'like')">
+              ${ICONS.thumbUp}
+            </button>
+            <button type="button" class="ai-feedback-btn ${isDisliked ? 'active-dislike' : ''}" onclick="rateAiMessage(${idx}, 'dislike')">
+              ${ICONS.thumbDown}
+            </button>
+            <button type="button" class="ai-feedback-btn" onclick="copyAiMessageText(${idx})">
+              ${ICONS.copy}
+            </button>
+          </div>
+          <div class="ai-msg-time">${m.time || ''}</div>
+        </div>
+      `;
+    } else {
+      footerHtml = `<div style="font-size:.65rem; color:var(--text-3); text-align:right; margin-top:6px">${m.time || ''}</div>`;
+    }
+
     return `
       <div style="align-self:${align}; max-width:82%; background:${bg}; border:${border}; border-radius:10px; padding:10px 14px; box-shadow:var(--shadow)">
         <div style="font-size:.72rem; font-weight:700; color:${isUser ? 'var(--orange-dark)' : 'var(--orange)'}; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
           ${isUser ? 'Вы' : '<span style="width:16px;height:16px;display:inline-flex;">' + ICONS.stocky + '</span> Стоки'}
         </div>
         ${contentHtml}
-        <div style="font-size:.65rem; color:var(--text-3); text-align:right; margin-top:6px">${m.time || ''}</div>
+        ${stoppedTag}
+        ${footerHtml}
       </div>
     `;
   }).join('');
@@ -716,12 +780,20 @@ function startAiSmoothTyping(onComplete) {
     // Первый реальный текст пришел — убираем спиннер и создаем блок ответа
     var streamEl = document.getElementById('ai-stream-box');
     if (!streamEl) {
+      if (!_aiStreamTargetText && !_aiStreamIsDone) {
+        return;
+      }
       removeAiLoadingIndicator();
       var div = document.createElement('div');
       div.id = 'ai-stream-box';
       div.className = 'ai-msg-content';
       div.style.cssText = 'align-self:flex-start; max-width:82%; background:#fff; border:1px solid var(--border); border-radius:10px; padding:10px 14px; box-shadow:var(--shadow)';
-      div.innerHTML = '<div style="font-size:.72rem; font-weight:700; color:var(--orange); margin-bottom:4px; display:flex; align-items:center; gap:6px;"><span style="width:16px;height:16px;display:inline-flex;">' + ICONS.stocky + '</span> Стоки</div><div class="ai-stream-text" style="font-size:.85rem; color:var(--text); white-space:pre-wrap; word-break:break-word"></div>';
+      div.innerHTML = `
+        <div style="font-size:.72rem; font-weight:700; color:var(--orange); margin-bottom:4px; display:flex; align-items:center; gap:6px;">
+          <span style="width:16px;height:16px;display:inline-flex;">${ICONS.stocky}</span> Стоки
+        </div>
+        <div class="ai-stream-text" style="font-size:.85rem; color:var(--text); white-space:pre-wrap; word-break:break-word"></div>
+      `;
       box.appendChild(div);
       streamEl = div;
     }
@@ -861,11 +933,8 @@ function sendAiMessage() {
   renderAiMessages();
   input.value = '';
 
-  var sendBtn = document.getElementById('ai-send-btn');
-  if (sendBtn) {
-    sendBtn.disabled = true;
-    sendBtn.innerHTML = '<span class="stocky-spinner" style="border-top-color:#fff;border-color:rgba(255,255,255,0.35);margin-right:5px;"></span> Думает…';
-  }
+  // Переключаем кнопку в режим "Остановить"
+  setAiButtonToStopMode();
 
   // Автоматическое определение расчёта спецификации оборудования / материалов
   var isDeviceCalc = (mode === 'parse_devices') ||
@@ -878,6 +947,8 @@ function sendAiMessage() {
     mode = 'general';
   }
 
+  _aiAbortController = new AbortController();
+
   // ─── РЕЖИМ: parse_devices (обычный JSON, без streaming) ─────────────────────
   if (mode === 'parse_devices') {
     S.aiLoading = true;
@@ -886,7 +957,8 @@ function sendAiMessage() {
     fetch('/api/ai/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.token },
-      body: JSON.stringify({ message: text, mode: mode, cardContext: cardCtx })
+      body: JSON.stringify({ message: text, mode: mode, cardContext: cardCtx }),
+      signal: _aiAbortController.signal
     })
     .then(function(r) {
       if (r.status === 429) { throw { limit: true, message: 'Достигнут дневной лимит сообщений' }; }
@@ -902,6 +974,9 @@ function sendAiMessage() {
       renderMaterialsCalculatorResponse(data);
     })
     .catch(function(err) {
+      if (err && (err.name === 'AbortError' || err.message === 'The user aborted a request.')) {
+        return;
+      }
       removeAiLoadingIndicator();
       S.aiMessages = S.aiMessages || [];
       S.aiMessages.push({ role: 'assistant', content: '⚠️ Ошибка: ' + (err.message || 'Неизвестная ошибка'), time: '' });
@@ -910,6 +985,7 @@ function sendAiMessage() {
     .finally(function() {
       S.aiLoading = false;
       resetAiSendBtn();
+      _aiAbortController = null;
     });
     return;
   }
@@ -922,19 +998,29 @@ function sendAiMessage() {
   var loadSubtitle = 'Анализирую данные и формирую ответ...';
   showAiLoadingIndicator(loadSubtitle);
 
+  var incomingMessageId = null;
+
   startAiSmoothTyping(function(finalMsg) {
     removeAiLoadingIndicator();
     S.aiStreaming = false; S.aiLoading = false;
     resetAiSendBtn();
     finalMsg = finalMsg || '⚠️ Нейросеть не вернула текст ответа. Проверьте доступность модели Ollama.';
-    S.aiMessages.push({ role: 'assistant', content: finalMsg, time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) });
+    S.aiMessages.push({
+      id: incomingMessageId,
+      role: 'assistant',
+      content: finalMsg,
+      time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
+    });
     renderAiMessages();
+    _aiAbortController = null;
+    _aiCurrentReader = null;
   });
 
   fetch('/api/ai/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.token },
-    body: JSON.stringify({ message: text, mode: mode, cardContext: cardCtx })
+    body: JSON.stringify({ message: text, mode: mode, cardContext: cardCtx }),
+    signal: _aiAbortController.signal
   }).then(function(r) {
     if (r.status === 429) { throw { limit: true, message: 'Достигнут дневной лимит сообщений' }; }
     if (r.status === 403) { throw { message: 'Нет доступа к этому режиму' }; }
@@ -943,6 +1029,7 @@ function sendAiMessage() {
   }).then(function(res) {
     if (!res.body || !res.body.getReader) { throw new Error('Нет streaming-поддержки'); }
     var reader = res.body.getReader();
+    _aiCurrentReader = reader;
     var decoder = new TextDecoder('utf-8');
     var buffer = '';
     var hasStreamStarted = false;
@@ -950,13 +1037,20 @@ function sendAiMessage() {
     function pump() {
       return reader.read().then(function(result) {
         if (result.done) {
+          _aiCurrentReader = null;
           finishAiStream(function(finalMsg) {
             removeAiLoadingIndicator();
             S.aiStreaming = false; S.aiLoading = false;
             resetAiSendBtn();
             finalMsg = finalMsg || '⚠️ Нейросеть не вернула текст ответа. Проверьте доступность модели Ollama.';
-            S.aiMessages.push({ role: 'assistant', content: finalMsg, time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) });
+            S.aiMessages.push({
+              id: incomingMessageId,
+              role: 'assistant',
+              content: finalMsg,
+              time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
+            });
             renderAiMessages();
+            _aiAbortController = null;
           });
           return;
         }
@@ -975,6 +1069,9 @@ function sendAiMessage() {
           if (payload === '[DONE]') continue;
           try {
             var obj = JSON.parse(payload);
+            if (obj.messageId) {
+              incomingMessageId = obj.messageId;
+            }
             if (obj.error) {
               S.aiStreamText = '⚠️ Ошибка нейросети: ' + obj.error;
               renderAiStreamingReply();
@@ -993,6 +1090,10 @@ function sendAiMessage() {
     }
     return pump();
   }).catch(function(err) {
+    if (err && (err.name === 'AbortError' || err.message === 'The user aborted a request.')) {
+      // Пользователь нажал "Остановить" — остановка обработана в stopAiGeneration
+      return;
+    }
     stopAiSmoothTyping();
     removeAiLoadingIndicator();
     if (err && err.limit) {
@@ -1003,17 +1104,155 @@ function sendAiMessage() {
       S.aiMessages.push({ role: 'assistant', content: '⚠️ Ошибка соединения с сервером', time: '' });
     }
     S.aiStreaming = false; S.aiLoading = false;
+    _aiAbortController = null;
+    _aiCurrentReader = null;
     resetAiSendBtn();
     renderAiMessages();
   });
 }
 
-function resetAiSendBtn() {
+var _aiAbortController = null;
+var _aiCurrentReader = null;
+
+function setAiButtonToStopMode() {
   var sendBtn = document.getElementById('ai-send-btn');
   if (sendBtn) {
-    sendBtn.disabled = false;
-    sendBtn.innerHTML = 'Отправить ➔';
+    sendBtn.outerHTML = '<button class="btn btn-ai-stop" id="ai-stop-btn" onclick="stopAiGeneration()" title="Остановить генерацию ответа (Esc)"><span class="stop-icon">■</span> Остановить</button>';
   }
+}
+
+function resetAiSendBtn() {
+  var stopBtn = document.getElementById('ai-stop-btn');
+  if (stopBtn) {
+    stopBtn.outerHTML = '<button class="btn" id="ai-send-btn" onclick="sendAiMessage()">Отправить ➔</button>';
+  } else {
+    var sendBtn = document.getElementById('ai-send-btn');
+    if (sendBtn) {
+      sendBtn.disabled = false;
+      sendBtn.innerHTML = 'Отправить ➔';
+    }
+  }
+}
+
+function stopAiGeneration() {
+  if (!S.aiStreaming && !S.aiLoading) return;
+
+  if (_aiAbortController) {
+    try { _aiAbortController.abort(); } catch(e){}
+    _aiAbortController = null;
+  }
+
+  if (_aiCurrentReader) {
+    try { _aiCurrentReader.cancel(); } catch(e){}
+    _aiCurrentReader = null;
+  }
+
+  stopAiSmoothTyping();
+  removeAiLoadingIndicator();
+
+  // Сохраняем накопленный к моменту остановки текст ответа
+  var partialText = (_aiStreamTargetText && _aiCurrentLength > 0 ? _aiStreamTargetText.slice(0, _aiCurrentLength) : _aiStreamTargetText) || S.aiStreamText || '';
+  partialText = partialText.trim();
+
+  var streamBox = document.getElementById('ai-stream-box');
+  if (streamBox) streamBox.remove();
+
+  if (partialText) {
+    S.aiMessages = S.aiMessages || [];
+    S.aiMessages.push({
+      role: 'assistant',
+      content: partialText,
+      stopped: true,
+      time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
+    });
+  }
+
+  S.aiStreaming = false;
+  S.aiLoading = false;
+  S.aiStreamText = '';
+  resetAiSendBtn();
+  renderAiMessages();
+  showToast('Генерация ответа остановлена ⏹️', 'warning');
+}
+
+function rateAiMessage(index, rating) {
+  var m = (S.aiMessages || [])[index];
+  if (!m) return;
+
+  var newRating = (m.rating === rating) ? null : rating;
+  m.rating = newRating;
+  renderAiMessages();
+
+  if (m.id) {
+    api('/ai/messages/' + m.id + '/rate', {
+      method: 'POST',
+      body: JSON.stringify({ rating: newRating })
+    }).catch(function(err) {
+      console.error('Ошибка сохранения отметки:', err);
+    });
+  }
+
+  if (newRating === 'like') {
+    showToast('Отметка: Норм 👍');
+  } else if (newRating === 'dislike') {
+    showToast('Отметка: Дизлайк 👎 (учтём для улучшения ответов)');
+  } else {
+    showToast('Отметка снята');
+  }
+}
+
+function copyAiMessageText(index) {
+  var m = (S.aiMessages || [])[index];
+  if (!m || !m.content) return;
+  var text = m.content;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function() {
+      showToast('Ответ скопирован в буфер 📋', 'info');
+    }).catch(function() {
+      fallbackCopyText(text);
+    });
+  } else {
+    fallbackCopyText(text);
+  }
+}
+
+function fallbackCopyText(text) {
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+    showToast('Ответ скопирован в буфер 📋', 'info');
+  } catch(e) {
+    alert('Не удалось скопировать в буфер');
+  }
+  document.body.removeChild(ta);
+}
+
+function clearAiChatHistory() {
+  if (!confirm('Вы уверены, что хотите очистить переписку со Стоки?')) return;
+  api('/ai/history', { method: 'DELETE' }).then(function() {
+    S.aiMessages = [];
+    renderAiMessages();
+    showToast('История переписки со Стоки очищена', 'info');
+  }).catch(function(err) {
+    console.error('Ошибка очистки истории:', err);
+    S.aiMessages = [];
+    renderAiMessages();
+  });
+}
+
+// Глобальная обработка клавиши Escape для быстрой остановки генерации Стоки
+if (!window._aiEscapeListenerAttached) {
+  window._aiEscapeListenerAttached = true;
+  window.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && (S.aiStreaming || S.aiLoading)) {
+      stopAiGeneration();
+    }
+  });
 }
 
 // ─── Умный калькулятор материалов (parse_devices) ────────────────────────────
@@ -1039,12 +1278,14 @@ function renderMaterialsCalculatorResponse(data) {
 
   S.aiMessages = S.aiMessages || [];
   S.aiMessages.push({
+    id: data.messageId || null,
     role: 'assistant',
     content: intro,
     time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }),
     isHtml: html
   });
   renderAiMessages();
+
 }
 
 
@@ -1633,36 +1874,61 @@ function executeStepAsk(params, tasks) {
   });
   renderAiMessages();
 
+  _aiAbortController = new AbortController();
+  setAiButtonToStopMode();
+  var stepMsgId = null;
+
   return fetch('/api/ai/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.token },
-    body: JSON.stringify({ message: message, mode: 'general' })
+    body: JSON.stringify({ message: message, mode: 'general' }),
+    signal: _aiAbortController.signal
   }).then(function(r) {
-    if (!r.ok) throw new Error('Ошибка запроса к ИИ');
+    if (!r.ok) {
+      resetAiSendBtn();
+      throw new Error('Ошибка запроса к ИИ');
+    }
     // Streaming SSE
     return new Promise(function(resolve) {
-      if (!r.body || !r.body.getReader) { resolve(); return; }
+      if (!r.body || !r.body.getReader) { resetAiSendBtn(); resolve(); return; }
       var reader = r.body.getReader();
+      _aiCurrentReader = reader;
       var decoder = new TextDecoder('utf-8');
       var buffer = '';
       S.aiStreamText = '';
 
       startAiSmoothTyping(function(finalMsg) {
         removeAiLoadingIndicator();
+        resetAiSendBtn();
         finalMsg = finalMsg || '⚠️ Нет ответа от модели';
-        S.aiMessages.push({ role: 'assistant', content: finalMsg, time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) });
+        S.aiMessages.push({
+          id: stepMsgId,
+          role: 'assistant',
+          content: finalMsg,
+          time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
+        });
         renderAiMessages();
+        _aiAbortController = null;
+        _aiCurrentReader = null;
         resolve();
       });
 
       function pump() {
         reader.read().then(function(result) {
           if (result.done) {
+            _aiCurrentReader = null;
             finishAiStream(function(finalMsg) {
               removeAiLoadingIndicator();
+              resetAiSendBtn();
               finalMsg = finalMsg || '⚠️ Нет ответа от модели';
-              S.aiMessages.push({ role: 'assistant', content: finalMsg, time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) });
+              S.aiMessages.push({
+                id: stepMsgId,
+                role: 'assistant',
+                content: finalMsg,
+                time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
+              });
               renderAiMessages();
+              _aiAbortController = null;
               resolve();
             });
             return;
@@ -1677,14 +1943,25 @@ function executeStepAsk(params, tasks) {
             if (payload === '[DONE]') return;
             try {
               var obj = JSON.parse(payload);
+              if (obj.messageId) stepMsgId = obj.messageId;
               if (obj.delta) { S.aiStreamText += obj.delta; renderAiStreamingReply(); }
             } catch(e) {}
           });
           pump();
+        }).catch(function(err) {
+          resetAiSendBtn();
+          _aiAbortController = null;
+          _aiCurrentReader = null;
+          resolve();
         });
       }
       pump();
     });
+  }).catch(function(err) {
+    resetAiSendBtn();
+    _aiAbortController = null;
+    _aiCurrentReader = null;
+    throw err;
   });
 }
 
