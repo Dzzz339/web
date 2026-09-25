@@ -1,83 +1,125 @@
-// public/js/pages/kanban.js - Обновленный Канбан процессов и заявок StockEasy
-// Реализует регламентную воронку 11 процессов и 13 макро-статусов
-// Поддерживает drag-and-drop, быстрые фильтры, мультиклиентность (без жесткой привязки к Сберу)
+// public/js/pages/kanban.js - Операционный Канбан конвейер StockEasy
+// Реализует полную воронку из 10 этапов процессов по регламенту Алексея Чайки (П0–П10)
+// Поддерживает drag-and-drop, быстрые фильтры, двухъярусный футер карточек и раздельные суммы
 
 var KANBAN_COLS = [
   {
-    id: 'review',
-    label: '1. Приём и Разбор',
-    cls: 'c-request',
+    id: 'new',
+    label: '1. Новые (за сегодня)',
     color: '#475569',
     badgeCls: 'b-gray',
     icon: '📥',
-    processRange: 'П0–П1',
-    desc: 'Первичный разбор, проверка ТЗ, оценка рентабельности',
-    macroStatuses: ['new', 'review'],
-    targetMacro: 'review',
+    processRange: 'П0',
+    desc: 'Только поступили с портала Заказчика, утренний срез',
+    macroStatuses: ['new'],
+    targetMacro: 'new',
     stages: [0]
   },
   {
-    id: 'assigned',
-    label: '2. Назначение и ТМЦ',
-    cls: 'c-survey',
+    id: 'review',
+    label: '2. На проверке ТЗ',
+    color: '#2563EB',
+    badgeCls: 'b-blue',
+    icon: '🔍',
+    processRange: 'П1',
+    desc: 'Сверка исходных данных, понятность ТЗ, соответствие договору',
+    macroStatuses: ['review'],
+    targetMacro: 'review',
+    stages: []
+  },
+  {
+    id: 'rejected',
+    label: '3. Отклонены / Доработка',
+    color: '#DC2626',
+    badgeCls: 'b-red',
+    icon: '⛔',
+    processRange: 'П1 (возврат)',
+    desc: 'Ошибки в ТЗ, нет схем/адреса, возврат Заказчику на уточнение',
+    macroStatuses: ['rejected', 'cancelled'],
+    targetMacro: 'rejected',
+    stages: []
+  },
+  {
+    id: 'in_progress',
+    label: '4. В поиске подрядчика',
     color: '#7C3AED',
     badgeCls: 'b-purple',
     icon: '🤝',
-    processRange: 'П2–П3',
-    desc: 'Выбор субподрядчиков, наряды, допуски, комплектация ТМЦ',
-    macroStatuses: ['in_progress', 'assigned'],
+    processRange: 'П2',
+    desc: 'Принято в работу, подбор субподрядчиков (СКС/ВОЛС)',
+    macroStatuses: ['in_progress'],
+    targetMacro: 'in_progress',
+    stages: [1]
+  },
+  {
+    id: 'assigned',
+    label: '5. Назначено / ТМЦ',
+    color: '#DB2777',
+    badgeCls: 'b-pink',
+    icon: '📋',
+    processRange: 'П3',
+    desc: 'Подрядчик выбран, наряды, допуски, комплектация ТМЦ',
+    macroStatuses: ['assigned'],
     targetMacro: 'assigned',
-    stages: [1, 2]
+    stages: [2]
   },
   {
     id: 'install',
-    label: '3. Монтаж СМР',
-    cls: 'c-install',
+    label: '6. В монтаже (СМР)',
     color: '#D97706',
     badgeCls: 'b-install',
     icon: '🔧',
-    processRange: 'П4–П5а',
-    desc: 'СМР на объекте, кабельный журнал, исправление дефектов',
-    macroStatuses: ['install', 'smr_done', 'correction'],
+    processRange: 'П4',
+    desc: 'СМР на объекте, прокладка кабеля, монтаж портов',
+    macroStatuses: ['install'],
     targetMacro: 'install',
     stages: [3]
   },
   {
-    id: 'design',
-    label: '4. Разработка ИД',
-    cls: 'c-control',
-    color: '#0284C7',
-    badgeCls: 'b-cyan',
-    icon: '📐',
-    processRange: 'П5б–П6',
-    desc: 'Альбом ИД (норматив 3 дня), опись и передача Заказчику',
-    macroStatuses: ['id_in_progress', 'id_delivered'],
-    targetMacro: 'id_in_progress',
-    stages: [4, 5]
+    id: 'smr_done',
+    label: '7. СМР выполнено',
+    color: '#059669',
+    badgeCls: 'b-green',
+    icon: '🏁',
+    processRange: 'П5а',
+    desc: 'Монтаж завершен, фотоотчеты и ТМЦ у куратора',
+    macroStatuses: ['smr_done', 'correction'],
+    targetMacro: 'smr_done',
+    stages: []
   },
   {
-    id: 'acceptance',
-    label: '5. Приёмка Заказчиком',
-    cls: 'c-acceptance',
-    color: '#059669',
-    badgeCls: 'b-acceptance',
+    id: 'id_in_progress',
+    label: '8. ИД в разработке',
+    color: '#0891B2',
+    badgeCls: 'b-cyan',
+    icon: '📐',
+    processRange: 'П5б',
+    desc: 'Проектировщик готовит альбом ИД (норматив 3 дня)',
+    macroStatuses: ['id_in_progress'],
+    targetMacro: 'id_in_progress',
+    stages: [4]
+  },
+  {
+    id: 'accepted',
+    label: '9. На приёмке Заказчиком',
+    color: '#4F46E5',
+    badgeCls: 'b-indigo',
     icon: '🏛️',
-    processRange: 'П7',
-    desc: 'Финальная приёмка Заказчиком, подписание итогового акта',
-    macroStatuses: ['accepted'],
+    processRange: 'П6–П7',
+    desc: 'ИД и СМР переданы на портал, акты выставлены',
+    macroStatuses: ['id_delivered', 'accepted'],
     targetMacro: 'accepted',
-    stages: [6]
+    stages: [5, 6]
   },
   {
     id: 'billing',
-    label: '6. Оплата и Закрытие',
-    cls: 'c-payment',
+    label: '10. Оплата и Закрытие',
     color: '#16A34A',
     badgeCls: 'b-payment',
     icon: '💰',
-    processRange: 'П8–П9',
-    desc: 'Акты КС-2/КС-3, расчеты с подрядчиками, закрытие',
-    macroStatuses: ['billing', 'paid'],
+    processRange: 'П8–П10',
+    desc: 'Акты КС-2/КС-3, расчеты, оплачено, объект в архиве',
+    macroStatuses: ['billing', 'paid', 'archived'],
     targetMacro: 'billing',
     stages: [7, 8, 9]
   }
@@ -85,6 +127,9 @@ var KANBAN_COLS = [
 
 function getTaskKanbanCol(t) {
   var ms = String(t.macroStatus || '').toLowerCase().trim();
+  if (t.status === 'cancelled' || ms === 'rejected' || ms === 'cancelled') {
+    return KANBAN_COLS[2]; // 'rejected'
+  }
   if (ms) {
     for (var i = 0; i < KANBAN_COLS.length; i++) {
       if (KANBAN_COLS[i].macroStatuses.includes(ms)) return KANBAN_COLS[i];
@@ -195,6 +240,8 @@ function pageKanban() {
   var cust = S.kanbanCustomer || '';
   var quick = S.kanbanQuick || 'all';
 
+  var todayStr = new Date().toISOString().split('T')[0];
+
   var regions = Array.from(new Set(S.tasks.map(function(t){ return (t.region || '').trim(); }).filter(Boolean))).sort();
   var managers = Array.from(new Set(S.tasks.map(function(t){ return (t.manager || '').trim(); }).filter(Boolean))).sort();
   var customers = Array.from(new Set(S.tasks.map(function(t){ return (t.customer || '').trim(); }).filter(Boolean))).sort();
@@ -214,7 +261,11 @@ function pageKanban() {
     if (cust && (t.customer || '').trim() !== cust) return false;
 
     // Быстрый фильтр
-    if (quick === 'overdue') {
+    if (quick === 'today') {
+      var isToday = (t.dateZayavki && t.dateZayavki === todayStr) || 
+                    (t.currentDate && t.currentDate === todayStr);
+      if (!isToday && (t.macroStatus || 'new') !== 'new') return false;
+    } else if (quick === 'overdue') {
       var isOvd = t.overdueDays > 0 || (t.stageDue && new Date(t.stageDue) < new Date());
       if (!isOvd) return false;
     } else if (quick === 'remarks') {
@@ -245,6 +296,9 @@ function pageKanban() {
   var totalRemarks = filtered.reduce(function(sum, t){ 
     return sum + Number(t.openRemarksCount || 0); 
   }, 0);
+  var todayCount = S.tasks.filter(function(t){
+    return !t.archived && ((t.dateZayavki && t.dateZayavki === todayStr) || (t.currentDate && t.currentDate === todayStr) || (t.macroStatus || 'new') === 'new');
+  }).length;
 
   // Отрисовка колонок
   var board = '';
@@ -269,6 +323,8 @@ function pageKanban() {
       var openRem = Number(t.openRemarksCount || 0);
       var curMs = (t.macroStatus || 'new').toLowerCase();
       var custName = (t.customer || '').trim();
+
+      var isTaskToday = (t.dateZayavki && t.dateZayavki === todayStr) || (t.currentDate && t.currentDate === todayStr);
 
       // Бейдж срока / просрочки
       var dueBadge = '';
@@ -302,11 +358,19 @@ function pageKanban() {
         '</div>';
       }
 
-      // Выпадающий список всех 13 макро-статусов прямо на карточке
+      // Выпадающий список всех макро-статусов
       var statusOptions = Object.keys(MACRO_STATUSES).map(function(k){
         var msObj = MACRO_STATUSES[k];
         return '<option value="' + k + '"' + (curMs === k ? ' selected' : '') + '>' + msObj.icon + ' ' + msObj.name + '</option>';
       }).join('');
+
+      // Примечание / комментарий для отклонённых заявок
+      var rejectReasonHtml = '';
+      if (col.id === 'rejected' && t.comment) {
+        rejectReasonHtml = '<div style="font-size:.69rem;color:var(--red);background:#fef2f2;border:1px solid #fecaca;padding:3px 6px;border-radius:4px;margin:3px 0;line-height:1.25">' +
+          '⚠️ ' + escHtml(t.comment) +
+        '</div>';
+      }
 
       cards += '<div class="kcard" draggable="true" ' +
         'ondragstart="kanbanCardDragStart(event, \'' + tid + '\')" ' +
@@ -317,6 +381,7 @@ function pageKanban() {
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">' +
           '<div style="display:flex;align-items:center;gap:4px">' +
             '<span style="font-weight:700;color:var(--orange);font-size:.82rem">№ ' + escHtml(t.id) + '</span>' +
+            (isTaskToday && col.id === 'new' ? '<span class="badge b-blue" style="font-size:.62rem;padding:1px 5px">✨ Сегодня</span>' : '') +
             (openRem > 0 ? '<span class="badge b-red" style="font-size:.65rem;padding:1px 5px" title="Неустраненные замечания: ' + openRem + '">⚠️ ' + openRem + '</span>' : '') +
           '</div>' +
           prBadge(t.priority) +
@@ -335,6 +400,8 @@ function pageKanban() {
           escHtml(t.address || t.title || 'Без адреса') +
         '</div>' +
 
+        rejectReasonHtml +
+
         // 4. Исполнитель слева, Срок / Просрочка справа
         '<div style="font-size:.72rem;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center">' +
           '<span style="color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;margin-right:6px" title="' + escHtml(t.contractor || t.assignee || 'Не назначен') + '">' +
@@ -350,7 +417,7 @@ function pageKanban() {
           '<span style="font-weight:700;color:var(--blue)">' + fmtMoney(fin.total || t.amount) + '</span>' +
         '</div>' +
 
-        // 6. Подвал карточки (ВАРИАНТ 1: ДВУХЪЯРУСНЫЙ):
+        // 6. Подвал карточки (ДВУХЪЯРУСНЫЙ):
         // Ярус 1: Выпадающий список макро-статуса + кнопка отката
         '<div style="display:flex;align-items:center;gap:4px;margin-top:6px" onclick="event.stopPropagation()">' +
           '<select class="kcard-status-select" onchange="changeTaskMacroStatus(\'' + tid + '\', this.value)" title="Макро-статус процесса">' +
@@ -373,7 +440,7 @@ function pageKanban() {
     });
 
     board += '<div class="kcol" id="kcol-' + col.id + '">' +
-      '<div class="kcol-hdr ' + col.cls + '">' +
+      '<div class="kcol-hdr" style="background:' + col.color + '">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px">' +
           '<span style="font-weight:700;display:flex;align-items:center;gap:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
             col.icon + ' ' + col.label +
@@ -401,12 +468,14 @@ function pageKanban() {
 
   // Быстрые фильтры chips
   var isAllActive = !quick || quick === 'all';
+  var isTodayActive = quick === 'today';
   var isOvdActive = quick === 'overdue';
   var isRemActive = quick === 'remarks';
   var isMineActive = quick === 'mine';
 
   var quickFiltersHtml = '<div style="display:flex;gap:.4rem;align-items:center;margin-bottom:.75rem;flex-wrap:wrap">' +
     '<button type="button" class="quick-filter-chip' + (isAllActive ? ' active' : '') + '" onclick="setKanbanQuick(\'all\')">Все объекты (' + S.tasks.filter(function(t){ return !t.archived; }).length + ')</button>' +
+    '<button type="button" class="quick-filter-chip' + (isTodayActive ? ' active' : '') + '" onclick="setKanbanQuick(\'today\')">📥 Новые сегодня (' + todayCount + ')</button>' +
     '<button type="button" class="quick-filter-chip' + (isOvdActive ? ' active' : '') + '" onclick="setKanbanQuick(\'overdue\')">⏳ С просрочкой (' + S.tasks.filter(function(t){ return !t.archived && (t.overdueDays > 0 || (t.stageDue && new Date(t.stageDue) < new Date())); }).length + ')</button>' +
     '<button type="button" class="quick-filter-chip' + (isRemActive ? ' active' : '') + '" onclick="setKanbanQuick(\'remarks\')">⚠️ С замечаниями (' + S.tasks.filter(function(t){ return !t.archived && Number(t.openRemarksCount || 0) > 0; }).length + ')</button>' +
     '<button type="button" class="quick-filter-chip' + (isMineActive ? ' active' : '') + '" onclick="setKanbanQuick(\'mine\')">👤 Мои объекты</button>' +
@@ -421,8 +490,8 @@ function pageKanban() {
   '</div>';
 
   return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;flex-wrap:wrap;gap:.5rem">' +
-      '<h1 class="page-title" style="margin-bottom:0">Канбан — Регламентная воронка процессов</h1>' +
-      '<div style="font-size:.78rem;color:var(--text-3)">11 сквозных процессов • 13 макро-статусов</div>' +
+      '<h1 class="page-title" style="margin-bottom:0">Канбан — Операционный конвейер процессов</h1>' +
+      '<div style="font-size:.78rem;color:var(--text-3)">10 этапов воронки • Сквозной жизненный цикл объекта</div>' +
     '</div>' +
     quickFiltersHtml +
     '<div style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.75rem;align-items:center">' +

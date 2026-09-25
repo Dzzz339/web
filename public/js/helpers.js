@@ -169,6 +169,7 @@ function idStageBadge(stageNum) {
 var MACRO_STATUSES = {
   new: { code: 'new', name: 'Новая', color: '#6B7280', badgeClass: 'b-gray', icon: '📥', step: 0 },
   review: { code: 'review', name: 'Рассмотрение', color: '#3B82F6', badgeClass: 'b-blue', icon: '🔍', step: 1 },
+  rejected: { code: 'rejected', name: 'Отклонена / Доработка', color: '#EF4444', badgeClass: 'b-red', icon: '⛔', step: 1.5 },
   in_progress: { code: 'in_progress', name: 'В работе', color: '#8B5CF6', badgeClass: 'b-purple', icon: '🤝', step: 2 },
   assigned: { code: 'assigned', name: 'Назначено исполнителю', color: '#EC4899', badgeClass: 'b-pink', icon: '📋', step: 3 },
   install: { code: 'install', name: 'В монтаже', color: '#F59E0B', badgeClass: 'b-install', icon: '🔧', step: 4 },
@@ -428,7 +429,17 @@ function getTaskContractorFinance(t) {
   var unitPrice = 0;
   var total = 0;
 
-  if (items && items.length > 0) {
+  // 1. Если есть назначенные субподряды с зафиксированной стоимостью
+  if (t.subcontracts && Array.isArray(t.subcontracts) && t.subcontracts.length > 0) {
+    t.subcontracts.forEach(function(s) {
+      total += Number(s.price_agreed || 0);
+    });
+    work = total;
+    var count = Number(t.fact) || Number(t.inOrder) || 1;
+    unitPrice = count > 0 ? Math.round(work / count) : work;
+  }
+  // 2. Если есть спецификация с заполненными ставками подрядчика
+  else if (items && items.length > 0 && items.some(function(it){ return (Number(it.price_contractor || it.priceContractor) || 0) > 0; })) {
     items.forEach(function(it) {
       var q = Number(it.quantity) || 1;
       var pr = Number(it.price_contractor || it.priceContractor) || 0;
@@ -438,7 +449,9 @@ function getTaskContractorFinance(t) {
       transport += Number(it.distance_km || it.distanceKm) || 0;
     });
     total = work + transport;
-  } else {
+  } 
+  // 3. Если есть явная сумма оплаты из исходного реестра (t.oplata)
+  else {
     var parsedOplata = 0;
     if (t.oplata) {
       var clean = String(t.oplata).replace(/[^\d.,]/g, '').replace(',', '.');
@@ -450,10 +463,23 @@ function getTaskContractorFinance(t) {
       unitPrice = count > 0 ? Math.round(total / count) : total;
       work = total;
     } else {
-      unitPrice = 0;
-      transport = 0;
-      work = 0;
-      total = 0;
+      // 4. Нормативный расчет ставки субподряда по регламенту П0–П10
+      var ports = Number(t.fact) || Number(t.inOrder) || 0;
+      var custFin = getTaskFinance(t);
+      
+      if (ports > 0) {
+        unitPrice = ports >= 3 ? 3750 : (ports === 2 ? 4250 : 5000);
+        work = ports * unitPrice;
+      } else if (custFin.work > 0) {
+        work = Math.round(custFin.work * 0.58);
+        unitPrice = work;
+      }
+      
+      if (custFin.transport > 0) {
+        transport = Math.round(custFin.transport * 0.75);
+      }
+      
+      total = work + transport;
     }
   }
 

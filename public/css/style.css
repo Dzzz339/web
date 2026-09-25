@@ -661,8 +661,9 @@
     tbody td { padding: 8px 11px; border-bottom: 1px solid #F4F4F5; vertical-align: middle; }
     tbody tr:hover td { background: var(--orange-bg); }
     tbody tr:last-child td { border-bottom: none; }
-    .tasks-table th { padding: 8px 7px; font-size: .68rem; }
-    .tasks-table td { padding: 7px 7px; font-size: .78rem; }
+    .tasks-table th { padding: 9px 8px; font-size: .72rem; letter-spacing: .2px; }
+    .tasks-table td { padding: 8px 8px; font-size: .8rem; line-height: 1.35; }
+    .tasks-table tr:hover td { background: #fff7ed; }
 
     /* CHAIN */
     .chain-steps { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -683,7 +684,7 @@
 
     /* KANBAN */
     .kanban { display: flex; gap: .85rem; overflow-x: auto; padding-bottom: 1rem; align-items: flex-start; }
-    .kcol { min-width: 260px; max-width: 320px; flex: 1; flex-shrink: 0; display: flex; flex-direction: column; }
+    .kcol { min-width: 250px; max-width: 290px; flex: 1; flex-shrink: 0; display: flex; flex-direction: column; }
     .kcol-hdr { padding: 8px 12px; border-radius: 8px; font-size: .74rem; font-weight: 700; letter-spacing: .2px; color: #fff; margin-bottom: .4rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
     .kcol-cnt-badge { background: rgba(255,255,255,0.25); border-radius: 10px; padding: 1px 7px; font-size: .68rem; font-weight: 700; flex-shrink: 0; }
     .kcol-sum-line { display: flex; justify-content: space-between; align-items: center; font-size: .71rem; margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.22); }
