@@ -670,6 +670,14 @@ function removeAiLoadingIndicator() {
   if (loader) loader.remove();
 }
 
+function formatAiMessageContent(rawText) {
+  var escaped = escHtml(rawText || '');
+  // Находим [#12345] или [Заявка #12345] или #12345 и превращаем в кликабельные кнопки для перехода к карточке заявки
+  return escaped.replace(/\[?(?:заявка\s*)?#(\d{1,8})\]?/gi, function(match, id) {
+    return '<button type="button" class="ai-task-link-badge" onclick="openCard(\'' + id + '\')" title="Открыть карточку заявки #' + id + '">#' + id + '</button>';
+  });
+}
+
 function renderAiMessages() {
   var box = document.getElementById('ai-messages');
   if (!box) return;
@@ -690,7 +698,7 @@ function renderAiMessages() {
     var bg = isUser ? 'var(--orange-bg)' : '#fff';
     var align = isUser ? 'flex-end' : 'flex-start';
     var border = isUser ? '1px solid #fed7aa' : '1px solid var(--border)';
-    var contentHtml = m.isHtml ? m.isHtml : ('<div style="font-size:.85rem; color:var(--text); white-space:pre-wrap; word-break:break-word" class="ai-msg-content">' + escHtml(m.content) + '</div>');
+    var contentHtml = m.isHtml ? m.isHtml : ('<div style="font-size:.85rem; color:var(--text); white-space:pre-wrap; word-break:break-word" class="ai-msg-content">' + (isUser ? escHtml(m.content) : formatAiMessageContent(m.content)) + '</div>');
     var stoppedTag = m.stopped ? '<div class="ai-stopped-tag">⏹️ Генерация остановлена</div>' : '';
 
     var footerHtml = '';
