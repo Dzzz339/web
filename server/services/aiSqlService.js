@@ -1,5 +1,16 @@
+import OpenAI from 'openai';
 import { pool } from '../config/db.js';
-import { getAiClient, AI_MODEL } from './aiFacade.js';
+
+const AI_BASE_URL = process.env.AI_BASE_URL || 'http://host.docker.internal:11434/v1';
+const AI_API_KEY  = process.env.AI_API_KEY  || 'ollama';
+const AI_MODEL    = process.env.AI_MODEL    || 'qwen-cpu:latest';
+
+let _aiClient = null;
+function getAiClient() {
+  if (!AI_BASE_URL) return null;
+  if (!_aiClient) _aiClient = new OpenAI({ baseURL: AI_BASE_URL, apiKey: AI_API_KEY || 'ollama' });
+  return _aiClient;
+}
 
 /**
  * Описание безопасных витрин данных Stockeasy для ИИ
