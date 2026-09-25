@@ -29,7 +29,17 @@ async function refreshEntityCache() {
           UNION
           SELECT assignee AS name FROM tasks WHERE archived = false AND assignee IS NOT NULL AND TRIM(assignee) != ''
           UNION
+          SELECT manager AS name FROM tasks WHERE archived = false AND manager IS NOT NULL AND TRIM(manager) != ''
+          UNION
+          SELECT controller AS name FROM tasks WHERE archived = false AND controller IS NOT NULL AND TRIM(controller) != ''
+          UNION
           SELECT name_short AS name FROM contractors WHERE name_short IS NOT NULL AND TRIM(name_short) != ''
+          UNION
+          SELECT name_full AS name FROM contractors WHERE name_full IS NOT NULL AND TRIM(name_full) != ''
+          UNION
+          SELECT full_name AS name FROM users WHERE full_name IS NOT NULL AND TRIM(full_name) != ''
+          UNION
+          SELECT username AS name FROM users WHERE username IS NOT NULL AND TRIM(username) != ''
         ) c
       `)
     ]);
@@ -135,7 +145,9 @@ export async function extractEntities(queryText) {
  */
 export async function getRegionSummary(regionName) {
   try {
-    const pattern = `%${regionName}%`;
+    const cleanWords = String(regionName).split(/[\s,.-]+/).filter(w => !['обл', 'область', 'край', 'г', 'город', 'р-н', 'район'].includes(w.toLowerCase()) && w.length >= 3);
+    const primaryWord = cleanWords[0] || regionName;
+    const pattern = `%${primaryWord}%`;
     const aggSql = `
       SELECT
         COUNT(*) AS total_count,
@@ -165,11 +177,11 @@ export async function getRegionSummary(regionName) {
 
         -- 3. Зависшие: монтаж готов, но оплата заказчиком НЕ произведена
         COUNT(*) FILTER (
-          (status = 'done' OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято'))
+          WHERE (status = 'done' OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято'))
           AND (oplata IS NULL OR LOWER(COALESCE(oplata, '')) NOT LIKE '%оплачен%')
         ) AS hung_unpaid_count,
         COALESCE(SUM(amount) FILTER (
-          (status = 'done' OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято'))
+          WHERE (status = 'done' OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято'))
           AND (oplata IS NULL OR LOWER(COALESCE(oplata, '')) NOT LIKE '%оплачен%')
         ), 0) AS hung_unpaid_amount,
 
@@ -238,7 +250,20 @@ export async function getRegionSummary(regionName) {
  */
 export async function getContractorSummary(contractorName) {
   try {
-    const pattern = `%${contractorName}%`;
+    const cleanWords = String(contractorName).split(/[\s,.-]+/).filter(w => !['ип', 'ооо', 'зао', 'ао'].includes(w.toLowerCase()) && w.length >= 3);
+    const primaryWord = cleanWords[0] || contractorName;
+    const pattern = `%${primaryWord}%`;
+
+    // 0. Поиск сотрудника в таблице пользователей
+    let userProfile = null;
+    try {
+      const uRes = await pool.query(
+        `SELECT id, username, full_name, role FROM users WHERE full_name ILIKE $1 OR username ILIKE $1 LIMIT 1`,
+        [pattern]
+      );
+      if (uRes.rows.length) userProfile = uRes.rows[0];
+    } catch (_) {}
+
     const aggSql = `
       SELECT
         COUNT(*) AS total_count,
@@ -246,38 +271,38 @@ export async function getContractorSummary(contractorName) {
 
         -- 1. Выполнено подрядчиком (подрядчик сдал монтаж и данные для ИД)
         COUNT(*) FILTER (
-          status = 'done' 
+          WHERE status = 'done' 
           OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято')
           OR LOWER(COALESCE(oplata, '')) LIKE '%оплачен%'
         ) AS contractor_done_count,
 
         -- 2. В процессе у подрядчика (до сдачи монтажа)
         COUNT(*) FILTER (
-          status != 'done' 
+          WHERE status != 'done' 
           AND LOWER(COALESCE(priemka, '')) NOT IN ('готово', 'принято')
           AND LOWER(COALESCE(oplata, '')) NOT LIKE '%оплачен%'
         ) AS contractor_in_work_count,
         COALESCE(SUM(amount) FILTER (
-          status != 'done' 
+          WHERE status != 'done' 
           AND LOWER(COALESCE(priemka, '')) NOT IN ('готово', 'принято')
           AND LOWER(COALESCE(oplata, '')) NOT LIKE '%оплачен%'
         ), 0) AS contractor_in_work_amount,
 
         -- 3. Закрыто компанией (оплачено)
         COUNT(*) FILTER (
-          LOWER(COALESCE(oplata, '')) LIKE '%оплачен%'
+          WHERE LOWER(COALESCE(oplata, '')) LIKE '%оплачен%'
         ) AS firm_paid_count,
         COALESCE(SUM(amount) FILTER (
-          LOWER(COALESCE(oplata, '')) LIKE '%оплачен%'
+          WHERE LOWER(COALESCE(oplata, '')) LIKE '%оплачен%'
         ), 0) AS firm_paid_amount,
 
         -- 4. Зависло без оплаты (подрядчик сдал монтаж, но компания не получила оплату/согласование)
         COUNT(*) FILTER (
-          (status = 'done' OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято'))
+          WHERE (status = 'done' OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято'))
           AND (oplata IS NULL OR LOWER(COALESCE(oplata, '')) NOT LIKE '%оплачен%')
         ) AS hung_unpaid_count,
         COALESCE(SUM(amount) FILTER (
-          (status = 'done' OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято'))
+          WHERE (status = 'done' OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято'))
           AND (oplata IS NULL OR LOWER(COALESCE(oplata, '')) NOT LIKE '%оплачен%')
         ), 0) AS hung_unpaid_amount,
 
@@ -288,19 +313,20 @@ export async function getContractorSummary(contractorName) {
           OR (excel_comment IS NOT NULL AND TRIM(excel_comment) != '')
         ) AS remarks_count
       FROM tasks
-      WHERE archived = false AND (contractor ILIKE $1 OR assignee ILIKE $1)
+      WHERE archived = false AND (contractor ILIKE $1 OR assignee ILIKE $1 OR manager ILIKE $1 OR controller ILIKE $1)
     `;
 
     const { rows: aggRows } = await pool.query(aggSql, [pattern]);
     const agg = aggRows[0] || {};
 
-    // Выборка всех или большинства заявок этого подрядчика
+    // Выборка всех или большинства заявок этого подрядчика / человека
     const tasksSql = `
       SELECT 
         id, region, address, status, priemka, oplata, id_status, amount, overdue_days, 
+        contractor, assignee, manager, controller,
         comment, excel_comment
       FROM tasks
-      WHERE archived = false AND (contractor ILIKE $1 OR assignee ILIKE $1)
+      WHERE archived = false AND (contractor ILIKE $1 OR assignee ILIKE $1 OR manager ILIKE $1 OR controller ILIKE $1)
       ORDER BY 
         CASE 
           WHEN (status = 'done' OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято')) 
@@ -315,6 +341,7 @@ export async function getContractorSummary(contractorName) {
 
     return {
       contractorName,
+      userProfile,
       agg,
       sampleTasks
     };
@@ -398,6 +425,51 @@ export async function getGlobalSummary() {
 }
 
 /**
+ * Срез по открытым замечаниям и проблемным комментариям
+ */
+export async function getRemarksSummary(filterPattern) {
+  try {
+    const params = [];
+    let filterClause = '';
+    if (filterPattern) {
+      const cleanWords = String(filterPattern).split(/[\s,.-]+/).filter(w => w.length >= 3);
+      const primary = cleanWords[0] || filterPattern;
+      params.push(`%${primary}%`);
+      filterClause = `AND (t.region ILIKE $1 OR t.contractor ILIKE $1 OR t.assignee ILIKE $1 OR t.manager ILIKE $1)`;
+    }
+
+    const [remarksRes, tasksWithCommentsRes] = await Promise.all([
+      pool.query(`
+        SELECT r.task_id, r.body, r.created_name, r.created_at, t.region, t.address, t.status, t.contractor, t.assignee
+        FROM remarks r
+        JOIN tasks t ON t.id = r.task_id
+        WHERE t.archived = false AND r.resolved_at IS NULL ${filterClause}
+        ORDER BY r.created_at DESC
+        LIMIT 15
+      `, params),
+      pool.query(`
+        SELECT id, region, address, status, contractor, assignee, comment, excel_comment, overdue_days
+        FROM tasks t
+        WHERE t.archived = false AND (
+          (t.comment IS NOT NULL AND TRIM(t.comment) != '') OR
+          (t.excel_comment IS NOT NULL AND TRIM(t.excel_comment) != '')
+        ) ${filterClause}
+        ORDER BY t.overdue_days DESC, t.id DESC
+        LIMIT 15
+      `, params)
+    ]);
+
+    return {
+      remarks: remarksRes.rows || [],
+      tasksWithComments: tasksWithCommentsRes.rows || []
+    };
+  } catch (err) {
+    console.error('[AI Facade getRemarksSummary Error]:', err.message);
+    return { remarks: [], tasksWithComments: [] };
+  }
+}
+
+/**
  * Формирование итогового текстового контекста для подачи в LLM
  */
 export async function buildContextForQuery(queryText, user) {
@@ -471,37 +543,38 @@ export async function buildContextForQuery(queryText, user) {
     }
   }
 
-  // 3. Если в вопросе упомянут конкретный подрядчик
+  // 3. Если в вопросе упомянут конкретный подрядчик / сотрудник
   if (entities.contractor) {
     const contData = await getContractorSummary(entities.contractor);
     if (contData.error) {
-      contextParts.push(`=== СРЕЗ ПО ПОДРЯДЧИКУ: ${entities.contractor} ===\n[${contData.error}]`);
+      contextParts.push(`=== СРЕЗ ПО СОТРУДНИКУ / ПОДРЯДЧИКУ: ${entities.contractor} ===\n[${contData.error}]`);
     } else {
       const a = contData.agg;
       const totalAmt = Number(a.total_amount || 0).toLocaleString('ru-RU');
       const paidAmt = Number(a.firm_paid_amount || 0).toLocaleString('ru-RU');
       const hungAmt = Number(a.hung_unpaid_amount || 0).toLocaleString('ru-RU');
+      const up = contData.userProfile;
 
-      let text = `=== ДЕТАЛЬНЫЙ АНАЛИТИЧЕСКИЙ СРЕЗ ПО ПОДРЯДЧИКУ: ${contData.contractorName} ===
-Всего числится на подрядчике: ${a.total_count} заявок на сумму ${totalAmt} руб.
+      let text = `=== ДЕТАЛЬНЫЙ АНАЛИТИЧЕСКИЙ СРЕЗ ПО СОТРУДНИКУ / ПОДРЯДЧИКУ: ${contData.contractorName} ===
+${up ? `Профиль в системе Stockeasy: ${up.full_name || up.username} (роль: ${up.role === 'admin' ? 'Администратор' : up.role === 'manager' ? 'Менеджер' : 'Исполнитель / Монтажник'})\n` : ''}Всего связано с сотрудником/подрядчиком: ${a.total_count} заявок на сумму ${totalAmt} руб.
 
-[Выполнение подрядчиком (отвечает за монтаж и сдачу исходных данных ИД)]
-• Подрядчик свою работу ВЫПОЛНИЛ: ${a.contractor_done_count} из ${a.total_count} заявок (статусы "готово", "принято", "оплачено")
-• В процессе монтажа у подрядчика: ${a.contractor_in_work_count} заявок
+[Выполнение монтажа (отвечает за монтаж и сдачу исходных данных ИД)]
+• Работу ВЫПОЛНИЛ: ${a.contractor_done_count} из ${a.total_count} заявок (статусы "готово", "принято", "оплачено")
+• В процессе монтажа: ${a.contractor_in_work_count} заявок
 
 [Закрытие компанией (финансовое получение оплаты от заказчика)]
 • Компанией закрыто и оплачено: ${a.firm_paid_count} заявок на сумму ${paidAmt} руб.
-• Зависли без оплаты (подрядчик сдал, но оплата заказчика не получена): ${a.hung_unpaid_count} заявок на сумму ${hungAmt} руб.
+• Зависли без оплаты (монтаж сдан, но оплата заказчика не получена): ${a.hung_unpaid_count} заявок на сумму ${hungAmt} руб.
 • Заявок с просрочкой: ${a.overdue_count}
 
-[Список заявок подрядчика]:`;
+[Список заявок]:`;
 
       if (contData.sampleTasks && contData.sampleTasks.length) {
         contData.sampleTasks.forEach(t => {
           const isPaid = (t.oplata || '').toLowerCase().includes('оплачен');
           const isDone = (t.status === 'done') || ['готово', 'принято'].includes((t.priemka || '').toLowerCase());
           const remark = t.comment || t.excel_comment || '';
-          text += `\n• Заявка #${t.id} [${t.region || ''}]: ${t.address || '—'} | Монтаж: ${isDone ? 'готово (подрядчик сдал)' : 'в работе'} | Оплата компании: ${isPaid ? 'оплачена' : 'НЕ ОПЛАЧЕНА (повисла)'} | Сумма: ${Number(t.amount || 0).toLocaleString('ru-RU')} руб.${remark ? ' | Замечание: ' + remark : ''}`;
+          text += `\n• Заявка #${t.id} [${t.region || ''}]: ${t.address || '—'} | Монтаж: ${isDone ? 'готово (сдано)' : 'в работе'} | Оплата компании: ${isPaid ? 'оплачена' : 'НЕ ОПЛАЧЕНА (повисла)'} | Сумма: ${Number(t.amount || 0).toLocaleString('ru-RU')} руб.${remark ? ' | Замечание: ' + remark : ''}`;
         });
       }
 
@@ -509,8 +582,26 @@ export async function buildContextForQuery(queryText, user) {
     }
   }
 
-  // 4. Если конкретные сущности не найдены или вопрос общий — добавляем общую сводку
-  if (!entities.region && !entities.contractor && !entities.taskId) {
+  // 4. Если в вопросе затронуты замечания, претензии, брак или комментарии
+  if (entities.isRemarks) {
+    const remData = await getRemarksSummary(entities.contractor || entities.region);
+    let text = `=== РЕЕСТР ЗАМЕЧАНИЙ И ПРЕТЕНЗИЙ ПО ОБЪЕКТАМ ===`;
+    if (remData.remarks && remData.remarks.length) {
+      text += `\n[Открытые замечания инспекторов]:\n` +
+        remData.remarks.map(r => `• Заявка #${r.task_id} [${r.region || ''}, ${r.address || ''}] от ${r.created_name || 'инспектора'}: "${r.body}" (${new Date(r.created_at).toLocaleDateString('ru-RU')})`).join('\n');
+    }
+    if (remData.tasksWithComments && remData.tasksWithComments.length) {
+      text += `\n[Объекты с замечаниями и проблемными комментариями]:\n` +
+        remData.tasksWithComments.map(t => `• Заявка #${t.id} [${t.region || ''}, ${t.address || ''}] | Исполнитель: ${t.contractor || t.assignee || '—'} | Просрочка: ${t.overdue_days || 0} дн. | Замечание: "${t.comment || t.excel_comment}"`).join('\n');
+    }
+    if (!remData.remarks.length && !remData.tasksWithComments.length) {
+      text += `\nНа текущий момент открытых замечаний и претензий по объектам не зафиксировано.`;
+    }
+    contextParts.push(text);
+  }
+
+  // 5. Если конкретные сущности не найдены или вопрос общий — добавляем общую сводку
+  if (!entities.region && !entities.contractor && !entities.taskId && !entities.isRemarks) {
     const globalData = await getGlobalSummary();
     if (!globalData.error) {
       const g = globalData.general;
