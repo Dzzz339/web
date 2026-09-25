@@ -1,0 +1,736 @@
+import { pool } from '../config/db.js';
+
+// Кеш известных сущностей (регионы, подрядчики) для быстрого извлечения без постоянной нагрузки на базу
+let _entityCache = {
+  regions: [],
+  contractors: [],
+  lastUpdated: 0
+};
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 минут
+
+/**
+ * Загрузка и обновление списка известных регионов и подрядчиков
+ */
+async function refreshEntityCache() {
+  const now = Date.now();
+  if (now - _entityCache.lastUpdated < CACHE_TTL_MS && _entityCache.regions.length > 0) {
+    return _entityCache;
+  }
+  try {
+    const [regRes, contRes] = await Promise.all([
+      pool.query(`
+        SELECT DISTINCT region 
+        FROM tasks 
+        WHERE archived = false AND region IS NOT NULL AND TRIM(region) != ''
+      `),
+      pool.query(`
+        SELECT DISTINCT name FROM (
+          SELECT contractor AS name FROM tasks WHERE archived = false AND contractor IS NOT NULL AND TRIM(contractor) != ''
+          UNION
+          SELECT assignee AS name FROM tasks WHERE archived = false AND assignee IS NOT NULL AND TRIM(assignee) != ''
+          UNION
+          SELECT manager AS name FROM tasks WHERE archived = false AND manager IS NOT NULL AND TRIM(manager) != ''
+          UNION
+          SELECT controller AS name FROM tasks WHERE archived = false AND controller IS NOT NULL AND TRIM(controller) != ''
+          UNION
+          SELECT name_short AS name FROM contractors WHERE name_short IS NOT NULL AND TRIM(name_short) != ''
+          UNION
+          SELECT name_full AS name FROM contractors WHERE name_full IS NOT NULL AND TRIM(name_full) != ''
+          UNION
+          SELECT full_name AS name FROM users WHERE full_name IS NOT NULL AND TRIM(full_name) != ''
+          UNION
+          SELECT username AS name FROM users WHERE username IS NOT NULL AND TRIM(username) != ''
+        ) c
+      `)
+    ]);
+
+    _entityCache.regions = regRes.rows.map(r => r.region.trim());
+    _entityCache.contractors = contRes.rows.map(r => r.name.trim());
+    _entityCache.lastUpdated = now;
+  } catch (err) {
+    console.error('[AI Facade Cache Error]:', err.message);
+  }
+  return _entityCache;
+}
+
+const STOP_WORDS = new Set([
+  'сколько', 'заявок', 'заявка', 'заявки', 'заявку', 'заявкам', 'заявках',
+  'выполнил', 'выполнила', 'выполнено', 'выполнили', 'выполнить',
+  'сделал', 'сделала', 'сделано', 'сделали', 'сдать', 'сдал', 'сдала', 'сдано', 'сдали',
+  'закрыл', 'закрыла', 'закрыто', 'закрыли', 'работе', 'монтаж', 'монтажник',
+  'подрядчик', 'подрядчика', 'подрядчику', 'подрядчиком', 'подрядчике',
+  'исполнитель', 'исполнителя', 'исполнителю', 'исполнителем',
+  'менеджер', 'менеджера', 'менеджеру', 'менеджером',
+  'контролер', 'контролера', 'контролеру', 'контролером',
+  'инженер', 'инженера', 'инженеру', 'инженером',
+  'объект', 'объекта', 'объекту', 'объектом', 'объекте', 'объекты', 'объектов',
+  'проект', 'проекты', 'проектов', 'статус', 'оплата', 'оплачено', 'неоплачено',
+  'замечания', 'брак', 'претензии', 'сбербанк', 'сбер', 'пао', 'ооо', 'зао', 'ип',
+  'привет', 'стоки', 'здравствуйте', 'добрый', 'день', 'вечер', 'утро',
+  'подскажи', 'скажи', 'покажи', 'найди', 'есть', 'было', 'будет',
+  'когда', 'почему', 'зачем', 'куда', 'откуда', 'какой', 'какая', 'какие', 'каких',
+  'всего', 'пожалуйста', 'спасибо'
+]);
+
+/**
+ * Получение основы (стемминга) для русского слова (нормализованное сопоставление)
+ */
+function getStem(word) {
+  if (!word || word.length < 3) return '';
+  const clean = word.toLowerCase().replace(/[^а-яa-z0-9]/g, '');
+  if (clean.length <= 4) return clean;
+  // Срезаем падежные окончания в русском языке (включая падежи фамилий: -ым, -им, -ина)
+  const stripped = clean.replace(/(?:ыми|ими|ами|ями|ому|ему|ого|его|овой|евой|иной|ыной|ове|еве|ине|ыне|ов|ев|ей|ой|ям|ам|ом|ем|ах|ях|ую|юю|ое|ее|ые|ие|ый|ий|ым|им|а|я|у|ю|е|о|ы|и)$/i, '');
+  if (stripped.length >= 3) return stripped;
+  return clean.slice(0, 4);
+}
+
+/**
+ * Извлечение ключевых сущностей из текста вопроса пользователя
+ */
+export async function extractEntities(queryText) {
+  const rawText = queryText || '';
+  const text = rawText.toLowerCase();
+  const cache = await refreshEntityCache();
+
+  let matchedRegion = null;
+  let matchedContractor = null;
+  let matchedTaskId = null;
+
+  // 1. Поиск конкретного номера заявки (#123, № 123, заявка 123)
+  const taskMatch = text.match(/(?:заявк[а-я]*|объект[а-я]*|номер[а-я]*|\#|№)\s*(\d{1,8})/i);
+  if (taskMatch) {
+    matchedTaskId = taskMatch[1];
+  }
+
+  // Разбиваем запрос на значимые слова (без зависимости от сломанных \b в JS RegExp для кириллицы)
+  const queryWords = text.split(/[^а-яa-z0-9]+/).filter(w => w.length >= 3);
+
+  // 2. Поиск региона
+  for (const reg of cache.regions) {
+    const regLower = reg.toLowerCase();
+    if (text.includes(regLower)) {
+      matchedRegion = reg;
+      break;
+    }
+    const words = regLower.split(/[\s,.-]+/).filter(w => !['обл', 'область', 'край', 'г', 'город', 'р-н', 'район'].includes(w.toLowerCase()) && w.length >= 3);
+    for (const w of words) {
+      const stem = getStem(w);
+      if (stem.length >= 3 && queryWords.some(qw => qw.startsWith(stem) || stem.startsWith(qw) || qw === stem)) {
+        matchedRegion = reg;
+        break;
+      }
+    }
+    if (matchedRegion) break;
+  }
+
+  // 3. Поиск подрядчика / исполнителя из кеша
+  for (const cont of cache.contractors) {
+    const contLower = cont.toLowerCase();
+    if (contLower.length >= 3 && text.includes(contLower)) {
+      matchedContractor = cont;
+      break;
+    }
+    const words = contLower.split(/[\s,.-]+/).filter(w => !['ип', 'ооо', 'зао', 'ао'].includes(w.toLowerCase()) && w.length >= 3);
+    for (const w of words) {
+      const stem = getStem(w);
+      if (stem.length >= 3 && queryWords.some(qw => qw.startsWith(stem) || stem.startsWith(qw) || qw === stem)) {
+        matchedContractor = cont;
+        break;
+      }
+    }
+    if (matchedContractor) break;
+  }
+
+  // 4. Fallback-извлечение персоны / подрядчика, если кеш промахнулся или еще не содержит его
+  if (!matchedContractor) {
+    let candidateName = null;
+
+    // 4.1 Извлечение по паттернам действий (выполнил Х, сдал Х, у Х, подрядчик Х и т.д.)
+    const actionPatternMatch = rawText.match(/(?:выполнил[а-я]*|сдал[а-я]*|сделал[а-я]*|закрыл[а-я]*|у\s+|по\s+|подрядчик[а-я]*|исполнител[а-я]*|монтажник[а-я]*|инженер[а-я]*|менеджер[а-я]*|контролер[а-я]*|кто такой|кто такая)\s+([А-ЯЁа-яёA-Za-z]{3,})/i);
+    if (actionPatternMatch) {
+      const cand = actionPatternMatch[1];
+      if (!STOP_WORDS.has(cand.toLowerCase())) {
+        candidateName = cand;
+      }
+    }
+
+    // 4.2 Извлечение слов с заглавной буквы (фамилии, имена)
+    if (!candidateName) {
+      const capitalizedWords = rawText.match(/[А-ЯЁ][а-яё]{2,}/g) || [];
+      for (const cap of capitalizedWords) {
+        if (!STOP_WORDS.has(cap.toLowerCase())) {
+          candidateName = cap;
+          break;
+        }
+      }
+    }
+
+    // 4.3 Любое осмысленное слово, не входящее в stop-words (если в вопросе есть "заявок" / "выполнил")
+    if (!candidateName) {
+      const nonStopWords = queryWords.filter(w => !STOP_WORDS.has(w));
+      if (nonStopWords.length === 1) {
+        candidateName = nonStopWords[0];
+      }
+    }
+
+    if (candidateName) {
+      const candStem = getStem(candidateName) || candidateName;
+      try {
+        const dbLookup = await pool.query(`
+          SELECT DISTINCT name FROM (
+            SELECT contractor AS name FROM tasks WHERE archived = false AND contractor ILIKE $1
+            UNION
+            SELECT assignee AS name FROM tasks WHERE archived = false AND assignee ILIKE $1
+            UNION
+            SELECT manager AS name FROM tasks WHERE archived = false AND manager ILIKE $1
+            UNION
+            SELECT controller AS name FROM tasks WHERE archived = false AND controller ILIKE $1
+            UNION
+            SELECT name_short AS name FROM contractors WHERE name_short ILIKE $1 OR name_full ILIKE $1
+            UNION
+            SELECT full_name AS name FROM users WHERE full_name ILIKE $1 OR username ILIKE $1
+          ) c LIMIT 1
+        `, [`%${candStem}%`]);
+
+        if (dbLookup.rows.length > 0 && dbLookup.rows[0].name) {
+          matchedContractor = dbLookup.rows[0].name;
+        } else {
+          matchedContractor = candidateName;
+        }
+      } catch (_) {
+        matchedContractor = candidateName;
+      }
+    }
+  }
+
+  // Определение тематических акцентов вопроса
+  const isUnfinished = /(невыполнен|не\s*сделан|не\s*закрыт|в\s*работе|осталось|сколько\s*висит|сколько\s*не)/i.test(text);
+  const isPayment = /(оплат|неоплат|деньг|долг|счет|расчет|сумму|штраф|выплат)/i.test(text);
+  const isRemarks = /(замечани|претензи|брак|ошибк|штраф|недочет)/i.test(text);
+
+  return {
+    region: matchedRegion,
+    contractor: matchedContractor,
+    taskId: matchedTaskId,
+    isUnfinished,
+    isPayment,
+    isRemarks
+  };
+}
+
+/**
+ * Безопасный расчет аналитики по региону (все суммы и счетчики вычисляются в PostgreSQL)
+ */
+export async function getRegionSummary(regionName) {
+  try {
+    const cleanWords = String(regionName).split(/[\s,.-]+/).filter(w => !['обл', 'область', 'край', 'г', 'город', 'р-н', 'район'].includes(w.toLowerCase()) && w.length >= 3);
+    const primaryWord = cleanWords[0] || regionName;
+    const stem = getStem(primaryWord) || primaryWord;
+    const pattern = `%${stem}%`;
+    const aggSql = `
+      SELECT
+        COUNT(*) AS total_count,
+        COALESCE(SUM(amount), 0) AS total_amount,
+
+        -- 1. Физический монтаж
+        COUNT(*) FILTER (
+          WHERE status = 'done' 
+          OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято')
+        ) AS physical_done_count,
+        COUNT(*) FILTER (
+          WHERE status != 'done' 
+          AND LOWER(COALESCE(priemka, '')) NOT IN ('готово', 'принято')
+        ) AS physical_pending_count,
+        COALESCE(SUM(amount) FILTER (
+          WHERE status != 'done' 
+          AND LOWER(COALESCE(priemka, '')) NOT IN ('готово', 'принято')
+        ), 0) AS physical_pending_amount,
+
+        -- 2. Финансовое закрытие (Оплата)
+        COUNT(*) FILTER (
+          WHERE LOWER(COALESCE(oplata, '')) LIKE '%оплачен%'
+        ) AS paid_count,
+        COALESCE(SUM(amount) FILTER (
+          WHERE LOWER(COALESCE(oplata, '')) LIKE '%оплачен%'
+        ), 0) AS paid_amount,
+
+        -- 3. Зависшие: монтаж готов, но оплата заказчиком НЕ произведена
+        COUNT(*) FILTER (
+          WHERE (status = 'done' OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято'))
+          AND (oplata IS NULL OR LOWER(COALESCE(oplata, '')) NOT LIKE '%оплачен%')
+        ) AS hung_unpaid_count,
+        COALESCE(SUM(amount) FILTER (
+          WHERE (status = 'done' OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято'))
+          AND (oplata IS NULL OR LOWER(COALESCE(oplata, '')) NOT LIKE '%оплачен%')
+        ), 0) AS hung_unpaid_amount,
+
+        -- 4. Замечания, штрафы и просрочки
+        COUNT(*) FILTER (WHERE overdue_days > 0) AS overdue_count,
+        COUNT(*) FILTER (
+          WHERE (comment IS NOT NULL AND TRIM(comment) != '') 
+          OR (excel_comment IS NOT NULL AND TRIM(excel_comment) != '')
+        ) AS remarks_count
+      FROM tasks
+      WHERE archived = false AND region ILIKE $1
+    `;
+
+    const { rows: aggRows } = await pool.query(aggSql, [pattern]);
+    const agg = aggRows[0] || {};
+
+    // Выборка конкретных заявок по региону (с приоритетом проблемных и зависших)
+    const tasksSql = `
+      SELECT 
+        id, address, status, priemka, oplata, id_status, amount, overdue_days, 
+        assignee, contractor, comment, excel_comment
+      FROM tasks
+      WHERE archived = false AND region ILIKE $1
+      ORDER BY 
+        CASE 
+          WHEN (status = 'done' OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято')) 
+               AND (oplata IS NULL OR LOWER(COALESCE(oplata, '')) NOT LIKE '%оплачен%') THEN 1
+          WHEN overdue_days > 0 THEN 2
+          WHEN status != 'done' THEN 3
+          ELSE 4 
+        END,
+        id DESC
+      LIMIT 12
+    `;
+    const { rows: sampleTasks } = await pool.query(tasksSql, [pattern]);
+
+    // Открытые замечания из таблицы remarks для объектов этого региона
+    const remarksSql = `
+      SELECT r.task_id, r.body, r.created_name, r.created_at
+      FROM remarks r
+      JOIN tasks t ON t.id = r.task_id
+      WHERE t.archived = false AND t.region ILIKE $1 AND r.resolved_at IS NULL
+      ORDER BY r.created_at DESC
+      LIMIT 5
+    `;
+    let openRemarks = [];
+    try {
+      const { rows: remRows } = await pool.query(remarksSql, [pattern]);
+      openRemarks = remRows;
+    } catch (_) {}
+
+    return {
+      regionName,
+      agg,
+      sampleTasks,
+      openRemarks
+    };
+  } catch (err) {
+    console.error(`[AI Facade Error getRegionSummary(${regionName})]:`, err.message);
+    return { error: 'Данные по региону временно недоступны' };
+  }
+}
+
+/**
+ * Безопасный расчет аналитики по подрядчику / исполнителю
+ */
+export async function getContractorSummary(contractorName) {
+  try {
+    const cleanWords = String(contractorName).split(/[\s,.-]+/).filter(w => !['ип', 'ооо', 'зао', 'ао'].includes(w.toLowerCase()) && w.length >= 3);
+    const primaryWord = cleanWords[0] || contractorName;
+    const stem = getStem(primaryWord) || primaryWord;
+    const pattern = `%${stem}%`;
+
+    // 0. Поиск сотрудника в таблице пользователей
+    let userProfile = null;
+    try {
+      const uRes = await pool.query(
+        `SELECT id, username, full_name, role FROM users WHERE full_name ILIKE $1 OR username ILIKE $1 LIMIT 1`,
+        [pattern]
+      );
+      if (uRes.rows.length) userProfile = uRes.rows[0];
+    } catch (_) {}
+
+    // 0.1 Поиск организации/подрядчика в таблице contractors
+    let contractorProfile = null;
+    try {
+      const cRes = await pool.query(
+        `SELECT id, inn, name_short, name_full, status FROM contractors WHERE name_short ILIKE $1 OR name_full ILIKE $1 LIMIT 1`,
+        [pattern]
+      );
+      if (cRes.rows.length) contractorProfile = cRes.rows[0];
+    } catch (_) {}
+
+    const aggSql = `
+      SELECT
+        COUNT(*) AS total_count,
+        COALESCE(SUM(amount), 0) AS total_amount,
+
+        -- 1. Выполнено подрядчиком (подрядчик сдал монтаж и данные для ИД)
+        COUNT(*) FILTER (
+          WHERE status = 'done' 
+          OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято')
+          OR LOWER(COALESCE(oplata, '')) LIKE '%оплачен%'
+        ) AS contractor_done_count,
+
+        -- 2. В процессе у подрядчика (до сдачи монтажа)
+        COUNT(*) FILTER (
+          WHERE status != 'done' 
+          AND LOWER(COALESCE(priemka, '')) NOT IN ('готово', 'принято')
+          AND LOWER(COALESCE(oplata, '')) NOT LIKE '%оплачен%'
+        ) AS contractor_in_work_count,
+        COALESCE(SUM(amount) FILTER (
+          WHERE status != 'done' 
+          AND LOWER(COALESCE(priemka, '')) NOT IN ('готово', 'принято')
+          AND LOWER(COALESCE(oplata, '')) NOT LIKE '%оплачен%'
+        ), 0) AS contractor_in_work_amount,
+
+        -- 3. Закрыто компанией (оплачено)
+        COUNT(*) FILTER (
+          WHERE LOWER(COALESCE(oplata, '')) LIKE '%оплачен%'
+        ) AS firm_paid_count,
+        COALESCE(SUM(amount) FILTER (
+          WHERE LOWER(COALESCE(oplata, '')) LIKE '%оплачен%'
+        ), 0) AS firm_paid_amount,
+
+        -- 4. Зависло без оплаты (подрядчик сдал монтаж, но компания не получила оплату/согласование)
+        COUNT(*) FILTER (
+          WHERE (status = 'done' OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято'))
+          AND (oplata IS NULL OR LOWER(COALESCE(oplata, '')) NOT LIKE '%оплачен%')
+        ) AS hung_unpaid_count,
+        COALESCE(SUM(amount) FILTER (
+          WHERE (status = 'done' OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято'))
+          AND (oplata IS NULL OR LOWER(COALESCE(oplata, '')) NOT LIKE '%оплачен%')
+        ), 0) AS hung_unpaid_amount,
+
+        -- 5. Просрочки и замечания
+        COUNT(*) FILTER (WHERE overdue_days > 0) AS overdue_count,
+        COUNT(*) FILTER (
+          WHERE (comment IS NOT NULL AND TRIM(comment) != '') 
+          OR (excel_comment IS NOT NULL AND TRIM(excel_comment) != '')
+        ) AS remarks_count
+      FROM tasks
+      WHERE archived = false AND (contractor ILIKE $1 OR assignee ILIKE $1 OR manager ILIKE $1 OR controller ILIKE $1)
+    `;
+
+    const { rows: aggRows } = await pool.query(aggSql, [pattern]);
+    const agg = aggRows[0] || {};
+
+    // Выборка всех или большинства заявок этого подрядчика / человека
+    const tasksSql = `
+      SELECT 
+        id, region, address, status, priemka, oplata, id_status, amount, overdue_days, 
+        contractor, assignee, manager, controller,
+        comment, excel_comment
+      FROM tasks
+      WHERE archived = false AND (contractor ILIKE $1 OR assignee ILIKE $1 OR manager ILIKE $1 OR controller ILIKE $1)
+      ORDER BY 
+        CASE 
+          WHEN (status = 'done' OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято')) 
+               AND (oplata IS NULL OR LOWER(COALESCE(oplata, '')) NOT LIKE '%оплачен%') THEN 1
+          WHEN overdue_days > 0 THEN 2
+          ELSE 3 
+        END,
+        id DESC
+      LIMIT 15
+    `;
+    const { rows: sampleTasks } = await pool.query(tasksSql, [pattern]);
+
+    return {
+      contractorName,
+      userProfile,
+      contractorProfile,
+      agg,
+      sampleTasks
+    };
+  } catch (err) {
+    console.error(`[AI Facade Error getContractorSummary(${contractorName})]:`, err.message);
+    return { error: 'Данные по подрядчику временно недоступны' };
+  }
+}
+
+/**
+ * Получение информации по конкретной заявке (по номеру ID)
+ */
+export async function getTaskDetail(taskId) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM tasks WHERE id = $1 AND archived = false LIMIT 1`,
+      [String(taskId)]
+    );
+    if (!rows.length) return null;
+    return rows[0];
+  } catch (err) {
+    console.error(`[AI Facade Error getTaskDetail(${taskId})]:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Общая аналитическая сводка (если конкретный регион или подрядчик не запрошены)
+ */
+export async function getGlobalSummary() {
+  try {
+    const [generalStats, regionsBreakdown, overdueContractors] = await Promise.all([
+      pool.query(`
+        SELECT
+          COUNT(*) AS total,
+          COUNT(*) FILTER (WHERE status='done') AS done,
+          COUNT(*) FILTER (WHERE status='progress') AS active,
+          COUNT(*) FILTER (WHERE overdue_days > 0) AS overdue,
+          COUNT(*) FILTER (WHERE LOWER(COALESCE(oplata, '')) LIKE '%оплачен%') AS paid_cnt,
+          COALESCE(SUM(amount), 0) AS total_revenue,
+          COALESCE(SUM(amount) FILTER (WHERE LOWER(COALESCE(oplata, '')) LIKE '%оплачен%'), 0) AS paid_revenue
+        FROM tasks WHERE archived = false
+      `),
+      pool.query(`
+        SELECT 
+          region, 
+          COUNT(*) AS total,
+          COUNT(*) FILTER (WHERE status != 'done' AND LOWER(COALESCE(priemka, '')) NOT IN ('готово', 'принято')) AS pending_cnt,
+          COUNT(*) FILTER (WHERE (status = 'done' OR LOWER(COALESCE(priemka, '')) IN ('готово', 'принято')) AND (oplata IS NULL OR LOWER(COALESCE(oplata, '')) NOT LIKE '%оплачен%')) AS hung_cnt,
+          COALESCE(SUM(amount), 0) AS amount
+        FROM tasks 
+        WHERE archived = false AND region IS NOT NULL AND TRIM(region) != ''
+        GROUP BY region 
+        ORDER BY total DESC 
+        LIMIT 25
+      `),
+      pool.query(`
+        SELECT 
+          COALESCE(contractor, assignee) AS name, 
+          COUNT(*) AS total,
+          COUNT(*) FILTER (WHERE overdue_days > 0) AS overdue_cnt,
+          ROUND(AVG(overdue_days) FILTER (WHERE overdue_days > 0), 1) AS avg_delay_days
+        FROM tasks 
+        WHERE archived = false AND (contractor IS NOT NULL OR assignee IS NOT NULL)
+        GROUP BY COALESCE(contractor, assignee)
+        HAVING COUNT(*) FILTER (WHERE overdue_days > 0) > 0
+        ORDER BY overdue_cnt DESC 
+        LIMIT 10
+      `)
+    ]);
+
+    return {
+      general: generalStats.rows[0] || {},
+      regions: regionsBreakdown.rows || [],
+      overdueContractors: overdueContractors.rows || []
+    };
+  } catch (err) {
+    console.error('[AI Facade Error getGlobalSummary]:', err.message);
+    return { error: 'Сводные данные временно недоступны' };
+  }
+}
+
+/**
+ * Срез по открытым замечаниям и проблемным комментариям
+ */
+export async function getRemarksSummary(filterPattern) {
+  try {
+    const params = [];
+    let filterClause = '';
+    if (filterPattern) {
+      const cleanWords = String(filterPattern).split(/[\s,.-]+/).filter(w => w.length >= 3);
+      const primary = cleanWords[0] || filterPattern;
+      params.push(`%${primary}%`);
+      filterClause = `AND (t.region ILIKE $1 OR t.contractor ILIKE $1 OR t.assignee ILIKE $1 OR t.manager ILIKE $1)`;
+    }
+
+    const [remarksRes, tasksWithCommentsRes] = await Promise.all([
+      pool.query(`
+        SELECT r.task_id, r.body, r.created_name, r.created_at, t.region, t.address, t.status, t.contractor, t.assignee
+        FROM remarks r
+        JOIN tasks t ON t.id = r.task_id
+        WHERE t.archived = false AND r.resolved_at IS NULL ${filterClause}
+        ORDER BY r.created_at DESC
+        LIMIT 15
+      `, params),
+      pool.query(`
+        SELECT id, region, address, status, contractor, assignee, comment, excel_comment, overdue_days
+        FROM tasks t
+        WHERE t.archived = false AND (
+          (t.comment IS NOT NULL AND TRIM(t.comment) != '') OR
+          (t.excel_comment IS NOT NULL AND TRIM(t.excel_comment) != '')
+        ) ${filterClause}
+        ORDER BY t.overdue_days DESC, t.id DESC
+        LIMIT 15
+      `, params)
+    ]);
+
+    return {
+      remarks: remarksRes.rows || [],
+      tasksWithComments: tasksWithCommentsRes.rows || []
+    };
+  } catch (err) {
+    console.error('[AI Facade getRemarksSummary Error]:', err.message);
+    return { remarks: [], tasksWithComments: [] };
+  }
+}
+
+/**
+ * Формирование итогового текстового контекста для подачи в LLM
+ */
+export async function buildContextForQuery(queryText, user) {
+  if (!user) {
+    return '';
+  }
+
+  const entities = await extractEntities(queryText);
+  const contextParts = [];
+
+  // 1. Если запрошена конкретная заявка по номеру (#12345)
+  if (entities.taskId) {
+    const task = await getTaskDetail(entities.taskId);
+    if (task) {
+      contextParts.push(`=== КАРТОЧКА ЗАЯВКИ #${task.id} ===
+Адрес: ${task.region || ''}, ${task.address || ''}
+Статус: ${task.status || 'progress'}, Этап: ${task.stage || '—'}
+Приемка: ${task.priemka || 'не сдано'}, Оплата: ${task.oplata || 'не оплачено'}
+Статус ИД: ${task.id_status || '—'}
+Сумма: ${Number(task.amount || 0).toLocaleString('ru-RU')} руб.
+Подрядчик: ${task.contractor || task.assignee || '—'}
+Срок (дедлайн): ${task.deadline || '—'}, Просрочка: ${task.overdue_days || 0} дн.
+Замечания/комментарий: ${task.comment || task.excel_comment || 'нет'}`);
+    }
+  }
+
+  // 2. Если в вопросе упомянут конкретный регион
+  if (entities.region) {
+    const regData = await getRegionSummary(entities.region);
+    if (regData.error) {
+      contextParts.push(`=== СРЕЗ ПО РЕГИОНУ: ${entities.region} ===\n[${regData.error}]`);
+    } else {
+      const a = regData.agg;
+      const totalAmount = Number(a.total_amount || 0).toLocaleString('ru-RU');
+      const physPendingAmt = Number(a.physical_pending_amount || 0).toLocaleString('ru-RU');
+      const paidAmt = Number(a.paid_amount || 0).toLocaleString('ru-RU');
+      const hungAmt = Number(a.hung_unpaid_amount || 0).toLocaleString('ru-RU');
+
+      let text = `=== ДЕТАЛЬНЫЙ АНАЛИТИЧЕСКИЙ СРЕЗ ПО РЕГИОНУ: ${regData.regionName} ===
+Всего заявок в регионе: ${a.total_count} на общую сумму ${totalAmount} руб.
+
+[Вариант 1: Физическое выполнение монтажа подрядчиками]
+• Выполнено монтажом (статус "готово" / "принято"): ${a.physical_done_count} заявок
+• Накопительно НЕ выполнено монтажом (в работе/обследовании): ${a.physical_pending_count} заявок на сумму ${physPendingAmt} руб.
+
+[Вариант 2: Финансовое и документальное закрытие компанией]
+• Полностью закрыто и оплачено фирме: ${a.paid_count} заявок на сумму ${paidAmt} руб.
+• Зависли без оплаты (монтаж выполнен, но оплата не получена): ${a.hung_unpaid_count} заявок на сумму ${hungAmt} руб.
+
+[Злободневные маркеры руководства]
+• Заявок с просрочкой дедлайна: ${a.overdue_count}
+• Заявок с замечаниями/претензиями: ${a.remarks_count}
+
+[Конкретные заявки региона (для ссылок в ответе)]:`;
+
+      if (regData.sampleTasks && regData.sampleTasks.length) {
+        regData.sampleTasks.forEach(t => {
+          const isPaid = (t.oplata || '').toLowerCase().includes('оплачен');
+          const isDone = (t.status === 'done') || ['готово', 'принято'].includes((t.priemka || '').toLowerCase());
+          const remark = t.comment || t.excel_comment || '';
+          text += `\n• Заявка #${t.id}: ${t.address || '—'} | Монтаж: ${isDone ? 'готов' : 'в работе'} | Оплата: ${isPaid ? 'оплачено' : 'НЕ ОПЛАЧЕНО'} | Сумма: ${Number(t.amount || 0).toLocaleString('ru-RU')} руб. | Просрочка: ${t.overdue_days || 0} дн.${remark ? ' | Замечание: ' + remark : ''}`;
+        });
+      }
+
+      if (regData.openRemarks && regData.openRemarks.length) {
+        text += `\n[Открытые замечания инспекторов]:\n` + 
+          regData.openRemarks.map(r => `• К заявке #${r.task_id} от ${r.created_name}: ${r.body}`).join('\n');
+      }
+
+      contextParts.push(text);
+    }
+  }
+
+  // 3. Если в вопросе упомянут конкретный подрядчик / сотрудник
+  if (entities.contractor) {
+    const contData = await getContractorSummary(entities.contractor);
+    if (contData.error) {
+      contextParts.push(`=== СРЕЗ ПО СОТРУДНИКУ / ПОДРЯДЧИКУ: ${entities.contractor} ===\n[${contData.error}]`);
+    } else {
+      const a = contData.agg;
+      const up = contData.userProfile;
+      const cp = contData.contractorProfile;
+      const totalCount = Number(a.total_count || 0);
+
+      if (totalCount === 0) {
+        let text = `=== СРЕЗ ПО СОТРУДНИКУ / ПОДРЯДЧИКУ: ${contData.contractorName} ===
+${up ? `Профиль сотрудника в системе Stockeasy: ${up.full_name || up.username} (роль: ${up.role === 'admin' ? 'Администратор' : up.role === 'manager' ? 'Менеджер' : 'Исполнитель / Монтажник'})\n` : ''}${cp ? `Организация/подрядчик: ${cp.name_short || cp.name_full} (ИНН: ${cp.inn || '—'}, Статус: ${cp.status || 'активен'})\n` : ''}В базе данных Stockeasy по запросу "${contData.contractorName}" не числится ни одной заявки (всего заявок: 0, выполнено: 0, в работе: 0).
+ВАЖНО ДЛЯ ОТВЕТА: Четко и прямо сообщи пользователю, что по сотруднику/подрядчику "${contData.contractorName}" в системе числится 0 заявок (нет ни выполненных, ни активных). Ни в коем случае не запрашивай дополнительную информацию.`;
+        contextParts.push(text);
+      } else {
+        const totalAmt = Number(a.total_amount || 0).toLocaleString('ru-RU');
+        const paidAmt = Number(a.firm_paid_amount || 0).toLocaleString('ru-RU');
+        const hungAmt = Number(a.hung_unpaid_amount || 0).toLocaleString('ru-RU');
+
+        let text = `=== ДЕТАЛЬНЫЙ АНАЛИТИЧЕСКИЙ СРЕЗ ПО СОТРУДНИКУ / ПОДРЯДЧИКУ: ${contData.contractorName} ===
+${up ? `Профиль в системе Stockeasy: ${up.full_name || up.username} (роль: ${up.role === 'admin' ? 'Администратор' : up.role === 'manager' ? 'Менеджер' : 'Исполнитель / Монтажник'})\n` : ''}${cp ? `Организация/подрядчик: ${cp.name_short || cp.name_full} (ИНН: ${cp.inn || '—'})\n` : ''}Всего связано с сотрудником/подрядчиком: ${a.total_count} заявок на сумму ${totalAmt} руб.
+
+[Выполнение монтажа (отвечает за монтаж и сдачу исходных данных ИД)]
+• Работу ВЫПОЛНИЛ: ${a.contractor_done_count} из ${a.total_count} заявок (статусы "готово", "принято", "оплачено")
+• В процессе монтажа: ${a.contractor_in_work_count} заявок
+
+[Закрытие компанией (финансовое получение оплаты от заказчика)]
+• Компанией закрыто и оплачено: ${a.firm_paid_count} заявок на сумму ${paidAmt} руб.
+• Зависли без оплаты (монтаж сдан, но оплата заказчика не получена): ${a.hung_unpaid_count} заявок на сумму ${hungAmt} руб.
+• Заявок с просрочкой: ${a.overdue_count}
+
+[Список заявок]:`;
+
+        if (contData.sampleTasks && contData.sampleTasks.length) {
+          contData.sampleTasks.forEach(t => {
+            const isPaid = (t.oplata || '').toLowerCase().includes('оплачен');
+            const isDone = (t.status === 'done') || ['готово', 'принято'].includes((t.priemka || '').toLowerCase());
+            const remark = t.comment || t.excel_comment || '';
+            text += `\n• Заявка #${t.id} [${t.region || ''}]: ${t.address || '—'} | Монтаж: ${isDone ? 'готово (сдано)' : 'в работе'} | Оплата компании: ${isPaid ? 'оплачена' : 'НЕ ОПЛАЧЕНА (повисла)'} | Сумма: ${Number(t.amount || 0).toLocaleString('ru-RU')} руб.${remark ? ' | Замечание: ' + remark : ''}`;
+          });
+        }
+
+        contextParts.push(text);
+      }
+    }
+  }
+
+  // 4. Если в вопросе затронуты замечания, претензии, брак или комментарии
+  if (entities.isRemarks) {
+    const remData = await getRemarksSummary(entities.contractor || entities.region);
+    let text = `=== РЕЕСТР ЗАМЕЧАНИЙ И ПРЕТЕНЗИЙ ПО ОБЪЕКТАМ ===`;
+    if (remData.remarks && remData.remarks.length) {
+      text += `\n[Открытые замечания инспекторов]:\n` +
+        remData.remarks.map(r => `• Заявка #${r.task_id} [${r.region || ''}, ${r.address || ''}] от ${r.created_name || 'инспектора'}: "${r.body}" (${new Date(r.created_at).toLocaleDateString('ru-RU')})`).join('\n');
+    }
+    if (remData.tasksWithComments && remData.tasksWithComments.length) {
+      text += `\n[Объекты с замечаниями и проблемными комментариями]:\n` +
+        remData.tasksWithComments.map(t => `• Заявка #${t.id} [${t.region || ''}, ${t.address || ''}] | Исполнитель: ${t.contractor || t.assignee || '—'} | Просрочка: ${t.overdue_days || 0} дн. | Замечание: "${t.comment || t.excel_comment}"`).join('\n');
+    }
+    if (!remData.remarks.length && !remData.tasksWithComments.length) {
+      text += `\nНа текущий момент открытых замечаний и претензий по объектам не зафиксировано.`;
+    }
+    contextParts.push(text);
+  }
+
+  // 5. Если конкретные сущности не найдены или вопрос общий — добавляем общую сводку
+  if (!entities.region && !entities.contractor && !entities.taskId && !entities.isRemarks) {
+    const globalData = await getGlobalSummary();
+    if (!globalData.error) {
+      const g = globalData.general;
+      const totalRev = Number(g.total_revenue || 0).toLocaleString('ru-RU');
+      const paidRev = Number(g.paid_revenue || 0).toLocaleString('ru-RU');
+
+      let text = `=== ОБЩАЯ СВОДКА ПО ПЛАТФОРМЕ ===
+Всего заявок в системе: ${g.total} на общую сумму ${totalRev} руб.
+Выполнено монтажом: ${g.done}, в работе: ${g.active}, просрочено: ${g.overdue}
+Оплачено: ${g.paid_cnt} заявок на сумму ${paidRev} руб.
+
+[Сводка по регионам (заявки, невыполненные, зависшие без оплаты)]:`;
+
+      if (globalData.regions && globalData.regions.length) {
+        globalData.regions.slice(0, 15).forEach(r => {
+          text += `\n• ${r.region}: всего ${r.total} (в монтаже: ${r.pending_cnt}, зависли без оплаты: ${r.hung_cnt}, сумма: ${Number(r.amount || 0).toLocaleString('ru-RU')} руб.)`;
+        });
+      }
+
+      if (globalData.overdueContractors && globalData.overdueContractors.length) {
+        text += `\n[Подрядчики с наибольшими просрочками]:\n` +
+          globalData.overdueContractors.map(c => `• ${c.name}: ${c.overdue_cnt} просрочек из ${c.total} (средняя задержка: ${c.avg_delay_days} дн.)`).join('\n');
+      }
+
+      contextParts.push(text);
+    }
+  }
+
+  return contextParts.join('\n\n');
+}
