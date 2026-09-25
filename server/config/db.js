@@ -806,6 +806,52 @@ export async function seedMaterialsAndWarehouses() {
         WHERE NOT EXISTS (SELECT 1 FROM suppliers WHERE name = $1);
       `, [s.name, s.contact, s.phone, s.email, s.lead_time_days, s.min_order]);
     }
+
+    // 5. Безопасные витрины данных для ИИ (AI Read-Only Views)
+    await pool.query(`
+      CREATE OR REPLACE VIEW v_ai_users AS
+      SELECT id, full_name, username, role, phone, email, created_at
+      FROM users;
+    `);
+
+    await pool.query(`
+      CREATE OR REPLACE VIEW v_ai_tasks AS
+      SELECT id, sheet, region, address, clean_address, work_type, tip_obj, date_zayavki,
+             deadline, data_vyhoda, manager, contact, contractor, assignee, controller,
+             status, priority, overdue_days, stage, amount, priemka, oplata, id_status,
+             comment, excel_comment, date_vnesen
+      FROM tasks
+      WHERE archived = false;
+    `);
+
+    await pool.query(`
+      CREATE OR REPLACE VIEW v_ai_contractors AS
+      SELECT id, inn, name_short, name_full, director, phone, email, status, type
+      FROM contractors;
+    `);
+
+    await pool.query(`
+      CREATE OR REPLACE VIEW v_ai_stock AS
+      SELECT m.id AS material_id, m.code AS material_code, m.name AS material_name, 
+             m.category, m.unit, w.name AS warehouse_name, w.type AS warehouse_type,
+             COALESCE(sb.quantity, 0) AS total_quantity, 
+             COALESCE(sb.reserved_qty, 0) AS reserved_qty,
+             (COALESCE(sb.quantity, 0) - COALESCE(sb.reserved_qty, 0)) AS free_stock
+      FROM stock_balances sb
+      JOIN materials m ON m.id = sb.material_id
+      JOIN warehouses w ON w.id = sb.warehouse_id;
+    `);
+
+    await pool.query(`
+      CREATE OR REPLACE VIEW v_ai_remarks AS
+      SELECT r.id, r.task_id, r.body, r.created_name, r.created_at, r.resolved_at,
+             t.region, t.address, t.contractor, t.assignee
+      FROM remarks r
+      JOIN tasks t ON t.id = r.task_id
+      WHERE t.archived = false;
+    `);
+
+    console.log('[DB] Безопасные витрины данных v_ai_* успешно инициализированы');
   } catch (err) {
     console.error('[DB] Ошибка сидирования материалов/складов:', err);
   }
