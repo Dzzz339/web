@@ -326,6 +326,10 @@ function renderApp() {
     setApp(pageLogin());
     return;
   }
+  if (document.body) {
+    document.body.classList.toggle('page-kanban-active', S.page === 'kanban');
+  }
+
   // 1. ЗАПОМИНАЕМ ФОКУС (Безопасно)
   var activeEl = document.activeElement;
   var activeId = (activeEl && activeEl.id) ? activeEl.id : null;
@@ -516,6 +520,28 @@ function bindEvents() {
   if (kmgr) kmgr.addEventListener('change', function(){ S.kanbanMgr = this.value; renderApp(); });
   var kcust = document.getElementById('kcust');
   if (kcust) kcust.addEventListener('change', function(){ S.kanbanCustomer = this.value; renderApp(); });
+
+  // kanban horizontal mousewheel scroll
+  if (S.page === 'kanban') {
+    var kBoard = document.querySelector('.kanban');
+    if (kBoard) {
+      kBoard.addEventListener('wheel', function(e) {
+        var cards = e.target.closest('.kcol-cards');
+        var isAtLimit = false;
+        if (cards) {
+          var atTop = cards.scrollTop <= 0 && e.deltaY < 0;
+          var atBottom = (cards.scrollTop + cards.clientHeight >= cards.scrollHeight - 2) && e.deltaY > 0;
+          isAtLimit = atTop || atBottom;
+        }
+        if (!cards || isAtLimit) {
+          if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+            kBoard.scrollLeft += e.deltaY;
+            e.preventDefault();
+          }
+        }
+      }, { passive: false });
+    }
+  }
   // add task
   var tarch = document.getElementById('tarch');
   if (tarch) tarch.addEventListener('change', function(){ S.taskArch = this.value; renderApp(); });
