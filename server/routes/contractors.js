@@ -52,28 +52,103 @@ router.get('/contractors/:id/specialists', authenticateToken, async (req, res) =
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Добавить монтажника напрямую к подрядчику
+// Добавить монтажника напрямую к подрядчику (или привязать существующего "покрасить")
 router.post('/contractors/:id/specialists', authenticateToken, async (req, res) => {
   const role = String(req.user.role || '').toLowerCase();
   if (!['admin', 'director', 'manager'].includes(role)) {
     return res.status(403).json({ error: 'Недостаточно прав' });
   }
   try {
-    const { fullName, phone, passportRaw, passportSeriesNumber, passportIssuedBy, passportIssueDate, passportCode, position } = req.body;
-    if (!fullName) return res.status(400).json({ error: 'ФИО специалиста обязательно' });
+    const contractorId = parseInt(req.params.id);
+    const { 
+      specialistId, 
+      fullName, 
+      phone, 
+      passportRaw, 
+      passportSeriesNumber, 
+      passportIssuedBy, 
+      passportIssueDate, 
+      passportCode, 
+      position 
+    } = req.body;
     
-    const { rows } = await pool.query(`
-      INSERT INTO specialists (
-        full_name, phone, passport_raw, passport_series_number, passport_issued_by,
-        passport_issue_date, passport_code, position, contractor_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING *
-    `, [
-      fullName.trim(), phone || null, passportRaw || null, passportSeriesNumber || null,
-      passportIssuedBy || null, passportIssueDate || null, passportCode || null,
-      position || 'Монтажник СКС', req.params.id
-    ]);
-    res.json(rows[0]);
+    if (!fullName && !specialistId) {
+      return res.status(400).json({ error: 'ФИО специалиста обязательно' });
+    }
+
+    // Получаем краткое имя подрядчика для поля organization
+    const { rows: cRows } = await pool.query('SELECT name_short FROM contractors WHERE id = $1', [contractorId]);
+    const contractorOrgName = cRows.length ? cRows[0].name_short : null;
+
+    let targetId = specialistId ? parseInt(specialistId) : null;
+
+    // Если ID не передан явно, ищем в базе по точному совпадению ФИО
+    if (!targetId && fullName) {
+      const trimmed = fullName.trim();
+      const { rows: existRows } = await pool.query(
+        'SELECT id FROM specialists WHERE LOWER(TRIM(full_name)) = LOWER($1) LIMIT 1',
+        [trimmed]
+      );
+      if (existRows.length > 0) {
+        targetId = existRows[0].id;
+      }
+    }
+
+    let resultRow;
+    if (targetId) {
+      // Обновляем существующего специалиста ("красим" под нового подрядчика)
+      const { rows } = await pool.query(`
+        UPDATE specialists 
+        SET contractor_id = $1,
+            organization = COALESCE($2, organization),
+            full_name = COALESCE(NULLIF($3, ''), full_name),
+            phone = COALESCE(NULLIF($4, ''), phone),
+            passport_raw = COALESCE(NULLIF($5, ''), passport_raw),
+            passport_series_number = COALESCE(NULLIF($6, ''), passport_series_number),
+            passport_issued_by = COALESCE(NULLIF($7, ''), passport_issued_by),
+            passport_issue_date = COALESCE(NULLIF($8, ''), passport_issue_date),
+            passport_code = COALESCE(NULLIF($9, ''), passport_code),
+            position = COALESCE(NULLIF($10, ''), position)
+        WHERE id = $11
+        RETURNING *
+      `, [
+        contractorId,
+        contractorOrgName,
+        fullName ? fullName.trim() : null,
+        phone || null,
+        passportRaw || null,
+        passportSeriesNumber || null,
+        passportIssuedBy || null,
+        passportIssueDate || null,
+        passportCode || null,
+        position || null,
+        targetId
+      ]);
+      resultRow = rows[0];
+    } else {
+      // Создаем новую запись специалиста в справочнике
+      const { rows } = await pool.query(`
+        INSERT INTO specialists (
+          full_name, phone, passport_raw, passport_series_number, passport_issued_by,
+          passport_issue_date, passport_code, position, contractor_id, organization
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        RETURNING *
+      `, [
+        fullName.trim(),
+        phone || null,
+        passportRaw || null,
+        passportSeriesNumber || null,
+        passportIssuedBy || null,
+        passportIssueDate || null,
+        passportCode || null,
+        position || 'Монтажник СКС',
+        contractorId,
+        contractorOrgName
+      ]);
+      resultRow = rows[0];
+    }
+
+    res.json(resultRow);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -673,7 +673,40 @@ function openAddPoint(marchId) {
   }
 
   showModal('➕ Добавить точку', [
-    { key: 'taskId',       label: 'ID заявки', placeholder: 'ББ-5376-03 (необязательно)', hint: 'Введите ID — адрес, порты и подрядчик подтянутся автоматически', onInput: autofillFromTask },
+    { 
+      key: 'taskId',       
+      label: 'ID заявки', 
+      placeholder: 'ББ-5376-03 (необязательно)', 
+      hint: '💡 Введите номер заявки или адрес для быстрого выбора точки маршрута', 
+      onInput: autofillFromTask,
+      autocomplete: {
+        minChars: 2,
+        search: function(q) {
+          var low = q.toLowerCase();
+          var matched = (S.tasks || []).filter(function(t) {
+            return (t.id && t.id.toLowerCase().includes(low)) ||
+                   (t.address && t.address.toLowerCase().includes(low)) ||
+                   (t.customer && t.customer.toLowerCase().includes(low));
+          }).slice(0, 15);
+          return Promise.resolve(matched);
+        },
+        renderItem: function(t) {
+          return `
+            <div style="font-weight:600; font-size:.85rem; color:var(--text)">${escHtml(t.id)} · ${escHtml(t.address || 'Без адреса')}</div>
+            <div style="font-size:.75rem; color:var(--text-3); margin-top:2px">
+              ${escHtml(t.customer || '')} · Портов: ${t.fact || t.inOrder || 0}
+            </div>
+          `;
+        },
+        getValue: function(t) { return t.id; },
+        badgeText: function(t) {
+          return `✓ Выбрана заявка: <b>${escHtml(t.id)}</b> (${escHtml(t.address || '')})`;
+        },
+        onSelect: function(t, inputs, modal) {
+          autofillFromTask(t.id);
+        }
+      }
+    },
     { key: 'address',      label: 'Адрес объекта', placeholder: 'г. Шилка, ул. Ленина, 5', required: true },
     { key: 'km',           label: 'Расстояние от базы (км)', type: 'number', value: '', hint: '', hintId: 'mf_km_status' },
     { key: 'ports',        label: 'Кол-во портов', type: 'number', value: '' },
