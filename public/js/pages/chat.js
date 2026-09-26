@@ -648,26 +648,42 @@ function showAiLoadingIndicator(subtitle) {
   var box = document.getElementById('ai-messages');
   if (!box) return;
 
-  var loader = document.createElement('div');
-  loader.id = 'ai-loading-indicator';
-  loader.className = 'stocky-loader-bubble';
-  loader.innerHTML = `
-    <span class="stocky-spinner stocky-spinner-lg"></span>
-    <div style="display:flex; flex-direction:column; gap:2px;">
-      <strong style="color:var(--orange); font-size:.85rem; display:flex; align-items:center; gap:6px;">
-        <span style="width:16px;height:16px;display:inline-flex;">${ICONS.stocky}</span>
-        Стоки думает…
-      </strong>
+  var div = document.createElement('div');
+  div.id = 'ai-stream-box';
+  div.style.cssText = 'align-self:flex-start; max-width:82%; background:#fff; border:1px solid var(--border); border-radius:10px; padding:10px 14px; box-shadow:var(--shadow); margin-bottom:4px;';
+  div.innerHTML = `
+    <div style="font-size:.72rem; font-weight:700; color:var(--orange); margin-bottom:6px; display:flex; align-items:center; gap:6px;">
+      <span style="width:16px;height:16px;display:inline-flex;">${ICONS.stocky}</span> Стоки
+    </div>
+    <div class="ai-stream-status" style="display:inline-flex; align-items:center; gap:8px; color:var(--text-2); font-size:.84rem; padding:2px 0;">
+      <span class="stocky-spinner stocky-spinner-lg"></span>
+      <span style="font-weight:600; color:var(--orange);">Стоки думает…</span>
       <span style="font-size:.75rem; color:var(--text-3);">${escHtml(subtitle || 'Формирую ответ...')}</span>
     </div>
+    <div class="ai-stream-text" style="display:none; font-size:.85rem; color:var(--text); white-space:pre-wrap; word-break:break-word;"></div>
   `;
-  box.appendChild(loader);
+  box.appendChild(div);
   scrollAiToBottom();
 }
 
 function removeAiLoadingIndicator() {
-  var loader = document.getElementById('ai-loading-indicator');
-  if (loader) loader.remove();
+  var streamEl = document.getElementById('ai-stream-box');
+  if (streamEl) {
+    var status = streamEl.querySelector('.ai-stream-status');
+    if (status) status.remove();
+    var textSlot = streamEl.querySelector('.ai-stream-text');
+    if (!textSlot || !textSlot.textContent.trim()) {
+      streamEl.remove();
+    }
+  }
+}
+
+function formatAiMessageContent(rawText) {
+  var escaped = escHtml(rawText || '');
+  // Находим [#12345] или [Заявка #12345] или #12345 и превращаем в кликабельные кнопки для перехода к карточке заявки
+  return escaped.replace(/\[?(?:заявка\s*)?#(\d{1,8})\]?/gi, function(match, id) {
+    return '<button type="button" class="ai-task-link-badge" onclick="openCard(\'' + id + '\')" title="Открыть карточку заявки #' + id + '">#' + id + '</button>';
+  });
 }
 
 function renderAiMessages() {
@@ -690,7 +706,7 @@ function renderAiMessages() {
     var bg = isUser ? 'var(--orange-bg)' : '#fff';
     var align = isUser ? 'flex-end' : 'flex-start';
     var border = isUser ? '1px solid #fed7aa' : '1px solid var(--border)';
-    var contentHtml = m.isHtml ? m.isHtml : ('<div style="font-size:.85rem; color:var(--text); white-space:pre-wrap; word-break:break-word" class="ai-msg-content">' + escHtml(m.content) + '</div>');
+    var contentHtml = m.isHtml ? m.isHtml : ('<div style="font-size:.85rem; color:var(--text); white-space:pre-wrap; word-break:break-word" class="ai-msg-content">' + (isUser ? escHtml(m.content) : formatAiMessageContent(m.content)) + '</div>');
     var stoppedTag = m.stopped ? '<div class="ai-stopped-tag">⏹️ Генерация остановлена</div>' : '';
 
     var footerHtml = '';
@@ -753,13 +769,19 @@ function startAiSmoothTyping(onComplete) {
       return;
     }
 
+    var streamEl = document.getElementById('ai-stream-box');
+    if (!streamEl) return;
+
+    var statusEl = streamEl.querySelector('.ai-stream-status');
+    var textSlot = streamEl.querySelector('.ai-stream-text');
+
     var targetLen = _aiStreamTargetText.length;
 
-    // Пока нейросеть думает и нет текста — кружок загрузки («Стоки думает...») крутится
+    // Пока нейросеть думает и нет текста — кружок со спиннером крутится внутри блока ответа
     if (targetLen === 0) {
       if (_aiStreamIsDone) {
-        removeAiLoadingIndicator();
         stopAiSmoothTyping();
+        streamEl.remove();
         if (_aiStreamOnComplete) {
           var cb = _aiStreamOnComplete;
           _aiStreamOnComplete = null;
@@ -769,37 +791,20 @@ function startAiSmoothTyping(onComplete) {
       return;
     }
 
-    // Первый реальный текст пришел — убираем спиннер и создаем блок ответа
-    var streamEl = document.getElementById('ai-stream-box');
-    if (!streamEl) {
-      if (!_aiStreamTargetText && !_aiStreamIsDone) {
-        return;
-      }
-      removeAiLoadingIndicator();
-      var div = document.createElement('div');
-      div.id = 'ai-stream-box';
-      div.className = 'ai-msg-content';
-      div.style.cssText = 'align-self:flex-start; max-width:82%; background:#fff; border:1px solid var(--border); border-radius:10px; padding:10px 14px; box-shadow:var(--shadow)';
-      div.innerHTML = `
-        <div style="font-size:.72rem; font-weight:700; color:var(--orange); margin-bottom:4px; display:flex; align-items:center; gap:6px;">
-          <span style="width:16px;height:16px;display:inline-flex;">${ICONS.stocky}</span> Стоки
-        </div>
-        <div class="ai-stream-text" style="font-size:.85rem; color:var(--text); white-space:pre-wrap; word-break:break-word"></div>
-      `;
-      box.appendChild(div);
-      streamEl = div;
+    // Текст поступил — убираем спиннер статуса и показываем текст
+    if (statusEl) statusEl.remove();
+    if (textSlot && textSlot.style.display === 'none') {
+      textSlot.style.display = 'block';
     }
-
-    var textSlot = streamEl.querySelector('.ai-stream-text') || streamEl.lastElementChild;
 
     if (_aiCurrentLength < targetLen) {
       // Адаптивная скорость: чем больше накопилось в буфере, тем быстрее печатаем
       var diff = targetLen - _aiCurrentLength;
       var step = 1;
-      if (diff > 120) step = 10;
-      else if (diff > 60) step = 5;
-      else if (diff > 25) step = 3;
-      else if (diff > 8) step = 2;
+      if (diff > 120) step = 8;
+      else if (diff > 60) step = 4;
+      else if (diff > 25) step = 2;
+      else step = 1;
 
       _aiCurrentLength = Math.min(_aiCurrentLength + step, targetLen);
       if (textSlot) {
@@ -814,13 +819,14 @@ function startAiSmoothTyping(onComplete) {
         textSlot.textContent = _aiStreamTargetText;
       }
       stopAiSmoothTyping();
+      streamEl.remove();
       if (_aiStreamOnComplete) {
         var cb = _aiStreamOnComplete;
         _aiStreamOnComplete = null;
         cb(_aiStreamTargetText);
       }
     }
-  }, 20);
+  }, 25);
 }
 
 function feedAiStreamText(text) {
@@ -840,7 +846,6 @@ function stopAiSmoothTyping() {
 }
 
 function renderAiStreamingReply() {
-  removeAiLoadingIndicator();
   feedAiStreamText(S.aiStreamText || '');
 }
 

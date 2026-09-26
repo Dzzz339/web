@@ -2110,6 +2110,31 @@
       font-style: italic;
     }
 
+    .ai-task-link-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 6px;
+      margin: 0 2px;
+      background: var(--orange-bg, #fff7ed);
+      color: var(--orange-dark, #c2410c);
+      border: 1px solid #fed7aa;
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 0.82rem;
+      cursor: pointer;
+      vertical-align: baseline;
+      text-decoration: none;
+      line-height: 1.3;
+      transition: all 0.15s ease;
+    }
+    .ai-task-link-badge:hover {
+      background: #ffedd5;
+      border-color: #f97316;
+      color: #ea580c;
+      transform: translateY(-1px);
+      box-shadow: 0 1px 3px rgba(249, 115, 22, 0.2);
+    }
+
 /* ─── MODAL AUTOCOMPLETE WIDGET ─────────────────────────────────────────── */
 .modal-ac-wrapper {
   position: relative;
@@ -2179,4 +2204,3 @@
 
 
 
-
