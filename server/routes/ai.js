@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import { pool } from '../config/db.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { buildContextForQuery } from '../services/aiFacade.js';
+import { generateAndRunSqlContext } from '../services/aiSqlService.js';
 
 const router = express.Router();
 
@@ -328,20 +329,31 @@ router.post('/chat', authenticateToken, async (req, res) => {
     }
   }
 
-  // Собираем точечный или сводный срез базы данных через безопасный фасад
-  let context = '';
-  if (req.user) {
-    try {
-      const isSupplyQuery = /(?:склад|тмц|материал|кабель|дефицит|поставк|остат)/i.test(text);
-      const [facadeContext, forecastCtx] = await Promise.all([
-        buildContextForQuery(text, req.user),
-        isSupplyQuery ? runForecastContextSql() : Promise.resolve([])
-      ]);
-      const supplyText = (forecastCtx || []).map(a =>
-        `=== ${a.section} ===\n${a.error ? '[данные недоступны]' : JSON.stringify(a.rows)}`
-      ).join('\n');
+  // Проверяем, не является ли сообщение простым приветствием
+  const isPureGreeting = /^(?:привет|здравствуй|здравствуйте|добрый\s+(?:день|вечер|утро)|хай|ку|салют|приветик|здорово)[!.,?\s]*$/i.test(text);
 
-      context = [facadeContext, supplyText].filter(Boolean).join('\n\n');
+  // Собираем точечный или сводный срез базы данных:
+  // Сначала безопасный Text-to-SQL по витринам v_ai_*, при необходимости фасад аналитики
+  let context = '';
+  if (req.user && !isPureGreeting) {
+    try {
+      // 1. Попытка выполнить интеллектуальный SQL-запрос к безопасным витринам
+      const sqlContext = await generateAndRunSqlContext(text, req.user);
+      if (sqlContext) {
+        context = sqlContext;
+      } else {
+        // 2. Если Text-to-SQL не потребовался (общий вопрос) — используем стандартный фасад
+        const isSupplyQuery = /(?:склад|тмц|материал|кабель|дефицит|поставк|остат)/i.test(text);
+        const [facadeContext, forecastCtx] = await Promise.all([
+          buildContextForQuery(text, req.user),
+          isSupplyQuery ? runForecastContextSql() : Promise.resolve([])
+        ]);
+        const supplyText = (forecastCtx || []).map(a =>
+          `=== ${a.section} ===\n${a.error ? '[данные недоступны]' : JSON.stringify(a.rows)}`
+        ).join('\n');
+
+        context = [facadeContext, supplyText].filter(Boolean).join('\n\n');
+      }
     } catch (e) {
       console.error('[AI Context Load Error]:', e.message);
     }
@@ -352,9 +364,6 @@ router.post('/chat', authenticateToken, async (req, res) => {
   if (cardContext && typeof cardContext === 'string') {
     card = '\n<card_context>\n' + cardContext + '\n</card_context>';
   }
-
-  // Проверяем, не является ли сообщение простым приветствием
-  const isPureGreeting = /^(?:привет|здравствуй|здравствуйте|добрый\s+(?:день|вечер|утро)|хай|ку|салют|приветик|здорово)[!.,?\s]*$/i.test(text);
 
   // Скользящее окно истории (последние 4 сообщения) для связности диалога без переполнения контекста
   let recentHistory = [];
