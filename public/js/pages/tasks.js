@@ -66,11 +66,19 @@ function setTaskStageFilter(stg) {
   renderApp();
 }
 
+function toggleTasksStats() {
+  S.tasksStatsExpanded = !S.tasksStatsExpanded;
+  try {
+    localStorage.setItem('tasksStatsExpanded', S.tasksStatsExpanded ? '1' : '0');
+  } catch(e){}
+  renderApp();
+}
+
 function statBox(lbl, val, sub, color) {
-  return '<div style="text-align:center">' +
-    '<div style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-3)">' + lbl + '</div>' +
-    '<div style="font-size:1.05rem;font-weight:700;' + (color ? 'color:' + color + ';' : '') + '">' + val + '</div>' +
-    (sub ? '<div style="font-size:.7rem;color:var(--text-3)">' + sub + '</div>' : '') +
+  return '<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:8px 10px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.03)">' +
+    '<div style="font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:var(--text-3);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + lbl + '</div>' +
+    '<div style="font-size:.98rem;font-weight:700;font-family:monospace;' + (color ? 'color:' + color + ';' : '') + '">' + val + '</div>' +
+    (sub ? '<div style="font-size:.68rem;color:var(--text-3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + sub + '</div>' : '') +
   '</div>';
 }
 
@@ -78,6 +86,14 @@ function pageTasks() {
   var q=S.taskQ, st=S.taskSt, pr=S.taskPr, reg=S.taskReg, mgr=S.taskMgr, yr=S.taskYear, ovd=S.taskOverdue, cust=S.taskCustomer, contr=S.taskContractor, distFilter=S.taskDistanceFilter;
   var isWorker = S.user && (S.user.role === 'worker' || S.user.role === 'contractor');
   var finMode = isWorker ? 'contractor' : (S.taskFinanceMode || 'customer');
+  
+  if (S.tasksStatsExpanded === undefined) {
+    try {
+      S.tasksStatsExpanded = localStorage.getItem('tasksStatsExpanded') === '1';
+    } catch(e) {
+      S.tasksStatsExpanded = false;
+    }
+  }
   
   // 1. Фильтрация
   var filtered = S.tasks.filter(function(t) {
@@ -398,23 +414,155 @@ function pageTasks() {
       '</div>')
     : '';
 
-  var totals = '<div class="card p mb" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.5rem;padding:.75rem 1rem">' +
-    (finMode === 'customer'
-      ? (statBox('Заявок', fmtN(filtered.length), 'из '+fmtN(S.tasks.length), 'var(--orange)') +
-         statBox('Общая стоимость', fmtMoney(sumAll), 'с удаленкой', null) +
-         statBox('Выполнено', fmtMoney(sumDone), null, 'var(--green)') +
-         statBox('В работе', fmtMoney(sumAct), null, 'var(--orange)') +
-         statBox('Удаленность', fmtMoney(sumTransportAll), 'транспорт всего', null) +
-         statBox('Портов', fmtN(portsDone)+'/'+fmtN(portsTotal), null, null) +
-         statBox('Остаток портов', fmtN(portBalance) + ' шт.', 'в заказе минус факт', portBalance > 0 ? 'var(--orange)' : 'var(--green)'))
-      : (statBox('Заявок', fmtN(filtered.length), 'из '+fmtN(S.tasks.length), 'var(--orange)') +
-         statBox('Общая подрядчикам', fmtMoney(sumContAll), null, null) +
-         statBox('Выплачено', fmtMoney(sumContPaid), null, 'var(--green)') +
-         statBox('К выплате', fmtMoney(sumContPending), null, 'var(--orange)') +
-         statBox('Транспортные', fmtMoney(sumContTransport), 'подрядчикам', null) +
-         statBox('Портов', fmtN(portsDone)+'/'+fmtN(portsTotal), null, null) +
-         statBox('План. маржа', fmtMoney(sumMargin), (marginPct + '% от Сбера'), 'var(--green)'))
-    ) +
+  var statsCompactHtml = '';
+  var statsExpandedHtml = '';
+
+  if (finMode === 'customer') {
+    statsCompactHtml = 
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.82rem">' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Заявок: ' + fmtN(filtered.length) + ' из ' + fmtN(S.tasks.length) + (cntOvd > 0 ? ' (просрочено: ' + cntOvd + ')' : '') + '">' +
+          '<span style="color:var(--text-3)">Заявки:</span>' +
+          '<b style="color:var(--orange)">' + fmtN(filtered.length) + '</b>' +
+          (filtered.length !== S.tasks.length ? '<span style="font-size:.72rem;color:var(--text-3)">/' + fmtN(S.tasks.length) + '</span>' : '') +
+          (cntOvd > 0 ? '<span class="badge b-red" style="font-size:.65rem;padding:1px 5px">+' + cntOvd + ' проср.</span>' : '') +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Общая стоимость с удаленностью: ' + fmtMoney(sumAll) + '">' +
+          '<span style="color:var(--text-3)">Всего:</span>' +
+          '<b style="font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumAll) + '</b>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Выполнено: ' + fmtMoney(sumDone) + ' (' + pct(sumDone, sumAll) + '%)">' +
+          '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green)"></span>' +
+          '<span style="color:var(--text-3)">Вып:</span>' +
+          '<b style="color:var(--green);font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumDone) + '</b>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="В работе: ' + fmtMoney(sumAct) + ' (' + pct(sumAct, sumAll) + '%)">' +
+          '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--orange)"></span>' +
+          '<span style="color:var(--text-3)">В работе:</span>' +
+          '<b style="color:var(--orange);font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumAct) + '</b>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Транспортные расходы (удаленность): ' + fmtMoney(sumTransportAll) + '">' +
+          '<span style="color:var(--text-3)">Удаленность:</span>' +
+          '<b style="font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumTransportAll) + '</b>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Порты: выполнено ' + fmtN(portsDone) + ' из ' + fmtN(portsTotal) + ' (остаток: ' + fmtN(portBalance) + ' шт.)">' +
+          '<span style="color:var(--text-3)">Порты:</span>' +
+          '<b>' + fmtN(portsDone) + '/' + fmtN(portsTotal) + '</b>' +
+          '<span style="font-size:.72rem;color:' + (portBalance > 0 ? 'var(--orange)' : 'var(--green)') + ';font-weight:600">(' + (portBalance > 0 ? '+' : '') + fmtN(portBalance) + ' шт.)</span>' +
+        '</div>' +
+      '</div>';
+  } else {
+    statsCompactHtml = 
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.82rem">' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Заявок: ' + fmtN(filtered.length) + ' из ' + fmtN(S.tasks.length) + '">' +
+          '<span style="color:var(--text-3)">Заявки:</span>' +
+          '<b style="color:var(--orange)">' + fmtN(filtered.length) + '</b>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Общая сумма к выплате подрядчикам: ' + fmtMoney(sumContAll) + '">' +
+          '<span style="color:var(--text-3)">Подрядчикам:</span>' +
+          '<b style="font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumContAll) + '</b>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Выплачено подрядчикам: ' + fmtMoney(sumContPaid) + '">' +
+          '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green)"></span>' +
+          '<span style="color:var(--text-3)">Выплачено:</span>' +
+          '<b style="color:var(--green);font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumContPaid) + '</b>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Остаток к выплате: ' + fmtMoney(sumContPending) + '">' +
+          '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--orange)"></span>' +
+          '<span style="color:var(--text-3)">К выплате:</span>' +
+          '<b style="color:var(--orange);font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumContPending) + '</b>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Транспортные расходы подрядчикам: ' + fmtMoney(sumContTransport) + '">' +
+          '<span style="color:var(--text-3)">Транспорт:</span>' +
+          '<b style="font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumContTransport) + '</b>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Плановая маржа: ' + fmtMoney(sumMargin) + ' (' + marginPct + '% от договора Сбера)">' +
+          '<span style="color:var(--text-3)">Маржа:</span>' +
+          '<b style="color:var(--green);font-family:monospace;font-size:.85rem">' + marginPct + '% (' + fmtMoneyShort(sumMargin) + ')</b>' +
+        '</div>' +
+      '</div>';
+  }
+
+  if (S.tasksStatsExpanded) {
+    if (finMode === 'customer') {
+      var donePct = pct(sumDone, sumAll);
+      var actPct = pct(sumAct, sumAll);
+      var portsPct = pct(portsDone, portsTotal);
+
+      statsExpandedHtml = 
+        '<div class="card mb" style="background:#f8fafc;border:1.5px solid var(--border);border-radius:10px;padding:12px 16px;margin-top:6px;animation:fadeIn 0.15s ease">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;border-bottom:1px solid #e2e8f0;padding-bottom:6px">' +
+            '<span style="font-weight:700;font-size:.82rem;color:var(--text);display:flex;align-items:center;gap:6px">' +
+              '📊 Детальная статистика Заказчика (ПАО Сбербанк)' +
+            '</span>' +
+            '<span style="font-size:.74rem;color:var(--text-3)">В выборке: <b>' + fmtN(filtered.length) + '</b> из <b>' + fmtN(S.tasks.length) + '</b> заявок</span>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px">' +
+            statBox('Всего заявок', fmtN(filtered.length), (cntOvd > 0 ? '⚠️ ' + cntOvd + ' с просрочкой' : 'из ' + fmtN(S.tasks.length)), 'var(--orange)') +
+            statBox('Общая стоимость', fmtMoney(sumAll), 'с удаленкой', null) +
+            statBox('Выполнено', fmtMoney(sumDone), donePct + '% от общей суммы', 'var(--green)') +
+            statBox('В работе', fmtMoney(sumAct), actPct + '% от общей суммы', 'var(--orange)') +
+            statBox('Удаленность', fmtMoney(sumTransportAll), 'транспорт всего', null) +
+            statBox('Портов (факт/план)', fmtN(portsDone) + ' / ' + fmtN(portsTotal), portsPct + '% от плана', null) +
+            statBox('Остаток портов', fmtN(portBalance) + ' шт.', 'в заказе минус факт', portBalance > 0 ? 'var(--orange)' : 'var(--green)') +
+          '</div>' +
+          '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #e2e8f0;display:flex;align-items:center;gap:12px;font-size:.76rem;color:var(--text-3)">' +
+            '<span>Выполнение бюджета: <b>' + donePct + '%</b></span>' +
+            '<div style="flex:1;background:#e2e8f0;height:6px;border-radius:3px;overflow:hidden">' +
+              '<div style="width:' + donePct + '%;background:var(--green);height:100%;border-radius:3px"></div>' +
+            '</div>' +
+            '<span>В работе: <b>' + actPct + '%</b></span>' +
+          '</div>' +
+        '</div>';
+    } else {
+      var paidPct = pct(sumContPaid, sumContAll);
+      var pendingPct = pct(sumContPending, sumContAll);
+
+      statsExpandedHtml = 
+        '<div class="card mb" style="background:#f8fafc;border:1.5px solid var(--border);border-radius:10px;padding:12px 16px;margin-top:6px;animation:fadeIn 0.15s ease">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;border-bottom:1px solid #e2e8f0;padding-bottom:6px">' +
+            '<span style="font-weight:700;font-size:.82rem;color:var(--text);display:flex;align-items:center;gap:6px">' +
+              '📊 Детальная экономика подрядчиков и маржинальность' +
+            '</span>' +
+            '<span style="font-size:.74rem;color:var(--text-3)">В выборке: <b>' + fmtN(filtered.length) + '</b> из <b>' + fmtN(S.tasks.length) + '</b> заявок</span>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px">' +
+            statBox('Заявок в выборке', fmtN(filtered.length), 'из ' + fmtN(S.tasks.length), 'var(--orange)') +
+            statBox('Общая подрядчикам', fmtMoney(sumContAll), 'к выплате всего', null) +
+            statBox('Выплачено', fmtMoney(sumContPaid), paidPct + '% выплачено', 'var(--green)') +
+            statBox('К выплате', fmtMoney(sumContPending), pendingPct + '% остаток', 'var(--orange)') +
+            statBox('Транспортные', fmtMoney(sumContTransport), 'подрядчикам', null) +
+            statBox('Портов смонтировано', fmtN(portsDone) + ' / ' + fmtN(portsTotal), pct(portsDone, portsTotal) + '% от плана', null) +
+            statBox('Плановая маржа', fmtMoney(sumMargin), marginPct + '% от договора Сбера', 'var(--green)') +
+          '</div>' +
+          '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #e2e8f0;display:flex;align-items:center;gap:12px;font-size:.76rem;color:var(--text-3)">' +
+            '<span>Выплаты подрядчикам: <b>' + paidPct + '%</b></span>' +
+            '<div style="flex:1;background:#e2e8f0;height:6px;border-radius:3px;overflow:hidden">' +
+              '<div style="width:' + paidPct + '%;background:var(--green);height:100%;border-radius:3px"></div>' +
+            '</div>' +
+            '<span>Остаток: <b>' + pendingPct + '%</b></span>' +
+          '</div>' +
+        '</div>';
+    }
+  }
+
+  var totals = '<div style="margin-bottom:.75rem">' +
+    '<div class="card" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:6px 14px;background:#fff;border:1px solid var(--border);border-radius:8px">' +
+      statsCompactHtml +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="toggleTasksStats()" style="font-size:.76rem;height:26px;padding:0 9px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;color:var(--text-2);background:#f1f5f9;border-radius:6px;border:1px solid var(--border)">' +
+        '📊 ' + (S.tasksStatsExpanded ? 'Свернуть ▴' : 'Подробнее ▾') +
+      '</button>' +
+    '</div>' +
+    statsExpandedHtml +
   '</div>';
 
   var tableRows = '';

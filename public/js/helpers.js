@@ -79,6 +79,21 @@ function fmtMoney(n) {
   if (!n) return '—';
   return Math.round(n).toLocaleString('ru-RU') + ' ₽';
 }
+function fmtMoneyShort(n) {
+  if (!n) return '0 ₽';
+  var abs = Math.abs(n);
+  var sign = n < 0 ? '-' : '';
+  if (abs >= 1000000000) {
+    return sign + (abs / 1000000000).toFixed(1).replace(/\.0$/, '') + ' млрд ₽';
+  }
+  if (abs >= 1000000) {
+    return sign + (abs / 1000000).toFixed(1).replace(/\.0$/, '') + ' млн ₽';
+  }
+  if (abs >= 10000) {
+    return sign + Math.round(abs / 1000).toLocaleString('ru-RU') + ' тыс. ₽';
+  }
+  return fmtMoney(n);
+}
 function bar(done, total, green) {
   var p = pct(done, total);
   return '<div class="prog"><div class="prog-fill' + (green?' g':'') + '" style="width:' + p + '%"></div></div>';
