@@ -629,8 +629,8 @@ export async function syncContractorsFromPOA() {
       const lower = (nameShort + ' ' + (d.opf?.short || '')).toLowerCase();
       if (lower.startsWith('ип ') || lower.includes('индивидуальный')) {
         type = 'executor';
-      } else if (lower.includes('линии') || lower.includes('витэка') || lower.includes('пэк') || lower.includes('кит') || lower.includes('транспорт')) {
-        type = 'supplier';
+      } else if (lower.includes('линии') || lower.includes('витэка') || lower.includes('пэк') || lower.includes('кит') || lower.includes('транспорт') || lower.includes('сдэк') || lower.includes('логистик') || lower.includes('энергия') || lower.includes('байкал') || lower.includes('желдор') || lower.includes('грузовоз')) {
+        type = 'logistics';
       } else if (lower.includes('электро') || lower.includes('линдекс') || lower.includes('тайле') || lower.includes('мерлен') || lower.includes('трейд') || lower.includes('совер')) {
         type = 'supplier';
       } else {

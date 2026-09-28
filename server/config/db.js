@@ -197,11 +197,22 @@ export async function initDB() {
     WHERE name_short ILIKE '%электротехмонтаж%' 
        OR name_short ILIKE '%этм%' 
        OR name_short ILIKE '%русский свет%' 
-       OR name_short ILIKE '%деловые линии%' 
-       OR name_short ILIKE '%сдэк%' 
-       OR name_short ILIKE '%пэк%' 
        OR name_short ILIKE '%дкс%' 
        OR name_short ILIKE '%рубеж%';
+  `);
+
+  await pool.query(`
+    UPDATE contractors SET type = 'logistics' 
+    WHERE name_short ILIKE '%деловые линии%' 
+       OR name_short ILIKE '%сдэк%' 
+       OR name_short ILIKE '%пэк%' 
+       OR name_short ILIKE '%витэка%' 
+       OR name_short ILIKE '%энергия%' 
+       OR name_short ILIKE '%байкал%' 
+       OR name_short ILIKE '%желдор%' 
+       OR name_short ILIKE '%транспортн%' 
+       OR name_short ILIKE '%логистик%'
+       OR name_short ILIKE '%грузовоз%';
   `);
 
   await pool.query(`
