@@ -186,7 +186,7 @@ function renderCustomersTable(container, list) {
           <tr style="background:var(--bg)">
             <th>ИНН</th>
             <th>Заказчик (Организация)</th>
-            <th>Генеральный контракт / Договор</th>
+            <th>Генеральный договор</th>
             <th>Куратор и контакты</th>
             <th>Статус</th>
             <th style="width:80px"></th>
@@ -402,7 +402,7 @@ function renderContractorAddForm(container, curTab) {
       <div>
         <div class="g2 mb">
           <div>
-            <label style="font-size:.75rem; font-weight:600">${curTab === 'customer' ? 'Генеральный контракт / Договор' : 'Договор субподряда'}</label>
+            <label style="font-size:.75rem; font-weight:600">${curTab === 'customer' ? 'Генеральный договор' : 'Договор субподряда'}</label>
             <input id="nc_contract_number" type="text" placeholder="№ 0224100001826000158">
           </div>
           <div>
@@ -506,7 +506,7 @@ function editContractor(id) {
     },
     { key: 'inn', label: 'ИНН', value: c.inn, required: true },
     { key: 'kpp', label: 'КПП', value: c.kpp || '' },
-    { key: 'contractNumber', label: 'Номер договора / контракта', value: c.contract_number || '' },
+    { key: 'contractNumber', label: 'Номер договора', value: c.contract_number || '' },
     { key: 'contractDate', label: 'Дата договора', type: 'date', value: contractDateStr },
     { key: 'curatorName', label: 'Куратор / Контактное лицо', value: c.curator_name || '' },
     { key: 'phone', label: 'Телефон', value: c.phone || '' },

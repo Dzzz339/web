@@ -203,6 +203,8 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
         macro_status          = COALESCE($40, macro_status),
         active_processes      = COALESCE($41::jsonb, active_processes),
         customer_id           = COALESCE($42::integer, customer_id),
+        contract_id           = COALESCE($43::integer, contract_id),
+        contract_lot          = COALESCE($44::integer, contract_lot),
         version               = version + 1,
         updated_at    = NOW()
       WHERE id = $1
@@ -248,7 +250,9 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       safeDate(d.stageDue),
       d.macroStatus || null,
       d.activeProcesses ? JSON.stringify(d.activeProcesses) : null,
-      d.customerId ? Number(d.customerId) : null
+      d.customerId ? Number(d.customerId) : null,
+      (d.contract_id || d.contractId) ? Number(d.contract_id || d.contractId) : null,
+      (d.contract_lot || d.contractLot) ? Number(d.contract_lot || d.contractLot) : null
     ]);
 
     // --- УВЕДОМЛЕНИЯ И EMAIL ДЛЯ ИСПОЛНИТЕЛЯ ---

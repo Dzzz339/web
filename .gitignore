@@ -12,3 +12,4 @@ uploads/*.docx
 *.docx.txt
 *.docx
 scratch/
+*.zip

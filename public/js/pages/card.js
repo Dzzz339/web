@@ -124,11 +124,26 @@ function pageCard() {
     contractorOpts += '<option value="' + t.contractor + '" selected>⚠️ ' + t.contractor + ' (из Excel)</option>';
   }
 
+  var contractOpts = '<option value="">— (Не привязан к договору) —</option>' + (S.contracts || []).map(function(c) {
+    var curContractId = Object.prototype.hasOwnProperty.call(S.cardDraft, 'contract_id') ? S.cardDraft.contract_id : t.contract_id;
+    var isSel = String(curContractId) === String(c.id);
+    var label = (c.internal_number ? 'Вн. ' + c.internal_number : '') + (c.contract_number ? ' (№ ' + c.contract_number + ')' : '') + ' · ' + (c.customer_name || '') + ' · ' + (c.contract_type_summary || '');
+    return '<option value="' + c.id + '"' + (isSel ? ' selected' : '') + '>' + escHtml(label) + '</option>';
+  }).join('');
+
   function field(lbl, key, type) {
     var isDirty = Object.prototype.hasOwnProperty.call(S.cardDraft, key);
     var val = isDirty ? S.cardDraft[key] : (t[key] || '');
     var inp = '';
-    if (key === 'status') {
+    if (key === 'contract_id') {
+      var curC = (S.contracts || []).find(function(x){ return String(x.id) === String(val); });
+      var viewBtn = curC ? ' <button type="button" class="btn btn-sm btn-ghost" style="padding:2px 6px; font-size:.74rem" onclick="openContractModal(' + curC.id + ')">👁️ Карточка</button>' : '';
+      inp = '<div style="display:flex; gap:6px; align-items:center; width:100%">' +
+        '<select name="'+key+'" data-key="'+key+'" style="flex:1; padding:4px 8px; font-size:.82rem">' + contractOpts + '</select>' +
+        viewBtn +
+      '</div>';
+    }
+    else if (key === 'status') {
       inp = '<div style="display:flex;align-items:center;gap:8px">' +
         stBadge(val) +
         '<span class="t3" style="font-size:.72rem">🔒 Управляется регламентом шагов</span>' +
@@ -555,6 +570,7 @@ function pageCard() {
         '</div>' +
         field('Регион', 'region') +
         field('Адрес объекта', 'address') +
+        field('Генеральный договор', 'contract_id', 'select') +
         field('Тип объекта', 'tipObj') +
         field('Тип работ', 'workType') +
         field('№ ГОСБ', 'gosb') +
@@ -1141,6 +1157,7 @@ function deletePortRow(rowId, taskId) {
 
 var fieldLabels = {
   status:'Статус', priority:'Приоритет', stage:'Этап', assignee:'Исполнитель',
+  contract_id:'Генеральный договор',
   controller:'Контролёр', comment:'Комментарий', distributedAt:'Дата распределения',
   contact:'Контакт на объекте', techLink:'Ссылка', deadline:'Дата окончания работ',
   dateZayavki:'Дата заявки', fact:'Факт', obsledovanie:'Обследование',

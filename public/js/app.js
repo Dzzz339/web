@@ -23,7 +23,8 @@ function init() {
     idbGet('import-info'),
     idbGet('marches'),
     idbGet('users'),
-    idbGet('contractors')
+    idbGet('contractors'),
+    idbGet('contracts')
   ]).then(function(cached) {
     var cachedStats = cached[0] || {};
     var cachedTasks = Array.isArray(cached[1]) ? cached[1] : [];
@@ -32,8 +33,9 @@ function init() {
     var cachedMarches = Array.isArray(cached[4]) ? cached[4] : [];
     var cachedUsers = Array.isArray(cached[5]) ? cached[5] : [];
     var cachedContractors = Array.isArray(cached[6]) ? cached[6] : [];
+    var cachedContracts = Array.isArray(cached[7]) ? cached[7] : [];
 
-    var requests = [api('/stats'), api('/tasks'), api('/chains'), api('/import-info'), api('/marches')];
+    var requests = [api('/stats'), api('/tasks'), api('/chains'), api('/import-info'), api('/marches'), api('/contracts')];
     if (S.user && S.user.role === 'admin') {
       requests.push(api('/users'));
       requests.push(api('/contractors'));
@@ -45,14 +47,17 @@ function init() {
       var netChains = Array.isArray(res[2]) ? res[2] : cachedChains;
       var netImportInfo = (res[3] && !res[3].error) ? res[3] : cachedImportInfo;
       var netMarches = Array.isArray(res[4]) ? res[4] : cachedMarches;
-      var netUsers = Array.isArray(res[5]) ? res[5] : cachedUsers;
-      var netContractors = Array.isArray(res[6]) ? res[6] : cachedContractors;
+      var contractsData = (res[5] && res[5].contracts) ? res[5].contracts : (Array.isArray(res[5]) ? res[5] : cachedContracts);
+      var netUsers = Array.isArray(res[6]) ? res[6] : cachedUsers;
+      var netContractors = Array.isArray(res[7]) ? res[7] : cachedContractors;
 
       S.stats = netStats;
       S.tasks = netTasks;
       S.chains = netChains;
       S.importInfo = netImportInfo;
       S.marches = netMarches;
+      S.contracts = contractsData;
+      if (res[5] && res[5].stats) S.contractStats = res[5].stats;
       S.users = netUsers;
       S.contractors = netContractors;
 
@@ -205,23 +210,23 @@ function renderNav() {
         }
         // Менеджер
         if (role === 'manager') {
-          return ['dashboard', 'tasks', 'kanban', 'marches', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
+          return ['dashboard', 'contracts', 'tasks', 'kanban', 'marches', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
         }
         // Специалист ТО
         if (role === 'to_engineer') {
-          return ['tasks', 'kanban', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
+          return ['contracts', 'tasks', 'kanban', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
         }
         // Специалист по логистике
         if (role === 'logistics') {
-          return ['supply', 'tasks', 'marches', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
+          return ['contracts', 'supply', 'tasks', 'marches', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
         }
         // Проектировщик
         if (role === 'designer') {
-          return ['tasks', 'kanban', 'chat', 'aichat', 'help'].includes(item.id);
+          return ['contracts', 'tasks', 'kanban', 'chat', 'aichat', 'help'].includes(item.id);
         }
         // Финансист
         if (role === 'accountant') {
-          return ['dashboard', 'tasks', 'contractors', 'chat', 'help'].includes(item.id);
+          return ['dashboard', 'contracts', 'tasks', 'contractors', 'chat', 'help'].includes(item.id);
         }
         return true;
       });
@@ -351,6 +356,7 @@ function renderApp() {
   else if (S.page === 'logs')      setApp(pageLogs());
   else if (S.page === 'aichat')    setApp(pageAiChat());
   else if (S.page === 'chat')      setApp(pageChat());
+  else if (S.page === 'contracts') setApp(pageContracts());
   else if (S.page === 'contractors') setApp(pageContractors());
   else if (S.page === 'supply')    setApp(pageSupply());
   else if (S.page === 'kanban')    setApp(pageKanban());

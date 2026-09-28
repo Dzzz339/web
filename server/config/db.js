@@ -1,5 +1,7 @@
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
+import path from 'path';
+import fs from 'fs';
 
 const { Pool } = pg;
 
@@ -234,6 +236,52 @@ export async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_manager_id ON tasks(manager_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_designer_id ON tasks(designer_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_macro_status ON tasks(macro_status)`);
+
+  // Реестр генеральных договоров
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS contracts (
+      id                    SERIAL PRIMARY KEY,
+      internal_number       TEXT,
+      contract_number       TEXT,
+      contract_date         DATE,
+      contract_type_summary TEXT DEFAULT 'СМР / СКС и ЛВС',
+      customer_name         TEXT,
+      customer_id           INTEGER REFERENCES contractors(id) ON DELETE SET NULL,
+      our_entity_region     TEXT,
+      our_entity_name       TEXT,
+      delivery_place        TEXT,
+      subject               TEXT,
+      terms_text            TEXT DEFAULT '',
+      zakupki_url           TEXT,
+      deadline_raw          TEXT,
+      deadline_date         DATE,
+      payment_terms         TEXT,
+      security_amount       NUMERIC DEFAULT 0,
+      security_condition    TEXT DEFAULT '',
+      discount_percent      NUMERIC DEFAULT 0,
+      amount                NUMERIC DEFAULT 0,
+      platform              TEXT DEFAULT '',
+      cloud_url             TEXT DEFAULT '',
+      contacts_raw          TEXT DEFAULT '',
+      status                TEXT DEFAULT 'active',
+      lots                  JSONB DEFAULT '[]',
+      raw_data              JSONB DEFAULT '{}',
+      created_at            TIMESTAMPTZ DEFAULT NOW(),
+      updated_at            TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_internal_number ON contracts(internal_number)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_contract_number ON contracts(contract_number)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_customer_id ON contracts(customer_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_customer_name ON contracts(customer_name)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_date ON contracts(contract_date)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_type ON contracts(contract_type_summary)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_status ON contracts(status)`);
+
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS contract_lot INTEGER DEFAULT NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_contract_id ON tasks(contract_id)`);
 
   // Таблица исходящих субподрядов (1 входящая заявка -> N исполнителей)
   await pool.query(`
@@ -741,6 +789,22 @@ export async function initDB() {
     `);
   } catch(err) {
     console.error('Stage/macro_status backfill migration error:', err.message);
+  }
+
+  // Автоматический импорт договоров при первой инициализации
+  try {
+    const { rows: contractCount } = await pool.query('SELECT COUNT(*) as cnt FROM contracts');
+    if (parseInt(contractCount[0]?.cnt || 0, 10) === 0) {
+      const excelPath = path.join(process.cwd(), 'Reestr_kontraktov_ot_14_10_2017.xlsx');
+      if (fs.existsSync(excelPath)) {
+        console.log('[DB] Реестр договоров пуст, запускаем автоматический импорт...');
+        const { importContractsFromExcel } = await import('../services/contractsImporter.js');
+        const res = await importContractsFromExcel(excelPath, pool);
+        console.log(`[DB] Автоимпорт договоров завершен: импортировано ${res.importedCount} шт.`);
+      }
+    }
+  } catch (err) {
+    console.warn('[DB] Пропуск автоимпорта договоров:', err.message);
   }
 
   console.log('DB initialized');
