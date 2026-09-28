@@ -368,22 +368,28 @@ function renderContractsTable() {
       }
     }
 
+    var fallbackDeadline = c.deadline_raw || 'По заказам';
+    var shortFallback = fallbackDeadline.replace(/\r?\n/g, ' ').trim();
+    if (shortFallback.length > 25) {
+      shortFallback = shortFallback.slice(0, 25) + '…';
+    }
+
     var dateCellHtml = `
-      <div style="font-weight:700; color:var(--text); font-size:.85rem">
+      <div style="font-weight:700; color:var(--text); font-size:.85rem; white-space:nowrap">
         📅 ${dateFormatted}
       </div>
       ${deadlineFormatted ? `
-        <div style="margin-top:4px; font-size:.78rem; display:flex; align-items:center; gap:4px; ${isExpired ? 'color:var(--red); font-weight:600' : 'color:var(--text-2)'}" title="${escHtml(c.deadline_raw || '')}">
+        <div style="margin-top:4px; font-size:.78rem; display:flex; align-items:center; gap:4px; ${isExpired ? 'color:var(--red); font-weight:600' : 'color:var(--text-2)'}; white-space:nowrap" title="${escHtml(c.deadline_raw || '')}">
           <span>⏳</span> <span>до ${deadlineFormatted}</span>
         </div>
         ${deadlineSubtitle ? `
-          <div style="font-size:.68rem; color:var(--text-3); margin-top:1px; padding-left:18px" title="${escHtml(c.deadline_raw)}">
+          <div style="font-size:.68rem; color:var(--text-3); margin-top:1px; padding-left:18px; white-space:nowrap" title="${escHtml(c.deadline_raw)}">
             ${escHtml(deadlineSubtitle)}
           </div>
         ` : ''}
       ` : `
-        <div style="margin-top:4px; font-size:.73rem; color:var(--text-3); display:flex; align-items:center; gap:4px" title="${escHtml(c.deadline_raw || '')}">
-          <span>⏳</span> <span>${escHtml(c.deadline_raw || 'По заказам')}</span>
+        <div style="margin-top:4px; font-size:.73rem; color:var(--text-3); display:flex; align-items:center; gap:4px; white-space:nowrap" title="${escHtml(c.deadline_raw || '')}">
+          <span>⏳</span> <span>${escHtml(shortFallback)}</span>
         </div>
       `}
     `;
@@ -464,23 +470,23 @@ function renderContractsTable() {
 
     return `
       <tr style="border-bottom: 1px solid var(--border); transition:background .15s" onmouseover="this.style.background='#fafafa'" onmouseout="this.style.background='transparent'">
-        <td style="padding: 10px 12px; vertical-align:top">${numberHtml}</td>
-        <td style="padding: 10px 12px; vertical-align:top; white-space:nowrap">${dateCellHtml}</td>
+        <td style="padding: 10px 12px; vertical-align:top; width:120px">${numberHtml}</td>
+        <td style="padding: 10px 12px; vertical-align:top; width:130px">${dateCellHtml}</td>
         <td style="padding: 10px 12px; vertical-align:top">${customerHtml}</td>
-        <td style="padding: 10px 12px; vertical-align:top">
+        <td style="padding: 10px 12px; vertical-align:top; width:140px">
           <span class="badge ${typeBadgeClass}">${escHtml(type)}</span>
           <div style="margin-top:4px"><span class="badge ${stClass}" style="font-size:.68rem">${escHtml(stText)}</span></div>
         </td>
         <td style="padding: 10px 12px; vertical-align:top">${subjectHtml}</td>
-        <td style="padding: 10px 12px; vertical-align:top">${amountHtml}</td>
-        <td style="padding: 10px 12px; vertical-align:top">${securityHtml}</td>
-        <td style="padding: 10px 12px; vertical-align:top">
+        <td style="padding: 10px 12px; vertical-align:top; width:115px">${amountHtml}</td>
+        <td style="padding: 10px 12px; vertical-align:top; width:105px">${securityHtml}</td>
+        <td style="padding: 10px 12px; vertical-align:top; width:100px">
           <div style="display:flex; flex-direction:column; gap:4px">
             ${linksHtml}
             ${linkedBadge}
           </div>
         </td>
-        <td style="padding: 10px 12px; vertical-align:top; text-align:right; white-space:nowrap">
+        <td style="padding: 10px 12px; vertical-align:top; width:85px; text-align:right; white-space:nowrap">
           <button class="btn btn-sm btn-ghost" onclick="openContractModal(${c.id})" title="Просмотр карточки договора">👁️</button>
           <button class="btn btn-sm btn-ghost" onclick="openContractForm(${c.id})" title="Редактировать">✏️</button>
           ${(S.user && (S.user.role === 'admin' || S.user.role === 'director')) ? `
@@ -496,15 +502,15 @@ function renderContractsTable() {
       <table>
         <thead>
           <tr style="background:var(--bg); border-bottom:1.5px solid var(--border)">
-            <th style="width:130px">№ Договора</th>
-            <th style="width:135px">Дата / Срок</th>
-            <th style="min-width:190px">Заказчик / Стороны</th>
-            <th style="width:135px">О чем договор</th>
+            <th style="width:120px">№ Договора</th>
+            <th style="width:130px">Дата / Срок</th>
+            <th style="min-width:200px">Заказчик / Стороны</th>
+            <th style="width:140px">О чем договор</th>
             <th style="min-width:240px">Предмет и Место</th>
-            <th style="width:120px">Сумма</th>
-            <th style="width:110px">Обеспечение</th>
-            <th style="width:110px">Ссылки</th>
-            <th style="width:90px"></th>
+            <th style="width:115px">Сумма</th>
+            <th style="width:105px">Обеспечение</th>
+            <th style="width:100px">Ссылки</th>
+            <th style="width:85px"></th>
           </tr>
         </thead>
         <tbody>
