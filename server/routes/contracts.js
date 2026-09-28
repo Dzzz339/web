@@ -4,7 +4,7 @@ import fs from 'fs';
 import { pool } from '../config/db.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { uploadAttachment } from '../middleware/upload.js';
-import { importContractsFromExcel } from '../services/contractsImporter.js';
+import { importContractsFromExcel, computeDeadlineDate } from '../services/contractsImporter.js';
 
 const router = express.Router();
 
@@ -192,6 +192,11 @@ router.post('/contracts', authenticateToken, async (req, res) => {
       lots
     } = req.body;
 
+    let finalDeadlineDate = deadline_date || null;
+    if (!finalDeadlineDate && deadline_raw) {
+      finalDeadlineDate = computeDeadlineDate(deadline_raw, contract_date);
+    }
+
     const { rows } = await pool.query(`
       INSERT INTO contracts (
         internal_number, contract_number, contract_date, contract_type_summary,
@@ -209,7 +214,7 @@ router.post('/contracts', authenticateToken, async (req, res) => {
       internal_number || '', contract_number || '', contract_date || null, contract_type_summary || 'СМР / СКС и ЛВС',
       customer_name || 'Не указан', customer_id || null, our_entity_region || '', our_entity_name || 'ООО «Ультима»',
       delivery_place || '', subject || '', terms_text || '', zakupki_url || '',
-      deadline_raw || '', deadline_date || null, payment_terms || '',
+      deadline_raw || '', finalDeadlineDate || null, payment_terms || '',
       security_amount || 0, security_condition || '', discount_percent || 0, amount || 0,
       platform || '', cloud_url || '', contacts_raw || '', status || 'Действует', JSON.stringify(lots || [])
     ]);
@@ -259,6 +264,11 @@ router.put('/contracts/:id', authenticateToken, async (req, res) => {
       lots
     } = req.body;
 
+    let finalDeadlineDate = deadline_date;
+    if ((finalDeadlineDate === undefined || finalDeadlineDate === null) && deadline_raw) {
+      finalDeadlineDate = computeDeadlineDate(deadline_raw, contract_date);
+    }
+
     const { rows } = await pool.query(`
       UPDATE contracts SET
         internal_number = COALESCE($1, internal_number),
@@ -292,7 +302,7 @@ router.put('/contracts/:id', authenticateToken, async (req, res) => {
       internal_number, contract_number, contract_date || null, contract_type_summary,
       customer_name, customer_id || null, our_entity_region, our_entity_name,
       delivery_place, subject, terms_text, zakupki_url,
-      deadline_raw, deadline_date || null, payment_terms,
+      deadline_raw, finalDeadlineDate || null, payment_terms,
       security_amount, security_condition, discount_percent, amount,
       platform, cloud_url, contacts_raw, status, lots ? JSON.stringify(lots) : null,
       id

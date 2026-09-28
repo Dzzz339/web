@@ -216,6 +216,85 @@ function resetContractFilters() {
 }
 
 /**
+ * Клиентский расчет дедлайна (на случай если база еще не вернула deadline_date)
+ */
+function getContractDeadlineDate(c) {
+  if (!c) return null;
+  if (c.deadline_date) return c.deadline_date;
+  if (!c.deadline_raw) return null;
+  var raw = String(c.deadline_raw).trim();
+  if (!raw || raw === '-' || /по заказ/i.test(raw)) return null;
+
+  // 1. Ищем явную дату в строке (например (03.02.2017) или до 15.07.2017)
+  var allDates = [];
+  var re = /(\d{1,2})[./](\d{1,2})[./](\d{4})/g;
+  var m;
+  while ((m = re.exec(raw)) !== null) {
+    var dt = new Date(Date.UTC(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10)));
+    if (!isNaN(dt.getTime())) allDates.push(dt.toISOString().split('T')[0]);
+  }
+  if (allDates.length > 0) return allDates[allDates.length - 1];
+
+  // Словесный месяц: 11 декабря 2023
+  var ruMonths = {
+    'январ': 0, 'феврал': 1, 'март': 2, 'апрел': 3, 'ма': 4, 'июн': 5,
+    'июл': 6, 'август': 7, 'сентябр': 8, 'октябр': 9, 'ноябр': 10, 'декабр': 11
+  };
+  var mVerbal = raw.match(/(\d{1,2})\s+([а-яё]+)\s+(\d{4})/i);
+  if (mVerbal) {
+    var dNum = parseInt(mVerbal[1], 10);
+    var monStr = mVerbal[2].toLowerCase();
+    var yNum = parseInt(mVerbal[3], 10);
+    for (var k in ruMonths) {
+      if (monStr.indexOf(k) === 0) {
+        var dtV = new Date(Date.UTC(yNum, ruMonths[k], dNum));
+        if (!isNaN(dtV.getTime())) return dtV.toISOString().split('T')[0];
+      }
+    }
+  }
+
+  // 2. Относительный срок от даты договора
+  if (c.contract_date) {
+    var baseDate = new Date(c.contract_date);
+    if (!isNaN(baseDate.getTime())) {
+      // Рабочие дни (например: 20 рабочих дней)
+      var workMatch = raw.match(/(\d+)\s*(?:рабоч|раб)[^\s]*\s*дн/i);
+      if (workMatch) {
+        var days = parseInt(workMatch[1], 10);
+        var cur = new Date(baseDate.getTime());
+        var added = 0;
+        while (added < days) {
+          cur.setDate(cur.getDate() + 1);
+          var dow = cur.getDay();
+          if (dow !== 0 && dow !== 6) added++;
+        }
+        return cur.toISOString().split('T')[0];
+      }
+
+      // Календарные дни (например: 30 календарных дней, 60 дней)
+      var calMatch = raw.match(/(\d+)\s*(?:календарн|календ)[^\s]*\s*дн/i) || raw.match(/(\d+)\s*дн/i);
+      if (calMatch) {
+        var cDays = parseInt(calMatch[1], 10);
+        var resC = new Date(baseDate.getTime());
+        resC.setDate(resC.getDate() + cDays);
+        return resC.toISOString().split('T')[0];
+      }
+
+      // Месяцы
+      var monthMatch = raw.match(/(\d+)\s*(?:месяц|мес)[^\s]*/i);
+      if (monthMatch) {
+        var mNum = parseInt(monthMatch[1], 10);
+        var resM = new Date(baseDate.getTime());
+        resM.setMonth(resM.getMonth() + mNum);
+        return resM.toISOString().split('T')[0];
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Отрисовка таблицы договоров
  */
 function renderContractsTable() {
@@ -259,12 +338,55 @@ function renderContractsTable() {
     else if (stText.includes('оплат')) stClass = 'b-yellow';
     else if (stText === 'Расторгнут') stClass = 'b-red';
 
-    // Форматирование даты
+    // Форматирование даты договора и дедлайна
     var dateFormatted = '—';
     if (c.contract_date) {
       var d = new Date(c.contract_date);
       if (!isNaN(d.getTime())) dateFormatted = d.toLocaleDateString('ru-RU');
     }
+
+    var deadlineDateStr = getContractDeadlineDate(c);
+    var deadlineFormatted = '';
+    var isExpired = false;
+    if (deadlineDateStr) {
+      var dEndObj = new Date(deadlineDateStr);
+      if (!isNaN(dEndObj.getTime())) {
+        deadlineFormatted = dEndObj.toLocaleDateString('ru-RU');
+        var now = new Date();
+        now.setHours(0, 0, 0, 0);
+        if (dEndObj < now && c.status !== 'Завершен' && c.status !== 'Расторгнут') {
+          isExpired = true;
+        }
+      }
+    }
+
+    var deadlineSubtitle = '';
+    if (c.deadline_raw && c.deadline_raw.trim()) {
+      var rawClean = c.deadline_raw.replace(/\r?\n/g, ' ').trim();
+      if (/календ|рабоч|дн|мес/i.test(rawClean)) {
+        deadlineSubtitle = rawClean.length > 25 ? rawClean.slice(0, 25) + '…' : rawClean;
+      }
+    }
+
+    var dateCellHtml = `
+      <div style="font-weight:700; color:var(--text); font-size:.85rem">
+        📅 ${dateFormatted}
+      </div>
+      ${deadlineFormatted ? `
+        <div style="margin-top:4px; font-size:.78rem; display:flex; align-items:center; gap:4px; ${isExpired ? 'color:var(--red); font-weight:600' : 'color:var(--text-2)'}" title="${escHtml(c.deadline_raw || '')}">
+          <span>⏳</span> <span>до ${deadlineFormatted}</span>
+        </div>
+        ${deadlineSubtitle ? `
+          <div style="font-size:.68rem; color:var(--text-3); margin-top:1px; padding-left:18px" title="${escHtml(c.deadline_raw)}">
+            ${escHtml(deadlineSubtitle)}
+          </div>
+        ` : ''}
+      ` : `
+        <div style="margin-top:4px; font-size:.73rem; color:var(--text-3); display:flex; align-items:center; gap:4px" title="${escHtml(c.deadline_raw || '')}">
+          <span>⏳</span> <span>${escHtml(c.deadline_raw || 'По заказам')}</span>
+        </div>
+      `}
+    `;
 
     // Ссылки
     var linksHtml = '';
@@ -343,16 +465,13 @@ function renderContractsTable() {
     return `
       <tr style="border-bottom: 1px solid var(--border); transition:background .15s" onmouseover="this.style.background='#fafafa'" onmouseout="this.style.background='transparent'">
         <td style="padding: 10px 12px; vertical-align:top">${numberHtml}</td>
-        <td style="padding: 10px 12px; vertical-align:top; font-size:.82rem; white-space:nowrap">${dateFormatted}</td>
+        <td style="padding: 10px 12px; vertical-align:top; white-space:nowrap">${dateCellHtml}</td>
         <td style="padding: 10px 12px; vertical-align:top">${customerHtml}</td>
         <td style="padding: 10px 12px; vertical-align:top">
           <span class="badge ${typeBadgeClass}">${escHtml(type)}</span>
           <div style="margin-top:4px"><span class="badge ${stClass}" style="font-size:.68rem">${escHtml(stText)}</span></div>
         </td>
         <td style="padding: 10px 12px; vertical-align:top">${subjectHtml}</td>
-        <td style="padding: 10px 12px; vertical-align:top; font-size:.78rem; color:var(--text-2); max-width:140px">
-          ${escHtml(c.deadline_raw || 'По заказам')}
-        </td>
         <td style="padding: 10px 12px; vertical-align:top">${amountHtml}</td>
         <td style="padding: 10px 12px; vertical-align:top">${securityHtml}</td>
         <td style="padding: 10px 12px; vertical-align:top">
@@ -378,11 +497,10 @@ function renderContractsTable() {
         <thead>
           <tr style="background:var(--bg); border-bottom:1.5px solid var(--border)">
             <th style="width:130px">№ Договора</th>
-            <th style="width:90px">Дата</th>
+            <th style="width:135px">Дата / Срок</th>
             <th style="min-width:190px">Заказчик / Стороны</th>
-            <th style="width:140px">О чем договор</th>
-            <th style="min-width:220px">Предмет и Место</th>
-            <th style="width:120px">Срок работ</th>
+            <th style="width:135px">О чем договор</th>
+            <th style="min-width:240px">Предмет и Место</th>
             <th style="width:120px">Сумма</th>
             <th style="width:110px">Обеспечение</th>
             <th style="width:110px">Ссылки</th>
@@ -424,7 +542,8 @@ function openContractModal(id, activeTab) {
     var tasks = c.linked_tasks || [];
 
     var dDate = c.contract_date ? new Date(c.contract_date).toLocaleDateString('ru-RU') : '—';
-    var dEnd = c.deadline_date ? new Date(c.deadline_date).toLocaleDateString('ru-RU') : (c.deadline_raw || 'По заказам');
+    var dlDateStr = getContractDeadlineDate(c);
+    var dEnd = dlDateStr ? ('до ' + new Date(dlDateStr).toLocaleDateString('ru-RU')) : (c.deadline_raw || 'По заказам');
 
     // Отрисовываем содержимое карточки
     modalEl.innerHTML = `
@@ -496,6 +615,7 @@ function renderContractTabMain(c, dDate, dEnd) {
       <div class="card p" style="padding:12px">
         <div style="font-size:.72rem; color:var(--text-3); font-weight:700">⏳ Срок окончания работ</div>
         <div style="font-size:.88rem; font-weight:600; color:var(--text); margin-top:4px">${dEnd}</div>
+        ${c.deadline_raw && dEnd.startsWith('до ') ? `<div style="font-size:.72rem; color:var(--text-3); margin-top:3px">${escHtml(c.deadline_raw)}</div>` : ''}
       </div>
       <div class="card p" style="padding:12px">
         <div style="font-size:.72rem; color:var(--text-3); font-weight:700">💰 Сумма договора</div>
@@ -781,8 +901,11 @@ function openContractForm(id) {
           <input type="text" id="cf_place" value="${escHtml(c ? c.delivery_place : '')}" placeholder="г. Санкт-Петербург, Московский пр. 165" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem">
         </div>
         <div>
-          <label style="font-size:.78rem; font-weight:700">Срок выполнения (текст или дата)</label>
-          <input type="text" id="cf_deadline_raw" value="${escHtml(c ? c.deadline_raw : '')}" placeholder="в течение 60 дней / до 15.12.2024" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem">
+          <label style="font-size:.78rem; font-weight:700">Срок выполнения (текст и точная дата)</label>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px">
+            <input type="text" id="cf_deadline_raw" value="${escHtml(c ? c.deadline_raw : '')}" placeholder="например: 30 календарных дней" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem">
+            <input type="date" id="cf_deadline_date" value="${c && c.deadline_date ? c.deadline_date.split('T')[0] : ''}" title="Точная дата дедлайна (рассчитывается автоматически)" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem">
+          </div>
         </div>
       </div>
 
@@ -846,6 +969,7 @@ function handleContractFormSubmit(e, id) {
     subject: document.getElementById('cf_subject').value.trim(),
     delivery_place: document.getElementById('cf_place').value.trim(),
     deadline_raw: document.getElementById('cf_deadline_raw').value.trim(),
+    deadline_date: document.getElementById('cf_deadline_date') && document.getElementById('cf_deadline_date').value ? document.getElementById('cf_deadline_date').value : null,
     amount: parseFloat(document.getElementById('cf_amount').value) || 0,
     security_amount: parseFloat(document.getElementById('cf_security_amount').value) || 0,
     discount_percent: (parseFloat(document.getElementById('cf_discount').value) || 0) / 100,

@@ -104,6 +104,119 @@ export function parseLots(placesRaw, numbersRaw) {
   return lots;
 }
 
+const RU_MONTHS = {
+  'январ': 0, 'феврал': 1, 'март': 2, 'апрел': 3, 'ма': 4, 'июн': 5,
+  'июл': 6, 'август': 7, 'сентябр': 8, 'октябр': 9, 'ноябр': 10, 'декабр': 11
+};
+
+/**
+ * Прибавление рабочих дней к дате (пропуская субботы и воскресенья)
+ */
+export function addWorkingDays(startDate, days) {
+  let cur = new Date(startDate.getTime());
+  let added = 0;
+  while (added < days) {
+    cur.setDate(cur.getDate() + 1);
+    const dayOfWeek = cur.getDay(); // 0 - воскресенье, 6 - суббота
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      added++;
+    }
+  }
+  return cur;
+}
+
+/**
+ * Парсер даты из текста на русском языке (DD.MM.YYYY или '11 декабря 2023')
+ */
+export function parseRussianDate(str) {
+  if (!str) return null;
+  const s = String(str).trim();
+  // 1. DD.MM.YYYY
+  const m1 = s.match(/(\d{1,2})[./](\d{1,2})[./](\d{4})/);
+  if (m1) {
+    const d = parseInt(m1[1], 10);
+    const m = parseInt(m1[2], 10) - 1;
+    const y = parseInt(m1[3], 10);
+    const dt = new Date(Date.UTC(y, m, d));
+    return dt.toISOString().split('T')[0];
+  }
+  // 2. Словесный месяц: '11 декабря 2023'
+  const m2 = s.match(/(\d{1,2})\s+([а-яё]+)\s+(\d{4})/iu);
+  if (m2) {
+    const d = parseInt(m2[1], 10);
+    const monStr = m2[2].toLowerCase();
+    const y = parseInt(m2[3], 10);
+    for (const [key, idx] of Object.entries(RU_MONTHS)) {
+      if (monStr.startsWith(key)) {
+        const dt = new Date(Date.UTC(y, idx, d));
+        return dt.toISOString().split('T')[0];
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Умный расчет даты окончания работ (дедлайна)
+ * @param {string} raw - Текст срока работ (например: '30 календарных дней', 'до 15.07.2017', '20 рабочих дней')
+ * @param {string|Date} contractDateStr - Дата заключения договора (YYYY-MM-DD)
+ * @returns {string|null} - Дата в формате YYYY-MM-DD или null
+ */
+export function computeDeadlineDate(raw, contractDateStr) {
+  if (!raw) return null;
+  const rawStr = String(raw).trim();
+  if (!rawStr || rawStr === '-' || /по заказ/i.test(rawStr)) return null;
+
+  // 1. Ищем явную дату в строке (в скобках, через 'до ...', 'по ...' или просто дату)
+  const allDates = [];
+  const re = /(\d{1,2}[./]\d{1,2}[./]\d{4})/g;
+  let match;
+  while ((match = re.exec(rawStr)) !== null) {
+    const parsed = parseRussianDate(match[1]);
+    if (parsed) allDates.push(parsed);
+  }
+  if (allDates.length > 0) {
+    return allDates[allDates.length - 1]; // Берем финальную указанную дату
+  }
+
+  // Проверяем словесную дату типа 'до 11 декабря 2023 года'
+  const verbalDate = parseRussianDate(rawStr);
+  if (verbalDate) return verbalDate;
+
+  // 2. Если явной даты нет, но известна дата заключения договора
+  if (contractDateStr) {
+    const baseDate = new Date(contractDateStr);
+    if (!isNaN(baseDate.getTime())) {
+      // Рабочие дни (например: '20 рабочих дней')
+      const workMatch = rawStr.match(/(\d+)\s*(?:рабоч|раб)[^\s]*\s*дн/iu);
+      if (workMatch) {
+        const days = parseInt(workMatch[1], 10);
+        return addWorkingDays(baseDate, days).toISOString().split('T')[0];
+      }
+
+      // Календарные дни (например: '30 календарных дней', '120 дней')
+      const calMatch = rawStr.match(/(\d+)\s*(?:календарн|календ)[^\s]*\s*дн/iu) || rawStr.match(/(\d+)\s*дн/iu);
+      if (calMatch) {
+        const days = parseInt(calMatch[1], 10);
+        const res = new Date(baseDate.getTime());
+        res.setDate(res.getDate() + days);
+        return res.toISOString().split('T')[0];
+      }
+
+      // Месяцы (например: 'в течение 3 месяцев')
+      const monthMatch = rawStr.match(/(\d+)\s*(?:месяц|мес)[^\s]*/iu);
+      if (monthMatch) {
+        const months = parseInt(monthMatch[1], 10);
+        const res = new Date(baseDate.getTime());
+        res.setMonth(res.getMonth() + months);
+        return res.toISOString().split('T')[0];
+      }
+    }
+  }
+
+  return null;
+}
+
 /**
  * Разбор отдельной строки Excel-файла реестра
  */
@@ -149,17 +262,6 @@ export function parseContractRow(r) {
   // 5: Место поставки
   const deliveryPlace = r[5] ? String(r[5]).trim() : '';
 
-  // 6: Срок выполнения
-  const deadlineRaw = r[6] ? String(r[6]).trim() : '';
-  let deadlineDate = null;
-  const deadlineMatch = deadlineRaw.match(/\((\d{2}[./]\d{2}[./]\d{4})\)/) || deadlineRaw.match(/до\s+(\d{2}[./]\d{2}[./]\d{4})/i);
-  if (deadlineMatch) {
-    deadlineDate = excelDateToDateStr(deadlineMatch[1]);
-  }
-
-  // 7: Срок оплаты (Условия оплаты)
-  const paymentTerms = r[7] ? String(r[7]).trim() : '';
-
   // 8: Номер контракта & 9: Дата контракта
   const isMultiLot = (r[5] && String(r[5]).toLowerCase().includes('лот')) || (r[8] && String(r[8]).toLowerCase().includes('лот'));
   const lots = isMultiLot ? parseLots(r[5], r[8]) : [];
@@ -168,24 +270,32 @@ export function parseContractRow(r) {
   let contractDate = null;
   const dateColRaw = r[9];
 
+  let dateLines = [];
   if (typeof dateColRaw === 'number') {
     contractDate = excelDateToDateStr(dateColRaw);
   } else if (dateColRaw) {
     const dateStr = String(dateColRaw).trim();
-    const lines = dateStr.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-    if (lines.length > 0) {
-      contractDate = excelDateToDateStr(lines[0]);
+    dateLines = dateStr.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (dateLines.length > 0) {
+      contractDate = excelDateToDateStr(dateLines[0]);
     }
     // Если в 8-й колонке номера не было, но во 2-й строке даты он есть
-    if (!contractNumber && lines.length > 1) {
-      contractNumber = lines[1].replace(/^[№N\s]+/, '').trim();
-    }
-    // Если есть 3-я строка в скобках с датой окончания действия
-    if (!deadlineDate && lines.length > 2) {
-      const matchEnd = lines[2].match(/\((\d{2}[./]\d{2}[./]\d{4})\)/);
-      if (matchEnd) deadlineDate = excelDateToDateStr(matchEnd[1]);
+    if (!contractNumber && dateLines.length > 1) {
+      contractNumber = dateLines[1].replace(/^[№N\s]+/, '').trim();
     }
   }
+
+  // 6: Срок выполнения работ
+  const deadlineRaw = r[6] ? String(r[6]).trim() : '';
+  let deadlineDate = computeDeadlineDate(deadlineRaw, contractDate);
+  // Если не найдена дата в сроке выполнения, но в 3-й строке даты контракта указано окончание действия (например: '(31.12.2017)')
+  if (!deadlineDate && dateLines.length > 2) {
+    const matchEnd = dateLines[2].match(/\((\d{2}[./]\d{2}[./]\d{4})\)/);
+    if (matchEnd) deadlineDate = excelDateToDateStr(matchEnd[1]);
+  }
+
+  // 7: Срок оплаты (Условия оплаты)
+  const paymentTerms = r[7] ? String(r[7]).trim() : '';
 
   // 10: Обеспечение контракта
   let securityAmount = 0;

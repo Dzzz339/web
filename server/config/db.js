@@ -2,6 +2,7 @@ import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import path from 'path';
 import fs from 'fs';
+import { computeDeadlineDate } from '../services/contractsImporter.js';
 
 const { Pool } = pg;
 
@@ -282,6 +283,19 @@ export async function initDB() {
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS contract_lot INTEGER DEFAULT NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_contract_id ON tasks(contract_id)`);
+
+  // Автоматический перерасчет deadline_date для существующих договоров, где он еще не заполнен
+  try {
+    const uncomputed = await pool.query(`SELECT id, deadline_raw, contract_date FROM contracts WHERE deadline_date IS NULL AND deadline_raw IS NOT NULL`);
+    for (const c of uncomputed.rows) {
+      const dl = computeDeadlineDate(c.deadline_raw, c.contract_date);
+      if (dl) {
+        await pool.query('UPDATE contracts SET deadline_date = $1 WHERE id = $2', [dl, c.id]);
+      }
+    }
+  } catch (err) {
+    console.warn('[DB] Warning updating contract deadlines:', err.message);
+  }
 
   // Таблица исходящих субподрядов (1 входящая заявка -> N исполнителей)
   await pool.query(`
