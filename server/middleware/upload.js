@@ -21,3 +21,5 @@ export const uploadAttachment = multer({
   storage: attachmentStorage,
   limits: { fileSize: 15 * 1024 * 1024 }
 });
+
+export const upload = uploadAttachment;

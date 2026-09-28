@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { pool } from '../config/db.js';
 import { authenticateToken } from '../middleware/auth.js';
-import { upload } from '../middleware/upload.js';
+import { uploadAttachment } from '../middleware/upload.js';
 import { importContractsFromExcel } from '../services/contractsImporter.js';
 
 const router = express.Router();
@@ -336,7 +336,7 @@ router.delete('/contracts/:id', authenticateToken, async (req, res) => {
 /**
  * Импорт реестра договоров из файла Excel
  */
-router.post('/contracts/import', authenticateToken, upload.single('file'), async (req, res) => {
+router.post('/contracts/import', authenticateToken, uploadAttachment.single('file'), async (req, res) => {
   const role = String(req.user.role || '').toLowerCase();
   if (!['admin', 'director'].includes(role)) {
     return res.status(403).json({ error: 'Импорт реестра доступен только Администратору или Руководителю' });
