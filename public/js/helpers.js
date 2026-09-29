@@ -246,35 +246,6 @@ function canUserUndo(user, task) {
 }
 
 function advanceIdStep(taskId) { console.warn('advanceIdStep is deprecated'); }
-function undoIdStep(taskId) { console.warn('undoIdStep is deprecated'); });
-  if (!t) return;
-  if (!canUserUndo(S.user, t)) {
-    return alert('Откат этапа доступен только ответственным ролям или администратору');
-  }
-  var reason = prompt('Укажите причину отката этапа назад:');
-  if (reason === null) return;
-  if (!reason.trim()) return alert('Причина отката обязательна!');
-
-  api('/tasks/' + encodeURIComponent(taskId) + '/undo', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reason: reason.trim(), version: t.version })
-  })
-  .then(function(res){
-    if (res.error) return alert('Ошибка: ' + res.error);
-    if (res.task) {
-      Object.assign(t, res.task);
-    }
-    renderApp();
-    if (S.page === 'card' && S.cardId === taskId) {
-      refreshRemarksList(taskId);
-    }
-  })
-  .catch(function(err){
-    alert('Ошибка отката: ' + (err.message || err));
-  });
-}
-
 function refreshRemarksList(taskId) {
   var box = document.getElementById('remarksList');
   if (!box) return;
