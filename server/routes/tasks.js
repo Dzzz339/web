@@ -383,17 +383,90 @@ router.delete('/tasks/:id', async (req, res) => {
 
 // ─── API: НОВЫЕ КОНТЕКСТНЫЕ ДЕЙСТВИЯ (ЗАВЕРШЕНИЕ СМР, ИД, ОПЛАТА) ─────────────────────────────────
 
+// 1. Монтажник отчитывается о сдаче СМР
+router.post('/tasks/:id/smr/submit', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM tasks WHERE id=$1', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'Заявка не найдена' });
+
+    const author = req.user ? (req.user.fullName || req.user.username) : 'Монтажник';
+    const hist = rows[0].history || [];
+    hist.push({
+      date: new Date().toLocaleString('ru-RU'),
+      author: author,
+      field: 'СМР',
+      old: rows[0].status_smr || 'in_progress',
+      new: 'Сдано на проверку куратору'
+    });
+
+    await pool.query(
+      "UPDATE tasks SET status_smr = 'review', history = $2::jsonb, updated_at = NOW() WHERE id = $1",
+      [req.params.id, JSON.stringify(hist)]
+    );
+    res.json({ success: true, status_smr: 'review' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 2. Менеджер / Руководитель принимает СМР (разрешает оплату монтажнику и передачу Заказчику)
+router.post('/tasks/:id/smr/accept', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM tasks WHERE id=$1', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'Заявка не найдена' });
+
+    const author = req.user ? (req.user.fullName || req.user.username) : 'Менеджер';
+    const hist = rows[0].history || [];
+    hist.push({
+      date: new Date().toLocaleString('ru-RU'),
+      author: author,
+      field: 'СМР',
+      old: rows[0].status_smr || 'review',
+      new: 'Принято куратором (оплата монтажнику разрешена)'
+    });
+
+    await pool.query(
+      "UPDATE tasks SET status_smr = 'done', macro_status = 'smr_done', history = $2::jsonb, updated_at = NOW() WHERE id = $1",
+      [req.params.id, JSON.stringify(hist)]
+    );
+    res.json({ success: true, status_smr: 'done' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 3. Менеджер возвращает СМР на доработку
+router.post('/tasks/:id/smr/reject', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM tasks WHERE id=$1', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'Заявка не найдена' });
+
+    const reason = (req.body && req.body.reason) ? req.body.reason.trim() : 'Замечания по монтажу';
+    const author = req.user ? (req.user.fullName || req.user.username) : 'Менеджер';
+    const hist = rows[0].history || [];
+    hist.push({
+      date: new Date().toLocaleString('ru-RU'),
+      author: author,
+      field: 'СМР',
+      old: rows[0].status_smr || 'review',
+      new: 'Возврат на доработку: ' + reason
+    });
+
+    await pool.query(
+      "UPDATE tasks SET status_smr = 'in_progress', history = $2::jsonb, updated_at = NOW() WHERE id = $1",
+      [req.params.id, JSON.stringify(hist)]
+    );
+    res.json({ success: true, status_smr: 'in_progress' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Сохраняем обратную совместимость для complete
 router.post('/tasks/:id/smr/complete', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM tasks WHERE id=$1', [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: 'Заявка не найдена' });
-    // TODO: Add role checks if needed
     
     await pool.query(
-      "UPDATE tasks SET status_smr = 'done', macro_status = 'smr_done' WHERE id = $1",
+      "UPDATE tasks SET status_smr = 'done', macro_status = 'smr_done', updated_at = NOW() WHERE id = $1",
       [req.params.id]
     );
-    res.json({ success: true });
+    res.json({ success: true, status_smr: 'done' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

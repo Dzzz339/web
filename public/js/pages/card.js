@@ -344,11 +344,7 @@ function pageCard() {
     return '<option value="'+v+'"'+(curStage===v?' selected':'')+'>'+stageLabel[v]+'</option>';
   }).join('');
   var docBtns =
-    '<button class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\''+eid+'\')" title="Сформировать официальное письмо на допуск в Word (с паспортами монтажников)">📄 Допуск (.docx)</button>' +
-    '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'app2\',\''+eid+'\')" title="\u041f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u0435 \u21162">&#x2B07; \u041f\u0440\u0438\u043b. \u21162</button>' +
-    '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'invoice\',\''+eid+'\')" title="\u0421\u0447\u0451\u0442">&#x1F4CB; \u0421\u0447\u0451\u0442</button>' +
-    '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'act\',\''+eid+'\')" title="\u0410\u043a\u0442">&#x2714; \u0410\u043a\u0442</button>' +
-    '<button class="btn btn-sm btn-ghost" onclick="window.print()" title="\u041f\u0435\u0447\u0430\u0442\u044c / PDF">&#x1F5A8; \u041f\u0435\u0447\u0430\u0442\u044c</button>';
+    '<button class="btn btn-sm btn-ghost" onclick="window.print()" title="Распечатать карточку объекта / сохранить в PDF">🖨️ Печать</button>';
 
   var curStageNum = Number(t.stageNum != null ? t.stageNum : 0);
   if (curStageNum < 0) curStageNum = 0;
@@ -362,15 +358,20 @@ function pageCard() {
     cancelBtn = '<button class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="cancelTaskPrompt(\'' + eid + '\')" title="Отменить заявку с указанием причины">🚫 Отменить заявку</button>';
   }
 
-  var macroStatusHtml = '<div style="display:flex;align-items:center;gap:6px">' +
-    macroStatusBadge(t.macroStatus || 'new') +
-    '<select class="btn btn-sm" onchange="changeTaskMacroStatus(\'' + eid + '\', this.value)" style="background:var(--card);font-size:.78rem;padding:3px 6px;border:1px solid var(--border)">' +
-      Object.keys(MACRO_STATUSES).map(function(k){
-        var curMs = (t.macroStatus || 'new').toLowerCase();
-        return '<option value="' + k + '"' + (curMs === k ? ' selected' : '') + '>' + MACRO_STATUSES[k].icon + ' ' + MACRO_STATUSES[k].name + '</option>';
-      }).join('') +
-    '</select>' +
-  '</div>';
+  var isManagerOrAdmin = S.user && ['admin', 'director', 'manager', 'to_engineer'].includes(String(S.user.role||'').toLowerCase());
+
+  var macroStatusHtml = isManagerOrAdmin
+    ? '<div style="display:flex;align-items:center;gap:6px">' +
+        '<select onchange="changeTaskMacroStatus(\'' + eid + '\', this.value)" style="background:#ffffff;color:#0f172a;font-weight:600;font-size:.82rem;padding:5px 10px;border:1.5px solid #cbd5e1;border-radius:6px;cursor:pointer;outline:none;box-shadow:0 1px 2px rgba(0,0,0,0.05)">' +
+          Object.keys(MACRO_STATUSES).map(function(k){
+            var curMs = (t.macroStatus || 'new').toLowerCase();
+            return '<option value="' + k + '"' + (curMs === k ? ' selected' : '') + ' style="color:#0f172a;background:#ffffff">' + MACRO_STATUSES[k].icon + ' ' + MACRO_STATUSES[k].name + '</option>';
+          }).join('') +
+        '</select>' +
+      '</div>'
+    : '<div style="display:flex;align-items:center;gap:6px">' +
+        macroStatusBadge(t.macroStatus || 'new') +
+      '</div>';
 
   var hdr = '<div class="card-hdr" style="flex-wrap:wrap;gap:10px">' +
     '<button class="btn btn-sm btn-ghost" onclick="go(\'tasks\')">← Заявки</button>' +
@@ -673,9 +674,49 @@ function pageCard() {
       (!isLocked ? '<button class="btn btn-sm btn-primary" onclick="openSubcontractModal(\'' + eid + '\')">+ Назначить подрядчика</button>' : '') +
     '</div>' +
     '<div id="cardSubcontractsContainer" class="t3">Загрузка субподрядов…</div>' +
-    '<div style="margin-top:10px;text-align:right;">' +
-      (t.status_smr !== 'done' ? '<button class="btn btn-sm btn-primary" onclick="completeSmr(\''+eid+'\')">✅ Завершить СМР</button>' : '<span class="badge b-green">СМР Завершено</span>') +
-    '</div>' +
+    (function() {
+      var isManager = S.user && ['admin', 'director', 'manager', 'to_engineer'].includes(String(S.user.role||'').toLowerCase());
+      var smrSt = t.status_smr || 'in_progress';
+
+      if (smrSt === 'done') {
+        return '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+          '<div style="display:flex;align-items:center;gap:6px">' +
+            '<span class="badge b-green" style="font-size:.84rem;padding:4px 10px;font-weight:600">✅ СМР приняты куратором</span>' +
+            '<span class="t3" style="font-size:.78rem">Выплата монтажникам разрешена</span>' +
+          '</div>' +
+          (isManager ? '<button class="btn btn-sm btn-ghost" style="color:var(--text-3);font-size:.74rem" onclick="rejectSmr(\''+eid+'\')" title="Отозвать приёмку и вернуть на проверку">↩️ Отозвать приёмку</button>' : '') +
+        '</div>';
+      }
+
+      if (smrSt === 'review') {
+        if (isWorker) {
+          return '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);text-align:right">' +
+            '<span class="badge b-blue" style="font-size:.84rem;padding:4px 10px">⏳ СМР сданы куратору (ожидают проверки)</span>' +
+          '</div>';
+        }
+        return '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+          '<div>' +
+            '<span class="badge b-blue" style="font-size:.8rem;padding:3px 8px;font-weight:600">Монтажник сдал СМР</span>' +
+            '<span class="t3" style="font-size:.76rem;margin-left:6px">Проверьте фотоотчёт</span>' +
+          '</div>' +
+          '<div style="display:flex;gap:6px">' +
+            '<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="rejectSmr(\''+eid+'\')">↩️ На доработку</button>' +
+            '<button class="btn btn-sm btn-primary" onclick="acceptSmr(\''+eid+'\')">🤝 Принять СМР (разрешить оплату)</button>' +
+          '</div>' +
+        '</div>';
+      }
+
+      // in_progress (монтаж идет)
+      if (isWorker) {
+        return '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);text-align:right">' +
+          '<button class="btn btn-sm btn-primary" onclick="submitSmr(\''+eid+'\')">🔧 Завершить СМР (сдать куратору)</button>' +
+        '</div>';
+      }
+      return '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:6px">' +
+        '<button class="btn btn-sm btn-ghost" onclick="submitSmr(\''+eid+'\')" title="Отметить готовность монтажа">🔧 Завершить СМР</button>' +
+        '<button class="btn btn-sm btn-primary" onclick="acceptSmr(\''+eid+'\')" title="Принять СМР сразу и разрешить оплату">🤝 Принять СМР (разрешить оплату)</button>' +
+      '</div>';
+    })() +
   '</div>';
 
   var paneItems = '<div id="cardTabPane-items" class="card-tab-pane" style="display:' + (curTab === 'items' ? 'block' : 'none') + '">' +
@@ -1938,12 +1979,42 @@ function deleteCardDocument(taskId, docId) {
 // ─── PAGE: МАРШИ ─────────────────────────────────────────────────────────────
 
 // --- NEW WORKFLOW ACTIONS ---
-window.completeSmr = function(taskId) {
-  if (!confirm('Вы уверены, что хотите завершить СМР по этой заявке?')) return;
-  api('/tasks/' + encodeURIComponent(taskId) + '/smr/complete', { method: 'POST' })
-    .then(res => { if (res.error) alert(res.error); renderApp(); })
-    .catch(err => alert(err));
+window.submitSmr = function(taskId) {
+  if (!confirm('Вы подтверждаете, что строительно-монтажные работы по объекту выполнены и готовы к сдаче куратору?')) return;
+  api('/tasks/' + encodeURIComponent(taskId) + '/smr/submit', { method: 'POST' })
+    .then(function(res) {
+      if (res && res.error) alert(res.error);
+      renderApp();
+    })
+    .catch(function(err) { alert(err.message || err); });
 };
+
+window.acceptSmr = function(taskId) {
+  if (!confirm('Принять строительно-монтажные работы по объекту?\n\nЭто действие:\n1. Зафиксирует внутреннюю приёмку СМР куратором\n2. Разрешит оплату субподрядчику / бригаде\n3. Подготовит заявку к сдаче Заказчику')) return;
+  api('/tasks/' + encodeURIComponent(taskId) + '/smr/accept', { method: 'POST' })
+    .then(function(res) {
+      if (res && res.error) alert(res.error);
+      renderApp();
+    })
+    .catch(function(err) { alert(err.message || err); });
+};
+
+window.rejectSmr = function(taskId) {
+  var reason = prompt('Укажите причину возврата на доработку (что исправить монтажнику):');
+  if (reason === null) return;
+  api('/tasks/' + encodeURIComponent(taskId) + '/smr/reject', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: reason })
+  })
+    .then(function(res) {
+      if (res && res.error) alert(res.error);
+      renderApp();
+    })
+    .catch(function(err) { alert(err.message || err); });
+};
+
+window.completeSmr = window.acceptSmr;
 window.submitIdReview = function(taskId) {
   if (!confirm('Отправить исполнительную документацию на проверку Заказчику?')) return;
   api('/tasks/' + encodeURIComponent(taskId) + '/id/review', { method: 'POST' })
