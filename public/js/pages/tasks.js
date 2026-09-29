@@ -279,11 +279,11 @@ function pageTasks() {
   var marginPct = sumAll > 0 ? Math.round(sumMargin / sumAll * 100) : 0;
 
   var modeSwitcher = isWorker ? '' : '<div style="display:flex;align-items:center;gap:4px;background:#f1f5f9;padding:3px 4px;border-radius:8px;border:1px solid var(--border)">' +
-    '<button type="button" class="btn btn-sm ' + (appMode === 'customer' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'customer\')" style="font-size:.78rem;padding:4px 12px;height:auto">🏦 Заказчик</button>' +
-    '<button type="button" class="btn btn-sm ' + (appMode === 'contractor' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'contractor\')" style="font-size:.78rem;padding:4px 12px;height:auto">🤝 Подряд (СМР)</button>' +
-    '<button type="button" class="btn btn-sm ' + (appMode === 'supply' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'supply\')" style="font-size:.78rem;padding:4px 12px;height:auto">📦 Снабжение</button>' +
-    '<button type="button" class="btn btn-sm ' + (appMode === 'docs' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'docs\')" style="font-size:.78rem;padding:4px 12px;height:auto">📄 Документы</button>' +
-    '<button type="button" class="btn btn-sm ' + (appMode === 'finance' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'finance\')" style="font-size:.78rem;padding:4px 12px;height:auto">💰 Финансы</button>' +
+    '<button type="button" class="btn btn-sm ' + (appMode === 'customer' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'customer\')" style="font-size:.78rem;padding:4px 12px;height:auto">🏦 Сводка Заказчика</button>' +
+    '<button type="button" class="btn btn-sm ' + (appMode === 'contractor' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'contractor\')" style="font-size:.78rem;padding:4px 12px;height:auto">👷 Управление Подрядом</button>' +
+    '<button type="button" class="btn btn-sm ' + (appMode === 'supply' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'supply\')" style="font-size:.78rem;padding:4px 12px;height:auto">📦 Логистика и ТМЦ</button>' +
+    '<button type="button" class="btn btn-sm ' + (appMode === 'docs' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'docs\')" style="font-size:.78rem;padding:4px 12px;height:auto">📐 Проектирование (ИД)</button>' +
+    '<button type="button" class="btn btn-sm ' + (appMode === 'finance' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'finance\')" style="font-size:.78rem;padding:4px 12px;height:auto">💰 Бухгалтерия</button>' +
   '</div>';
 
   var topControls = '<div style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.65rem;align-items:center;justify-content:space-between">' +

@@ -693,7 +693,7 @@ function pageCard() {
     '</div>' +
   '</div>';
 
-  var paneFiles = '<div id="cardTabPane-files" class="card-tab-pane" style="display:' + (curTab === 'files' ? 'block' : 'none') + '">' +
+  var paneFiles = '<div id="cardTabPane-files" class="card-tab-pane" style="display:' + (curTab === 'docs' ? 'block' : 'none') + '">' +
     docsRegistryBlock +
     remarksBlock +
     '<div class="card p mb">' +
@@ -723,7 +723,7 @@ function pageCard() {
     '</div>' +
   '</div>';
 
-  var paneFinance = '<div id="cardTabPane-finance" class="card-tab-pane" style="display:' + (curTab === 'finance' ? 'block' : 'none') + '">' +
+  var paneFinance = '<div id="cardTabPane-finance" class="card-tab-pane" style="display:' + (curTab === 'fin' ? 'block' : 'none') + '">' +
     '<div class="card p mb">' +
       '<div class="sec-title" style="margin-bottom:.5rem">Финансовые показатели договора</div>' +
       field('Сумма договора', 'amount', 'number') +
