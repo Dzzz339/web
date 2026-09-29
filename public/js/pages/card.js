@@ -135,6 +135,43 @@ function pageCard() {
   function field(lbl, key, type) {
     var isDirty = Object.prototype.hasOwnProperty.call(S.cardDraft, key);
     var val = isDirty ? S.cardDraft[key] : (t[key] || '');
+
+    var canEdit = canUserEditField(S.user, key);
+    if (!canEdit) {
+      var displayVal = val;
+      if (type === 'checkbox') {
+        displayVal = val ? '✅ Да' : '❌ Нет';
+      } else if (type === 'date') {
+        displayVal = val ? String(val).slice(0, 10).split('-').reverse().join('.') : '—';
+      } else if (type === 'number') {
+        var num = parseFloat(val);
+        var isCurrency = ['amount', 'pricePerUnit', 'distanceKm', 'extras', 'tmc'].includes(key);
+        displayVal = (!isNaN(num) && val !== '' && val != null) ? (num.toLocaleString('ru-RU') + (isCurrency ? ' ₽' : '')) : '—';
+      } else if (type === 'url') {
+        displayVal = val ? ('<a href="' + escHtml(val) + '" target="_blank" rel="noopener noreferrer" style="color:var(--blue);text-decoration:underline;word-break:break-all">🔗 Открыть ссылку</a>') : '—';
+      } else if (key === 'contract_id') {
+        var curC = (S.contracts || []).find(function(x){ return String(x.id) === String(val); });
+        displayVal = curC ? (curC.contract_number ? ('Договор № ' + escHtml(curC.contract_number) + ' (' + escHtml(curC.name_short) + ')') : escHtml(curC.name_short)) : '—';
+      } else if (key === 'status') {
+        displayVal = stBadge(val);
+      } else if (key === 'priority') {
+        var prioLabels = { high: '🔴 Высокий', medium: '🟡 Средний', low: '🟢 Низкий' };
+        displayVal = prioLabels[val] || val || '—';
+      } else if (!displayVal) {
+        displayVal = '<span class="t3">—</span>';
+      } else {
+        displayVal = escHtml(String(displayVal));
+      }
+
+      return '<div class="field-row">' +
+        '<div class="field-lbl">' + lbl + '</div>' +
+        '<div class="field-val" style="display:flex;align-items:center;justify-content:space-between;color:var(--text);font-weight:500;padding:5px 0">' +
+          '<span>' + displayVal + '</span>' +
+          '<span class="t3" style="font-size:.72rem;opacity:.55;cursor:help" title="Поле защищено от изменений вашей ролью">🔒</span>' +
+        '</div>' +
+      '</div>';
+    }
+
     var inp = '';
     if (key === 'contract_id') {
       var curC = (S.contracts || []).find(function(x){ return String(x.id) === String(val); });
@@ -164,8 +201,8 @@ function pageCard() {
       '</div>';
     }
     else if (key === 'priority') inp = '<select name="'+key+'" data-key="'+key+'">'+prioOpts+'</select>';
-    else if (key === 'assignee' && S.user.role === 'admin') inp = '<select name="'+key+'" data-key="'+key+'">' + assigneeOpts + '</select>';
-    else if (key === 'contractor' && S.user.role === 'admin') inp = '<select name="'+key+'" data-key="'+key+'" style="width:100%">' + contractorOpts + '</select>';
+    else if (key === 'assignee' && ['admin', 'director', 'manager'].includes(String(S.user ? S.user.role : '').toLowerCase())) inp = '<select name="'+key+'" data-key="'+key+'">' + assigneeOpts + '</select>';
+    else if (key === 'contractor' && ['admin', 'director', 'manager'].includes(String(S.user ? S.user.role : '').toLowerCase())) inp = '<select name="'+key+'" data-key="'+key+'" style="width:100%">' + contractorOpts + '</select>';
     else if (type === 'textarea') inp = '<textarea name="'+key+'" data-key="'+key+'">'+val+'</textarea>';
     else if (type === 'checkbox') inp = '<input type="checkbox" name="'+key+'" data-key="'+key+'"'+(val ? ' checked' : '')+'>';
     else inp = '<input type="'+(type||'text')+'" name="'+key+'" data-key="'+key+'" value="'+String(val).replace(/"/g,'&quot;')+'">';
@@ -458,7 +495,7 @@ function pageCard() {
     ? ' <span class="card-tab-badge badge-red">' + openRemCount + '</span>'
     : '';
 
-  var isWorker = S.user && (S.user.role === 'worker' || S.user.role === 'contractor');
+  var isWorker = S.user && (S.user.role === 'worker' || S.user.role === 'installer' || S.user.role === 'contractor');
   var tabsNav = '<div class="card-tabs-nav">' +
     '<button type="button" class="card-tab-btn ' + (curTab === 'main' ? 'active' : '') + '" data-tab="main" onclick="setCardTab(\'main\')">' +
       '🏛️ 1. Информация' +
@@ -601,7 +638,7 @@ function pageCard() {
         '<span id="cardItemsCountBadge" class="badge b-gray" style="font-size:.74rem">0 позиций</span>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:6px">' +
-        (!isLocked ? '<button class="btn btn-sm" onclick="addItemPrompt(\'' + eid + '\')">+ Добавить работу / ТМЦ</button>' : '') +
+        (!isLocked && S.user && ['admin','director','manager','to_engineer'].includes(String(S.user.role||'').toLowerCase()) ? '<button class="btn btn-sm" onclick="addItemPrompt(\'' + eid + '\')">+ Добавить работу / ТМЦ</button>' : '') +
       '</div>' +
     '</div>' +
     '<div id="cardItemsSummaryBar" style="display:flex;gap:16px;background:var(--bg);padding:8px 12px;border-radius:6px;margin-bottom:.75rem;font-size:.8rem;flex-wrap:wrap;align-items:center">' +

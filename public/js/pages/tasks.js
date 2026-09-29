@@ -84,8 +84,16 @@ function statBox(lbl, val, sub, color) {
 
 function pageTasks() {
   var q=S.taskQ, st=S.taskSt, pr=S.taskPr, reg=S.taskReg, mgr=S.taskMgr, yr=S.taskYear, ovd=S.taskOverdue, cust=S.taskCustomer, contr=S.taskContractor, distFilter=S.taskDistanceFilter;
-  var isWorker = S.user && (S.user.role === 'worker' || S.user.role === 'contractor');
-  var appMode = isWorker ? 'contractor' : (S.taskAppMode || 'customer');
+  var isWorker = S.user && (S.user.role === 'worker' || S.user.role === 'installer' || S.user.role === 'contractor');
+  var defaultModeForRole = (function() {
+    if (isWorker) return 'contractor';
+    var r = S.user ? String(S.user.role || '').toLowerCase() : '';
+    if (r === 'logistics') return 'supply';
+    if (r === 'designer') return 'docs';
+    if (r === 'accountant') return 'finance';
+    return 'customer';
+  })();
+  var appMode = isWorker ? 'contractor' : (S.taskAppMode || defaultModeForRole);
   
   if (S.tasksStatsExpanded === undefined) {
     try {
@@ -167,7 +175,7 @@ function pageTasks() {
     if (S.taskView === 'remarks' && !(Number(t.openRemarksCount) > 0)) return false;
     if (S.taskView === 'payment' && (t.stageNum !== 7 && t.stageNum !== 8)) return false;
     if (S.taskView === 'done' && t.stageNum !== 9) return false;
-    if (S.user.role === 'worker' && t.assignmentStatus === 'pending') return false;
+    if ((S.user.role === 'worker' || S.user.role === 'installer') && t.assignmentStatus === 'pending') return false;
 
     return true;
   });
@@ -278,8 +286,11 @@ function pageTasks() {
   var sumMargin = sumAll - sumContAll;
   var marginPct = sumAll > 0 ? Math.round(sumMargin / sumAll * 100) : 0;
 
+  var userRole = S.user ? String(S.user.role || '').toLowerCase() : '';
+  var canSeeCustomer = ['admin', 'director', 'manager', 'to_engineer', 'accountant'].includes(userRole);
+  
   var modeSwitcher = isWorker ? '' : '<div style="display:flex;align-items:center;gap:4px;background:#f1f5f9;padding:3px 4px;border-radius:8px;border:1px solid var(--border)">' +
-    '<button type="button" class="btn btn-sm ' + (appMode === 'customer' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'customer\')" style="font-size:.78rem;padding:4px 12px;height:auto">🏦 Сводка Заказчика</button>' +
+    (canSeeCustomer ? '<button type="button" class="btn btn-sm ' + (appMode === 'customer' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'customer\')" style="font-size:.78rem;padding:4px 12px;height:auto">🏦 Сводка Заказчика</button>' : '') +
     '<button type="button" class="btn btn-sm ' + (appMode === 'contractor' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'contractor\')" style="font-size:.78rem;padding:4px 12px;height:auto">👷 Управление Подрядом</button>' +
     '<button type="button" class="btn btn-sm ' + (appMode === 'supply' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'supply\')" style="font-size:.78rem;padding:4px 12px;height:auto">📦 Логистика и ТМЦ</button>' +
     '<button type="button" class="btn btn-sm ' + (appMode === 'docs' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'docs\')" style="font-size:.78rem;padding:4px 12px;height:auto">📐 Проектирование (ИД)</button>' +

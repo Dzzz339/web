@@ -145,7 +145,45 @@ router.post('/tasks', authenticateToken, async (req, res) => {
 
 router.put('/tasks/:id', authenticateToken, async (req, res) => {
   try {
-    const d = req.body
+    const d = req.body;
+    const role = req.user ? String(req.user.role || '').toLowerCase() : '';
+    const isAdminOrDirector = role === 'admin' || role === 'director';
+
+    // Защита полей от несанкционированного изменения по ролям
+    if (!isAdminOrDirector) {
+      if (role === 'worker' || role === 'installer' || role === 'contractor') {
+        const allowed = ['fact', 'dataVyhoda', 'obsledovanie', 'dostup', 'priemka', 'assignmentStatus'];
+        for (const k of Object.keys(d)) {
+          if (!allowed.includes(k) && k !== '_history' && k !== 'history') {
+            delete d[k];
+          }
+        }
+      } else if (role === 'designer') {
+        const allowed = ['materialsLink', 'idLink', 'supplierIdUploaded', 'techLink', 'comment', 'idStatus'];
+        for (const k of Object.keys(d)) {
+          if (!allowed.includes(k) && k !== '_history' && k !== 'history') {
+            delete d[k];
+          }
+        }
+      } else if (role === 'logistics') {
+        const allowed = ['tmc', 'comment', 'supplierOrderSigned', 'dostup', 'statusSupply'];
+        for (const k of Object.keys(d)) {
+          if (!allowed.includes(k) && k !== '_history' && k !== 'history') {
+            delete d[k];
+          }
+        }
+      } else if (role === 'accountant') {
+        const allowed = ['edoNumber', 'invoiceInfo', 'vedoStatus', 'oplata', 'comment', 'statusFinance'];
+        for (const k of Object.keys(d)) {
+          if (!allowed.includes(k) && k !== '_history' && k !== 'history') {
+            delete d[k];
+          }
+        }
+      } else if (role === 'manager' || role === 'to_engineer') {
+        delete d.amount;
+        delete d.pricePerUnit;
+      }
+    }
     // Если меняется исполнитель — подтягиваем организацию, к которой он привязан
     if (d.assignee !== undefined && d.assignee) {
       try {

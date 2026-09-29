@@ -250,7 +250,7 @@ function moveKanbanTaskToCol(taskId, colId) {
   var currentCol = getTaskKanbanCol(t);
   if (currentCol.id === targetCol.id) return;
 
-  if (S.user && S.user.role === 'worker') {
+  if (S.user && (S.user.role === 'worker' || S.user.role === 'installer' || S.user.role === 'contractor')) {
     return alert('У рабочих нет прав на изменение этапа заявки');
   }
 

@@ -224,6 +224,49 @@ function changeTaskMacroStatus(taskId, newStatus, callback) {
   });
 }
 
+function canUserEditField(user, key) {
+  if (!user || !user.role) return false;
+  var r = String(user.role).trim().toLowerCase();
+
+  // 1. Руководство и Администраторы имеют полный доступ
+  if (r === 'admin' || r === 'director') return true;
+
+  // 2. Полевые монтажники и подрядчики
+  // Могут менять ТОЛЬКО факт выполнения, дату выхода и доступы/обследование
+  if (r === 'installer' || r === 'worker' || r === 'contractor') {
+    return ['fact', 'dataVyhoda', 'obsledovanie', 'dostup', 'priemka'].includes(key);
+  }
+
+  // 3. Проектировщик (ИД)
+  if (r === 'designer') {
+    return ['materialsLink', 'idLink', 'supplierIdUploaded', 'techLink', 'comment'].includes(key);
+  }
+
+  // 4. Логист / Снабжение
+  if (r === 'logistics') {
+    return ['tmc', 'comment', 'supplierOrderSigned', 'dostup'].includes(key);
+  }
+
+  // 5. Бухгалтерия / Финансы
+  if (r === 'accountant') {
+    return ['edoNumber', 'invoiceInfo', 'vedoStatus', 'oplata', 'comment'].includes(key);
+  }
+
+  // 6. Менеджер проекта и Специалист ТО
+  if (r === 'manager' || r === 'to_engineer') {
+    var lockedForManager = ['amount', 'pricePerUnit'];
+    return !lockedForManager.includes(key);
+  }
+
+  return false;
+}
+
+function isWorkerRole(role) {
+  if (!role) return false;
+  var r = String(role).trim().toLowerCase();
+  return r === 'worker' || r === 'installer' || r === 'contractor';
+}
+
 function hasUserRole(user) {
   if (!user) return false;
   var wanted = Array.prototype.slice.call(arguments, 1);
