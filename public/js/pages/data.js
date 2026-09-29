@@ -30,12 +30,12 @@ function pageData() {
             '<span>📊 Сценарий 1: Массовая загрузка (Excel)</span>' +
             '<span class="badge b-blue" style="font-size:.7rem">.xlsx / .xls</span>' +
           '</div>' +
-          '<p class="t2 mb" style="font-size:.82rem">Сводные таблицы Сбера с листами «Заявки 2023-2026». При загрузке строки обновляются без потери комментариев и вложений.</p>' +
+          '<p class="t2 mb" style="font-size:.82rem">Сводные таблицы Заказчиков с листами «Заявки 2023-2026». При загрузке строки обновляются без потери комментариев и вложений.</p>' +
           '<div class="upload-zone" id="uzone" onclick="document.getElementById(\'ufile\').click()">' +
             '<input type="file" id="ufile" accept=".xlsx,.xls">' +
             '<div style="font-size:2.2rem;margin-bottom:.4rem">📂</div>' +
             '<div class="fw6">Нажмите или перетащите файл реестра .xlsx</div>' +
-            '<div class="t3" style="font-size:.75rem;margin-top:4px">Поддерживаются стандартные таблицы Сбера</div>' +
+            '<div class="t3" style="font-size:.75rem;margin-top:4px">Поддерживаются стандартные таблицы реестров Заказчиков</div>' +
           '</div>' +
           '<div id="ustatus" style="margin-top:1rem"></div>' +
         '</div>' +
@@ -173,7 +173,7 @@ function pageData() {
           '<input id="nt_address" type="text" placeholder="Адрес объекта">' +
 
           '<div class="g2">' +
-            '<input id="nt_manager" type="text" placeholder="Менеджер Сбера / Контакт Заказчика">' +
+            '<input id="nt_manager" type="text" placeholder="Менеджер / Контакт Заказчика">' +
             '<input id="nt_contact" type="text" placeholder="Контакт на объекте">' +
           '</div>' +
           

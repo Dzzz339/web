@@ -312,9 +312,17 @@ function pageCard() {
     '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'act\',\''+eid+'\')" title="\u0410\u043a\u0442">&#x2714; \u0410\u043a\u0442</button>' +
     '<button class="btn btn-sm btn-ghost" onclick="window.print()" title="\u041f\u0435\u0447\u0430\u0442\u044c / PDF">&#x1F5A8; \u041f\u0435\u0447\u0430\u0442\u044c</button>';
 
-  var cancelBtn = t.status === 'cancelled'
-    ? '<span class="badge b-red" style="padding:6px 12px;font-weight:700">🚫 Заявка отменена' + (t.overdueReason ? ': ' + escHtml(t.overdueReason) : '') + '</span>'
-    : '<button class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="cancelTaskPrompt(\'' + eid + '\')" title="Отменить заявку с указанием причины">🚫 Отменить заявку</button>';
+  var curStageNum = Number(t.stageNum != null ? t.stageNum : 0);
+  if (curStageNum < 0) curStageNum = 0;
+  if (curStageNum > 9) curStageNum = 9;
+  var isLocked = ['accepted', 'billing', 'paid', 'archived'].includes((t.macroStatus || '').toLowerCase()) || t.status === 'cancelled' || curStageNum >= 8;
+
+  var cancelBtn = '';
+  if (t.status === 'cancelled') {
+    cancelBtn = '<span class="badge b-red" style="padding:6px 12px;font-weight:700">🚫 Заявка отменена' + (t.overdueReason ? ': ' + escHtml(t.overdueReason) : '') + '</span>';
+  } else if (!isLocked) {
+    cancelBtn = '<button class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="cancelTaskPrompt(\'' + eid + '\')" title="Отменить заявку с указанием причины">🚫 Отменить заявку</button>';
+  }
 
   var macroStatusHtml = '<div style="display:flex;align-items:center;gap:6px">' +
     macroStatusBadge(t.macroStatus || 'new') +
@@ -343,21 +351,18 @@ function pageCard() {
       '</div>'
     : '';
 
-  var curStageNum = Number(t.stageNum != null ? t.stageNum : 0);
-  if (curStageNum < 0) curStageNum = 0;
-  if (curStageNum > 9) curStageNum = 9;
   var curStg = ID_STAGES[curStageNum] || ID_STAGES[0];
   var nextStepDef = curStageNum < 9 ? ID_STEPS[curStageNum] : null;
 
   var idStageHelp = [
-    'Новая заявка поступила. Менеджер проверяет ТЗ, согласовывает дату и передает монтажникам.',
+    'Специалист ТО проверяет ТЗ, изучает Заказчика, выясняет ключевые моменты и передает ответственному менеджеру.',
     'Монтаж на объекте начат. Исполнители выполняют прокладку и установку оборудования.',
     'Монтаж завершён. Менеджер собирает фотоотчёт и результаты замеров для передачи в проектный отдел.',
     'Материалы переданы в очередь ИД. Проектировщик берёт задачу в работу (ставится срок 3 рабочих дня).',
     'ИД в проектировании. Проектировщик подготавливает комплект исполнительной документации.',
-    'Исполнительная документация готова. Отдел отправки проверяет альбом и направляет в банк Сбер.',
-    'ИД на согласовании в Сбере. При наличии правок вносите замечания в карточку. Приёмка блокируется открытыми замечаниями.',
-    'ИД успешно согласована и принята Сбером. Пакет документов передан на оплату.',
+    'Исполнительная документация готова. Отдел отправки проверяет альбом и направляет Заказчику.',
+    'ИД на согласовании у Заказчика. При наличии правок вносите замечания в карточку. Приёмка блокируется открытыми замечаниями.',
+    'ИД успешно согласована и принята Заказчиком. Пакет документов передан на оплату.',
     'Заявка ожидает поступления оплаты от Заказчика.',
     'Заявка успешно завершена и полностью оплачена.'
   ];
@@ -434,50 +439,17 @@ function pageCard() {
   } else if (curStageNum === 6) {
     var openRem = Number(t.openRemarksCount || 0);
     if (openRem === 0) {
-      checklistHtml += '<div class="checklist-item"><span class="checklist-icon ok">✓</span><span>Все замечания Сбера устранены (открытых замечаний нет)</span></div>';
+      checklistHtml += '<div class="checklist-item"><span class="checklist-icon ok">✓</span><span>Все замечания Заказчика устранены (открытых замечаний нет)</span></div>';
     } else {
       canAdvance = false;
-      advanceBlockReason = 'Устраните открытые замечания Сбера (' + openRem + ' шт.)';
-      checklistHtml += '<div class="checklist-item"><span class="checklist-icon fail">✕</span><span style="color:var(--red)">Открыто замечаний Сбера: <b>' + openRem + ' шт.</b></span><span class="checklist-action-link" onclick="setCardTab(\'remarks\')">Устранить замечания →</span></div>';
+      advanceBlockReason = 'Устраните открытые замечания Заказчика (' + openRem + ' шт.)';
+      checklistHtml += '<div class="checklist-item"><span class="checklist-icon fail">✕</span><span style="color:var(--red)">Открыто замечаний Заказчика: <b>' + openRem + ' шт.</b></span><span class="checklist-action-link" onclick="setCardTab(\'remarks\')">Устранить замечания →</span></div>';
     }
   } else {
     checklistHtml += '<div class="checklist-item"><span class="checklist-icon ok">✓</span><span>Условия этапа регламента соблюдены</span></div>';
   }
 
-  var smartActionBox = '<div class="smart-action-box">' +
-    '<div class="smart-action-header">' +
-      '<div>' +
-        '<div class="smart-action-title">Регламент жизненного цикла ИД • Стадия ' + curStageNum + ' из 9</div>' +
-        '<div class="smart-action-stage">' +
-          curStg.icon + ' ' + curStg.name +
-          ' <span class="badge b-blue" style="font-size:.76rem;margin-left:6px">' + curStg.role + '</span>' +
-          (t.stageDue ? '<span class="badge ' + (isDueOverdue ? 'b-red' : 'b-survey') + '" style="font-size:.74rem;margin-left:6px">⏳ Срок: ' + dueStr + (isDueOverdue ? ' (просрочен!)' : '') + '</span>' : '') +
-          (Number(t.openRemarksCount || 0) > 0 ? '<span class="badge b-red" style="font-size:.74rem;margin-left:6px">⚠️ Замечания: ' + t.openRemarksCount + ' шт.</span>' : '') +
-        '</div>' +
-      '</div>' +
-      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
-        '<button type="button" class="btn btn-sm btn-ghost" style="border-color:var(--border);background:#fff" onclick="showStageHelpModal(' + curStageNum + ')" title="Справка по текущему этапу и правилам перехода">❓ Справка по шагу</button>' +
-        (canUndoNow && curStageNum > 0 ? '<button class="btn btn-sm btn-ghost" onclick="undoIdStep(\'' + eid + '\')" title="Откатить этап назад">↩ Откатить</button>' : '') +
-        (nextStepDef
-          ? '<button class="smart-action-btn-primary ' + (canStepNow && canAdvance ? '' : 'disabled') + '" onclick="' + (canStepNow && canAdvance ? 'advanceIdStep(\'' + eid + '\')' : (advanceBlockReason ? 'alert(\'' + advanceBlockReason + '\')' : '')) + '" title="' + (advanceBlockReason || ('Роль: ' + nextStepDef.role)) + '">' +
-              '▶ Шаг ' + (curStageNum + 1) + ': ' + nextStepDef.action +
-            '</button>'
-          : '<span class="badge b-green" style="padding:8px 14px;font-weight:800;font-size:.9rem">✅ Заявка полностью завершена</span>'
-        ) +
-      '</div>' +
-    '</div>' +
-    '<div class="smart-action-checklist">' +
-      '<div style="font-size:.76rem;font-weight:700;color:var(--text-2);margin-bottom:2px">Чек-лист готовности к переходу:</div>' +
-      checklistHtml +
-    '</div>' +
-    '<details style="font-size:.78rem;color:var(--text-3);cursor:pointer">' +
-      '<summary style="font-weight:600;color:var(--text-2);margin-bottom:6px">Показать полную цепочку этапов (10 стадий)</summary>' +
-      '<div style="display:flex;gap:.25rem;align-items:center;overflow-x:auto;padding:8px 0">' + stepperHtml + '</div>' +
-      '<div style="background:#fff;border-radius:6px;padding:.5rem .75rem;border-left:3px solid var(--orange);font-size:.78rem;color:var(--text-2);margin-top:4px">' +
-        '<b>💡 Подсказка:</b> ' + (idStageHelp[curStageNum] || '') +
-      '</div>' +
-    '</details>' +
-  '</div>';
+  var smartActionBox = ''; // Убрано по плану Алексея
 
   var curTab = S.cardTab || 'main';
   var openRemCount = Number(t.openRemarksCount || 0);
@@ -485,22 +457,23 @@ function pageCard() {
     ? ' <span class="card-tab-badge badge-red">' + openRemCount + '</span>'
     : '';
 
+  var isWorker = S.user && (S.user.role === 'worker' || S.user.role === 'contractor');
   var tabsNav = '<div class="card-tabs-nav">' +
     '<button type="button" class="card-tab-btn ' + (curTab === 'main' ? 'active' : '') + '" data-tab="main" onclick="setCardTab(\'main\')">' +
-      '📌 Главное и Объект' +
+      '🏛️ 1. Информация' +
     '</button>' +
     '<button type="button" class="card-tab-btn ' + (curTab === 'items' ? 'active' : '') + '" data-tab="items" onclick="setCardTab(\'items\')">' +
-      '🤝 Субподряды и Спецификация <span id="cardTabItemsBadge" class="card-tab-badge badge-gray"></span>' +
+      '👷 2. Исполнение / СМР' +
     '</button>' +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'remarks' ? 'active' : '') + '" data-tab="remarks" onclick="setCardTab(\'remarks\')">' +
-      '⚠️ Замечания Сбера' + remarksTabBadge +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'supply' ? 'active' : '') + '" data-tab="supply" onclick="setCardTab(\'supply\')">' +
+      '📦 3. Снабжение' +
     '</button>' +
     '<button type="button" class="card-tab-btn ' + (curTab === 'files' ? 'active' : '') + '" data-tab="files" onclick="setCardTab(\'files\')">' +
-      '📎 Документы и Фото' +
+      '📄 4. Документы' + remarksTabBadge +
     '</button>' +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'finance' ? 'active' : '') + '" data-tab="finance" onclick="setCardTab(\'finance\')">' +
-      '💰 Финансы' +
-    '</button>' +
+    (isWorker ? '' : '<button type="button" class="card-tab-btn ' + (curTab === 'finance' ? 'active' : '') + '" data-tab="finance" onclick="setCardTab(\'finance\')">' +
+      '💰 5. Экономика' +
+    '</button>') +
     '<button type="button" class="card-tab-btn ' + (curTab === 'history' ? 'active' : '') + '" data-tab="history" onclick="setCardTab(\'history\')">' +
       '🕒 История' +
     '</button>' +
@@ -515,10 +488,10 @@ function pageCard() {
       'статус','статус ','приоритет','ид','ид ',
       'сумма договора','сумма договора ','стоимость за ед.','стоимость за ед',
       ' удаленность','удаленность','удалённость',
-      'доп. расходы','доп расходы','тмц','тмц (материалы)','итого платит сбербанк',
+      'доп. расходы','доп расходы','тмц','тмц (материалы)','итого платит заказчик','итого платит сбербанк',
       'кол-во в заказе (портов)','в заказе','кол-во в заказе','факт','факт выходов',
       'обследование','доступ','приемка','приёмка','оплата','статус ид',
-      'менеджер сбера','менеджер','контрагент','контакт на объекте','контакт',
+      'менеджер заказчика','менеджер сбера','менеджер','контрагент','контакт на объекте','контакт',
       'контактное лицо','телефон','контролер','контролёр',
       'ссылка на тех.инфо','ссылка на техинфо','тех.инфо',
       '№ документа в эдо','№ в эдо','номер в эдо','эдо',
@@ -570,16 +543,16 @@ function pageCard() {
         '</div>' +
         field('Регион', 'region') +
         field('Адрес объекта', 'address') +
-        field('Генеральный договор', 'contract_id', 'select') +
-        field('Тип объекта', 'tipObj') +
+        (isWorker ? '' : field('Генеральный договор', 'contract_id', 'select') +
+        field('Тип объекта', 'tipObj')) +
         field('Тип работ', 'workType') +
-        field('№ ГОСБ', 'gosb') +
-        field('№ ВСП', 'vsp') +
+        (isWorker ? '' : field('№ ГОСБ', 'gosb') +
+        field('№ ВСП', 'vsp')) +
         '<div class="divider"></div>' +
         '<div class="sec-title" style="margin-bottom:.5rem">Команда и контакты</div>' +
         field('Статус заявки', 'status') +
         field('Приоритет', 'priority') +
-        field('Менеджер Сбера', 'manager') +
+        (isWorker ? '' : field('Менеджер Заказчика', 'manager')) +
         field('Контрагент (Основной)', 'contractor') +
         field('Исполнитель (Наш)', 'assignee') +
         (t.assignee && t.assignmentStatus ? '<div class="field-row"><div class="field-lbl">Статус назначения</div><div class="field-val">' +
@@ -597,9 +570,9 @@ function pageCard() {
         field('Контакт на объекте', 'contact', 'textarea') +
         '<div class="divider"></div>' +
         '<div class="sec-title" style="margin-bottom:.5rem">Заметки и комментарии</div>' +
-        field('Внутренний комментарий', 'comment', 'textarea') +
-        field('Комментарий из Excel', 'excelComment', 'textarea') +
-        rawExtraRows +
+        (isWorker ? '' : field('Внутренний комментарий', 'comment', 'textarea') +
+        field('Комментарий из Excel', 'excelComment', 'textarea')) +
+        (isWorker ? '' : rawExtraRows) +
       '</div>' +
       '<div style="display:flex;flex-direction:column;gap:1rem">' +
         '<div class="card p">' +
@@ -608,7 +581,7 @@ function pageCard() {
         '</div>' +
         '<div class="card p">' +
           '<div class="sec-title" style="margin-bottom:.5rem">Сроки и обследование</div>' +
-          field('Дата заявки', 'dateZayavki', 'date') +
+          (isWorker ? '' : field('Дата заявки', 'dateZayavki', 'date')) +
           field('Дата окончания (план)', 'deadline', 'date') +
           field('Дата выхода (факт)', 'dataVyhoda', 'date') +
           field('Дата распределения', 'distributedAt', 'date') +
@@ -627,11 +600,11 @@ function pageCard() {
         '<span id="cardItemsCountBadge" class="badge b-gray" style="font-size:.74rem">0 позиций</span>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:6px">' +
-        '<button class="btn btn-sm" onclick="addItemPrompt(\'' + eid + '\')">+ Добавить работу / ТМЦ</button>' +
+        (!isLocked ? '<button class="btn btn-sm" onclick="addItemPrompt(\'' + eid + '\')">+ Добавить работу / ТМЦ</button>' : '') +
       '</div>' +
     '</div>' +
     '<div id="cardItemsSummaryBar" style="display:flex;gap:16px;background:var(--bg);padding:8px 12px;border-radius:6px;margin-bottom:.75rem;font-size:.8rem;flex-wrap:wrap;align-items:center">' +
-      '<div>Сумма Сбера (вход): <b id="cardSummaryCust" style="color:var(--text)">0 ₽</b></div>' +
+      '<div>Сумма Заказчика (вход): <b id="cardSummaryCust" style="color:var(--text)">0 ₽</b></div>' +
       '<div>Сумма подрядчикам: <b id="cardSummaryCont" style="color:var(--text-2)">0 ₽</b></div>' +
       '<div>Плановая маржа: <b id="cardSummaryMargin" style="color:var(--green)">0 ₽</b></div>' +
     '</div>' +
@@ -643,7 +616,7 @@ function pageCard() {
     '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:.5rem">' +
       '<div class="sec-title" style="margin:0">📦 Материалы и Чек-лист СКС</div>' +
       '<div style="display:flex;gap:.4rem;align-items:center">' +
-        '<label class="btn btn-sm btn-ghost" style="cursor:pointer" title="Загрузить чек-лист Сбера (PDF)">' +
+        '<label class="btn btn-sm btn-ghost" style="cursor:pointer" title="Загрузить чек-лист Заказчика (PDF)">' +
           '📥 Загрузить PDF' +
           '<input type="file" accept=".pdf" style="display:none" onchange="uploadChecklistPdf(this.files[0], \'' + eid + '\')">' +
         '</label>' +
@@ -659,13 +632,30 @@ function pageCard() {
         '<div class="sec-title" style="margin:0;font-size:1.05rem">🤝 Исходящие поручения субподрядчикам</div>' +
         '<div style="font-size:.78rem;color:var(--text-3);margin-top:2px">Назначение подрядчиков (СКС, ВОЛС, ПНР), формирование Заказ-нарядов и Писем на допуск</div>' +
       '</div>' +
-      '<button class="btn btn-sm btn-primary" onclick="openSubcontractModal(\'' + eid + '\')">+ Назначить подрядчика</button>' +
+      (!isLocked ? '<button class="btn btn-sm btn-primary" onclick="openSubcontractModal(\'' + eid + '\')">+ Назначить подрядчика</button>' : '') +
     '</div>' +
     '<div id="cardSubcontractsContainer" class="t3">Загрузка субподрядов…</div>' +
+    '<div style="margin-top:10px;text-align:right;">' +
+      (t.status_smr !== 'done' ? '<button class="btn btn-sm btn-primary" onclick="completeSmr(\''+eid+'\')">✅ Завершить СМР</button>' : '<span class="badge b-green">СМР Завершено</span>') +
+    '</div>' +
   '</div>';
 
   var paneItems = '<div id="cardTabPane-items" class="card-tab-pane" style="display:' + (curTab === 'items' ? 'block' : 'none') + '">' +
     subcontractsBlock +
+    '<div class="card p mb" id="attachmentsBlock">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
+        '<div class="sec-title" style="margin:0">Файлы и фотоотчёты к заявке</div>' +
+      '</div>' +
+      '<div id="attachmentsList" class="t3">Загрузка…</div>' +
+      '<div style="display:flex;gap:.4rem;margin-top:.8rem;flex-wrap:wrap">' +
+        '<label class="btn btn-sm btn-ghost">📷 Фото<input type="file" multiple accept="image/*" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'photo_report\',this.files)"></label>' +
+        '<label class="btn btn-sm btn-ghost">🗺️ Схема<input type="file" multiple accept="image/*,.pdf,.dwg" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'scheme\',this.files)"></label>' +
+        '<label class="btn btn-sm btn-ghost">📋 Чек-лист<input type="file" multiple accept="image/*,.pdf,.xlsx,.xls,.docx" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'checklist\',this.files)"></label>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+
+  var paneSupply = '<div id="cardTabPane-supply" class="card-tab-pane" style="display:' + (curTab === 'supply' ? 'block' : 'none') + '">' +
     itemsBlock +
     materialsBlock +
   '</div>';
@@ -676,7 +666,7 @@ function pageCard() {
 
   var remarksBlock = '<div class="card p" id="remarksBlock">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
-      '<div class="sec-title" style="margin:0;display:flex;align-items:center">Замечания Сбера ' + remarksBadge + '</div>' +
+      '<div class="sec-title" style="margin:0;display:flex;align-items:center">Замечания Заказчика ' + remarksBadge + '</div>' +
       '<button class="btn btn-sm btn-ghost" onclick="addRemarkPrompt(\'' + eid + '\')">+ Замечание</button>' +
     '</div>' +
     '<div id="remarksList" class="t3">Загрузка…</div>' +
@@ -698,27 +688,27 @@ function pageCard() {
       '</div>' +
     '</div>' +
     '<div id="cardDocumentsContainer" class="t3">Загрузка документов…</div>' +
+    '<div style="margin-top:10px;text-align:right;">' +
+      (t.status_id !== 'review' && t.status_id !== 'done' ? '<button class="btn btn-sm btn-primary" onclick="submitIdReview(\''+eid+'\')">📤 Отправить ИД на проверку</button>' : '<span class="badge b-blue">ИД отправлена</span>') +
+    '</div>' +
   '</div>';
 
   var paneFiles = '<div id="cardTabPane-files" class="card-tab-pane" style="display:' + (curTab === 'files' ? 'block' : 'none') + '">' +
     docsRegistryBlock +
+    remarksBlock +
     '<div class="card p mb">' +
       '<div class="sec-title" style="margin-bottom:.5rem">Облачные ссылки на документацию</div>' +
       field('Ссылка на материалы (исходники)', 'materialsLink', 'url') +
       field('Ссылка на готовую ИД (альбом)', 'idLink', 'url') +
-      field('Ссылка на тех.инфо', 'techLink', 'url') +
-      field('Заказ подписан на портале поставщика', 'supplierOrderSigned', 'checkbox') +
-      field('ИД загружена на портал поставщика', 'supplierIdUploaded', 'checkbox') +
+      (isWorker ? '' : field('Ссылка на тех.инфо', 'techLink', 'url')) +
+      (isWorker ? '' : field('Заказ подписан на портале поставщика', 'supplierOrderSigned', 'checkbox') +
+      field('ИД загружена на портал поставщика', 'supplierIdUploaded', 'checkbox')) +
     '</div>' +
-    '<div class="card p mb" id="attachmentsBlock">' +
+    '<div class="card p mb">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
-        '<div class="sec-title" style="margin:0">Файлы и фотоотчёты к заявке</div>' +
+        '<div class="sec-title" style="margin:0">Акты и финансовые документы</div>' +
       '</div>' +
-      '<div id="attachmentsList" class="t3">Загрузка…</div>' +
       '<div style="display:flex;gap:.4rem;margin-top:.8rem;flex-wrap:wrap">' +
-        '<label class="btn btn-sm btn-ghost">📷 Фото<input type="file" multiple accept="image/*" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'photo_report\',this.files)"></label>' +
-        '<label class="btn btn-sm btn-ghost">🗺️ Схема<input type="file" multiple accept="image/*,.pdf,.dwg" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'scheme\',this.files)"></label>' +
-        '<label class="btn btn-sm btn-ghost">📋 Чек-лист<input type="file" multiple accept="image/*,.pdf,.xlsx,.xls,.docx" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'checklist\',this.files)"></label>' +
         '<label class="btn btn-sm btn-ghost">📄 Акт<input type="file" accept="image/*,.pdf" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'act\',this.files)"></label>' +
         '<label class="btn btn-sm btn-ghost">🧾 Чек<input type="file" accept="image/*,.pdf" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'receipt\',this.files)"></label>' +
         '<label class="btn btn-sm btn-ghost">📊 Excel ПИ<input type="file" accept=".xlsx,.xls" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'pi_excel\',this.files)"></label>' +
@@ -738,10 +728,11 @@ function pageCard() {
       '<div class="sec-title" style="margin-bottom:.5rem">Финансовые показатели договора</div>' +
       field('Сумма договора', 'amount', 'number') +
       field('Стоимость за ед.', 'pricePerUnit', 'number') +
+      '<div class="field-row" style="margin-top:-6px;margin-bottom:6px"><div class="field-lbl"></div><div class="field-val t3" style="font-size:.72rem">Расчётная ставка за ед. объема работ</div></div>' +
       field('Транспорт / Удалёнка (₽)', 'distanceKm', 'number') +
       field('Доп. расходы (₽)', 'extras', 'number') +
       field('ТМЦ — Материалы (₽)', 'tmc', 'number') +
-      '<div class="field-row"><div class="field-lbl" style="font-weight:700">Итого платит Сбер</div><div class="field-val" style="font-weight:700; font-size:1.1rem; color:var(--blue)">' + fmtMoney(getTaskFinance(t).total) + '</div></div>' +
+      '<div class="field-row"><div class="field-lbl" style="font-weight:700">Итого от Заказчика</div><div class="field-val" style="font-weight:700; font-size:1.1rem; color:var(--blue)">' + fmtMoney(getTaskFinance(t).total) + '</div></div>' +
       '<div class="divider"></div>' +
       field('В заказе (портов)', 'inOrder', 'number') +
       field('Факт', 'fact', 'number') +
@@ -779,12 +770,7 @@ function pageCard() {
     (hasDraft
       ? '<button class="btn btn-sm btn-primary mobile-action-main-btn" onclick="saveCard()">💾 Сохранить</button>' +
         '<button class="btn btn-sm btn-ghost" onclick="S.cardDraft={};renderApp()">✕</button>'
-      : (nextStepDef
-          ? '<button class="smart-action-btn-primary mobile-action-main-btn ' + (canStepNow && canAdvance ? '' : 'disabled') + '" onclick="' + (canStepNow && canAdvance ? 'advanceIdStep(\'' + eid + '\')' : (advanceBlockReason ? 'alert(\'' + advanceBlockReason + '\')' : '')) + '">' +
-              '▶ Шаг ' + (curStageNum + 1) + ': ' + nextStepDef.action +
-            '</button>'
-          : '<div style="flex:1;text-align:center;font-weight:700;color:var(--green)">✅ Заявка завершена</div>'
-        )
+      : ''
     ) +
   '</div>';
 
@@ -837,6 +823,8 @@ function refreshTaskItemsList(taskId) {
         return;
       }
 
+      var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+      var isLocked = t && (['accepted','billing','paid','archived'].includes((t.macroStatus||'').toLowerCase()) || t.status === 'cancelled' || (t.stageNum != null && t.stageNum >= 8));
       var contractors = S.contractors || [];
       var rows = items.map(function(it, idx) {
         var statusColor = it.status === 'done' ? 'var(--green)' : it.status === 'progress' ? 'var(--orange)' : 'var(--text-3)';
@@ -849,6 +837,7 @@ function refreshTaskItemsList(taskId) {
           }).join('');
 
         var margin = (Number(it.amount_customer) || 0) - (Number(it.amount_contractor) || 0);
+        var selectDisabled = isLocked ? ' disabled' : '';
 
         return '<tr style="border-bottom:1px solid var(--border);font-size:.82rem">' +
           '<td style="padding:6px 8px;font-weight:600;color:var(--text-3)">' + (idx + 1) + '</td>' +
@@ -859,7 +848,7 @@ function refreshTaskItemsList(taskId) {
           '<td style="padding:6px 8px;white-space:nowrap;font-weight:600">' + (it.quantity || 1) + ' ' + escHtml(it.unit || 'шт.') + '</td>' +
           '<td style="padding:6px 8px;white-space:nowrap;color:var(--text)">' + fmtMoney(it.amount_customer) + '</td>' +
           '<td style="padding:6px 8px">' +
-            '<select class="field-input" style="padding:2px 6px;font-size:.76rem" onchange="updateItemContractor(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ',this.value)">' +
+            '<select class="field-input"' + selectDisabled + ' style="padding:2px 6px;font-size:.76rem" onchange="updateItemContractor(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ',this.value)">' +
               contOptions +
             '</select>' +
           '</td>' +
@@ -869,8 +858,8 @@ function refreshTaskItemsList(taskId) {
             '<span style="font-size:.74rem;color:' + statusColor + ';font-weight:600">' + statusLabel + '</span>' +
           '</td>' +
           '<td style="padding:6px 8px;text-align:right;white-space:nowrap">' +
-            '<button class="btn btn-sm btn-ghost" onclick="editItemModal(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ')" title="Редактировать">✏️</button>' +
-            '<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteItemModal(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ')" title="Удалить">✕</button>' +
+            (!isLocked ? '<button class="btn btn-sm btn-ghost" onclick="editItemModal(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ')" title="Редактировать">✏️</button>' : '') +
+            (!isLocked ? '<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteItemModal(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ')" title="Удалить">✕</button>' : '') +
           '</td>' +
         '</tr>';
       }).join('');
@@ -881,7 +870,7 @@ function refreshTaskItemsList(taskId) {
             '<th style="padding:6px 8px">№</th>' +
             '<th style="padding:6px 8px">Вид работ / позиция</th>' +
             '<th style="padding:6px 8px">Кол-во</th>' +
-            '<th style="padding:6px 8px">Сбер (вход)</th>' +
+            '<th style="padding:6px 8px">Заказчик (вход)</th>' +
             '<th style="padding:6px 8px">Подрядчик (исп.)</th>' +
             '<th style="padding:6px 8px">Подрядчику</th>' +
             '<th style="padding:6px 8px">Маржа</th>' +
@@ -960,7 +949,7 @@ function addItemPrompt(taskId) {
 
   var unit = prompt('Единица измерения:', 'шт.') || 'шт.';
 
-  var priceCustStr = prompt('Стоимость от Заказчика (Сбера) за ед., руб.:', '0');
+  var priceCustStr = prompt('Стоимость от Заказчика за ед., руб.:', '0');
   var priceCust = parseFloat((priceCustStr || '0').replace(',', '.')) || 0;
 
   var priceContStr = prompt('Ставка Подрядчику за ед., руб. (необязательно):', '0');
@@ -1026,7 +1015,7 @@ function editItemModal(taskId, itemId) {
       var newQtyStr = prompt('Количество:', String(item.quantity || 1));
       var newQty = parseFloat((newQtyStr || '1').replace(',', '.')) || 1;
 
-      var newPriceCustStr = prompt('Цена Сбера за ед., руб.:', String(item.price_customer || 0));
+      var newPriceCustStr = prompt('Цена Заказчика за ед., руб.:', String(item.price_customer || 0));
       var newPriceCust = parseFloat((newPriceCustStr || '0').replace(',', '.')) || 0;
 
       var newPriceContStr = prompt('Ставка подрядчику за ед., руб.:', String(item.price_contractor || 0));
@@ -1166,7 +1155,7 @@ var fieldLabels = {
   invoiceInfo:'№ счёта/сумма', vedoStatus:'В ЭДО',
   region:'Регион', address:'Адрес объекта', workType:'Тип работ',
   tipObj:'Тип объекта', gosb:'№ ГОСБ', vsp:'№ ВСП',
-  manager:'Менеджер Сбера', amount:'Сумма договора', inOrder:'В заказе (портов)',
+  manager:'Менеджер Заказчика', amount:'Сумма договора', inOrder:'В заказе (портов)',
   overdueDays:'Дней просрочки', contractor:'Подрядчик',
   distanceKm:'Удалённость (км)', pricePerUnit:'Стоимость за ед.',
   idStatus:'Статус ИД', excelComment:'Комментарий (Excel)',
@@ -1410,7 +1399,7 @@ function downloadAccessLetter(taskId) {
   });
 }
 
-// ─── ЧЕК-ЛИСТ СБЕРА И СПЕЦИФИКАЦИЯ МАТЕРИАЛОВ В КАРТОЧКЕ ───────────────────────
+// ─── ЧЕК-ЛИСТ ЗАКАЗЧИКА И СПЕЦИФИКАЦИЯ МАТЕРИАЛОВ В КАРТОЧКЕ ───────────────────────
 
 function uploadChecklistPdf(file, optTaskId) {
   if (!file) return;
@@ -1423,7 +1412,7 @@ function uploadChecklistPdf(file, optTaskId) {
   if (optTaskId) formData.append('task_id', optTaskId);
 
   var cardCont = document.getElementById('cardMaterialsContainer');
-  if (cardCont) cardCont.innerHTML = '<div style="color:var(--blue);font-weight:600">⏳ Идет распознавание чек-листа Сбера через pdfplumber…</div>';
+  if (cardCont) cardCont.innerHTML = '<div style="color:var(--blue);font-weight:600">⏳ Идет распознавание чек-листа Заказчика…</div>';
 
   fetch('/api/checklists/upload', {
     method: 'POST',
@@ -1435,7 +1424,7 @@ function uploadChecklistPdf(file, optTaskId) {
     return r.json();
   })
   .then(function(res) {
-    alert('✅ Чек-лист Сбера успешно распознан!\nЗаявка: ' + res.task_id + '\nПортов к монтажу: ' + (res.checklist.ports_install || 1));
+    alert('✅ Чек-лист Заказчика успешно распознан!\nЗаявка: ' + res.task_id + '\nПортов к монтажу: ' + (res.checklist.ports_install || 1));
     api('/tasks').then(function(tasks) {
       S.tasks = tasks;
       openCard(res.task_id);
@@ -1637,7 +1626,11 @@ function loadCardSubcontracts(taskId) {
 
           '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
             '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+              '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'contract\')" title="Сформировать Договор подряда">🤝 Договор (.docx)</button>' +
               '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'order_subcontract\')" title="Сформировать Заказ-наряд (Приложение 2 к Договору)">📄 Заказ-наряд (.docx)</button>' +
+              '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'completion_act\')" title="Сформировать Акт сдачи-приемки (КС-2)">✅ Акт работ (.docx)</button>' +
+              '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'invoice\')" title="Сформировать Счет на оплату от Подрядчика">💰 Счет от Подрядчика (.docx)</button>' +
+              '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'tmc_act\')" title="Сформировать Акт передачи (Накладную) ТМЦ со склада">🚚 Накладная ТМЦ (.docx)</button>' +
               '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'permit_letter\')" title="Сформировать официальное письмо на допуск монтажников">🪪 Допуск (.docx)</button>' +
               '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'power_attorney\')" title="Сформировать доверенность М-2 на получение ТМЦ">📦 Доверенность М-2 (.docx)</button>' +
             '</div>' +
@@ -1904,4 +1897,24 @@ function deleteCardDocument(taskId, docId) {
     });
 }
 
-// ─── PAGE: МАРШИ ─────────────────────────────────────────────────────────────
+// ─── PAGE: МАРШИ ─────────────────────────────────────────────────────────────
+
+// --- NEW WORKFLOW ACTIONS ---
+window.completeSmr = function(taskId) {
+  if (!confirm('Вы уверены, что хотите завершить СМР по этой заявке?')) return;
+  api('/tasks/' + encodeURIComponent(taskId) + '/smr/complete', { method: 'POST' })
+    .then(res => { if (res.error) alert(res.error); renderApp(); })
+    .catch(err => alert(err));
+};
+window.submitIdReview = function(taskId) {
+  if (!confirm('Отправить исполнительную документацию на проверку Заказчику?')) return;
+  api('/tasks/' + encodeURIComponent(taskId) + '/id/review', { method: 'POST' })
+    .then(res => { if (res.error) alert(res.error); renderApp(); })
+    .catch(err => alert(err));
+};
+window.markPaid = function(taskId) {
+  if (!confirm('Отметить заявку как полностью оплаченную?')) return;
+  api('/tasks/' + encodeURIComponent(taskId) + '/finance/paid', { method: 'POST' })
+    .then(res => { if (res.error) alert(res.error); renderApp(); })
+    .catch(err => alert(err));
+};

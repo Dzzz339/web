@@ -157,7 +157,7 @@ var ID_STEPS = [
 ];
 
 var ID_STAGES = [
-  { num: 0, name: 'Новая', icon: '📥', role: 'Менеджер' },
+  { num: 0, name: 'Новая', icon: '📥', role: 'Специалист ТО' },
   { num: 1, name: 'В монтаже', icon: '🔧', role: 'Менеджер' },
   { num: 2, name: 'Ждёт материалов', icon: '📷', role: 'Менеджер' },
   { num: 3, name: 'Очередь ИД', icon: '📦', role: 'Проектировщик' },
@@ -245,53 +245,8 @@ function canUserUndo(user, task) {
   return hasUserRole(user, 'admin', 'leader', 'manager', 'dispatch', 'payments');
 }
 
-function advanceIdStep(taskId) {
-  var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
-  if (!t) return;
-  var s = Number(t.stageNum != null ? t.stageNum : 0);
-  var stepDef = ID_STEPS.find(function(x){ return x.step === s; });
-  if (!stepDef) return alert('Заявка уже на финальном этапе');
-  if (!canUserStep(S.user, t)) {
-    return alert('Действие «' + stepDef.action + '» доступно только для роли: ' + stepDef.role + ' (или admin/leader)');
-  }
-  if (s === 6 && Number(t.openRemarksCount || 0) > 0) {
-    return alert('Нельзя принять ИД: у объекта есть открытые замечания Заказчика (' + t.openRemarksCount + ' шт.). Сначала устраните замечания!');
-  }
-
-  var link = '';
-  if (s === 2) {
-    link = prompt('Укажите ссылку на фотоматериалы / папку с исходными данными:', t.materialsLink || t.techLink || '');
-    if (link === null) return;
-    if (!link.trim()) return alert('Для передачи материалов ссылка обязательна!');
-  } else if (s === 4) {
-    link = prompt('Укажите ссылку на готовую ИД (папка или альбом):', t.idLink || '');
-    if (link === null) return;
-    if (!link.trim()) return alert('Для завершения ИД ссылка на документацию обязательна!');
-  }
-
-  api('/tasks/' + encodeURIComponent(taskId) + '/advance', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ link: link ? link.trim() : undefined, version: t.version })
-  })
-  .then(function(res){
-    if (res.error) return alert('Ошибка: ' + res.error);
-    if (res.task) {
-      Object.assign(t, res.task);
-    }
-    renderApp();
-    if (S.page === 'card' && S.cardId === taskId) {
-      refreshRemarksList(taskId);
-      refreshTaskItemsList(taskId);
-    }
-  })
-  .catch(function(err){
-    alert('Ошибка продвижения этапа: ' + (err.message || err));
-  });
-}
-
-function undoIdStep(taskId) {
-  var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
+function advanceIdStep(taskId) { console.warn('advanceIdStep is deprecated'); }
+function undoIdStep(taskId) { console.warn('undoIdStep is deprecated'); });
   if (!t) return;
   if (!canUserUndo(S.user, t)) {
     return alert('Откат этапа доступен только ответственным ролям или администратору');

@@ -46,8 +46,8 @@ function removeTaskFilter(key) {
   renderApp();
 }
 
-function setTaskFinanceMode(mode) {
-  S.taskFinanceMode = mode;
+function setTaskAppMode(mode) {
+  S.taskAppMode = mode;
   renderApp();
 }
 
@@ -85,7 +85,7 @@ function statBox(lbl, val, sub, color) {
 function pageTasks() {
   var q=S.taskQ, st=S.taskSt, pr=S.taskPr, reg=S.taskReg, mgr=S.taskMgr, yr=S.taskYear, ovd=S.taskOverdue, cust=S.taskCustomer, contr=S.taskContractor, distFilter=S.taskDistanceFilter;
   var isWorker = S.user && (S.user.role === 'worker' || S.user.role === 'contractor');
-  var finMode = isWorker ? 'contractor' : (S.taskFinanceMode || 'customer');
+  var appMode = isWorker ? 'contractor' : (S.taskAppMode || 'customer');
   
   if (S.tasksStatsExpanded === undefined) {
     try {
@@ -279,8 +279,11 @@ function pageTasks() {
   var marginPct = sumAll > 0 ? Math.round(sumMargin / sumAll * 100) : 0;
 
   var modeSwitcher = isWorker ? '' : '<div style="display:flex;align-items:center;gap:4px;background:#f1f5f9;padding:3px 4px;border-radius:8px;border:1px solid var(--border)">' +
-    '<button type="button" class="btn btn-sm ' + (finMode === 'customer' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskFinanceMode(\'customer\')" style="font-size:.78rem;padding:4px 12px;height:auto">🏦 Заказчик (Сбер)</button>' +
-    '<button type="button" class="btn btn-sm ' + (finMode === 'contractor' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskFinanceMode(\'contractor\')" style="font-size:.78rem;padding:4px 12px;height:auto">🤝 Подрядчики</button>' +
+    '<button type="button" class="btn btn-sm ' + (appMode === 'customer' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'customer\')" style="font-size:.78rem;padding:4px 12px;height:auto">🏦 Заказчик</button>' +
+    '<button type="button" class="btn btn-sm ' + (appMode === 'contractor' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'contractor\')" style="font-size:.78rem;padding:4px 12px;height:auto">🤝 Подряд (СМР)</button>' +
+    '<button type="button" class="btn btn-sm ' + (appMode === 'supply' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'supply\')" style="font-size:.78rem;padding:4px 12px;height:auto">📦 Снабжение</button>' +
+    '<button type="button" class="btn btn-sm ' + (appMode === 'docs' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'docs\')" style="font-size:.78rem;padding:4px 12px;height:auto">📄 Документы</button>' +
+    '<button type="button" class="btn btn-sm ' + (appMode === 'finance' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'finance\')" style="font-size:.78rem;padding:4px 12px;height:auto">💰 Финансы</button>' +
   '</div>';
 
   var topControls = '<div style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.65rem;align-items:center;justify-content:space-between">' +
@@ -417,7 +420,7 @@ function pageTasks() {
   var statsCompactHtml = '';
   var statsExpandedHtml = '';
 
-  if (finMode === 'customer') {
+  if (appMode === 'customer') {
     statsCompactHtml = 
       '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.82rem">' +
         '<div style="display:inline-flex;align-items:center;gap:4px" title="Заявок: ' + fmtN(filtered.length) + ' из ' + fmtN(S.tasks.length) + (cntOvd > 0 ? ' (просрочено: ' + cntOvd + ')' : '') + '">' +
@@ -485,7 +488,7 @@ function pageTasks() {
           '<b style="font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumContTransport) + '</b>' +
         '</div>' +
         '<span style="color:var(--border)">|</span>' +
-        '<div style="display:inline-flex;align-items:center;gap:4px" title="Плановая маржа: ' + fmtMoney(sumMargin) + ' (' + marginPct + '% от договора Сбера)">' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Плановая маржа: ' + fmtMoney(sumMargin) + ' (' + marginPct + '% от договора Заказчика)">' +
           '<span style="color:var(--text-3)">Маржа:</span>' +
           '<b style="color:var(--green);font-family:monospace;font-size:.85rem">' + marginPct + '% (' + fmtMoneyShort(sumMargin) + ')</b>' +
         '</div>' +
@@ -493,7 +496,7 @@ function pageTasks() {
   }
 
   if (S.tasksStatsExpanded) {
-    if (finMode === 'customer') {
+    if (appMode === 'customer') {
       var donePct = pct(sumDone, sumAll);
       var actPct = pct(sumAct, sumAll);
       var portsPct = pct(portsDone, portsTotal);
@@ -502,7 +505,7 @@ function pageTasks() {
         '<div class="card mb" style="background:#f8fafc;border:1.5px solid var(--border);border-radius:10px;padding:12px 16px;margin-top:6px;animation:fadeIn 0.15s ease">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;border-bottom:1px solid #e2e8f0;padding-bottom:6px">' +
             '<span style="font-weight:700;font-size:.82rem;color:var(--text);display:flex;align-items:center;gap:6px">' +
-              '📊 Детальная статистика Заказчика (ПАО Сбербанк)' +
+              '📊 Детальная статистика Заказчика' +
             '</span>' +
             '<span style="font-size:.74rem;color:var(--text-3)">В выборке: <b>' + fmtN(filtered.length) + '</b> из <b>' + fmtN(S.tasks.length) + '</b> заявок</span>' +
           '</div>' +
@@ -542,7 +545,7 @@ function pageTasks() {
             statBox('К выплате', fmtMoney(sumContPending), pendingPct + '% остаток', 'var(--orange)') +
             statBox('Транспортные', fmtMoney(sumContTransport), 'подрядчикам', null) +
             statBox('Портов смонтировано', fmtN(portsDone) + ' / ' + fmtN(portsTotal), pct(portsDone, portsTotal) + '% от плана', null) +
-            statBox('Плановая маржа', fmtMoney(sumMargin), marginPct + '% от договора Сбера', 'var(--green)') +
+            statBox('Плановая маржа', fmtMoney(sumMargin), marginPct + '% от договора Заказчика', 'var(--green)') +
           '</div>' +
           '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #e2e8f0;display:flex;align-items:center;gap:12px;font-size:.76rem;color:var(--text-3)">' +
             '<span>Выплаты подрядчикам: <b>' + paidPct + '%</b></span>' +
@@ -625,14 +628,14 @@ function pageTasks() {
     var colPrice = '';
     var colTotal = '';
 
-    if (finMode === 'customer') {
+    if (appMode === 'customer') {
       // Почём Заказчик
       colPrice = '<td style="vertical-align:top;white-space:nowrap;color:var(--text-2);font-size:.8rem" title="Тариф Заказчика за единицу">' +
         (fin.unitPrice > 0 ? (fmtMoney(fin.unitPrice) + '<span class="t3" style="font-size:.68rem">/ед</span>') : '<span class="t3">—</span>') +
       '</td>';
       // За сколько Заказчик
       colTotal = '<td style="vertical-align:top;white-space:nowrap">' +
-        '<div style="font-weight:700;color:var(--blue);font-size:.84rem" title="Общая сумма договора Сбера">' + fmtMoney(fin.total) + '</div>' +
+        '<div style="font-weight:700;color:var(--blue);font-size:.84rem" title="Сумма договора Заказчика">' + fmtMoney(fin.total) + '</div>' +
         (fin.transport > 0 ? '<div class="t3" style="font-size:.68rem" title="Удаленность (транспорт)">🚗 +' + fmtMoney(fin.transport) + '</div>' : '') +
       '</td>';
     } else {
@@ -685,8 +688,8 @@ function pageTasks() {
         '<th style="width:105px">Что делать</th>' +
         '<th style="width:85px">Сколько</th>' +
         '<th style="width:125px">Подрядчик</th>' +
-        (finMode === 'customer'
-          ? '<th style="width:90px" title="Стоимость за единицу / объем работ">Почём (Сбер)</th><th style="width:125px" title="Итоговая сумма договора Сбера с удаленностью">За сколько</th>'
+        (appMode === 'customer'
+          ? '<th style="width:90px" title="Стоимость за единицу / объем работ">Почём (Заказчик)</th><th style="width:125px" title="Итоговая сумма договора с удаленностью">За сколько</th>'
           : '<th style="width:90px" title="Ставка подрядчика за единицу">Почём (Подряд)</th><th style="width:130px" title="Общая сумма к выплате подрядчику и плановая маржа генподрядчика">За сколько</th>'
         ) +
         '<th style="width:36px"></th>' +

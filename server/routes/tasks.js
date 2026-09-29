@@ -343,192 +343,46 @@ router.delete('/tasks/:id', async (req, res) => {
 
 // ─── API: ЖИЗНЕННЫЙ ЦИКЛ ИД И ЗАМЕЧАНИЯ СБЕРА ─────────────────────────────────
 
-// Перевод на следующий этап
-router.post('/tasks/:id/advance', authenticateToken, async (req, res) => {
+// ─── API: НОВЫЕ КОНТЕКСТНЫЕ ДЕЙСТВИЯ (ЗАВЕРШЕНИЕ СМР, ИД, ОПЛАТА) ─────────────────────────────────
+
+router.post('/tasks/:id/smr/complete', authenticateToken, async (req, res) => {
   try {
-    const { link, designerId, note } = req.body || {};
     const { rows } = await pool.query('SELECT * FROM tasks WHERE id=$1', [req.params.id]);
-    const task = rows[0];
-    if (!task) return res.status(404).json({ error: 'Заявка не найдена' });
+    if (!rows.length) return res.status(404).json({ error: 'Заявка не найдена' });
+    // TODO: Add role checks if needed
+    
+    await pool.query(
+      "UPDATE tasks SET status_smr = 'done', macro_status = 'smr_done' WHERE id = $1",
+      [req.params.id]
+    );
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
-    const curStage = Number(task.stage_num) || 0;
-    if (curStage >= ID_STEPS.length) {
-      return res.status(400).json({ error: 'Заявка уже на финальном этапе' });
-    }
+router.post('/tasks/:id/id/review', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM tasks WHERE id=$1', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'Заявка не найдена' });
+    
+    await pool.query(
+      "UPDATE tasks SET status_id = 'review', macro_status = 'review' WHERE id = $1",
+      [req.params.id]
+    );
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
-    // Проверка прав
-    if (!canStep(req.user, task)) {
-      return res.status(403).json({ error: 'У вас нет прав для выполнения этого шага' });
-    }
-
-    const stepInfo = ID_STEPS[curStage];
-
-    // Шаг 0 (Монтаж начат) -> если нет менеджера, привязываем текущего + проверяем наличие подрядчика
-    let managerId = task.manager_id;
-    if (curStage === 0) {
-      if (!managerId && hasRole(req.user, 'manager', 'admin', 'leader')) {
-        managerId = req.user.id;
-      }
-      const { rows: itemContractors } = await pool.query(
-        "SELECT id FROM task_items WHERE task_id=$1 AND contractor_name IS NOT NULL AND contractor_name != '' LIMIT 1",
-        [req.params.id]
-      );
-      if (!task.contractor && itemContractors.length === 0) {
-        return res.status(400).json({ error: 'Перед началом монтажа необходимо назначить подрядчика на заявку или в спецификации (блок «Состав работ»)' });
-      }
-    }
-
-    // Шаг 1 (Объект готов) -> проверяем факт или отметку позиций
-    if (curStage === 1) {
-      const factVal = Number(task.fact) || 0;
-      const { rows: itemRows } = await pool.query(
-        'SELECT id, status FROM task_items WHERE task_id=$1',
-        [req.params.id]
-      );
-      const hasDoneItems = itemRows.some(r => r.status === 'done' || r.status === 'progress');
-      if (factVal <= 0 && itemRows.length > 0 && !hasDoneItems) {
-        return res.status(400).json({ error: 'Для завершения объекта укажите фактическое количество (портов) или отметьте работы в спецификации' });
-      }
-    }
-
-    // Шаг 2 (Материалы переданы) -> требуется ссылка или прикрепленные файлы
-    let materialsLink = task.materials_link || '';
-    if (curStage === 2) {
-      const trimmedLink = (link || '').trim();
-      const { rows: atts } = await pool.query(
-        "SELECT 1 FROM task_attachments WHERE task_id=$1 AND type IN ('photo_report', 'checklist', 'scheme') LIMIT 1",
-        [req.params.id]
-      );
-      if (!trimmedLink && !materialsLink && atts.length === 0) {
-        return res.status(400).json({ error: 'Для передачи материалов укажите ссылку на облачный диск (Яндекс.Диск) или прикрепите файлы/фотоотчёт к заявке' });
-      }
-      if (trimmedLink) materialsLink = trimmedLink;
-    }
-
-    // Шаг 3 (Взял ИД в работу) -> привязываем проектировщика и ставим дедлайн
-    let targetDesignerId = task.designer_id;
-    let stageDue = task.stage_due;
-    if (curStage === 3) {
-      if (designerId) targetDesignerId = Number(designerId);
-      else if (hasRole(req.user, 'designer')) targetDesignerId = req.user.id;
-      stageDue = businessDue(new Date().toISOString(), 3); // 3 рабочих дня
-    }
-
-    // Шаг 4 (ИД готова) -> требуется ссылка на готовую ИД или прикрепленный альбом
-    let idLink = task.id_link || '';
-    if (curStage === 4) {
-      const trimmedLink = (link || '').trim();
-      const { rows: idAtts } = await pool.query(
-        "SELECT 1 FROM task_attachments WHERE task_id=$1 AND type IN ('pi_excel', 'act') LIMIT 1",
-        [req.params.id]
-      );
-      if (!trimmedLink && !idLink && idAtts.length === 0) {
-        return res.status(400).json({ error: 'Для подтверждения готовности ИД укажите ссылку на готовую документацию или прикрепите файл альбома' });
-      }
-      if (trimmedLink) idLink = trimmedLink;
-    }
-
-    // Шаг 6 (Сбер принял ИД) -> БЛОКИРОВКА при наличии открытых замечаний!
-    if (curStage === 6) {
-      const { rows: unresolved } = await pool.query(
-        'SELECT id FROM remarks WHERE task_id=$1 AND resolved_at IS NULL LIMIT 1',
-        [req.params.id]
-      );
-      if (unresolved.length > 0) {
-        return res.status(400).json({ error: 'Нельзя принять заявку: сначала устраните открытые замечания Сбера' });
-      }
-    }
-
-    const nextStage = curStage + 1;
-
-    // Синхронизация статуса
-    let newStatus = task.status;
-    let newStageText = task.stage;
-    if (nextStage === 1) { newStatus = 'progress'; newStageText = 'install'; }
-    else if (nextStage === 2) { newStatus = 'progress'; newStageText = 'survey'; }
-    else if (nextStage === 3) { newStatus = 'progress'; newStageText = 'control'; }
-    else if (nextStage === 4) { newStatus = 'progress'; newStageText = 'control'; }
-    else if (nextStage === 5) { newStatus = 'progress'; newStageText = 'control'; }
-    else if (nextStage === 6) { newStatus = 'progress'; newStageText = 'acceptance'; }
-    else if (nextStage === 7) { newStatus = 'done'; newStageText = 'payment'; }
-    else if (nextStage === 8) { newStatus = 'done'; newStageText = 'payment'; }
-    else if (nextStage === 9) {
-      newStatus = 'paid';
-      newStageText = 'payment';
-      pool.query(
-        `UPDATE invoices SET status='paid' WHERE task_id=$1 AND status IN ('issued','approved')`,
-        [req.params.id]
-      ).catch(err => console.error('Invoice auto-paid sync error:', err.message));
-    }
-
-    // Лог в историю
-    const history = Array.isArray(task.history) ? [...task.history] : [];
-    history.push({
-      date: new Date().toISOString(),
-      user: req.user.fullName || req.user.username,
-      userId: req.user.id,
-      action: stepInfo.label,
-      fromStage: curStage,
-      toStage: nextStage,
-      link: link || undefined,
-      note: note || undefined
-    });
-
-    await pool.query(`
-      UPDATE tasks SET
-        stage_num     = $1,
-        status        = $2,
-        stage         = $3,
-        manager_id    = $4,
-        designer_id   = $5,
-        materials_link= $6,
-        id_link       = $7,
-        stage_due     = $8,
-        version       = version + 1,
-        history       = $9::jsonb,
-        updated_at    = NOW()
-      WHERE id = $10
-    `, [
-      nextStage,
-      newStatus,
-      newStageText,
-      managerId,
-      targetDesignerId,
-      materialsLink,
-      idLink,
-      stageDue,
-      JSON.stringify(history),
-      req.params.id
-    ]);
-
-    // Уведомления по сокетам и в БД
-    const recipientRoles = nextStage === 3 ? ['designer'] :
-                           nextStage === 5 ? ['dispatch'] :
-                           nextStage === 7 ? ['payments'] : [];
-    if (recipientRoles.length > 0) {
-      pool.query(
-        "SELECT id FROM users WHERE role = ANY($1)",
-        [recipientRoles]
-      ).then(({ rows: recUsers }) => {
-        recUsers.forEach(u => {
-          sendNotification(
-            u.id,
-            `Заявка №${task.id} перешла на этап: ${ID_STAGES[nextStage]}`,
-            `/tasks?id=${task.id}`,
-            task.id
-          );
-        });
-      }).catch(err => console.error('Notification error:', err.message));
-    }
-
-    const { rows: updatedRows } = await pool.query('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
-    const updatedTask = rowToTask(updatedRows[0]);
-    io.emit('task-updated', updatedTask);
-    res.json({ success: true, task: updatedTask, stageNum: nextStage, status: newStatus });
-  } catch(e) {
-    console.error('Advance error:', e.message);
-    res.status(500).json({ error: e.message });
-  }
+router.post('/tasks/:id/finance/paid', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM tasks WHERE id=$1', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'Заявка не найдена' });
+    
+    await pool.query(
+      "UPDATE tasks SET status_payment_customer = 'paid', status_payment_sub = 'paid', macro_status = 'paid' WHERE id = $1",
+      [req.params.id]
+    );
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Откат на предыдущий этап

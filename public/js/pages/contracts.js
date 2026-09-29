@@ -888,7 +888,7 @@ function openContractForm(id) {
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
         <div>
           <label style="font-size:.78rem; font-weight:700">Заказчик (Сторона 1) *</label>
-          <input type="text" id="cf_customer_name" required value="${escHtml(c ? c.customer_name : '')}" placeholder="Например: ПАО «Сбербанк России»" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem">
+          <input type="text" id="cf_customer_name" required value="${escHtml(c ? c.customer_name : '')}" placeholder="Например: ОСФР, Ростелеком, Сбербанк и др." style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem">
         </div>
         <div>
           <label style="font-size:.78rem; font-weight:700">Наша компания / Филиал (Сторона 2)</label>

@@ -64,6 +64,12 @@ export function rowToTask(r) {
     activeProcesses: r.active_processes || ['0'],
     customerId:    r.customer_id ? Number(r.customer_id) : null,
     openRemarksCount: Number(r.open_remarks_count) || 0,
+    statusSmr:    r.status_smr || 'pending',
+    statusSupply: r.status_supply || 'none',
+    statusId:     r.status_id || 'pending',
+    statusActs:   r.status_acts || 'pending',
+    statusPaymentSub: r.status_payment_sub || 'pending',
+    statusPaymentCustomer: r.status_payment_customer || 'pending',
   };
 }
 

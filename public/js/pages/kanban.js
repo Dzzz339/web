@@ -500,25 +500,12 @@ function pageKanban() {
           '<span style="font-weight:700;color:var(--blue)">' + fmtMoney(fin.total || t.amount) + '</span>' +
         '</div>' +
 
-        // 6. Подвал карточки (ДВУХЪЯРУСНЫЙ):
-        // Ярус 1: Выпадающий список макро-статуса + кнопка отката
+        // 6. Подвал карточки: Выпадающий список макро-статуса
         '<div style="display:flex;align-items:center;gap:4px;margin-top:6px" onclick="event.stopPropagation()">' +
           '<select class="kcard-status-select" onchange="changeTaskMacroStatus(\'' + tid + '\', this.value)" title="Макро-статус процесса">' +
             statusOptions +
           '</select>' +
-          (canUndo ? '<button type="button" class="btn btn-xs btn-ghost" onclick="undoIdStep(\'' + tid + '\')" title="Откатить шаг регламента назад" style="padding:3px 6px;font-size:.76rem;border:1px solid var(--border);border-radius:6px;background:#f8fafc;color:var(--text-2);flex-shrink:0">↩</button>' : '') +
         '</div>' +
-
-        // Ярус 2: Кнопка шага регламента во ВСЮ ширину карточки (никогда не вылезает)
-        (nextStep ? (
-          '<div style="margin-top:4px" onclick="event.stopPropagation()">' +
-            '<button type="button" class="kcard-step-btn ' + (canStep ? '' : 'disabled') + '" onclick="advanceIdStep(\'' + tid + '\')" ' +
-            (canStep ? '' : 'title="Требуется роль: ' + nextStep.role + '"') + '>' +
-              '▶ ' + escHtml(nextStep.action) +
-            '</button>' +
-          '</div>'
-        ) : '') +
-
       '</div>';
     });
 

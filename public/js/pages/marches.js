@@ -78,7 +78,7 @@ function pageMarches() {
         '<span><span class="t3">Удалёнка:</span> <strong>' + fmtMoney(tot.remote) + '</strong></span>' +
         '<span><span class="t3">Работа:</span> <strong>' + fmtMoney(tot.work) + '</strong></span>' +
         '<span><span class="t3">ТМЦ:</span> <strong>' + fmtMoney(tot.tmc) + '</strong></span>' +
-        '<span><span class="t3">Платит Сбер:</span> <strong>' + fmtMoney(tot.sber) + '</strong></span>' +
+        '<span><span class="t3">Платит Заказчик:</span> <strong>' + fmtMoney(tot.sber) + '</strong></span>' +
       '</div>' +
     '</div>';
   });
@@ -112,7 +112,7 @@ function pageMarchDetail() {
     statBox('Точек / Портов', pts.length + ' / ' + fmtN(tot.ports), null) +
     statBox('Общий пробег', fmtN(tot.km) + ' км', null) +
     statBox('Оплата ПО', fmtMoney(tot.pay), 'var(--orange)') +
-    statBox('Платит Сбер', fmtMoney(tot.sber), 'var(--blue)') +
+    statBox('Платит Заказчик', fmtMoney(tot.sber), 'var(--blue)') +
   '</div>';
 
   html += '<div class="g2" style="gap:1rem;margin-bottom:1.25rem;grid-template-columns:3fr 1fr">' +
@@ -142,7 +142,7 @@ function pageMarchDetail() {
         '</tr>' +
         finRow('ТМЦ (материалы)', tot.tmc) +
         '<tr style="border-top:2px solid var(--border);font-weight:700">' +
-          '<td style="padding:8px 4px">Итого платит Сбер</td>' +
+          '<td style="padding:8px 4px">Итого от Заказчика</td>' +
           '<td style="padding:8px 4px;text-align:right;color:var(--blue)">' + fmtMoney(tot.sber) + '</td>' +
         '</tr>' +
       '</tbody></table>' +
@@ -186,7 +186,7 @@ function pageMarchDetail() {
               '<th style="padding:6px 8px;text-align:right;color:var(--text-3)">Работа</th>' +
               '<th style="padding:6px 8px;text-align:right;color:var(--orange)">Оплата ПО</th>' +
               '<th style="padding:6px 8px;text-align:right;color:var(--text-3)">ТМЦ</th>' +
-              '<th style="padding:6px 8px;text-align:right;color:var(--blue)">Платит Сбер</th>' +
+              '<th style="padding:6px 8px;text-align:right;color:var(--blue)">Платит Заказчик</th>' +
             '</tr></thead>' +
             '<tbody>' + rows + '</tbody>' +
           '</table></div></div>';
@@ -258,7 +258,7 @@ function pageMarchDetail() {
         '<th style="padding:8px 12px;text-align:right;color:var(--text-3);font-weight:600">Допы</th>' +
         '<th style="padding:8px 12px;text-align:right;color:var(--text-3);font-weight:600;color:var(--orange)">Оплата ПО</th>' +
         '<th style="padding:8px 12px;text-align:right;color:var(--text-3);font-weight:600">ТМЦ</th>' +
-        '<th style="padding:8px 12px;text-align:right;color:var(--text-3);font-weight:600;color:var(--blue)">Платит Сбер</th>' +
+        '<th style="padding:8px 12px;text-align:right;color:var(--text-3);font-weight:600;color:var(--blue)">Платит Заказчик</th>' +
         '<th style="padding:8px 12px;text-align:center;color:var(--text-3);font-weight:600"></th>' +
       '</tr></thead><tbody>';
 

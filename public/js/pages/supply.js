@@ -548,7 +548,7 @@ function openCreatePurchaseOrderModal(prefillMatId, prefillQty) {
         { key: 'quantity', label: 'Количество', type: 'number', value: prefillQty || 100, required: true },
         { key: 'unit_price', label: 'Цена за ед. (руб.)', type: 'number', value: (mats.find(function(m){return m.id == (prefillMatId || (mats[0] ? mats[0].id : null));}) || {}).price_default || 45 },
         { key: 'expected_date', label: 'Ожидаемая дата поставки', type: 'date', value: defaultDate },
-        { key: 'notes', label: 'Примечание к заказу', type: 'text', placeholder: 'Например: закупка кабеля под проект Сбера' }
+        { key: 'notes', label: 'Примечание к заказу', type: 'text', placeholder: 'Например: закупка кабеля под проект Заказчика' }
       ], function(d) {
         var q = parseFloat(d.quantity) || 0;
         var p = parseFloat(d.unit_price) || 0;

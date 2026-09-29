@@ -10,6 +10,10 @@ import {
   generatePermitLetter,
   generatePowerOfAttorney,
   generateIdRegistry,
+  generateContract,
+  generateCompletionAct,
+  generateInvoice,
+  generateTmcAct,
   DEFAULT_GENERAL_CONTRACTOR
 } from '../services/docxGenerator.js';
 
@@ -102,6 +106,42 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, async (req, 
         subcontract: subcontract || {},
         contractor,
         orderNumber: docNumber
+      });
+
+    } else if (doc_type === 'contract') {
+      docNumber = `ДГ-${contractor.inn || '000'}-${Date.now().toString().slice(-4)}`;
+      title = `Договор подряда № ${docNumber}`;
+      buffer = await generateContract({
+        contractor: contractor || {},
+        date: new Date()
+      });
+    } else if (doc_type === 'completion_act') {
+      docNumber = `АКТ-${task.id}-${subcontract ? subcontract.id : '1'}`;
+      title = `Акт сдачи-приемки № ${docNumber}`;
+      buffer = await generateCompletionAct({
+        task,
+        contractor: contractor || {},
+        subcontract: subcontract || {},
+        date: new Date()
+      });
+
+    } else if (doc_type === 'invoice') {
+      docNumber = `СЧ-${task.id}-${subcontract ? subcontract.id : '1'}`;
+      title = `Счет на оплату № ${docNumber}`;
+      buffer = await generateInvoice({
+        task,
+        contractor: contractor || {},
+        subcontract: subcontract || {},
+        date: new Date()
+      });
+    } else if (doc_type === 'tmc_act') {
+      docNumber = `ТМЦ-${task.id}-${subcontract ? subcontract.id : '1'}`;
+      title = `Накладная ТМЦ № ${docNumber}`;
+      buffer = await generateTmcAct({
+        task,
+        contractor: contractor || {},
+        subcontract: subcontract || {},
+        date: new Date()
       });
     } else if (doc_type === 'permit_letter') {
       docNumber = `ИСХ-${task.id}-ДОП`;

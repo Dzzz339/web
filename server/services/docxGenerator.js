@@ -612,3 +612,359 @@ export async function generateIdRegistry({
 
   return await Packer.toBuffer(doc);
 }
+
+
+/**
+ * 5. Генерация Договора подряда (Генеральный)
+ */
+export async function generateContract({
+  contractor,
+  generalContractor = DEFAULT_GENERAL_CONTRACTOR,
+  date = new Date()
+}) {
+  const docNum = contractor.contract_number || '_______';
+  
+  const doc = new Document({
+    creator: 'StockEasy AI',
+    title: 'Договор подряда',
+    sections: [{
+      properties: {},
+      children: [
+        new Paragraph({ text: 'ДОГОВОР ПОДРЯДА № ' + docNum, heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER, spacing: { after: 200 } }),
+        new Paragraph({
+          children: [
+            new TextRun({ text: 'г. Санкт-Петербург', bold: true }),
+            new TextRun({ text: '\t\t\t\t\t\t\t\t\t' }),
+            new TextRun({ text: formatDateRu(date), bold: true })
+          ],
+          spacing: { after: 300 }
+        }),
+        new Paragraph({
+          children: [
+            new TextRun({ text: generalContractor.name_full + ', именуемое в дальнейшем «Генподрядчик», в лице Генерального директора ' + generalContractor.director + ', действующего на основании Устава, с одной стороны, и ', size: 24 }),
+            new TextRun({ text: (contractor.name_full || contractor.name_short || '_____________________') + ', именуемое в дальнейшем «Субподрядчик», в лице ' + (contractor.director || '_________________') + ', действующего на основании Устава, с другой стороны, совместно именуемые «Стороны», заключили настоящий Договор о нижеследующем:', size: 24 })
+          ],
+          spacing: { after: 300 }
+        }),
+        new Paragraph({ text: '1. ПРЕДМЕТ ДОГОВОРА', bold: true, size: 24, spacing: { after: 150 } }),
+        new Paragraph({ text: '1.1. Субподрядчик обязуется по заданию Генподрядчика выполнить работы (оказать услуги), а Генподрядчик обязуется принять и оплатить результаты работ на условиях, предусмотренных настоящим Договором и Приложениями (Заказ-нарядами) к нему.', size: 24, spacing: { after: 150 } }),
+        new Paragraph({ text: '1.2. Виды, объем, стоимость, адреса объектов и сроки выполнения работ согласовываются Сторонами в Приложениях (Заказ-нарядах), которые являются неотъемлемой частью Договора.', size: 24, spacing: { after: 300 } }),
+        
+        new Paragraph({ text: '2. ПРАВА И ОБЯЗАННОСТИ СТОРОН', bold: true, size: 24, spacing: { after: 150 } }),
+        new Paragraph({ text: '2.1. Субподрядчик обязан качественно и в срок выполнить работы в соответствии с требованиями строительных норм и правил.', size: 24, spacing: { after: 150 } }),
+        new Paragraph({ text: '2.2. Генподрядчик обязан обеспечить Субподрядчика необходимыми материалами (согласно акту-приема передачи ТМЦ) и своевременно оплатить выполненные работы на основании Актов о приемке выполненных работ.', size: 24, spacing: { after: 300 } }),
+
+        new Paragraph({ text: '3. СТОИМОСТЬ И ПОРЯДОК РАСЧЕТОВ', bold: true, size: 24, spacing: { after: 150 } }),
+        new Paragraph({ text: '3.1. Оплата производится Генподрядчиком путем перечисления денежных средств на расчетный счет Субподрядчика в течение 5 (пяти) банковских дней после подписания Сторонами Акта выполненных работ и получения Счета на оплату.', size: 24, spacing: { after: 300 } }),
+
+        new Paragraph({ text: '8. РЕКВИЗИТЫ И ПОДПИСИ СТОРОН', bold: true, size: 24, spacing: { after: 200 } }),
+        
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({
+                  width: { size: 50, type: WidthType.PERCENTAGE },
+                  borders: { top: BORDER_SOLID },
+                  margins: CELL_PADDING,
+                  children: [
+                    new Paragraph({ text: 'ГЕНПОДРЯДЧИК:', bold: true, size: 20 }),
+                    new Paragraph({ text: generalContractor.name_full, size: 20 }),
+                    new Paragraph({ text: 'ИНН: ' + generalContractor.inn + ' КПП: ' + generalContractor.kpp, size: 20 }),
+                    new Paragraph({ text: 'Юр. адрес: ' + generalContractor.address_legal, size: 20 }),
+                    new Paragraph({ text: 'Р/с: ' + generalContractor.account_pay, size: 20 }),
+                    new Paragraph({ text: 'БИК: ' + generalContractor.bik, size: 20 }),
+                    new Paragraph({ text: '\nМ.П. _________________ / ' + generalContractor.director + ' /', size: 20 })
+                  ]
+                }),
+                new TableCell({
+                  width: { size: 50, type: WidthType.PERCENTAGE },
+                  borders: { top: BORDER_SOLID },
+                  margins: CELL_PADDING,
+                  children: [
+                    new Paragraph({ text: 'СУБПОДРЯДЧИК:', bold: true, size: 20 }),
+                    new Paragraph({ text: contractor.name_full || contractor.name_short || '___________________', size: 20 }),
+                    new Paragraph({ text: 'ИНН: ' + (contractor.inn || '_______') + ' КПП: ' + (contractor.kpp || '_______'), size: 20 }),
+                    new Paragraph({ text: 'Юр. адрес: ' + (contractor.address_legal || '_________________'), size: 20 }),
+                    new Paragraph({ text: 'Р/с: ' + (contractor.account_pay || '_________________'), size: 20 }),
+                    new Paragraph({ text: 'БИК: ' + (contractor.bik || '_________'), size: 20 }),
+                    new Paragraph({ text: '\nМ.П. _________________ / ' + (contractor.director || '_________________') + ' /', size: 20 })
+                  ]
+                })
+              ]
+            })
+          ]
+        })
+      ]
+    }]
+  });
+  return await Packer.toBuffer(doc);
+}
+
+/**
+ * 6. Генерация Акта выполненных работ (КС-2)
+ */
+export async function generateCompletionAct({
+  task,
+  contractor,
+  subcontract,
+  generalContractor = DEFAULT_GENERAL_CONTRACTOR,
+  date = new Date()
+}) {
+  const docNum = subcontract.id || '1';
+  const price = Number(subcontract.price || 0) || Number(task.price_per_unit || 0);
+  const qty = Number(task.fact || task.in_order || 1);
+  const total = price * qty;
+  
+  const doc = new Document({
+    creator: 'StockEasy AI',
+    title: 'Акт выполненных работ',
+    sections: [{
+      properties: {},
+      children: [
+        new Paragraph({ text: 'АКТ № ' + docNum + ' сдачи-приемки выполненных работ', heading: HeadingLevel.HEADING_2, alignment: AlignmentType.CENTER, spacing: { after: 100 } }),
+        new Paragraph({ text: 'по Договору № ' + (contractor.contract_number || '____') + ' от ' + formatDateRu(contractor.created_at || new Date()), alignment: AlignmentType.CENTER, spacing: { after: 300 } }),
+        
+        new Paragraph({
+          children: [
+            new TextRun({ text: 'г. Санкт-Петербург', bold: true }),
+            new TextRun({ text: '\t\t\t\t\t\t\t\t\t' }),
+            new TextRun({ text: formatDateRu(date), bold: true })
+          ],
+          spacing: { after: 300 }
+        }),
+
+        new Paragraph({ text: 'Мы, нижеподписавшиеся, представитель Генподрядчика в лице ' + generalContractor.director + ', с одной стороны, и представитель Субподрядчика в лице ' + (contractor.director || '___________') + ', с другой стороны, составили настоящий акт о том, что Субподрядчик выполнил, а Генподрядчик принял следующие работы на объекте: ' + (task.address || '________________'), size: 24, spacing: { after: 200 } }),
+
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '№', bold: true, size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Наименование работ', bold: true, size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Кол-во', bold: true, size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Цена, руб.', bold: true, size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Сумма, руб.', bold: true, size: 20 })] })
+              ]
+            }),
+            new TableRow({
+              children: [
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '1', size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: (task.work_type || 'Монтажные работы'), size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: String(qty), size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: formatMoney(price), size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: formatMoney(total), size: 20 })] })
+              ]
+            })
+          ]
+        }),
+
+        new Paragraph({ text: 'ИТОГО К ОПЛАТЕ: ' + formatMoney(total) + ' (Без НДС)', bold: true, size: 24, spacing: { before: 200, after: 200 } }),
+        new Paragraph({ text: 'Работы выполнены в полном объеме, в установленные сроки и с надлежащим качеством. Стороны претензий друг к другу не имеют.', size: 24, spacing: { after: 400 } }),
+        
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({
+                  width: { size: 50, type: WidthType.PERCENTAGE },
+                  borders: { top: BORDER_SOLID },
+                  margins: CELL_PADDING,
+                  children: [
+                    new Paragraph({ text: 'РАБОТЫ ПРИНЯЛ:', bold: true, size: 20 }),
+                    new Paragraph({ text: '\nМ.П. _________________ / ' + generalContractor.director + ' /', size: 20 })
+                  ]
+                }),
+                new TableCell({
+                  width: { size: 50, type: WidthType.PERCENTAGE },
+                  borders: { top: BORDER_SOLID },
+                  margins: CELL_PADDING,
+                  children: [
+                    new Paragraph({ text: 'РАБОТЫ СДАЛ:', bold: true, size: 20 }),
+                    new Paragraph({ text: '\nМ.П. _________________ / ' + (contractor.director || '_________________') + ' /', size: 20 })
+                  ]
+                })
+              ]
+            })
+          ]
+        })
+      ]
+    }]
+  });
+  return await Packer.toBuffer(doc);
+}
+
+
+/**
+ * 7. Генерация Счета на оплату от Подрядчика
+ */
+export async function generateInvoice({
+  task,
+  contractor,
+  subcontract,
+  generalContractor = DEFAULT_GENERAL_CONTRACTOR,
+  date = new Date()
+}) {
+  const docNum = subcontract.id || '1';
+  const price = Number(subcontract.price || 0) || Number(task.price_per_unit || 0);
+  const qty = Number(task.fact || task.in_order || 1);
+  const total = price * qty;
+  
+  const doc = new Document({
+    creator: 'StockEasy AI',
+    title: 'Счет на оплату',
+    sections: [{
+      properties: {},
+      children: [
+        new Paragraph({
+          children: [
+            new TextRun({ text: contractor.name_full || contractor.name_short || 'Субподрядчик', bold: true, size: 24 }),
+            new TextRun({ text: '\nИНН ' + (contractor.inn || '_______') + ', КПП ' + (contractor.kpp || '_______'), size: 20 }),
+            new TextRun({ text: '\nЮридический адрес: ' + (contractor.address_legal || '_________________'), size: 20 }),
+            new TextRun({ text: '\nБанковские реквизиты: Р/с ' + (contractor.account_pay || '_______') + ' БИК ' + (contractor.bik || '_______'), size: 20 })
+          ],
+          spacing: { after: 400 }
+        }),
+        new Paragraph({ text: 'СЧЕТ НА ОПЛАТУ № ' + docNum + ' от ' + formatDateRu(date), heading: HeadingLevel.HEADING_2, alignment: AlignmentType.CENTER, spacing: { after: 300 } }),
+        
+        new Paragraph({ text: 'Поставщик: ' + (contractor.name_full || contractor.name_short || 'Субподрядчик'), size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: 'Покупатель: ' + generalContractor.name_full + ' (ИНН: ' + generalContractor.inn + ')', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: 'Основание: Договор № ' + (contractor.contract_number || '____') + ', Заявка № ' + task.id, size: 20, spacing: { after: 300 } }),
+
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '№', bold: true, size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Наименование работ (услуг)', bold: true, size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Кол-во', bold: true, size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Ед.', bold: true, size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Цена', bold: true, size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Сумма', bold: true, size: 20 })] })
+              ]
+            }),
+            new TableRow({
+              children: [
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '1', size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Выполнение работ на объекте: ' + (task.address || ''), size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: String(qty), size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'шт.', size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: formatMoney(price), size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: formatMoney(total), size: 20 })] })
+              ]
+            })
+          ]
+        }),
+
+        new Paragraph({ text: 'Итого: ' + formatMoney(total), bold: true, alignment: AlignmentType.RIGHT, size: 24, spacing: { before: 200, after: 100 } }),
+        new Paragraph({ text: 'Без налога (НДС)', bold: true, alignment: AlignmentType.RIGHT, size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: 'Всего к оплате: ' + formatMoney(total), bold: true, alignment: AlignmentType.RIGHT, size: 24, spacing: { after: 400 } }),
+        
+        new Paragraph({ text: 'Руководитель _________________ / ' + (contractor.director || '___________') + ' /', size: 20, spacing: { after: 300 } }),
+        new Paragraph({ text: 'Бухгалтер    _________________ / ' + (contractor.director || '___________') + ' /', size: 20 })
+      ]
+    }]
+  });
+  return await Packer.toBuffer(doc);
+}
+
+/**
+ * 8. Генерация Накладной (Акт передачи ТМЦ)
+ */
+export async function generateTmcAct({
+  task,
+  contractor,
+  subcontract,
+  date = new Date()
+}) {
+  const docNum = subcontract.id || '1';
+  
+  const doc = new Document({
+    creator: 'StockEasy AI',
+    title: 'Накладная на выдачу ТМЦ',
+    sections: [{
+      properties: {},
+      children: [
+        new Paragraph({ text: 'НАКЛАДНАЯ (АКТ) ПРИЕМА-ПЕРЕДАЧИ ТМЦ № ' + docNum, heading: HeadingLevel.HEADING_2, alignment: AlignmentType.CENTER, spacing: { after: 200 } }),
+        new Paragraph({
+          children: [
+            new TextRun({ text: 'г. Санкт-Петербург', bold: true }),
+            new TextRun({ text: '\t\t\t\t\t\t\t\t\t' }),
+            new TextRun({ text: formatDateRu(date), bold: true })
+          ],
+          spacing: { after: 300 }
+        }),
+        new Paragraph({ text: 'Основание: Заявка № ' + task.id + ' на объект: ' + (task.address || ''), size: 20, spacing: { after: 200 } }),
+        new Paragraph({ text: 'Мы, нижеподписавшиеся, Кладовщик (Склад) с одной стороны и представитель Подрядчика (' + (contractor.name_short || '___________') + ') ' + (subcontract.installer_fio || '') + ' с другой стороны, составили настоящий акт о том, что первый сдал, а второй принял следующие товарно-материальные ценности (ТМЦ):', size: 20, spacing: { after: 200 } }),
+        
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '№', bold: true, size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Наименование ТМЦ', bold: true, size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Ед. изм.', bold: true, size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Кол-во', bold: true, size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Примечание', bold: true, size: 20 })] })
+              ]
+            }),
+            new TableRow({
+              children: [
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '1', size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Кабель UTP / ВОЛС', size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'м', size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '___', size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '', size: 20 })] })
+              ]
+            }),
+            new TableRow({
+              children: [
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '2', size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Расходные материалы (крепеж, розетки)', size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'компл', size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '___', size: 20 })] }),
+                new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '', size: 20 })] })
+              ]
+            })
+          ]
+        }),
+
+        new Paragraph({ text: '\nТМЦ переданы в исправном состоянии, претензий не имеется.', size: 20, spacing: { before: 200, after: 300 } }),
+        
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({
+                  width: { size: 50, type: WidthType.PERCENTAGE },
+                  borders: { top: BORDER_SOLID },
+                  margins: CELL_PADDING,
+                  children: [
+                    new Paragraph({ text: 'СДАЛ (СКЛАД):', bold: true, size: 20 }),
+                    new Paragraph({ text: '\n_________________ / _______________ /', size: 20 })
+                  ]
+                }),
+                new TableCell({
+                  width: { size: 50, type: WidthType.PERCENTAGE },
+                  borders: { top: BORDER_SOLID },
+                  margins: CELL_PADDING,
+                  children: [
+                    new Paragraph({ text: 'ПРИНЯЛ (ПОДРЯДЧИК):', bold: true, size: 20 }),
+                    new Paragraph({ text: '\n_________________ / ' + (subcontract.installer_fio || '_______________') + ' /', size: 20 })
+                  ]
+                })
+              ]
+            })
+          ]
+        })
+      ]
+    }]
+  });
+  return await Packer.toBuffer(doc);
+}

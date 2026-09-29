@@ -7,7 +7,7 @@ import { computeDeadlineDate } from '../services/contractsImporter.js';
 const { Pool } = pg;
 
 const connectionString = process.env.DATABASE_URL || '';
-const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1') || connectionString.includes('@db:') || connectionString.includes('stockeasy-db');
+const isLocal = !connectionString || connectionString.includes('localhost') || connectionString.includes('127.0.0.1') || connectionString.includes('@db:') || connectionString.includes('stockeasy-db');
 
 export const pool = new Pool({
   connectionString: connectionString,
@@ -162,6 +162,18 @@ export async function initDB() {
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS supplier_id_uploaded BOOLEAN DEFAULT false`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS overdue_reason TEXT`);
   await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignment_status TEXT DEFAULT NULL');
+
+  // Новые статусы параллельных процессов (Заказчик, СМР, Снабжение, ИД, Бухгалтерия)
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status_smr TEXT DEFAULT 'pending'`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status_supply TEXT DEFAULT 'none'`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status_id TEXT DEFAULT 'pending'`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status_acts TEXT DEFAULT 'pending'`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status_payment_sub TEXT DEFAULT 'pending'`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status_payment_customer TEXT DEFAULT 'pending'`);
+  
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_status_smr ON tasks(status_smr)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_status_supply ON tasks(status_supply)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_status_id ON tasks(status_id)`);
 
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT`);
@@ -318,6 +330,8 @@ export async function initDB() {
       status             TEXT NOT NULL DEFAULT 'assigned',
       assigned_date      DATE DEFAULT CURRENT_DATE,
       deadline           DATE,
+      date_start         DATE,
+      date_finish        DATE,
       price_agreed       NUMERIC DEFAULT 0,
       specialist_id      INTEGER REFERENCES specialists(id) ON DELETE SET NULL,
       installer_fio      TEXT,
@@ -335,6 +349,10 @@ export async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_subcontracts_task_id ON task_subcontracts(task_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_subcontracts_contractor_id ON task_subcontracts(contractor_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_subcontracts_status ON task_subcontracts(status)`);
+  
+  // Добавляем новые колонки в существующую таблицу через ALTER (для безопасного обновления)
+  await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS date_start DATE`);
+  await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS date_finish DATE`);
 
   // Реестр сформированных и прикрепленных документов
   await pool.query(`

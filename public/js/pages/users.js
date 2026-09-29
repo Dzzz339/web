@@ -109,7 +109,7 @@ function renderSpecialistsView(container) {
         <div style="font-size:3rem; margin-bottom:12px">👷📋</div>
         <h2 style="margin:0 0 10px 0; font-size:1.3rem">База специалистов пуста</h2>
         <p style="color:var(--text-2); max-width:560px; margin:0 auto 1.5rem auto; font-size:.9rem; line-height:1.5">
-          Загрузите официальный документ Сбербанка (Word <b>.docx</b>) или таблицу Excel (<b>.xlsx</b>) с данными монтажников и паспортами. Система автоматически распознает ФИО, паспорта, телефоны и сформирует справочник.
+          Загрузите официальный документ (Word <b>.docx</b>) или таблицу Excel (<b>.xlsx</b>) с данными монтажников и паспортами. Система автоматически распознает ФИО, паспорта, телефоны и сформирует справочник.
         </p>
         <button class="btn btn-lg" onclick="document.getElementById('input_upload_specialists').click()" style="background:var(--accent); color:#fff; font-weight:700; padding:.8rem 2rem; font-size:1rem; border-radius:8px; cursor:pointer">
           📤 Выбрать файл для загрузки (.docx / .xlsx)
