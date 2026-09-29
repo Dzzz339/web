@@ -534,7 +534,7 @@ function pageTasks() {
         '<div class="card mb" style="background:#f8fafc;border:1.5px solid var(--border);border-radius:10px;padding:12px 16px;margin-top:6px;animation:fadeIn 0.15s ease">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;border-bottom:1px solid #e2e8f0;padding-bottom:6px">' +
             '<span style="font-weight:700;font-size:.82rem;color:var(--text);display:flex;align-items:center;gap:6px">' +
-              '📊 Детальная экономика подрядчиков и маржинальность' +
+              '📊 ' + (appMode === 'supply' ? 'Статистика логистики и ТМЦ' : appMode === 'docs' ? 'Статистика проектирования и ИД' : appMode === 'finance' ? 'Финансовая сводка по счетам' : 'Детальная экономика подрядчиков и маржинальность') +
             '</span>' +
             '<span style="font-size:.74rem;color:var(--text-3)">В выборке: <b>' + fmtN(filtered.length) + '</b> из <b>' + fmtN(S.tasks.length) + '</b> заявок</span>' +
           '</div>' +
@@ -629,28 +629,36 @@ function pageTasks() {
     var colTotal = '';
 
     if (appMode === 'customer') {
-      // Почём Заказчик
-      colPrice = '<td style="vertical-align:top;white-space:nowrap;color:var(--text-2);font-size:.8rem" title="Тариф Заказчика за единицу">' +
-        (fin.unitPrice > 0 ? (fmtMoney(fin.unitPrice) + '<span class="t3" style="font-size:.68rem">/ед</span>') : '<span class="t3">—</span>') +
-      '</td>';
-      // За сколько Заказчик
+      colPrice = '<td style="vertical-align:top;white-space:nowrap;color:var(--text-2);font-size:.8rem">' + (fin.unitPrice > 0 ? (fmtMoney(fin.unitPrice) + '<span class="t3" style="font-size:.68rem">/ед</span>') : '<span class="t3">—</span>') + '</td>';
       colTotal = '<td style="vertical-align:top;white-space:nowrap">' +
-        '<div style="font-weight:700;color:var(--blue);font-size:.84rem" title="Сумма договора Заказчика">' + fmtMoney(fin.total) + '</div>' +
-        (fin.transport > 0 ? '<div class="t3" style="font-size:.68rem" title="Удаленность (транспорт)">🚗 +' + fmtMoney(fin.transport) + '</div>' : '') +
+        '<div style="font-weight:700;color:var(--blue);font-size:.84rem">' + fmtMoney(fin.total) + '</div>' +
+        (fin.transport > 0 ? '<div class="t3" style="font-size:.68rem">🚗 +' + fmtMoney(fin.transport) + '</div>' : '') +
       '</td>';
-    } else {
-      // Почём Подрядчик
-      colPrice = '<td style="vertical-align:top;white-space:nowrap;color:var(--text-2);font-size:.8rem" title="Ставка подрядчика за единицу">' +
-        (cFin.unitPrice > 0 ? (fmtMoney(cFin.unitPrice) + '<span class="t3" style="font-size:.68rem">/ед</span>') : '<span class="t3">—</span>') +
-      '</td>';
-      // За сколько Подрядчик (+ маржа)
+    } else if (appMode === 'contractor') {
+      colPrice = '<td style="vertical-align:top;white-space:nowrap;color:var(--text-2);font-size:.8rem">' + (cFin.unitPrice > 0 ? (fmtMoney(cFin.unitPrice) + '<span class="t3" style="font-size:.68rem">/ед</span>') : '<span class="t3">—</span>') + '</td>';
       var marginRow = fin.total > cFin.total ? (fin.total - cFin.total) : 0;
       var marginPctRow = fin.total > 0 ? Math.round(marginRow / fin.total * 100) : 0;
       colTotal = '<td style="vertical-align:top;white-space:nowrap">' +
-        '<div style="font-weight:700;color:var(--orange-dark);font-size:.84rem" title="Сумма к выплате подрядчику">' + (cFin.total > 0 ? fmtMoney(cFin.total) : '<span class="t3">—</span>') + '</div>' +
-        (cFin.transport > 0 ? '<div class="t3" style="font-size:.68rem" title="Транспортные расходы подрядчику">🚗 ' + fmtMoney(cFin.transport) + '</div>' : '') +
-        (marginRow > 0 ? '<div style="font-size:.68rem;color:var(--green);font-weight:600" title="Плановая маржа ГК (Заказчик минус Подрядчик)">маржа +' + fmtMoney(marginRow) + ' (' + marginPctRow + '%)</div>' : '') +
+        '<div style="font-weight:700;color:var(--orange-dark);font-size:.84rem">' + (cFin.total > 0 ? fmtMoney(cFin.total) : '<span class="t3">—</span>') + '</div>' +
+        (cFin.transport > 0 ? '<div class="t3" style="font-size:.68rem">🚗 ' + fmtMoney(cFin.transport) + '</div>' : '') +
+        (marginRow > 0 ? '<div style="font-size:.68rem;color:var(--green);font-weight:600">маржа +' + fmtMoney(marginRow) + ' (' + marginPctRow + '%)</div>' : '') +
       '</td>';
+    } else if (appMode === 'supply') {
+      var supplyStatus = t.status_supply === 'delivered' ? '<span class="badge b-green">Доставлено</span>' : (t.status_supply === 'shipped' ? '<span class="badge b-blue">Отправлено</span>' : '<span class="badge b-gray">Ожидает отправки</span>');
+      var trackNo = t.supply_track || '—';
+      colPrice = '<td style="vertical-align:top;font-size:.8rem">' + supplyStatus + '</td>';
+      colTotal = '<td style="vertical-align:top;font-size:.8rem"><div style="color:var(--text-2)">Склад: Ультима</div><div style="font-size:.75rem;color:var(--blue);margin-top:2px">Трек: ' + trackNo + '</div></td>';
+    } else if (appMode === 'docs') {
+      var idStatus = (t.status_id === 'done' || t.status_id === 'accepted') ? '<span class="badge b-green">Принята</span>' : (t.status_id === 'review' ? '<span class="badge b-blue">На проверке</span>' : '<span class="badge b-gray">Не начата</span>');
+      var portalCheck = (t.rawData && (t.rawData['загружено на портал'] || '').toString().trim().toLowerCase() === 'да') ? '✅ Загружен' : '❌ Не загружен';
+      colPrice = '<td style="vertical-align:top;font-size:.8rem">' + idStatus + '</td>';
+      colTotal = '<td style="vertical-align:top;font-size:.8rem">' + portalCheck + '</td>';
+    } else if (appMode === 'finance') {
+      var payStatus = t.status_finance === 'paid' ? '<span class="badge b-green">Оплачено</span>' : (t.status_finance === 'invoice' ? '<span class="badge b-blue">Счет выставлен</span>' : '<span class="badge b-gray">Ожидает счета</span>');
+      var marginRow = fin.total > cFin.total ? (fin.total - cFin.total) : 0;
+      var marginPctRow = fin.total > 0 ? Math.round(marginRow / fin.total * 100) : 0;
+      colPrice = '<td style="vertical-align:top;font-size:.8rem">' + payStatus + '</td>';
+      colTotal = '<td style="vertical-align:top;font-size:.8rem;font-weight:600;color:var(--text)"><div style="font-size:.7rem;color:var(--green);margin-top:2px">Маржа ' + fmtMoney(marginRow) + ' ₽ (' + marginPctRow + '%)</div></td>';
     }
 
     // 10. Действия
@@ -688,10 +696,14 @@ function pageTasks() {
         '<th style="width:105px">Что делать</th>' +
         '<th style="width:85px">Сколько</th>' +
         '<th style="width:125px">Подрядчик</th>' +
-        (appMode === 'customer'
-          ? '<th style="width:90px" title="Стоимость за единицу / объем работ">Почём (Заказчик)</th><th style="width:125px" title="Итоговая сумма договора с удаленностью">За сколько</th>'
-          : '<th style="width:90px" title="Ставка подрядчика за единицу">Почём (Подряд)</th><th style="width:130px" title="Общая сумма к выплате подрядчику и плановая маржа генподрядчика">За сколько</th>'
-        ) +
+        (function() {
+          if (appMode === 'customer') return '<th style="width:90px">Почём (Вход)</th><th style="width:125px">За сколько</th>';
+          if (appMode === 'contractor') return '<th style="width:90px">Почём (Подряд)</th><th style="width:130px">За сколько</th>';
+          if (appMode === 'supply') return '<th style="width:90px">Статус ТМЦ</th><th style="width:130px">Склад / Трек</th>';
+          if (appMode === 'docs') return '<th style="width:90px">Статус ИД</th><th style="width:130px">Портал</th>';
+          if (appMode === 'finance') return '<th style="width:90px">Счета / Акты</th><th style="width:130px">Фин. итог (Маржа)</th>';
+          return '';
+        })() +
         '<th style="width:36px"></th>' +
       '</tr></thead><tbody>' + tableRows + more + '</tbody></table>' +
     '</div>' +
