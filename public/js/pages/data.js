@@ -544,6 +544,7 @@ function doUpload(file) {
               '</div>'
             );
 
+            var currentBatchId = null;
             function sendBatch(isFirst) {
               var batch = rows.slice(sent, sent + BATCH);
               if (!batch.length) {
@@ -562,7 +563,7 @@ function doUpload(file) {
                   'Content-Type': 'application/json',
                   'Authorization': 'Bearer ' + S.token // ДОБАВИЛИ ТОКЕН
                 },
-                body: JSON.stringify({rows: batch, name: file.name, isFirst: isFirst, totalRows: total, isLast: (sent + batch.length >= total)})
+                body: JSON.stringify({rows: batch, name: file.name, isFirst: isFirst, totalRows: total, isLast: (sent + batch.length >= total), batchId: currentBatchId})
               })
               .then(function(r) {
                 if (!r.ok) throw new Error('Ошибка сервера: ' + r.status); // ПРОВЕРКА ОШИБКИ (чтобы не было <)
@@ -570,6 +571,7 @@ function doUpload(file) {
               })
               .then(function(result) {
                 if (result.error) throw new Error(result.error);
+                if (result.batchId) currentBatchId = result.batchId;
                 sent += batch.length;
                 var p = Math.round((sent / total) * 100);
                 setStatus(

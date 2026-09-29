@@ -99,6 +99,32 @@ router.get('/chains', authenticateToken, async (req, res) => {
 
 router.put('/chains/:id', authenticateToken, (req, res) => res.json({ success: true }));
 
+// ─── API: ЖУРНАЛ ИСТОРИИ ИМПОРТОВ (BATCHES) ──────────────────────────────────
+router.get('/import/batches', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT id, file_name, user_name, imported_at, total_rows, new_tasks_count, updated_tasks_count, status
+      FROM import_batches
+      ORDER BY imported_at DESC
+      LIMIT 100
+    `);
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+router.get('/import/batches/:id/tasks', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT id, region, address, work_type, contractor, amount, date_zayavki, first_imported_at
+      FROM tasks
+      WHERE import_batch_id = $1
+      ORDER BY id
+      LIMIT 200
+    `, [req.params.id]);
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ─── API: IMPORT META ─────────────────────────────────────────────────────────
 router.get('/import-info', authenticateToken, async (req, res) => {
   try {
@@ -111,13 +137,33 @@ router.get('/import-info', authenticateToken, async (req, res) => {
 // ─── API: IMPORT ROWS (батчи от браузера) ────────────────────────────────────
 router.post('/excel/import-rows', async (req, res) => {
   try {
-    let { rows: newBatch, name, isFirst, totalRows } = req.body;
+    let { rows: newBatch, name, isFirst, totalRows, batchId } = req.body;
     newBatch = await cleanData(newBatch);
     if (!Array.isArray(newBatch)) return res.status(400).json({ error: 'rows must be array' });
 
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+
+      let currentBatchId = batchId;
+      if (isFirst || !currentBatchId) {
+        let authorName = 'Администратор';
+        try {
+          const authH = req.headers['authorization'];
+          if (authH && authH.startsWith('Bearer ')) {
+            const jwt = (await import('jsonwebtoken')).default;
+            const dec = jwt.decode(authH.split(' ')[1]);
+            if (dec && (dec.fullName || dec.username)) authorName = dec.fullName || dec.username;
+          }
+        } catch (_) {}
+
+        const { rows: bRows } = await client.query(`
+          INSERT INTO import_batches (file_name, user_name, total_rows, imported_at, status)
+          VALUES ($1, $2, $3, NOW(), 'processing')
+          RETURNING id
+        `, [name || 'Реестр.xlsx', authorName, Number(totalRows) || 0]);
+        currentBatchId = bRows[0].id;
+      }
 
       // Upsert каждой заявки из батча
       for (const t of newBatch) {
@@ -128,16 +174,21 @@ router.post('/excel/import-rows', async (req, res) => {
             in_order, fact, obsledovanie, dostup, data_vyhoda, priemka, oplata,
             id_status, amount, distance_km, price_per_unit,
             tech_link, edo_number, invoice_info, vedo_status, excel_comment,
-            status, priority, overdue_days, stage, archived, raw_data
+            status, priority, overdue_days, stage, archived, raw_data,
+            import_source, first_imported_at, last_imported_at, import_batch_id
           ) VALUES (
             $1,$2,$3,$4,$5,$6,$7,$8,
             $9,$10,$11,$12,$13,$14,
             $15,$16,$17,$18,$19,$20,$21,
             $22,$23,$24,$25,
             $26,$27,$28,$29,$30,
-            $31,$32,$33,$34,false,$35
+            $31,$32,$33,$34,false,$35,
+            $36, NOW(), NOW(), $37
           )
           ON CONFLICT (id) DO UPDATE SET
+            import_source = COALESCE(tasks.import_source, EXCLUDED.import_source),
+            last_imported_at = NOW(),
+            import_batch_id  = EXCLUDED.import_batch_id,
             sheet         = EXCLUDED.sheet,
             region        = EXCLUDED.region,
             address       = EXCLUDED.address,
@@ -190,7 +241,9 @@ router.post('/excel/import-rows', async (req, res) => {
           t.techLink, t.edoNumber, t.invoiceInfo, t.vedoStatus, t.excelComment,
           t.status||'progress', t.priority||'low', Number(t.overdueDays)||0,
           t.stage || getInitialStage(t.status, t),
-          JSON.stringify(t.rawData || {})
+          JSON.stringify(t.rawData || {}),
+          name || 'Реестр.xlsx',
+          currentBatchId
         ]);
 
         if (Array.isArray(t.items) && t.items.length > 0) {
@@ -217,16 +270,41 @@ router.post('/excel/import-rows', async (req, res) => {
 
       // Последний батч — обновляем метаданные
       const isDone = req.body.isLast === true || !totalRows || (newBatch.length < 500);
-      if (isDone && name) {
-        const { rows: cnt } = await client.query('SELECT COUNT(*) FROM tasks WHERE archived=false');
-        await client.query(`
-          UPDATE import_meta SET imported_from=$1, imported_at=NOW(), row_count=$2 WHERE id=1
-        `, [name, Number(cnt[0].count)]);
+      if (isDone) {
+        if (name) {
+          const { rows: cnt } = await client.query('SELECT COUNT(*) FROM tasks WHERE archived=false');
+          await client.query(`
+            UPDATE import_meta SET imported_from=$1, imported_at=NOW(), row_count=$2 WHERE id=1
+          `, [name, Number(cnt[0].count)]);
+        }
+
+        if (currentBatchId) {
+          const { rows: bStats } = await client.query(`
+            SELECT 
+              COUNT(*) as total_in_batch,
+              COUNT(CASE WHEN first_imported_at >= NOW() - INTERVAL '15 minutes' THEN 1 END) as new_count
+            FROM tasks WHERE import_batch_id = $1
+          `, [currentBatchId]);
+          const tot = Number(bStats[0]?.total_in_batch || 0);
+          const nCnt = Number(bStats[0]?.new_count || 0);
+          const uCnt = tot > nCnt ? (tot - nCnt) : 0;
+
+          await client.query(`
+            UPDATE import_batches SET
+              total_rows = $1,
+              new_tasks_count = $2,
+              updated_tasks_count = $3,
+              status = 'completed',
+              imported_at = NOW()
+            WHERE id = $4
+          `, [tot || totalRows || 0, nCnt, uCnt, currentBatchId]);
+        }
+
         runBackgroundGeocoding();
       }
 
       await client.query('COMMIT');
-      res.json({ success: true, done: isDone });
+      res.json({ success: true, done: isDone, batchId: currentBatchId });
     } catch(e) {
       await client.query('ROLLBACK');
       throw e;

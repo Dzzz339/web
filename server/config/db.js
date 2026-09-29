@@ -142,6 +142,24 @@ export async function initDB() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS import_batches (
+      id SERIAL PRIMARY KEY,
+      file_name TEXT NOT NULL,
+      user_name TEXT DEFAULT 'Администратор',
+      imported_at TIMESTAMPTZ DEFAULT NOW(),
+      total_rows INTEGER DEFAULT 0,
+      new_tasks_count INTEGER DEFAULT 0,
+      updated_tasks_count INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'completed'
+    );
+  `);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS import_source TEXT`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS first_imported_at TIMESTAMPTZ DEFAULT NOW()`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS last_imported_at TIMESTAMPTZ DEFAULT NOW()`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS import_batch_id INTEGER`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_import_batch ON tasks(import_batch_id)`);
+
+  await pool.query(`
     INSERT INTO import_meta (id) VALUES (1) ON CONFLICT (id) DO NOTHING
   `);
 
