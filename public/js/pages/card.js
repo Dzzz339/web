@@ -66,8 +66,9 @@ function setCardTab(tabName) {
   if (tabName === 'main' && window._activeLeafletMap) {
     setTimeout(function(){ window._activeLeafletMap.invalidateSize(); }, 60);
   }
-  if (tabName === 'items' && S.cardId) {
+  if ((tabName === 'items' || tabName === 'supply') && S.cardId) {
     loadCardMaterials(S.cardId);
+    refreshTaskItemsList(S.cardId);
   }
 }
 window.setCardTab = setCardTab;
@@ -693,7 +694,7 @@ function pageCard() {
     '</div>' +
   '</div>';
 
-  var paneFiles = '<div id="cardTabPane-files" class="card-tab-pane" style="display:' + (curTab === 'docs' ? 'block' : 'none') + '">' +
+  var paneFiles = '<div id="cardTabPane-files" class="card-tab-pane" style="display:' + ((curTab === 'files' || curTab === 'docs') ? 'block' : 'none') + '">' +
     docsRegistryBlock +
     remarksBlock +
     '<div class="card p mb">' +
@@ -723,7 +724,7 @@ function pageCard() {
     '</div>' +
   '</div>';
 
-  var paneFinance = '<div id="cardTabPane-finance" class="card-tab-pane" style="display:' + (curTab === 'fin' ? 'block' : 'none') + '">' +
+  var paneFinance = '<div id="cardTabPane-finance" class="card-tab-pane" style="display:' + ((curTab === 'finance' || curTab === 'fin') ? 'block' : 'none') + '">' +
     '<div class="card p mb">' +
       '<div class="sec-title" style="margin-bottom:.5rem">Финансовые показатели договора</div>' +
       field('Сумма договора', 'amount', 'number') +
@@ -802,7 +803,7 @@ function pageCard() {
     '<form id="cardForm" onsubmit="return false;">' +
       paneMain +
       paneItems +
-      paneRemarks +
+      paneSupply +
       paneFiles +
       paneFinance +
       paneHistory +
