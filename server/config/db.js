@@ -327,6 +327,7 @@ export async function initDB() {
 
   await pool.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS manager_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS manager_name TEXT`);
+  await pool.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS checklist JSONB DEFAULT '{}'`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_manager_id ON contracts(manager_id)`);
 
   await pool.query(`

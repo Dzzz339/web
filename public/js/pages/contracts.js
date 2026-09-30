@@ -34,22 +34,25 @@ function pageContracts() {
         </div>
       </div>
 
-      <!-- ВИДЖЕТЫ СВОДКИ -->
-      <div id="contracts_stats_widget" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin-bottom:1.25rem">
-        <div class="card p" style="padding:14px; border-left:4px solid var(--orange)">
-          <div style="font-size:.75rem; color:var(--text-3); text-transform:uppercase; font-weight:700">Всего договоров</div>
-          <div id="stat_total_count" style="font-size:1.4rem; font-weight:800; color:var(--text); margin-top:4px">—</div>
-          <div id="stat_multi_lot" style="font-size:.73rem; color:var(--text-3); margin-top:2px">В т.ч. многолотовых: —</div>
+      <!-- КОМПАКТНАЯ ПЛАШКА СВОДКИ (KPI) -->
+      <div id="contracts_stats_widget" class="card" style="display:flex; align-items:center; flex-wrap:wrap; gap:12px 24px; padding:10px 16px; margin-bottom:1rem; background:#fff">
+        <div style="display:flex; align-items:center; gap:8px">
+          <span style="font-size:1.15rem">📄</span>
+          <span style="font-size:.75rem; color:var(--text-3); text-transform:uppercase; font-weight:700">Всего:</span>
+          <span id="stat_total_count" style="font-size:1.05rem; font-weight:800; color:var(--text)">—</span>
+          <span id="stat_multi_lot" style="font-size:.72rem; color:var(--text-3); background:#f1f5f9; padding:2px 6px; border-radius:4px">(многолотовых: —)</span>
         </div>
-        <div class="card p" style="padding:14px; border-left:4px solid var(--green)">
-          <div style="font-size:.75rem; color:var(--text-3); text-transform:uppercase; font-weight:700">Сумма портфеля</div>
-          <div id="stat_total_amount" style="font-size:1.4rem; font-weight:800; color:var(--green); margin-top:4px">—</div>
-          <div style="font-size:.73rem; color:var(--text-3); margin-top:2px">Общий объём контрактов</div>
+        <div style="width:1px; height:20px; background:var(--border); opacity:.6"></div>
+        <div style="display:flex; align-items:center; gap:8px">
+          <span style="font-size:1.15rem">💰</span>
+          <span style="font-size:.75rem; color:var(--text-3); text-transform:uppercase; font-weight:700">Портфель:</span>
+          <span id="stat_total_amount" style="font-size:1.05rem; font-weight:800; color:var(--green)">—</span>
         </div>
-        <div class="card p" style="padding:14px; border-left:4px solid #3b82f6">
-          <div style="font-size:.75rem; color:var(--text-3); text-transform:uppercase; font-weight:700">Обеспечение договоров</div>
-          <div id="stat_total_security" style="font-size:1.4rem; font-weight:800; color:#3b82f6; margin-top:4px">—</div>
-          <div style="font-size:.73rem; color:var(--text-3); margin-top:2px">Замороженные гарантии</div>
+        <div style="width:1px; height:20px; background:var(--border); opacity:.6"></div>
+        <div style="display:flex; align-items:center; gap:8px">
+          <span style="font-size:1.15rem">🛡️</span>
+          <span style="font-size:.75rem; color:var(--text-3); text-transform:uppercase; font-weight:700">Обеспечение:</span>
+          <span id="stat_total_security" style="font-size:1.05rem; font-weight:800; color:#3b82f6">—</span>
         </div>
       </div>
 
@@ -405,21 +408,26 @@ function renderContractsTable() {
       linksHtml += `<button onclick="promptCloudUrl(${c.id})" class="btn btn-sm btn-ghost" style="padding:3px 7px; color:var(--text-3); font-size:.7rem" title="Прикрепить ссылку на облако">+ Облако</button>`;
     }
 
-    // Совмещенный номер
+    // Совмещенный номер и действие подробностей спереди
     var numberHtml = `
-      <div style="font-weight:700; font-family:monospace; font-size:.9rem; color:var(--text)">
-        ${highlight(escHtml(c.internal_number || '—'), S.contractSearch)}
+      <div style="display:flex; flex-direction:column; gap:4px">
+        <button class="btn-link" onclick="openContractModal(${c.id})" style="font-weight:800; font-family:monospace; font-size:.92rem; text-align:left; padding:0; color:var(--blue); border:none; background:none; cursor:pointer" title="Открыть подробности договора">
+          Вн. № ${highlight(escHtml(c.internal_number || '—'), S.contractSearch)}
+        </button>
+        ${c.contract_number ? `
+          <div style="font-size:.73rem; color:var(--text-3)">
+            № ${highlight(escHtml(c.contract_number), S.contractSearch)}
+          </div>
+        ` : ''}
+        <button class="btn btn-sm btn-ghost" onclick="openContractModal(${c.id})" style="padding:2px 8px; font-size:.75rem; border:1px solid var(--border); border-radius:6px; display:inline-flex; align-items:center; gap:4px; align-self:flex-start; margin-top:2px; font-weight:600; color:var(--text)" title="Открыть подробности договора">
+          🔍 Подробности
+        </button>
+        ${hasLots ? `
+          <div style="margin-top:2px">
+            <span class="badge b-orange" style="font-size:.65rem; padding:1px 5px">🎯 ${lots.length} лотов</span>
+          </div>
+        ` : ''}
       </div>
-      ${c.contract_number ? `
-        <div style="font-size:.73rem; color:var(--text-3); margin-top:2px">
-          № ${highlight(escHtml(c.contract_number), S.contractSearch)}
-        </div>
-      ` : ''}
-      ${hasLots ? `
-        <div style="margin-top:3px">
-          <span class="badge b-orange" style="font-size:.65rem; padding:1px 5px">🎯 ${lots.length} лотов</span>
-        </div>
-      ` : ''}
     `;
 
     // Заказчик и сторона
@@ -470,7 +478,7 @@ function renderContractsTable() {
 
     return `
       <tr style="border-bottom: 1px solid var(--border); transition:background .15s" onmouseover="this.style.background='#fafafa'" onmouseout="this.style.background='transparent'">
-        <td style="padding: 10px 12px; vertical-align:top; width:120px">${numberHtml}</td>
+        <td style="padding: 10px 12px; vertical-align:top; width:135px">${numberHtml}</td>
         <td style="padding: 10px 12px; vertical-align:top; width:130px">${dateCellHtml}</td>
         <td style="padding: 10px 12px; vertical-align:top">${customerHtml}</td>
         <td style="padding: 10px 12px; vertical-align:top; width:140px">
@@ -486,11 +494,9 @@ function renderContractsTable() {
             ${linkedBadge}
           </div>
         </td>
-        <td style="padding: 10px 12px; vertical-align:top; width:85px; text-align:right; white-space:nowrap">
-          <button class="btn btn-sm btn-ghost" onclick="openContractModal(${c.id})" title="Просмотр карточки договора">👁️</button>
-          <button class="btn btn-sm btn-ghost" onclick="openContractForm(${c.id})" title="Редактировать">✏️</button>
+        <td style="padding: 10px 12px; vertical-align:middle; width:45px; text-align:center">
           ${(S.user && (S.user.role === 'admin' || S.user.role === 'director')) ? `
-            <button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteContract(${c.id})" title="Удалить">✕</button>
+            <button class="btn btn-sm btn-ghost" style="color:var(--red); font-size:1.15rem; padding:2px 6px" onclick="deleteContract(${c.id})" title="Удалить договор">&times;</button>
           ` : ''}
         </td>
       </tr>
@@ -502,7 +508,7 @@ function renderContractsTable() {
       <table>
         <thead>
           <tr style="background:var(--bg); border-bottom:1.5px solid var(--border)">
-            <th style="width:120px">№ Договора</th>
+            <th style="width:135px">№ Договора</th>
             <th style="width:130px">Дата / Срок</th>
             <th style="min-width:200px">Заказчик / Стороны</th>
             <th style="width:140px">О чем договор</th>
@@ -510,7 +516,7 @@ function renderContractsTable() {
             <th style="width:115px">Сумма</th>
             <th style="width:105px">Обеспечение</th>
             <th style="width:100px">Ссылки</th>
-            <th style="width:85px"></th>
+            <th style="width:45px"></th>
           </tr>
         </thead>
         <tbody>
@@ -538,6 +544,8 @@ function openContractModal(id, activeTab) {
       modalEl.innerHTML = `<div style="padding:2rem; color:var(--red)">Ошибка: ${escHtml(c ? c.error : 'Не найден')}</div>`;
       return;
     }
+
+    window._activeContract = c;
 
     var lots = [];
     try {
@@ -737,26 +745,37 @@ function renderContractTabMain(c, dDate, dEnd) {
 
 function renderContractTabTerms(c) {
   return `
-    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:16px; margin-bottom:20px">
-      <div class="card p">
-        <div style="font-size:.75rem; text-transform:uppercase; font-weight:700; color:var(--text-3); margin-bottom:6px">💳 Условия оплаты</div>
-        <div style="font-size:.9rem; line-height:1.4">${escHtml(c.payment_terms || 'В соответствии с условиями договора')}</div>
+    <!-- КОМПАКТНЫЕ УСЛОВИЯ ОПЛАТЫ И ОБЕСПЕЧЕНИЕ -->
+    <div class="card p" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px; padding:10px 16px; margin-bottom:16px; background:#f8fafc; border:1px solid var(--border)">
+      <div>
+        <div style="font-size:.68rem; text-transform:uppercase; font-weight:700; color:var(--text-3)">💳 Условия оплаты</div>
+        <div style="font-size:.88rem; font-weight:600; color:var(--text); margin-top:2px">${escHtml(c.payment_terms || 'В соответствии с условиями договора')}</div>
       </div>
-      <div class="card p">
-        <div style="font-size:.75rem; text-transform:uppercase; font-weight:700; color:var(--text-3); margin-bottom:6px">🛡️ Обеспечение договора</div>
-        <div style="font-size:1.15rem; font-weight:800; color:#3b82f6">${fmtMoney(c.security_amount)}</div>
-        <div style="font-size:.8rem; color:var(--text-2); margin-top:3px">${escHtml(c.security_condition || 'Обеспечение не установлено')}</div>
-        ${c.discount_percent > 0 ? `<div style="font-size:.75rem; color:var(--text-3); margin-top:4px">Снижение на торгах: <b>${(c.discount_percent * 100).toFixed(2)}%</b></div>` : ''}
+      <div>
+        <div style="font-size:.68rem; text-transform:uppercase; font-weight:700; color:var(--text-3)">🛡️ Обеспечение договора</div>
+        <div style="font-size:.88rem; font-weight:700; color:#3b82f6; margin-top:2px">
+          ${fmtMoney(c.security_amount)}
+          <span style="font-size:.75rem; font-weight:normal; color:var(--text-2)">(${escHtml(c.security_condition || 'не установлено')})</span>
+        </div>
       </div>
+      ${c.discount_percent > 0 ? `
+        <div>
+          <div style="font-size:.68rem; text-transform:uppercase; font-weight:700; color:var(--text-3)">📉 Снижение на торгах</div>
+          <div style="font-size:.88rem; font-weight:700; color:var(--green); margin-top:2px">${(c.discount_percent * 100).toFixed(2)}%</div>
+        </div>
+      ` : ''}
     </div>
 
+    <!-- ИНТЕРАКТИВНЫЙ ЧЕК-ЛИСТ ТРЕБОВАНИЙ К СДАЧЕ / ЗАКРЫТИЮ -->
+    ${renderContractChecklistSection(c)}
+
     <!-- ТЕКСТ УСЛОВИЙ ДОГОВОРА (РЕДАКТИРУЕМЫЙ) -->
-    <div class="card p">
+    <div class="card p" style="margin-top:16px">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
         <div style="font-size:.85rem; font-weight:700">Текст и особые условия договора</div>
         <button class="btn btn-sm btn-ghost" onclick="toggleEditTermsText(${c.id})" id="btn_edit_terms">✏️ Редактировать текст</button>
       </div>
-      <div id="terms_display_box" style="background:#fafafa; border:1px solid var(--border); border-radius:8px; padding:12px; font-size:.85rem; line-height:1.5; white-space:pre-wrap; min-height:80px; color:var(--text)">
+      <div id="terms_display_box" style="background:#fafafa; border:1px solid var(--border); border-radius:8px; padding:12px; font-size:.85rem; line-height:1.5; white-space:pre-wrap; min-height:70px; color:var(--text)">
         ${escHtml(c.terms_text || 'Особые условия договора не внесены. Нажмите «Редактировать текст», чтобы вписать гарантии, штрафы, условия сдачи или спецификацию.')}
       </div>
       <div id="terms_edit_box" style="display:none; margin-top:8px">
@@ -1441,6 +1460,195 @@ function setContractActivePreview(contractId, attachmentId) {
   openContractModal(contractId, 'main');
 }
 
+var CONTRACT_DEFAULT_CHECKLIST_ITEMS = [
+  { key: 'exec_doc', label: 'Исполнительная документация (ИД)' },
+  { key: 'scheme_sks', label: 'Схема СКС / Структурная схема' },
+  { key: 'cable_routes', label: 'План прокладки кабельных трасс' },
+  { key: 'cable_journal', label: 'Кабельный журнал' },
+  { key: 'manual', label: 'Инструкция по эксплуатации' },
+  { key: 'warranty_cert', label: 'Системный сертификат / гарантия 15–25 лет' },
+  { key: 'fluke_tests', label: 'Протоколы тестирования Fluke Networks' },
+  { key: 'acts_ks', label: 'Акты КС-2, КС-3 / УПД подписанные' }
+];
+
+function renderContractChecklistSection(c) {
+  var cl = {};
+  if (c && c.checklist) {
+    try {
+      cl = typeof c.checklist === 'string' ? JSON.parse(c.checklist) : (c.checklist || {});
+    } catch(e) { cl = {}; }
+  }
+
+  var customItems = Array.isArray(cl._custom) ? cl._custom : [];
+  var allItems = CONTRACT_DEFAULT_CHECKLIST_ITEMS.concat(customItems);
+  var totalCount = allItems.length;
+
+  var checkedCount = 0;
+  allItems.forEach(function(item) {
+    if (cl[item.key]) checkedCount++;
+  });
+
+  var percent = totalCount > 0 ? Math.round((checkedCount / totalCount) * 100) : 0;
+  var isAllDone = totalCount > 0 && checkedCount === totalCount;
+
+  var itemsHtml = allItems.map(function(item) {
+    var isChecked = !!cl[item.key];
+    var isCustom = !CONTRACT_DEFAULT_CHECKLIST_ITEMS.some(function(d) { return d.key === item.key; });
+
+    return `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 12px; border-radius:8px; background:${isChecked ? '#f0fdf4' : '#fff'}; border:${isChecked ? '1.5px solid #86efac' : '1px solid var(--border)'}; transition:all .15s">
+        <label style="display:flex; align-items:center; gap:10px; cursor:pointer; flex:1; margin:0; user-select:none">
+          <input type="checkbox" style="width:17px; height:17px; cursor:pointer; accent-color:#16a34a" ${isChecked ? 'checked' : ''} onchange="toggleContractChecklistItem(${c.id}, '${item.key}', this.checked)">
+          <span style="font-size:.85rem; font-weight:${isChecked ? '600' : '500'}; color:${isChecked ? '#15803d' : 'var(--text)'}">
+            ${escHtml(item.label)}
+          </span>
+        </label>
+        <div style="display:flex; align-items:center; gap:6px">
+          ${isChecked ? `
+            <span class="badge b-green" style="font-size:.7rem; padding:2px 8px">✓ Готово</span>
+          ` : `
+            <span class="badge b-gray" style="font-size:.7rem; padding:2px 8px; opacity:.7">Ожидается</span>
+          `}
+          ${isCustom ? `
+            <button class="btn btn-xs btn-ghost" onclick="removeContractChecklistItem(${c.id}, '${item.key}')" title="Удалить это требование" style="color:var(--red); font-size:1rem; padding:0 4px; line-height:1">&times;</button>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="card p" style="background:#fff; border:1px solid var(--border)">
+      <!-- ЗАГОЛОВОК И ПРОГРЕСС -->
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px">
+        <div>
+          <div style="display:flex; align-items:center; gap:8px">
+            <span style="font-size:1.15rem">📋</span>
+            <span style="font-weight:700; font-size:.95rem">Чек-лист закрывающих требований и документов</span>
+            <span class="badge ${isAllDone ? 'b-green' : (checkedCount > 0 ? 'b-blue' : 'b-gray')}" style="font-size:.78rem; font-weight:700">
+              ${checkedCount} из ${totalCount} выполнено (${percent}%)
+            </span>
+          </div>
+          <div style="font-size:.78rem; color:var(--text-3); margin-top:2px">
+            Контроль наличия исполнительной документации, сертификатов и подписанных актов для сдачи договора
+          </div>
+        </div>
+        <button class="btn btn-sm btn-ghost" onclick="promptAddContractChecklistItem(${c.id})" style="border:1px dashed var(--border); font-size:.8rem; font-weight:600">
+          + Своё требование
+        </button>
+      </div>
+
+      <!-- ПРОГРЕСС-БАР -->
+      <div style="width:100%; height:8px; background:#f1f5f9; border-radius:999px; overflow:hidden; margin-bottom:14px; border:1px solid var(--border)">
+        <div style="height:100%; width:${percent}%; background:${isAllDone ? '#10b981' : (percent >= 50 ? '#3b82f6' : '#f59e0b')}; transition:width .25s ease"></div>
+      </div>
+
+      ${isAllDone ? `
+        <div style="padding:8px 12px; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:6px; color:#065f46; font-size:.82rem; font-weight:600; margin-bottom:12px; display:flex; align-items:center; gap:6px">
+          <span>🎉</span> Все закрывающие требования и документы по договору закрыты!
+        </div>
+      ` : ''}
+
+      <!-- СПИСОК ТРЕБОВАНИЙ -->
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:8px">
+        ${itemsHtml}
+      </div>
+    </div>
+  `;
+}
+
+function toggleContractChecklistItem(contractId, key, isChecked) {
+  var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
+  var cl = {};
+  if (c && c.checklist) {
+    try {
+      cl = typeof c.checklist === 'string' ? JSON.parse(c.checklist) : Object.assign({}, c.checklist);
+    } catch(e) { cl = {}; }
+  }
+
+  cl[key] = isChecked;
+
+  api('/contracts/' + contractId + '/checklist', {
+    method: 'PATCH',
+    body: JSON.stringify({ checklist: cl })
+  }).then(function(res) {
+    if (res && res.error) {
+      showToast('Ошибка сохранения: ' + res.error, 'error');
+    } else {
+      if (c) c.checklist = cl;
+      openContractModal(contractId, 'terms');
+    }
+  }).catch(function(err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  });
+}
+
+function promptAddContractChecklistItem(contractId) {
+  var label = prompt('Введите название закрывающего требования или документа:');
+  if (!label || !label.trim()) return;
+  label = label.trim();
+
+  var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
+  var cl = {};
+  if (c && c.checklist) {
+    try {
+      cl = typeof c.checklist === 'string' ? JSON.parse(c.checklist) : Object.assign({}, c.checklist);
+    } catch(e) { cl = {}; }
+  }
+
+  if (!Array.isArray(cl._custom)) cl._custom = [];
+  var customKey = 'cust_' + Date.now();
+  cl._custom.push({ key: customKey, label: label });
+  cl[customKey] = false;
+
+  api('/contracts/' + contractId + '/checklist', {
+    method: 'PATCH',
+    body: JSON.stringify({ checklist: cl })
+  }).then(function(res) {
+    if (res && res.error) {
+      showToast('Ошибка: ' + res.error, 'error');
+    } else {
+      showToast('Требование добавлено', 'success');
+      if (c) c.checklist = cl;
+      openContractModal(contractId, 'terms');
+    }
+  }).catch(function(err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  });
+}
+
+function removeContractChecklistItem(contractId, key) {
+  if (!confirm('Удалить это требование?')) return;
+
+  var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
+  var cl = {};
+  if (c && c.checklist) {
+    try {
+      cl = typeof c.checklist === 'string' ? JSON.parse(c.checklist) : Object.assign({}, c.checklist);
+    } catch(e) { cl = {}; }
+  }
+
+  if (Array.isArray(cl._custom)) {
+    cl._custom = cl._custom.filter(function(x) { return x.key !== key; });
+  }
+  delete cl[key];
+
+  api('/contracts/' + contractId + '/checklist', {
+    method: 'PATCH',
+    body: JSON.stringify({ checklist: cl })
+  }).then(function(res) {
+    if (res && res.error) {
+      showToast('Ошибка: ' + res.error, 'error');
+    } else {
+      showToast('Требование удалено', 'success');
+      if (c) c.checklist = cl;
+      openContractModal(contractId, 'terms');
+    }
+  }).catch(function(err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  });
+}
+
 window.initContractMap = initContractMap;
 window.openAssignContractManagerModal = openAssignContractManagerModal;
 window.saveContractManager = saveContractManager;
@@ -1448,4 +1656,8 @@ window.triggerContractAttachmentUpload = triggerContractAttachmentUpload;
 window.handleContractAttachmentUpload = handleContractAttachmentUpload;
 window.deleteContractAttachment = deleteContractAttachment;
 window.setContractActivePreview = setContractActivePreview;
+window.renderContractChecklistSection = renderContractChecklistSection;
+window.toggleContractChecklistItem = toggleContractChecklistItem;
+window.promptAddContractChecklistItem = promptAddContractChecklistItem;
+window.removeContractChecklistItem = removeContractChecklistItem;
 

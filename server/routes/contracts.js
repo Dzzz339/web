@@ -202,6 +202,33 @@ router.patch('/contracts/:id/manager', authenticateToken, async (req, res) => {
 });
 
 /**
+ * Обновить чек-лист закрывающих требований / документов договора
+ */
+router.patch('/contracts/:id/checklist', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { checklist } = req.body;
+
+    const { rows } = await pool.query(`
+      UPDATE contracts SET
+        checklist = $1,
+        updated_at = NOW()
+      WHERE id = $2
+      RETURNING *
+    `, [JSON.stringify(checklist || {}), id]);
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Договор не найден' });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error updating contract checklist:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * Загрузить файлы / приложения к договору
  */
 router.post('/contracts/:id/attachments', authenticateToken, uploadAttachment.array('files', 10), async (req, res) => {
