@@ -119,7 +119,7 @@ function pageContracts() {
 
     <!-- МОДАЛЬНОЕ ОКНО ДЕТАЛЕЙ ДОГОВОРА -->
     <div id="contract_detail_modal_backdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center; padding:16px" onclick="if(event.target===this) closeContractModal()">
-      <div id="contract_detail_modal" class="card" style="width:100%; max-width:920px; max-height:92vh; overflow-y:auto; background:#fff; border-radius:12px; box-shadow:0 20px 40px rgba(0,0,0,0.25); position:relative"></div>
+      <div id="contract_detail_modal" class="card" style="width:100%; max-width:1060px; max-height:92vh; overflow-y:auto; background:#fff; border-radius:12px; box-shadow:0 20px 40px rgba(0,0,0,0.25); position:relative"></div>
     </div>
 
     <!-- МОДАЛЬНОЕ ОКНО СОЗДАНИЯ/РЕДАКТИРОВАНИЯ -->
@@ -586,65 +586,151 @@ function openContractModal(id, activeTab) {
         ${activeTab === 'tasks' ? renderContractTabTasks(c, tasks) : ''}
       </div>
     `;
+
+    if (activeTab === 'main') {
+      setTimeout(function() {
+        initContractMap(c);
+      }, 60);
+    }
   });
 }
 
 function renderContractTabMain(c, dDate, dEnd) {
+  var dgisUrl  = 'https://2gis.ru/search/' + encodeURIComponent('Россия, ' + (c.delivery_place || c.our_entity_region || ''));
+  var yandexUrl = 'https://yandex.ru/maps/?text=' + encodeURIComponent('Россия, ' + (c.delivery_place || c.our_entity_region || ''));
+
+  var managerBadge = c.manager_name ? `
+    <div class="card p" style="display:flex; justify-content:space-between; align-items:center; background:#f0fdf4; border:1.5px solid #bbf7d0; border-radius:8px; padding:10px 14px">
+      <div style="display:flex; align-items:center; gap:10px">
+        <span style="font-size:1.3rem">👤</span>
+        <div>
+          <div style="font-size:.68rem; color:var(--text-3); font-weight:700; text-transform:uppercase">Ответственный менеджер</div>
+          <div style="font-weight:700; color:#15803d; font-size:.92rem">${escHtml(c.manager_name)}</div>
+        </div>
+      </div>
+      <button class="btn btn-sm btn-ghost" onclick="openAssignContractManagerModal(${c.id}, ${c.manager_id || 'null'})" style="font-size:.78rem">Изменить</button>
+    </div>
+  ` : `
+    <div class="card p" style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1.5px dashed #cbd5e1; border-radius:8px; padding:10px 14px">
+      <div style="display:flex; align-items:center; gap:10px">
+        <span style="font-size:1.3rem; opacity:.6">👤</span>
+        <div>
+          <div style="font-size:.68rem; color:var(--text-3); font-weight:700; text-transform:uppercase">Ответственный менеджер</div>
+          <div style="color:var(--text-3); font-size:.85rem">Менеджер ещё не назначен</div>
+        </div>
+      </div>
+      <button class="btn btn-sm" onclick="openAssignContractManagerModal(${c.id}, null)" style="font-size:.78rem; font-weight:600">+ Назначить менеджера</button>
+    </div>
+  `;
+
+  var attachments = c.attachments || [];
+
   return `
-    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:16px; margin-bottom:20px">
-      <!-- СТОРОНА 1: ЗАКАЗЧИК -->
-      <div class="card p" style="background:#fcfcfc">
-        <div style="font-size:.72rem; text-transform:uppercase; font-weight:700; color:var(--text-3); margin-bottom:6px">🏛️ Сторона 1 (Заказчик)</div>
-        <div style="font-weight:700; font-size:.95rem; color:var(--text)">${escHtml(c.customer_name || 'Не указан')}</div>
-        ${c.customer_inn ? `<div style="font-size:.78rem; color:var(--text-3); margin-top:3px">ИНН: ${escHtml(c.customer_inn)}</div>` : ''}
-        ${c.contacts_raw ? `<div style="font-size:.78rem; color:var(--text-2); margin-top:6px; background:#fff; padding:6px 8px; border-radius:6px; border:1px solid var(--border)">📞 Контакты: ${escHtml(c.contacts_raw)}</div>` : ''}
+    <!-- ДВУХКОЛОНОЧНАЯ СЕТКА: ИНФО СЛЕВА + КАРТА СПРАВА -->
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(360px, 1fr)); gap:16px; margin-bottom:20px; align-items:stretch">
+      
+      <!-- ЛЕВАЯ КОЛОНКА (Информационные параметры договора) -->
+      <div style="display:flex; flex-direction:column; gap:12px">
+        <!-- СТОРОНЫ ДОГОВОРА -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
+          <div class="card p" style="background:#fcfcfc; padding:12px">
+            <div style="font-size:.7rem; text-transform:uppercase; font-weight:700; color:var(--text-3); margin-bottom:4px">🏛️ Сторона 1 (Заказчик)</div>
+            <div style="font-weight:700; font-size:.88rem; color:var(--text); line-height:1.3">${escHtml(c.customer_name || 'Не указан')}</div>
+            ${c.customer_inn ? `<div style="font-size:.75rem; color:var(--text-3); margin-top:3px">ИНН: ${escHtml(c.customer_inn)}</div>` : ''}
+            ${c.contacts_raw ? `<div style="font-size:.75rem; color:var(--text-2); margin-top:4px; background:#fff; padding:4px 6px; border-radius:4px; border:1px solid var(--border)">📞 ${escHtml(c.contacts_raw)}</div>` : ''}
+          </div>
+
+          <div class="card p" style="background:#fcfcfc; padding:12px">
+            <div style="font-size:.7rem; text-transform:uppercase; font-weight:700; color:var(--text-3); margin-bottom:4px">🏢 Сторона 2 (Исполнитель)</div>
+            <div style="font-weight:700; font-size:.88rem; color:var(--text)">${escHtml(c.our_entity_name || 'ООО «Ультима»')}</div>
+            <div style="font-size:.78rem; color:var(--text-2); margin-top:3px">Филиал: <b>${escHtml(c.our_entity_region || 'Не указан')}</b></div>
+          </div>
+        </div>
+
+        <!-- АДРЕС / МЕСТО ПОСТАВКИ -->
+        <div class="card p" style="padding:12px">
+          <div style="font-size:.7rem; color:var(--text-3); font-weight:700; text-transform:uppercase">📍 Место поставки / выполнения работ</div>
+          <div style="font-size:.9rem; font-weight:600; color:var(--text); margin-top:3px; line-height:1.35">${escHtml(c.delivery_place || 'По региону')}</div>
+        </div>
+
+        <!-- ДАТЫ И СУММА -->
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px">
+          <div class="card p" style="padding:10px">
+            <div style="font-size:.68rem; color:var(--text-3); font-weight:700">📅 Заключение</div>
+            <div style="font-size:.85rem; font-weight:700; color:var(--text); margin-top:3px">${dDate}</div>
+          </div>
+          <div class="card p" style="padding:10px">
+            <div style="font-size:.68rem; color:var(--text-3); font-weight:700">⏳ Окончание</div>
+            <div style="font-size:.85rem; font-weight:700; color:var(--text); margin-top:3px">${dEnd}</div>
+            ${c.deadline_raw && dEnd.startsWith('до ') ? `<div style="font-size:.68rem; color:var(--text-3); margin-top:2px">${escHtml(c.deadline_raw)}</div>` : ''}
+          </div>
+          <div class="card p" style="padding:10px">
+            <div style="font-size:.68rem; color:var(--text-3); font-weight:700">💰 Сумма</div>
+            <div style="font-size:.95rem; font-weight:800; color:var(--green); margin-top:2px">${fmtMoney(c.amount)}</div>
+            ${c.platform ? `<div style="font-size:.66rem; color:var(--text-3)">${escHtml(c.platform)}</div>` : ''}
+          </div>
+        </div>
+
+        <!-- НАЗНАЧЕНИЕ МЕНЕДЖЕРА ДОГОВОРА -->
+        ${managerBadge}
       </div>
 
-      <!-- СТОРОНА 2: НАША КОМПАНИЯ -->
-      <div class="card p" style="background:#fcfcfc">
-        <div style="font-size:.72rem; text-transform:uppercase; font-weight:700; color:var(--text-3); margin-bottom:6px">🏢 Сторона 2 (Исполнитель / Наша компания)</div>
-        <div style="font-weight:700; font-size:.95rem; color:var(--text)">${escHtml(c.our_entity_name || 'ООО «Ультима»')}</div>
-        <div style="font-size:.82rem; color:var(--text-2); margin-top:3px">Филиал / Регион: <b>${escHtml(c.our_entity_region || 'Не указан')}</b></div>
+      <!-- ПРАВАЯ КОЛОНКА (Интерактивный фрагмент карты) -->
+      <div class="card p" style="display:flex; flex-direction:column; padding:14px; min-height:360px">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
+          <div style="font-weight:700; font-size:.85rem; display:flex; align-items:center; gap:6px">
+            <span>🗺️ Фрагмент карты</span>
+          </div>
+          <div style="font-size:.72rem; color:var(--text-3); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" title="${escHtml(c.delivery_place || '')}">
+            ${escHtml(c.delivery_place || 'По региону')}
+          </div>
+        </div>
+
+        <div id="contract_leafmap_${c.id}" style="flex:1; min-height:260px; border-radius:8px; overflow:hidden; background:#f0f0f0; display:flex; align-items:center; justify-content:center; color:#888; font-size:.82rem; border:1px solid var(--border)">
+          Загрузка карты…
+        </div>
+
+        <div style="display:flex; gap:.5rem; margin-top:.6rem; flex-wrap:wrap">
+          <a href="${dgisUrl}" target="_blank" class="btn btn-sm" style="background:#3069b0; gap:5px; font-size:.75rem">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="10" r="4"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="white"/></svg>
+            2ГИС
+          </a>
+          <a href="${yandexUrl}" target="_blank" class="btn btn-sm" style="background:#fc3f1d; gap:5px; font-size:.75rem">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="10" r="4"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="white"/></svg>
+            Яндекс.Карты
+          </a>
+        </div>
       </div>
     </div>
 
-    <!-- МЕСТО, ДАТЫ И ФИНАНСЫ -->
-    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px; margin-bottom:20px">
-      <div class="card p" style="padding:12px">
-        <div style="font-size:.72rem; color:var(--text-3); font-weight:700">📍 Место поставки / работ</div>
-        <div style="font-size:.88rem; font-weight:600; color:var(--text); margin-top:4px">${escHtml(c.delivery_place || 'По региону')}</div>
+    <!-- НИЖНИЙ БЛОК: ФАЙЛЫ, ПРИЛОЖЕНИЯ И ПРЕДПРОСМОТР (НА ВСЮ ШИРИНУ) -->
+    <div class="card p" style="background:#fff; border:1px solid var(--border); border-radius:10px">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; padding-bottom:12px; border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-weight:700; font-size:.92rem; display:flex; align-items:center; gap:8px">
+            <span>📁 Файлы и материалы договора</span>
+            <span class="badge b-gray" style="font-size:.75rem">${attachments.length}</span>
+          </div>
+          <div style="font-size:.78rem; color:var(--text-3); margin-top:2px">
+            Ссылки на внешнюю документацию, торги и прикрепленные приложения к договору
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+          ${c.zakupki_url ? `<a href="${escHtml(c.zakupki_url)}" target="_blank" class="btn btn-sm btn-ghost" style="border:1px solid var(--border)">🔗 Открыть на Закупках / ЭТП</a>` : ''}
+          ${c.cloud_url ? `
+            <a href="${escHtml(c.cloud_url)}" target="_blank" class="btn btn-sm" style="background:var(--orange); color:#fff">☁️ Папка в облаке</a>
+            <button class="btn btn-sm btn-ghost" onclick="promptCloudUrl(${c.id})">Изменить ссылку</button>
+          ` : `
+            <button class="btn btn-sm btn-ghost" onclick="promptCloudUrl(${c.id})" style="border:1px dashed var(--orange); color:var(--orange)">+ Прикрепить папку в облаке</button>
+          `}
+          <button class="btn btn-sm" onclick="triggerContractAttachmentUpload(${c.id})" style="background:#2563eb; color:#fff; display:flex; align-items:center; gap:6px" title="Загрузить приложения к договору (ТЗ, сметы, спецификации)">
+            📂 Загрузить файл
+          </button>
+          <input type="file" id="contract_attachment_input_${c.id}" multiple style="display:none" onchange="handleContractAttachmentUpload(${c.id}, this)">
+        </div>
       </div>
-      <div class="card p" style="padding:12px">
-        <div style="font-size:.72rem; color:var(--text-3); font-weight:700">📅 Дата заключения</div>
-        <div style="font-size:.88rem; font-weight:600; color:var(--text); margin-top:4px">${dDate}</div>
-      </div>
-      <div class="card p" style="padding:12px">
-        <div style="font-size:.72rem; color:var(--text-3); font-weight:700">⏳ Срок окончания работ</div>
-        <div style="font-size:.88rem; font-weight:600; color:var(--text); margin-top:4px">${dEnd}</div>
-        ${c.deadline_raw && dEnd.startsWith('до ') ? `<div style="font-size:.72rem; color:var(--text-3); margin-top:3px">${escHtml(c.deadline_raw)}</div>` : ''}
-      </div>
-      <div class="card p" style="padding:12px">
-        <div style="font-size:.72rem; color:var(--text-3); font-weight:700">💰 Сумма договора</div>
-        <div style="font-size:1.1rem; font-weight:800; color:var(--green); margin-top:2px">${fmtMoney(c.amount)}</div>
-        ${c.platform ? `<div style="font-size:.7rem; color:var(--text-3)">ЭТП: ${escHtml(c.platform)}</div>` : ''}
-      </div>
-    </div>
 
-    <!-- ССЫЛКИ НА ЗАКУПКУ И ОБЛАКО -->
-    <div class="card p" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; background:#fffbf7; border:1px solid #fed7aa">
-      <div>
-        <div style="font-weight:700; font-size:.88rem">Файлы и материалы договора</div>
-        <div style="font-size:.78rem; color:var(--text-3); margin-top:2px">Ссылки на внешнюю документацию, торги и хранилище файлов</div>
-      </div>
-      <div style="display:flex; gap:10px; align-items:center">
-        ${c.zakupki_url ? `<a href="${escHtml(c.zakupki_url)}" target="_blank" class="btn btn-sm">🔗 Открыть на Закупках / ЭТП</a>` : ''}
-        ${c.cloud_url ? `
-          <a href="${escHtml(c.cloud_url)}" target="_blank" class="btn btn-sm" style="background:var(--orange); color:#fff">☁️ Папка в облаке</a>
-          <button class="btn btn-sm btn-ghost" onclick="promptCloudUrl(${c.id})">Изменить ссылку</button>
-        ` : `
-          <button class="btn btn-sm" onclick="promptCloudUrl(${c.id})" style="background:var(--orange); color:#fff">+ Прикрепить папку в облаке</button>
-        `}
-      </div>
+      ${renderContractAttachmentsListAndPreview(c, attachments)}
     </div>
   `;
 }
@@ -1051,3 +1137,315 @@ function handleContractExcelUpload(e) {
     showToast('Ошибка импорта: ' + err.message, 'error');
   });
 }
+
+function formatFileSize(bytes) {
+  if (!bytes || bytes === 0) return '0 Б';
+  var k = 1024;
+  var sizes = ['Б', 'КБ', 'МБ', 'ГБ'];
+  var i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function initContractMap(c) {
+  var mapElId = 'contract_leafmap_' + c.id;
+  var el = document.getElementById(mapElId);
+  if (!el) return;
+
+  var mapAddr = (c.delivery_place || c.our_entity_region || '').trim();
+  if (!mapAddr) {
+    el.innerHTML = '<div style="text-align:center;padding:1.5rem;color:#888">Место работ не указано в договоре</div>';
+    return;
+  }
+
+  function cleanAddr(a) {
+    if (!a) return '';
+    return String(a)
+      .replace(/\b(г\.|город|пгт|пос\.|с\.|село|д\.|дер\.|р-н|обл\.|область|край|респ\.|республика)\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  var queries = [
+    'Россия, ' + (c.our_entity_region ? c.our_entity_region + ', ' : '') + cleanAddr(mapAddr),
+    'Россия, ' + cleanAddr(mapAddr)
+  ];
+  if (c.our_entity_region) queries.push('Россия, ' + c.our_entity_region);
+
+  function tryGeocode(qs, cb) {
+    if (!qs.length) { cb(null); return; }
+    var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ru&accept-language=ru&q=' + encodeURIComponent(qs[0]);
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d && d[0]) cb(d[0]);
+        else tryGeocode(qs.slice(1), cb);
+      })
+      .catch(function() { tryGeocode(qs.slice(1), cb); });
+  }
+
+  function renderLeaflet() {
+    tryGeocode(queries, function(result) {
+      if (!result) {
+        el.innerHTML = '<div style="text-align:center;padding:1.5rem 1rem;color:#64748b">' +
+          '<div style="font-size:1.8rem;margin-bottom:.4rem">🗺️</div>' +
+          '<div style="font-weight:600;font-size:.85rem">Координаты объекта не найдены</div>' +
+          '<div style="font-size:.75rem;color:#94a3b8;margin-top:2px">Используйте ссылки Яндекс.Карты или 2ГИС ниже</div>' +
+        '</div>';
+        return;
+      }
+      var lat = parseFloat(result.lat);
+      var lng = parseFloat(result.lon);
+      el.innerHTML = '';
+      if (window._activeContractMap) {
+        try { window._activeContractMap.remove(); } catch(_) {}
+      }
+      var map = L.map(el).setView([lat, lng], 14);
+      window._activeContractMap = map;
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map);
+      L.marker([lat, lng]).addTo(map).bindPopup(escHtml(mapAddr)).openPopup();
+      setTimeout(function() { map.invalidateSize(); }, 200);
+    });
+  }
+
+  if (window.L) {
+    renderLeaflet();
+  } else {
+    var css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(css);
+
+    var s = document.createElement('script');
+    s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    s.onload = renderLeaflet;
+    document.head.appendChild(s);
+  }
+}
+
+function renderContractAttachmentsListAndPreview(c, attachments) {
+  if (!attachments || !attachments.length) {
+    return `
+      <div class="t3" style="text-align:center; padding:2rem 1rem; background:#fafafa; border-radius:8px; border:1px dashed var(--border); margin-top:14px">
+        <div style="font-size:2rem; margin-bottom:.4rem">📎</div>
+        <div style="font-weight:600; font-size:.9rem; color:var(--text)">Приложения к договору пока не прикреплены</div>
+        <div style="font-size:.78rem; color:var(--text-3); margin-top:4px">
+          Нажмите синюю кнопку <strong>«📂 Загрузить файл»</strong> выше, чтобы прикрепить ТЗ, смету, схему или доп. соглашение (.pdf, .xlsx, .docx, .png, .jpg)
+        </div>
+      </div>
+    `;
+  }
+
+  var activeId = S.contractActivePreview;
+  var activeFile = attachments.find(function(a){ return a.id === activeId; }) || attachments[0];
+
+  var chips = attachments.map(function(att) {
+    var isSelected = (activeFile && activeFile.id === att.id);
+    var isPdf = att.mime_type === 'application/pdf' || (att.original_name && att.original_name.toLowerCase().endsWith('.pdf'));
+    var isImg = (att.mime_type && att.mime_type.startsWith('image/')) || /\.(png|jpe?g|webp)$/i.test(att.original_name || '');
+    var icon = isPdf ? '📄' : (isImg ? '🖼️' : '📊');
+
+    return `
+      <div style="display:inline-flex; align-items:center; gap:8px; padding:6px 12px; border-radius:8px; background:${isSelected ? '#eff6ff' : '#f8fafc'}; border:${isSelected ? '2px solid #3b82f6' : '1px solid var(--border)'}; font-size:.82rem; cursor:pointer; transition:all .15s" onclick="setContractActivePreview(${c.id}, ${att.id})">
+        <span style="font-size:1.1rem">${icon}</span>
+        <span style="font-weight:600; color:var(--text); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" title="${escHtml(att.original_name)}">${escHtml(att.original_name)}</span>
+        <span style="font-size:.72rem; color:var(--text-3)">${formatFileSize(att.size_bytes)}</span>
+        <div style="display:flex; gap:4px; margin-left:4px" onclick="event.stopPropagation()">
+          <a href="/uploads/${att.file_path}" download="${escHtml(att.original_name)}" class="btn btn-xs btn-ghost" title="Скачать">📥</a>
+          <button class="btn btn-xs btn-ghost" onclick="deleteContractAttachment(${c.id}, ${att.id})" title="Удалить" style="color:var(--red)">&times;</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  var previewHtml = '';
+  if (activeFile) {
+    var isPdf = activeFile.mime_type === 'application/pdf' || (activeFile.original_name && activeFile.original_name.toLowerCase().endsWith('.pdf'));
+    var isImg = (activeFile.mime_type && activeFile.mime_type.startsWith('image/')) || /\.(png|jpe?g|webp)$/i.test(activeFile.original_name || '');
+
+    if (isPdf) {
+      previewHtml = `
+        <div style="margin-top:14px; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:#fff">
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 14px; background:#f8fafc; border-bottom:1px solid var(--border); font-size:.82rem; font-weight:600">
+            <div style="display:flex; align-items:center; gap:8px">
+              <span>👁️ Предпросмотр: <strong>${escHtml(activeFile.original_name)}</strong></span>
+              <span class="badge b-blue" style="font-size:.7rem">${formatFileSize(activeFile.size_bytes)}</span>
+            </div>
+            <div style="display:flex; gap:8px">
+              <a href="/uploads/${activeFile.file_path}" target="_blank" class="btn btn-xs btn-ghost">↗ Во весь экран</a>
+              <a href="/uploads/${activeFile.file_path}" download="${escHtml(activeFile.original_name)}" class="btn btn-xs">📥 Скачать</a>
+            </div>
+          </div>
+          <iframe src="/uploads/${activeFile.file_path}" style="width:100%; height:480px; border:none; background:#525659"></iframe>
+        </div>
+      `;
+    } else if (isImg) {
+      previewHtml = `
+        <div style="margin-top:14px; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:#fff">
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 14px; background:#f8fafc; border-bottom:1px solid var(--border); font-size:.82rem; font-weight:600">
+            <div style="display:flex; align-items:center; gap:8px">
+              <span>👁️ Просмотр: <strong>${escHtml(activeFile.original_name)}</strong></span>
+            </div>
+            <div style="display:flex; gap:8px">
+              <a href="/uploads/${activeFile.file_path}" target="_blank" class="btn btn-xs btn-ghost">↗ Открыть оригинал</a>
+              <a href="/uploads/${activeFile.file_path}" download="${escHtml(activeFile.original_name)}" class="btn btn-xs">📥 Скачать</a>
+            </div>
+          </div>
+          <div style="text-align:center; padding:1.5rem; background:#f8fafc; max-height:480px; overflow:auto">
+            <img src="/uploads/${activeFile.file_path}" style="max-width:100%; max-height:440px; border-radius:6px; box-shadow:0 4px 14px rgba(0,0,0,0.1)" />
+          </div>
+        </div>
+      `;
+    } else {
+      previewHtml = `
+        <div style="margin-top:14px; padding:2rem; text-align:center; background:#f8fafc; border-radius:8px; border:1px solid var(--border)">
+          <div style="font-size:2.2rem; margin-bottom:.5rem">📊</div>
+          <div style="font-weight:700; font-size:.95rem">${escHtml(activeFile.original_name)}</div>
+          <div style="color:var(--text-3); font-size:.8rem; margin:4px 0 14px">Документ (${formatFileSize(activeFile.size_bytes)}) · Загрузил: ${escHtml(activeFile.uploader_display_name || 'Пользователь')}</div>
+          <a href="/uploads/${activeFile.file_path}" download="${escHtml(activeFile.original_name)}" class="btn btn-sm" style="background:#2563eb; color:#fff">📥 Скачать и открыть файл</a>
+        </div>
+      `;
+    }
+  }
+
+  return `
+    <div style="margin-top:14px">
+      <div style="display:flex; flex-wrap:wrap; gap:8px">
+        ${chips}
+      </div>
+      ${previewHtml}
+    </div>
+  `;
+}
+
+function openAssignContractManagerModal(contractId, currentManagerId) {
+  var backdrop = document.getElementById('contract_manager_modal_backdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.id = 'contract_manager_modal_backdrop';
+    backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+    backdrop.onclick = function(e) { if (e.target === backdrop) backdrop.style.display = 'none'; };
+    document.body.appendChild(backdrop);
+  }
+
+  var users = S.users || [];
+  var options = '<option value="">-- Без ответственного менеджера --</option>';
+  users.forEach(function(u) {
+    var isSel = (u.id === Number(currentManagerId)) ? 'selected' : '';
+    var roleName = (STOCK_ROLES[u.role] ? STOCK_ROLES[u.role].name : u.role) || '';
+    var roleLabel = roleName ? (' (' + roleName + ')') : '';
+    var name = u.fullName || u.username || ('Пользователь #' + u.id);
+    options += '<option value="' + u.id + '" data-name="' + escHtml(name) + '" ' + isSel + '>' + escHtml(name + roleLabel) + '</option>';
+  });
+
+  backdrop.innerHTML = `
+    <div class="card p" style="max-width:440px;width:100%;border-radius:12px;background:#fff;box-shadow:0 20px 40px rgba(0,0,0,0.25)">
+      <div style="font-weight:700;font-size:1.05rem;margin-bottom:6px">👤 Ответственный менеджер договора</div>
+      <div style="font-size:.8rem;color:var(--text-3);margin-bottom:1rem">Выберите сотрудника, который курирует выполнение и закрытие данного договора</div>
+      <select id="modal_contract_manager_select" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.85rem;margin-bottom:1.25rem">
+        ${options}
+      </select>
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button class="btn btn-sm btn-ghost" onclick="document.getElementById('contract_manager_modal_backdrop').style.display='none'">Отмена</button>
+        <button class="btn btn-sm" onclick="saveContractManager(${contractId})">Сохранить</button>
+      </div>
+    </div>
+  `;
+  backdrop.style.display = 'flex';
+}
+
+function saveContractManager(contractId) {
+  var sel = document.getElementById('modal_contract_manager_select');
+  if (!sel) return;
+  var mgrId = sel.value ? parseInt(sel.value, 10) : null;
+  var opt = sel.options[sel.selectedIndex];
+  var mgrName = (mgrId && opt) ? opt.getAttribute('data-name') : null;
+
+  api('/contracts/' + contractId + '/manager', {
+    method: 'PATCH',
+    body: JSON.stringify({ manager_id: mgrId, manager_name: mgrName })
+  }).then(function(res) {
+    if (res && res.error) {
+      showToast('Ошибка: ' + res.error, 'error');
+    } else {
+      showToast('Ответственный менеджер сохранен', 'success');
+      var backdrop = document.getElementById('contract_manager_modal_backdrop');
+      if (backdrop) backdrop.style.display = 'none';
+      openContractModal(contractId, 'main');
+      fetchContracts();
+    }
+  }).catch(function(err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  });
+}
+
+function triggerContractAttachmentUpload(contractId) {
+  var inp = document.getElementById('contract_attachment_input_' + contractId);
+  if (inp) inp.click();
+}
+
+function handleContractAttachmentUpload(contractId, input) {
+  var files = input.files;
+  if (!files || !files.length) return;
+
+  var fd = new FormData();
+  for (var i = 0; i < files.length; i++) {
+    fd.append('files', files[i]);
+  }
+
+  showToast('Загрузка ' + files.length + ' файл(ов)...', 'info');
+
+  fetch('/api/contracts/' + contractId + '/attachments', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + S.token
+    },
+    body: fd
+  }).then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res && res.error) {
+        showToast('Ошибка загрузки: ' + res.error, 'error');
+      } else {
+        showToast('Файлы успешно загружены', 'success');
+        if (Array.isArray(res) && res.length) {
+          S.contractActivePreview = res[0].id;
+        }
+        openContractModal(contractId, 'main');
+      }
+    }).catch(function(err) {
+      showToast('Ошибка: ' + err.message, 'error');
+    });
+}
+
+function deleteContractAttachment(contractId, attachmentId) {
+  if (!confirm('Удалить это приложение к договору?')) return;
+
+  api('/contracts/' + contractId + '/attachments/' + attachmentId, {
+    method: 'DELETE'
+  }).then(function(res) {
+    if (res && res.error) {
+      showToast('Ошибка: ' + res.error, 'error');
+    } else {
+      showToast('Файл удален', 'success');
+      if (S.contractActivePreview === attachmentId) {
+        S.contractActivePreview = null;
+      }
+      openContractModal(contractId, 'main');
+    }
+  }).catch(function(err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  });
+}
+
+function setContractActivePreview(contractId, attachmentId) {
+  S.contractActivePreview = attachmentId;
+  openContractModal(contractId, 'main');
+}
+
+window.initContractMap = initContractMap;
+window.openAssignContractManagerModal = openAssignContractManagerModal;
+window.saveContractManager = saveContractManager;
+window.triggerContractAttachmentUpload = triggerContractAttachmentUpload;
+window.handleContractAttachmentUpload = handleContractAttachmentUpload;
+window.deleteContractAttachment = deleteContractAttachment;
+window.setContractActivePreview = setContractActivePreview;
+

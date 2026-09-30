@@ -325,6 +325,26 @@ export async function initDB() {
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS contract_lot INTEGER DEFAULT NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_contract_id ON tasks(contract_id)`);
 
+  await pool.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS manager_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS manager_name TEXT`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_manager_id ON contracts(manager_id)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS contract_attachments (
+      id            SERIAL PRIMARY KEY,
+      contract_id   INTEGER NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+      file_path     TEXT NOT NULL,
+      original_name TEXT NOT NULL,
+      mime_type     TEXT,
+      size_bytes    INTEGER DEFAULT 0,
+      uploaded_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      uploader_name TEXT,
+      comment       TEXT,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contract_attachments_contract_id ON contract_attachments(contract_id)`);
+
   // Автоматический перерасчет deadline_date для существующих договоров, где он еще не заполнен
   try {
     const uncomputed = await pool.query(`SELECT id, deadline_raw, contract_date FROM contracts WHERE deadline_date IS NULL AND deadline_raw IS NOT NULL`);
