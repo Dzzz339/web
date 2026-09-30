@@ -60,8 +60,8 @@ router.get('/contracts', authenticateToken, async (req, res) => {
 
     // 4. Фильтр по статусу
     if (status && status !== 'all') {
-      whereConditions.push(`c.status = $${paramIndex}`);
-      params.push(status);
+      whereConditions.push(`c.status ILIKE $${paramIndex}`);
+      params.push(`%${status}%`);
       paramIndex++;
     }
 
@@ -197,6 +197,61 @@ router.patch('/contracts/:id/manager', authenticateToken, async (req, res) => {
     res.json(rows[0]);
   } catch (err) {
     console.error('Error setting contract manager:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Быстрое обновление статуса договора (играется, выигран, заключен, в работе и т.д.)
+ */
+router.patch('/contracts/:id/status', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    if (!status) return res.status(400).json({ error: 'Статус не указан' });
+
+    const { rows } = await pool.query(`
+      UPDATE contracts SET
+        status = $1,
+        updated_at = NOW()
+      WHERE id = $2
+      RETURNING *
+    `, [status, id]);
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Договор не найден' });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error updating contract status:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Быстрое обновление контактов куратора договора со стороны заказчика
+ */
+router.patch('/contracts/:id/contacts', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { contacts_raw } = req.body;
+
+    const { rows } = await pool.query(`
+      UPDATE contracts SET
+        contacts_raw = $1,
+        updated_at = NOW()
+      WHERE id = $2
+      RETURNING *
+    `, [contacts_raw || '', id]);
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Договор не найден' });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error updating contract contacts:', err);
     res.status(500).json({ error: err.message });
   }
 });
