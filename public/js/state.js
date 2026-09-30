@@ -126,6 +126,7 @@ var NAV_SECTIONS = [
   {
     title: 'ОСНОВНОЕ',
     items: [
+      { id: 'contracts',   icon: ICONS.contracts,   label: 'Договоры' },
       { id: 'tasks',       icon: ICONS.tasks,       label: 'Заявки' },
       { id: 'kanban',      icon: ICONS.kanban,      label: 'Канбан' },
       { id: 'marches',     icon: ICONS.marches,     label: 'Маршруты' },
@@ -155,7 +156,6 @@ var NAV_SECTIONS = [
   {
     title: 'СПРАВОЧНИКИ',
     items: [
-      { id: 'contracts',   icon: ICONS.contracts,   label: 'Договоры' },
       { id: 'contractors', icon: ICONS.contractors, label: 'Организации' },
       { id: 'users',       icon: ICONS.users,       label: 'Люди' }
     ]
