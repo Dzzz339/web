@@ -1039,8 +1039,13 @@ function previewPendingFile(type, file) {
 
 // Создание одиночной заявки с вкладки Данные
 function createSingleTask() {
+  var contractIdEl = document.getElementById('nt_contract_id');
+  var contractIdVal = (contractIdEl && contractIdEl.value) ? Number(contractIdEl.value) : null;
+
   var data = {
     id:           document.getElementById('nt_id').value.trim(),
+    contractId:   contractIdVal,
+    contract_id:  contractIdVal,
     region:       document.getElementById('nt_region').value.trim(),
     address:      document.getElementById('nt_address').value.trim(),
     workType:     document.getElementById('nt_workType').value.trim(),
@@ -1083,7 +1088,9 @@ function createSingleTask() {
     }
     
     // 1. Очищаем все поля формы
-    var fieldsToClear = ['nt_id', 'nt_vsp', 'nt_region', 'nt_address', 'nt_manager', 'nt_contact', 'nt_workType', 'nt_amount', 'nt_pricePerUnit', 'nt_inOrder', 'nt_fact', 'nt_dateZayavki', 'nt_deadline', 'nt_techLink', 'nt_invoiceInfo', 'nt_comment'];
+    var fieldsToClear = ['nt_id', 'nt_vsp', 'nt_contract_id', 'nt_region', 'nt_address', 'nt_manager', 'nt_contact', 'nt_workType', 'nt_amount', 'nt_pricePerUnit', 'nt_inOrder', 'nt_fact', 'nt_dateZayavki', 'nt_deadline', 'nt_techLink', 'nt_invoiceInfo', 'nt_comment'];
+    var autoBadge = document.getElementById('nt_contract_autofill_badge');
+    if (autoBadge) autoBadge.style.display = 'none';
     fieldsToClear.forEach(function(id) {
       var el = document.getElementById(id);
       if (el) el.value = '';

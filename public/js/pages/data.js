@@ -17,6 +17,32 @@ function pageData() {
     });
   }
 
+  // Список договоров для привязки и автозаполнения
+  var contractsList = (S.contracts || []).slice().sort(function(a, b) {
+    return (b.id || 0) - (a.id || 0);
+  });
+  var contractOptions = contractsList.map(function(c) {
+    var numPart = (c.internal_number ? 'Вн. № ' + c.internal_number : '') +
+      (c.contract_number ? (c.internal_number ? ' (№ ' + c.contract_number + ')' : '№ ' + c.contract_number) : '');
+    var custPart = c.customer_name || 'Заказчик не указан';
+    var subjPart = c.contract_type_summary || (c.subject ? c.subject.slice(0, 38) + '…' : '');
+    var label = (numPart ? numPart + ' · ' : '') + custPart + (subjPart ? ' · ' + subjPart : '');
+    var isSel = S.prefillContractId && String(S.prefillContractId) === String(c.id);
+    return '<option value="' + c.id + '"' + (isSel ? ' selected' : '') + '>' + escHtml(label) + '</option>';
+  }).join('');
+
+  if (S.prefillContractId) {
+    var pendingContractId = S.prefillContractId;
+    setTimeout(function() {
+      var sel = document.getElementById('nt_contract_id');
+      if (sel) {
+        sel.value = String(pendingContractId);
+        onScenario3ContractChange(pendingContractId);
+      }
+      delete S.prefillContractId;
+    }, 80);
+  }
+
   return '<h1 class="page-title">Данные и интеграции</h1>' +
     curBanner +
     '<div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start;">' +
@@ -152,6 +178,25 @@ function pageData() {
 
         // ОБЩИЙ КОНТЕЙНЕР ПОЛЕЙ ФОРМЫ
         '<div style="display:flex; flex-direction:column; gap:.6rem; font-size:.85rem">' +
+
+          // ВЫБОР ДОГОВОРА ДЛЯ СВЯЗКИ И АВТОЗАПОЛНЕНИЯ
+          '<div style="background:#f8fafc; border:1.5px solid var(--border); border-radius:8px; padding:10px 12px; margin-bottom:4px">' +
+            '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px">' +
+              '<label class="fw6" style="font-size:.78rem; display:flex; align-items:center; gap:6px; color:var(--text)">' +
+                '<span>📄 Договор / Контракт</span>' +
+                '<span class="badge b-blue" style="font-size:.65rem">Автозаполнение</span>' +
+              '</label>' +
+              '<span id="nt_contract_autofill_badge" style="display:none; font-size:.72rem; color:var(--green); font-weight:700">✓ Заполнено из договора</span>' +
+            '</div>' +
+            '<select id="nt_contract_id" onchange="onScenario3ContractChange(this.value)" style="width:100%; font-size:.82rem; font-weight:600; padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:#fff">' +
+              '<option value="">— Без привязки (или выберите договор для автозаполнения) —</option>' +
+              contractOptions +
+            '</select>' +
+            '<div style="font-size:.72rem; color:var(--text-3); margin-top:4px">' +
+              'При выборе договора автоматически заполнятся: заказчик, регион, адрес, вид работ, куратор и дедлайн.' +
+            '</div>' +
+          '</div>' +
+
           '<div class="g2">' +
             '<input id="nt_id" type="text" placeholder="Номер заявки (Обязательно)*" style="font-weight:700; border-color:var(--orange)">' +
             '<input id="nt_vsp" type="text" placeholder="№ ВСП">' +
@@ -659,3 +704,92 @@ function processPdfWithAi(inputEl) {
 S.pendingSchemeFiles = [];
 S.pendingChecklistFiles = [];
 
+// Обработчик выбора договора в Сценарии 3: автозаполнение полей заявки
+function onScenario3ContractChange(contractId) {
+  var badge = document.getElementById('nt_contract_autofill_badge');
+  if (!contractId) {
+    if (badge) badge.style.display = 'none';
+    return;
+  }
+  var c = (S.contracts || []).find(function(x) { return String(x.id) === String(contractId); });
+  if (!c) return;
+
+  // 1. Заказчик
+  var custSelect = document.getElementById('nt_customer');
+  if (custSelect && c.customer_name) {
+    var found = false;
+    for (var i = 0; i < custSelect.options.length; i++) {
+      if (custSelect.options[i].value.toLowerCase().trim() === c.customer_name.toLowerCase().trim()) {
+        custSelect.selectedIndex = i;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      var opt = document.createElement('option');
+      opt.value = c.customer_name;
+      opt.textContent = c.customer_name;
+      custSelect.appendChild(opt);
+      custSelect.value = c.customer_name;
+    }
+  }
+
+  // 2. Регион
+  var regEl = document.getElementById('nt_region');
+  if (regEl && c.our_entity_region) {
+    regEl.value = c.our_entity_region;
+  }
+
+  // 3. Адрес объекта
+  var addrEl = document.getElementById('nt_address');
+  if (addrEl && c.delivery_place) {
+    addrEl.value = c.delivery_place;
+  }
+
+  // 4. Вид работ
+  var wtEl = document.getElementById('nt_workType');
+  if (wtEl && (c.contract_type_summary || c.subject)) {
+    wtEl.value = c.contract_type_summary || c.subject;
+  }
+
+  // 5. Менеджер / куратор заказчика
+  var mgrEl = document.getElementById('nt_manager');
+  if (mgrEl && (c.manager_name || c.contacts_raw)) {
+    mgrEl.value = c.manager_name ? (c.manager_name + (c.contacts_raw ? ' (' + c.contacts_raw + ')' : '')) : c.contacts_raw;
+  }
+
+  // 6. Комментарий
+  var commEl = document.getElementById('nt_comment');
+  if (commEl && c.subject) {
+    var contractLabel = c.internal_number ? ('Вн. № ' + c.internal_number) : (c.contract_number ? ('№ ' + c.contract_number) : ('ID ' + c.id));
+    commEl.value = 'По договору ' + contractLabel + ': ' + c.subject;
+  }
+
+  // 7. Дедлайн
+  var dlEl = document.getElementById('nt_deadline');
+  if (dlEl && c.deadline_date) {
+    dlEl.value = String(c.deadline_date).slice(0, 10);
+  }
+
+  // 8. Ссылка на диск / облако
+  var techEl = document.getElementById('nt_techLink');
+  if (techEl && c.cloud_url && !techEl.value.trim()) {
+    techEl.value = c.cloud_url;
+  }
+
+  // 9. Префикс для ID заявки, если еще не введен
+  var idEl = document.getElementById('nt_id');
+  if (idEl && !idEl.value.trim()) {
+    var prefix = c.internal_number ? (c.internal_number + '-') : (c.contract_number ? (c.contract_number + '-') : 'З-');
+    idEl.value = prefix;
+    idEl.focus();
+  }
+
+  if (badge) {
+    badge.style.display = 'inline';
+    badge.textContent = '✓ Заполнено из договора';
+    setTimeout(function() {
+      if (badge) badge.style.display = 'none';
+    }, 4500);
+  }
+}

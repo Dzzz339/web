@@ -157,6 +157,11 @@ function pageContracts() {
       <div id="contract_form_modal" class="card" style="width:100%; max-width:820px; max-height:92vh; overflow-y:auto; background:#fff; border-radius:12px; box-shadow:0 20px 40px rgba(0,0,0,0.25); position:relative"></div>
     </div>
 
+    <!-- МОДАЛЬНОЕ ОКНО СОЗДАНИЯ ЗАЯВКИ ПО ДОГОВОРУ -->
+    <div id="contract_create_task_modal_backdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:10001; align-items:center; justify-content:center; padding:16px" onclick="if(event.target===this) closeCreateTaskForContractModal()">
+      <div id="contract_create_task_modal" class="card" style="width:100%; max-width:780px; max-height:92vh; overflow-y:auto; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); position:relative"></div>
+    </div>
+
     <!-- СКРЫТЫЙ ИНПУТ ДЛЯ ЗАГРУЗКИ EXCEL -->
     <input type="file" id="contract_excel_input" accept=".xlsx,.xls" style="display:none" onchange="handleContractExcelUpload(event)">
   `;
@@ -878,33 +883,59 @@ function renderContractTabLots(c, lots) {
 }
 
 function renderContractTabTasks(c, tasks) {
+  var headerHtml = `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px">
+      <div style="display:flex; align-items:center; gap:8px">
+        <span style="font-weight:700; font-size:.95rem">Связанные заявки и объекты</span>
+        <span class="badge ${tasks.length ? 'b-blue' : 'b-gray'}" style="font-size:.75rem">${tasks.length}</span>
+      </div>
+      <div style="display:flex; gap:8px">
+        <button class="btn btn-sm btn-outline" onclick="goToScenario3WithContract(${c.id})" title="Создать через Сценарий 3 с загрузкой PDF или схемы">
+          ✨ Создать через ИИ / PDF
+        </button>
+        <button class="btn btn-sm" onclick="openCreateTaskForContractModal(${c.id})" style="background:var(--blue); color:#fff">
+          ➕ Создать заявку по договору
+        </button>
+      </div>
+    </div>
+  `;
+
   if (!tasks.length) {
     return `
-      <div class="card p" style="text-align:center; padding:3rem; color:var(--text-3)">
-        <div style="font-size:2rem; margin-bottom:8px">📋</div>
-        <div style="font-weight:600; color:var(--text)">По этому договору пока нет привязанных заявок</div>
-        <div style="font-size:.82rem; margin-top:4px">При создании заявки выберите этот договор в поле «Договор»</div>
+      ${headerHtml}
+      <div class="card p" style="text-align:center; padding:3rem 1.5rem; color:var(--text-3); background:#fafafa; border:1px dashed var(--border)">
+        <div style="font-size:2.5rem; margin-bottom:10px">📋</div>
+        <div style="font-weight:700; font-size:1.05rem; color:var(--text)">По этому договору пока нет привязанных заявок</div>
+        <div style="font-size:.84rem; margin-top:6px; max-width:480px; margin-left:auto; margin-right:auto; line-height:1.4">
+          Вы можете быстро создать заявку по кнопке выше — все основные реквизиты договора (заказчик, адрес, регион, тип работ, куратор) заполнятся автоматически.
+        </div>
+        <div style="margin-top:16px">
+          <button class="btn" onclick="openCreateTaskForContractModal(${c.id})" style="background:var(--blue); color:#fff">
+            ➕ Создать первую заявку
+          </button>
+        </div>
       </div>
     `;
   }
 
   var rows = tasks.map(function(t) {
     return `
-      <tr style="border-bottom:1px solid var(--border); cursor:pointer" onclick="closeContractModal(); openTaskCard('${t.id}')">
-        <td style="padding:8px 12px; font-weight:700; font-family:monospace">${escHtml(t.id)}</td>
-        <td style="padding:8px 12px">${escHtml(t.region || '—')}</td>
-        <td style="padding:8px 12px">${escHtml(t.address || '—')}</td>
-        <td style="padding:8px 12px">${escHtml(t.work_type || '—')}</td>
-        <td style="padding:8px 12px; font-size:.82rem">
+      <tr style="border-bottom:1px solid var(--border); cursor:pointer" onclick="closeContractModal(); openCard('${t.id}')">
+        <td style="padding:10px 12px; font-weight:700; font-family:monospace; color:var(--blue)">${escHtml(t.id)}</td>
+        <td style="padding:10px 12px">${escHtml(t.region || '—')}</td>
+        <td style="padding:10px 12px; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" title="${escHtml(t.address || '')}">${escHtml(t.address || '—')}</td>
+        <td style="padding:10px 12px">${escHtml(t.work_type || '—')}</td>
+        <td style="padding:10px 12px; font-size:.82rem">
           ${t.assignee ? `<span style="font-weight:600; color:var(--text)">👷 ${escHtml(t.assignee)}</span>` : `<span style="color:var(--text-3); font-style:italic">Не назначен</span>`}
         </td>
-        <td style="padding:8px 12px">${stBadge(t.status)}</td>
-        <td style="padding:8px 12px; font-weight:700">${fmtMoney(t.amount)}</td>
+        <td style="padding:10px 12px">${stBadge(t.status)}</td>
+        <td style="padding:10px 12px; font-weight:700; text-align:right">${fmtMoney(t.amount)}</td>
       </tr>
     `;
   }).join('');
 
   return `
+    ${headerHtml}
     <div class="card tbl-wrap">
       <table>
         <thead>
@@ -915,7 +946,7 @@ function renderContractTabTasks(c, tasks) {
             <th>Вид работ</th>
             <th>Исполнитель / Субподрядчик</th>
             <th>Статус</th>
-            <th>Сумма</th>
+            <th style="text-align:right">Сумма</th>
           </tr>
         </thead>
         <tbody>
@@ -1944,3 +1975,245 @@ window.quickChangeContractStatus = quickChangeContractStatus;
 window.promptEditContractContacts = promptEditContractContacts;
 window.getContractStatusBadge = getContractStatusBadge;
 
+
+/**
+ * Переход в Сценарий 3 на вкладке Данные с предзаполнением договора
+ */
+function goToScenario3WithContract(contractId) {
+  closeContractModal();
+  S.prefillContractId = contractId;
+  S.page = 'data';
+  renderApp();
+}
+
+/**
+ * Обеспечение наличия модалки создания заявки в DOM
+ */
+function ensureCreateTaskModalInDOM() {
+  if (!document.getElementById('contract_create_task_modal_backdrop')) {
+    var div = document.createElement('div');
+    div.id = 'contract_create_task_modal_backdrop';
+    div.style.cssText = 'display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:10001; align-items:center; justify-content:center; padding:16px';
+    div.onclick = function(e) { if (e.target === div) closeCreateTaskForContractModal(); };
+    div.innerHTML = '<div id="contract_create_task_modal" class="card" style="width:100%; max-width:780px; max-height:92vh; overflow-y:auto; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); position:relative"></div>';
+    document.body.appendChild(div);
+  }
+}
+
+/**
+ * Открытие модалки создания новой заявки по договору (с предзаполнением)
+ */
+function openCreateTaskForContractModal(contractId) {
+  ensureCreateTaskModalInDOM();
+  var backdrop = document.getElementById('contract_create_task_modal_backdrop');
+  var modal = document.getElementById('contract_create_task_modal');
+  if (!backdrop || !modal) return;
+
+  var c = (window._activeContract && String(window._activeContract.id) === String(contractId))
+    ? window._activeContract
+    : ((S.contracts || []).find(function(x) { return String(x.id) === String(contractId); }));
+
+  if (!c) {
+    api('/contracts/' + contractId).then(function(res) {
+      if (res && !res.error) {
+        window._activeContract = res;
+        openCreateTaskForContractModal(contractId);
+      } else {
+        alert('Не удалось загрузить данные договора');
+      }
+    });
+    return;
+  }
+
+  var existingCount = (c.linked_tasks && c.linked_tasks.length) ? c.linked_tasks.length : 0;
+  var suggestedSuffix = existingCount + 1;
+  var prefix = c.internal_number ? (c.internal_number + '-') : (c.contract_number ? (c.contract_number + '-') : 'З-');
+  var suggestedId = prefix + suggestedSuffix;
+
+  var todayStr = new Date().toISOString().slice(0, 10);
+  var deadlineStr = c.deadline_date ? String(c.deadline_date).slice(0, 10) : '';
+
+  // Опции заказчиков
+  var custOptions = ['ПАО Сбербанк'];
+  if (Array.isArray(S.contractors)) {
+    S.contractors.filter(function(x){ return x.type === 'customer'; }).forEach(function(x){
+      if (!custOptions.includes(x.name_short)) custOptions.push(x.name_short);
+    });
+  }
+  if (c.customer_name && !custOptions.includes(c.customer_name)) {
+    custOptions.unshift(c.customer_name);
+  }
+
+  modal.innerHTML = `
+    <div style="padding:18px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:#fafafa; border-radius:12px 12px 0 0">
+      <div>
+        <div style="display:flex; align-items:center; gap:8px">
+          <span class="badge b-blue" style="font-size:.78rem">Связка с договором</span>
+          <span class="badge b-orange" style="font-size:.78rem; font-family:monospace; font-weight:700">Вн. № ${escHtml(c.internal_number || '—')}</span>
+          ${c.contract_number ? `<span class="badge b-gray" style="font-size:.78rem">№ ${escHtml(c.contract_number)}</span>` : ''}
+        </div>
+        <h3 style="margin:6px 0 0; font-size:1.15rem; font-weight:700">➕ Создание новой заявки / объекта</h3>
+      </div>
+      <button class="btn btn-sm btn-ghost" onclick="closeCreateTaskForContractModal()" style="font-size:1.3rem; line-height:1; color:var(--text-3)">&times;</button>
+    </div>
+
+    <form id="create_contract_task_form" onsubmit="event.preventDefault(); submitCreateTaskForContract(${c.id})" style="padding:20px 24px">
+      <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:10px 14px; margin-bottom:16px; font-size:.82rem; color:#166534; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px">
+        <div>
+          <span>✨ <b>Реквизиты предзаполнены из договора:</b> заказчик, регион, адрес объекта, вид работ и куратор.</span>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline" style="background:#fff; border-color:#86efac; color:#166534; font-size:.75rem" onclick="goToScenario3WithContract(${c.id})">
+          📄 Открыть в Сценарии 3 (ИИ / PDF)
+        </button>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:12px; font-size:.85rem">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Номер заявки (ID) *</label>
+            <input type="text" id="ct_id" value="${escHtml(suggestedId)}" required style="width:100%; font-weight:700; border-color:var(--orange)">
+          </div>
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">№ ВСП / Объекта</label>
+            <input type="text" id="ct_vsp" placeholder="Например: ВСП 0128" style="width:100%">
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Заказчик (Организация)</label>
+            <select id="ct_customer" style="width:100%">
+              ${custOptions.map(function(opt) {
+                var isSel = (opt.toLowerCase().trim() === (c.customer_name || '').toLowerCase().trim()) ? 'selected' : '';
+                return `<option value="${escHtml(opt)}" ${isSel}>${escHtml(opt)}</option>`;
+              }).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Регион</label>
+            <input type="text" id="ct_region" value="${escHtml(c.our_entity_region || '')}" placeholder="Регион проведения работ" style="width:100%">
+          </div>
+        </div>
+
+        <div>
+          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Адрес объекта</label>
+          <input type="text" id="ct_address" value="${escHtml(c.delivery_place || '')}" placeholder="Точный адрес объекта" style="width:100%">
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Вид работ</label>
+            <input type="text" id="ct_work_type" value="${escHtml(c.contract_type_summary || '')}" placeholder="СМР / СКС / Видеонаблюдение..." style="width:100%">
+          </div>
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Куратор / Менеджер заказчика</label>
+            <input type="text" id="ct_manager" value="${escHtml(c.manager_name ? (c.manager_name + (c.contacts_raw ? ' (' + c.contacts_raw + ')' : '')) : (c.contacts_raw || ''))}" placeholder="ФИО / Контакты куратора" style="width:100%">
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px">
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Сумма заявки (₽)</label>
+            <input type="number" id="ct_amount" value="0" style="width:100%">
+          </div>
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Дата заявки</label>
+            <input type="date" id="ct_date_zayavki" value="${escHtml(todayStr)}" style="width:100%">
+          </div>
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Дедлайн (план)</label>
+            <input type="date" id="ct_deadline" value="${escHtml(deadlineStr)}" style="width:100%">
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Ссылка на облако / диск</label>
+            <input type="url" id="ct_tech_link" value="${escHtml(c.cloud_url || '')}" placeholder="https://..." style="width:100%">
+          </div>
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">В заказе (портов/ед.)</label>
+            <input type="number" id="ct_in_order" value="0" style="width:100%">
+          </div>
+        </div>
+
+        <div>
+          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Комментарий / Назначение</label>
+          <textarea id="ct_comment" rows="2" style="width:100%; resize:vertical">${escHtml(c.subject ? ('По договору: ' + c.subject) : '')}</textarea>
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px; padding-top:14px; border-top:1px solid var(--border)">
+        <button type="button" class="btn btn-ghost" onclick="closeCreateTaskForContractModal()">Отмена</button>
+        <button type="submit" id="ct_submit_btn" class="btn btn-primary" style="padding:.6rem 1.4rem">
+          ✓ Создать и привязать к договору
+        </button>
+      </div>
+    </form>
+  `;
+
+  backdrop.style.display = 'flex';
+}
+
+function closeCreateTaskForContractModal() {
+  var backdrop = document.getElementById('contract_create_task_modal_backdrop');
+  if (backdrop) backdrop.style.display = 'none';
+}
+
+function submitCreateTaskForContract(contractId) {
+  var idEl = document.getElementById('ct_id');
+  if (!idEl || !idEl.value.trim()) {
+    alert('Пожалуйста, укажите Номер заявки!');
+    return;
+  }
+
+  var btn = document.getElementById('ct_submit_btn');
+  var origText = btn ? btn.innerHTML : '';
+  if (btn) { btn.innerHTML = 'Создание...'; btn.disabled = true; }
+
+  var data = {
+    id:           idEl.value.trim(),
+    contractId:   contractId,
+    contract_id:  contractId,
+    vsp:          document.getElementById('ct_vsp').value.trim(),
+    customer:     document.getElementById('ct_customer').value,
+    region:       document.getElementById('ct_region').value.trim(),
+    address:      document.getElementById('ct_address').value.trim(),
+    workType:     document.getElementById('ct_work_type').value.trim(),
+    manager:      document.getElementById('ct_manager').value.trim(),
+    amount:       document.getElementById('ct_amount').value,
+    dateZayavki:  document.getElementById('ct_date_zayavki').value,
+    deadline:     document.getElementById('ct_deadline').value,
+    techLink:     document.getElementById('ct_tech_link').value.trim(),
+    inOrder:      document.getElementById('ct_in_order').value,
+    comment:      document.getElementById('ct_comment').value.trim()
+  };
+
+  api('/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  }).then(function(res) {
+    if (btn) { btn.innerHTML = origText; btn.disabled = false; }
+
+    if (res && res.error) {
+      alert('Ошибка: ' + res.error);
+      return;
+    }
+
+    closeCreateTaskForContractModal();
+    showToast('✅ Заявка ' + res.id + ' успешно создана и привязана к договору', 'success');
+
+    // Обновляем список задач
+    api('/tasks').then(function(tasksList) {
+      S.tasks = tasksList;
+    });
+
+    // Обновляем карточку договора на вкладке "Объекты/Заявки"
+    openContractModal(contractId, 'tasks');
+    fetchContracts();
+  }).catch(function(err) {
+    if (btn) { btn.innerHTML = origText; btn.disabled = false; }
+    alert('Ошибка сети при создании заявки: ' + err.message);
+  });
+}

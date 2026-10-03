@@ -107,12 +107,15 @@ router.post('/tasks', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: `Заявка с номером ${cleanId} уже существует в базе` });
     }
 
+    const contractId = (t.contractId || t.contract_id) ? Number(t.contractId || t.contract_id) : null;
+    const contractLot = (t.contractLot || t.contract_lot) ? Number(t.contractLot || t.contract_lot) : null;
+
     await pool.query(`
       INSERT INTO tasks (
         id, vsp, manager, contact, region, address, work_type, amount, price_per_unit,
         in_order, fact, date_zayavki, deadline, tech_link, invoice_info, comment,
-        status, priority, archived, stage, customer
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', 'medium', false, 'request', $17)
+        status, priority, archived, stage, customer, contract_id, contract_lot
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', 'medium', false, 'request', $17, $18, $19)
     `, [
       cleanId, 
       t.vsp || null, 
@@ -130,7 +133,9 @@ router.post('/tasks', authenticateToken, async (req, res) => {
       t.techLink || null, 
       t.invoiceInfo || null, 
       t.comment || null,
-      t.customer || 'ПАО Сбербанк'
+      t.customer || 'ПАО Сбербанк',
+      contractId,
+      contractLot
     ]);
 
     // Сразу после создания пробуем найти координаты в фоне
