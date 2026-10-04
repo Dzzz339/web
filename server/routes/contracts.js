@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { pool } from '../config/db.js';
 import { authenticateToken } from '../middleware/auth.js';
-import { uploadAttachment, UPLOADS_DIR } from '../middleware/upload.js';
+import { uploadAttachment, UPLOADS_DIR, fixUtf8Filename } from '../middleware/upload.js';
 import { importContractsFromExcel, computeDeadlineDate } from '../services/contractsImporter.js';
 
 const router = express.Router();
@@ -159,6 +159,14 @@ router.get('/contracts/:id', authenticateToken, async (req, res) => {
       ORDER BY a.created_at DESC
     `, [id]);
 
+    for (const a of (attachments || [])) {
+      const fixedName = fixUtf8Filename(a.original_name);
+      if (fixedName && fixedName !== a.original_name) {
+        a.original_name = fixedName;
+        pool.query('UPDATE contract_attachments SET original_name = $1 WHERE id = $2', [fixedName, a.id]).catch(() => {});
+      }
+    }
+
     contract.attachments = attachments || [];
 
     res.json(contract);
@@ -297,13 +305,14 @@ router.post('/contracts/:id/attachments', authenticateToken, uploadAttachment.ar
     const inserted = [];
 
     for (const file of req.files) {
+      const cleanOriginalName = fixUtf8Filename(file.originalname);
       const { rows } = await pool.query(`
         INSERT INTO contract_attachments (
           contract_id, file_path, original_name, mime_type, size_bytes, uploaded_by, uploader_name, comment
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING *
       `, [
-        id, file.filename, file.originalname, file.mimetype, file.size, req.user.id, uploaderName, req.body.comment || null
+        id, file.filename, cleanOriginalName, file.mimetype, file.size, req.user.id, uploaderName, req.body.comment || null
       ]);
       inserted.push(rows[0]);
     }
@@ -311,6 +320,33 @@ router.post('/contracts/:id/attachments', authenticateToken, uploadAttachment.ar
     res.status(201).json(inserted);
   } catch (err) {
     console.error('Error uploading contract attachments:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Скачать файл / приложение договора с корректным UTF-8 именем
+ */
+router.get('/contracts/:id/attachments/:attachmentId/download', authenticateToken, async (req, res) => {
+  try {
+    const { id, attachmentId } = req.params;
+    const { rows } = await pool.query(`
+      SELECT * FROM contract_attachments WHERE id = $1 AND contract_id = $2
+    `, [attachmentId, id]);
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Файл не найден' });
+    }
+
+    const att = rows[0];
+    const cleanName = fixUtf8Filename(att.original_name || 'attachment');
+    const fullPath = path.join(UPLOADS_DIR, att.file_path);
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({ error: 'Файл не найден на сервере' });
+    }
+    res.download(fullPath, cleanName);
+  } catch (err) {
+    console.error('Error downloading contract attachment:', err);
     res.status(500).json({ error: err.message });
   }
 });

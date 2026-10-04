@@ -1468,18 +1468,19 @@ function renderContractAttachmentsListAndPreview(c, attachments) {
   var activeFile = attachments.find(function(a){ return a.id === activeId; }) || attachments[0];
 
   var chips = attachments.map(function(att) {
+    var cleanName = (typeof fixMojibake === 'function' ? fixMojibake(att.original_name) : att.original_name) || 'Файл';
     var isSelected = (activeFile && activeFile.id === att.id);
-    var isPdf = att.mime_type === 'application/pdf' || (att.original_name && att.original_name.toLowerCase().endsWith('.pdf'));
-    var isImg = (att.mime_type && att.mime_type.startsWith('image/')) || /\.(png|jpe?g|webp)$/i.test(att.original_name || '');
+    var isPdf = att.mime_type === 'application/pdf' || cleanName.toLowerCase().endsWith('.pdf');
+    var isImg = (att.mime_type && att.mime_type.startsWith('image/')) || /\.(png|jpe?g|webp)$/i.test(cleanName);
     var icon = isPdf ? '📄' : (isImg ? '🖼️' : '📊');
 
     return `
       <div style="display:inline-flex; align-items:center; gap:8px; padding:6px 12px; border-radius:8px; background:${isSelected ? '#eff6ff' : '#f8fafc'}; border:${isSelected ? '2px solid #3b82f6' : '1px solid var(--border)'}; font-size:.82rem; cursor:pointer; transition:all .15s" onclick="setContractActivePreview(${c.id}, ${att.id})">
         <span style="font-size:1.1rem">${icon}</span>
-        <span style="font-weight:600; color:var(--text); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" title="${escHtml(att.original_name)}">${escHtml(att.original_name)}</span>
+        <span style="font-weight:600; color:var(--text); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" title="${escHtml(cleanName)}">${escHtml(cleanName)}</span>
         <span style="font-size:.72rem; color:var(--text-3)">${formatFileSize(att.size_bytes)}</span>
         <div style="display:flex; gap:4px; margin-left:4px" onclick="event.stopPropagation()">
-          <a href="/uploads/${att.file_path}" download="${escHtml(att.original_name)}" class="btn btn-xs btn-ghost" title="Скачать">📥</a>
+          <a href="/uploads/${att.file_path}" download="${escHtml(cleanName)}" class="btn btn-xs btn-ghost" title="Скачать">📥</a>
           <button class="btn btn-xs btn-ghost" onclick="deleteContractAttachment(${c.id}, ${att.id})" title="Удалить" style="color:var(--red)">&times;</button>
         </div>
       </div>
@@ -1488,20 +1489,21 @@ function renderContractAttachmentsListAndPreview(c, attachments) {
 
   var previewHtml = '';
   if (activeFile) {
-    var isPdf = activeFile.mime_type === 'application/pdf' || (activeFile.original_name && activeFile.original_name.toLowerCase().endsWith('.pdf'));
-    var isImg = (activeFile.mime_type && activeFile.mime_type.startsWith('image/')) || /\.(png|jpe?g|webp)$/i.test(activeFile.original_name || '');
+    var cleanActiveName = (typeof fixMojibake === 'function' ? fixMojibake(activeFile.original_name) : activeFile.original_name) || 'Файл';
+    var isPdf = activeFile.mime_type === 'application/pdf' || cleanActiveName.toLowerCase().endsWith('.pdf');
+    var isImg = (activeFile.mime_type && activeFile.mime_type.startsWith('image/')) || /\.(png|jpe?g|webp)$/i.test(cleanActiveName);
 
     if (isPdf) {
       previewHtml = `
         <div style="margin-top:14px; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:#fff">
           <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 14px; background:#f8fafc; border-bottom:1px solid var(--border); font-size:.82rem; font-weight:600">
             <div style="display:flex; align-items:center; gap:8px">
-              <span>👁️ Предпросмотр: <strong>${escHtml(activeFile.original_name)}</strong></span>
+              <span>👁️ Предпросмотр: <strong>${escHtml(cleanActiveName)}</strong></span>
               <span class="badge b-blue" style="font-size:.7rem">${formatFileSize(activeFile.size_bytes)}</span>
             </div>
             <div style="display:flex; gap:8px">
               <a href="/uploads/${activeFile.file_path}" target="_blank" class="btn btn-xs btn-ghost">↗ Во весь экран</a>
-              <a href="/uploads/${activeFile.file_path}" download="${escHtml(activeFile.original_name)}" class="btn btn-xs">📥 Скачать</a>
+              <a href="/uploads/${activeFile.file_path}" download="${escHtml(cleanActiveName)}" class="btn btn-xs">📥 Скачать</a>
             </div>
           </div>
           <iframe src="/uploads/${activeFile.file_path}" style="width:100%; height:480px; border:none; background:#525659"></iframe>
@@ -1512,11 +1514,11 @@ function renderContractAttachmentsListAndPreview(c, attachments) {
         <div style="margin-top:14px; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:#fff">
           <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 14px; background:#f8fafc; border-bottom:1px solid var(--border); font-size:.82rem; font-weight:600">
             <div style="display:flex; align-items:center; gap:8px">
-              <span>👁️ Просмотр: <strong>${escHtml(activeFile.original_name)}</strong></span>
+              <span>👁️ Просмотр: <strong>${escHtml(cleanActiveName)}</strong></span>
             </div>
             <div style="display:flex; gap:8px">
               <a href="/uploads/${activeFile.file_path}" target="_blank" class="btn btn-xs btn-ghost">↗ Открыть оригинал</a>
-              <a href="/uploads/${activeFile.file_path}" download="${escHtml(activeFile.original_name)}" class="btn btn-xs">📥 Скачать</a>
+              <a href="/uploads/${activeFile.file_path}" download="${escHtml(cleanActiveName)}" class="btn btn-xs">📥 Скачать</a>
             </div>
           </div>
           <div style="text-align:center; padding:1.5rem; background:#f8fafc; max-height:480px; overflow:auto">
@@ -1528,9 +1530,9 @@ function renderContractAttachmentsListAndPreview(c, attachments) {
       previewHtml = `
         <div style="margin-top:14px; padding:2rem; text-align:center; background:#f8fafc; border-radius:8px; border:1px solid var(--border)">
           <div style="font-size:2.2rem; margin-bottom:.5rem">📊</div>
-          <div style="font-weight:700; font-size:.95rem">${escHtml(activeFile.original_name)}</div>
+          <div style="font-weight:700; font-size:.95rem">${escHtml(cleanActiveName)}</div>
           <div style="color:var(--text-3); font-size:.8rem; margin:4px 0 14px">Документ (${formatFileSize(activeFile.size_bytes)}) · Загрузил: ${escHtml(activeFile.uploader_display_name || 'Пользователь')}</div>
-          <a href="/uploads/${activeFile.file_path}" download="${escHtml(activeFile.original_name)}" class="btn btn-sm" style="background:#2563eb; color:#fff">📥 Скачать и открыть файл</a>
+          <a href="/uploads/${activeFile.file_path}" download="${escHtml(cleanActiveName)}" class="btn btn-sm" style="background:#2563eb; color:#fff">📥 Скачать и открыть файл</a>
         </div>
       `;
     }

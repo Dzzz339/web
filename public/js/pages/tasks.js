@@ -646,14 +646,28 @@ function pageTasks() {
         (fin.transport > 0 ? '<div class="t3" style="font-size:.68rem">🚗 +' + fmtMoney(fin.transport) + '</div>' : '') +
       '</td>';
     } else if (appMode === 'contractor') {
-      colPrice = '<td style="vertical-align:top;white-space:nowrap;color:var(--text-2);font-size:.8rem">' + (cFin.unitPrice > 0 ? (fmtMoney(cFin.unitPrice) + '<span class="t3" style="font-size:.68rem">/ед</span>') : '<span class="t3">—</span>') + '</td>';
-      var marginRow = fin.total > cFin.total ? (fin.total - cFin.total) : 0;
-      var marginPctRow = fin.total > 0 ? Math.round(marginRow / fin.total * 100) : 0;
-      colTotal = '<td style="vertical-align:top;white-space:nowrap">' +
-        '<div style="font-weight:700;color:var(--orange-dark);font-size:.84rem">' + (cFin.total > 0 ? fmtMoney(cFin.total) : '<span class="t3">—</span>') + '</div>' +
-        (cFin.transport > 0 ? '<div class="t3" style="font-size:.68rem">🚗 ' + fmtMoney(cFin.transport) + '</div>' : '') +
-        (marginRow > 0 ? '<div style="font-size:.68rem;color:var(--green);font-weight:600">маржа +' + fmtMoney(marginRow) + ' (' + marginPctRow + '%)</div>' : '') +
-      '</td>';
+      var priceBtn = cFin.unitPrice > 0
+        ? '<button type="button" class="btn-link" onclick="openSubcontractRateModal(\'' + tid + '\')" title="Индивидуальные договорные условия подряда (кликните для изменения)" style="font-weight:600;color:var(--text);font-size:.8rem;text-align:left">' +
+            fmtMoney(cFin.unitPrice) + '<span class="t3" style="font-size:.68rem">/ед <span style="font-size:.7rem;opacity:0.65">✏️</span></span>' +
+          '</button>'
+        : '<button type="button" class="btn btn-xs btn-ghost" style="color:var(--orange);border:1px dashed var(--orange);font-size:.72rem;padding:2px 6px" onclick="openSubcontractRateModal(\'' + tid + '\')" title="Задать ставку за порт или сумму подряда">+ Задать ставку</button>';
+
+      colPrice = '<td style="vertical-align:top;white-space:nowrap">' + priceBtn + '</td>';
+
+      if (cFin.total > 0) {
+        var marginRow = fin.total > cFin.total ? (fin.total - cFin.total) : 0;
+        var marginPctRow = fin.total > 0 ? Math.round(marginRow / fin.total * 100) : 0;
+        colTotal = '<td style="vertical-align:top;white-space:nowrap">' +
+          '<div style="font-weight:700;color:var(--orange-dark);font-size:.84rem">' + fmtMoney(cFin.total) + '</div>' +
+          (cFin.transport > 0 ? '<div class="t3" style="font-size:.68rem">🚗 ' + fmtMoney(cFin.transport) + '</div>' : '') +
+          (fin.total > 0 ? '<div style="font-size:.68rem;color:var(--green);font-weight:600">маржа +' + fmtMoney(marginRow) + ' (' + marginPctRow + '%)</div>' : '') +
+        '</td>';
+      } else {
+        colTotal = '<td style="vertical-align:top;white-space:nowrap">' +
+          '<div style="color:var(--text-3);font-size:.8rem;font-weight:500">Не оценено</div>' +
+          '<div class="t3" style="font-size:.68rem">ждёт условий</div>' +
+        '</td>';
+      }
     } else if (appMode === 'supply') {
       var supplyStatus = t.status_supply === 'delivered' ? '<span class="badge b-green">Доставлено</span>' : (t.status_supply === 'shipped' ? '<span class="badge b-blue">Отправлено</span>' : '<span class="badge b-gray">Ожидает отправки</span>');
       var trackNo = t.supply_track || '—';
@@ -1197,4 +1211,195 @@ function addTask() {
   })
   .then(function(t){ S.tasks.push(t); inp.value = ''; renderApp(); });
 }
-
+
+
+window.openSubcontractRateModal = function(taskId) {
+  var old = document.getElementById('_sub_rate_modal');
+  if (old) old.remove();
+
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+
+  var ports = Number(t.fact) || Number(t.inOrder) || 1;
+  var fin = getTaskFinance(t);
+  var raw = t.rawData || {};
+  var cFin = getTaskContractorFinance(t);
+
+  var curRate = raw.subRate !== undefined ? raw.subRate : (cFin.isCustom || cFin.isDefaultSber ? cFin.unitPrice : '');
+  var curDist = raw.subDist !== undefined ? raw.subDist : (cFin.transport || 0);
+  var curExtras = raw.subExtras !== undefined ? raw.subExtras : 0;
+  var curTotal = raw.subTotal !== undefined ? raw.subTotal : (curRate ? (curRate * ports + curDist + curExtras) : (cFin.total || ''));
+
+  var m = document.createElement('div');
+  m.id = '_sub_rate_modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:1000;display:flex;align-items:center;justify-content:center;padding:1rem';
+
+  m.innerHTML =
+    '<div class="card" style="width:100%;max-width:540px;background:#fff;border-radius:12px;box-shadow:0 20px 40px rgba(0,0,0,0.25);overflow:hidden;animation:fadeIn 0.15s ease">' +
+      '<div style="background:#f8fafc;padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start">' +
+        '<div>' +
+          '<div style="font-size:.74rem;color:var(--text-3);text-transform:uppercase;font-weight:700">Индивидуальные условия подряда (доп. заказ)</div>' +
+          '<div style="font-weight:700;font-size:1.05rem;color:var(--text);margin-top:2px">Заявка № ' + escHtml(t.id) + '</div>' +
+          '<div style="font-size:.8rem;color:var(--text-2);margin-top:3px">' + escHtml(t.address || '—') + '</div>' +
+        '</div>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_sub_rate_modal\').remove()" style="font-size:1.1rem;line-height:1;padding:4px 8px">✕</button>' +
+      '</div>' +
+
+      '<div style="padding:16px 18px">' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;background:var(--bg);padding:10px 12px;border-radius:8px;font-size:.8rem;margin-bottom:14px">' +
+          '<div><span class="t3">Заказчик:</span> <b style="display:block">' + escHtml(t.customer || '—') + '</b></div>' +
+          '<div><span class="t3">Объём:</span> <b style="display:block">' + ports + ' портов / ед.</b></div>' +
+          '<div><span class="t3">Выручка от заказчика:</span> <b style="display:block;color:var(--blue)">' + fmtMoney(fin.total) + '</b></div>' +
+          '<div><span class="t3">Исполнитель:</span> <b style="display:block;color:var(--orange-dark)">' + escHtml(t.contractor || 'Не назначен') + '</b></div>' +
+        '</div>' +
+
+        '<form id="_sub_rate_form" onsubmit="event.preventDefault(); window.saveSubcontractRateModal(\'' + escHtml(t.id) + '\')">' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">' +
+            '<div>' +
+              '<label class="t3" style="display:block;font-size:.74rem;margin-bottom:3px;font-weight:600">Ставка за порт / ед. (₽)</label>' +
+              '<input type="number" id="_srm_rate" value="' + (curRate || '') + '" placeholder="напр. 1500" style="width:100%;padding:6px 10px;font-size:.9rem;font-weight:600" oninput="window._recalcRateModal(' + ports + ',\'rate\')">' +
+            '</div>' +
+            '<div>' +
+              '<label class="t3" style="display:block;font-size:.74rem;margin-bottom:3px;font-weight:600">Или фикс за работы (₽)</label>' +
+              '<input type="number" id="_srm_total_work" value="' + (curRate ? (curRate * ports) : (curTotal || '')) + '" placeholder="напр. 500000" style="width:100%;padding:6px 10px;font-size:.9rem;font-weight:600" oninput="window._recalcRateModal(' + ports + ',\'total\')">' +
+            '</div>' +
+          '</div>' +
+
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">' +
+            '<div>' +
+              '<label class="t3" style="display:block;font-size:.74rem;margin-bottom:3px">Удалённость / доставка (₽)</label>' +
+              '<input type="number" id="_srm_dist" value="' + (curDist || 0) + '" placeholder="0" style="width:100%;padding:5px 8px;font-size:.85rem" oninput="window._recalcRateModal(' + ports + ',\'other\')">' +
+            '</div>' +
+            '<div>' +
+              '<label class="t3" style="display:block;font-size:.74rem;margin-bottom:3px">Доп. расходы монтажников (₽)</label>' +
+              '<input type="number" id="_srm_extras" value="' + (curExtras || 0) + '" placeholder="0" style="width:100%;padding:5px 8px;font-size:.85rem" oninput="window._recalcRateModal(' + ports + ',\'other\')">' +
+            '</div>' +
+          '</div>' +
+
+          '<div style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:8px;padding:10px 14px;margin-bottom:16px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;font-size:.82rem;margin-bottom:4px">' +
+              '<span style="color:var(--text-2)">ИТОГО подряду по заявке:</span>' +
+              '<b id="_srm_preview_sub" style="font-size:1rem;color:var(--orange-dark)">0 ₽</b>' +
+            '</div>' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;font-size:.82rem">' +
+              '<span style="color:var(--text-2)">Ожидаемая маржа:</span>' +
+              '<b id="_srm_preview_margin" style="font-size:.95rem;color:var(--green)">0 ₽</b>' +
+            '</div>' +
+          '</div>' +
+
+          '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">' +
+            '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="window.clearSubcontractRateModal(\'' + escHtml(t.id) + '\')">Сбросить условия</button>' +
+            '<div style="display:flex;gap:8px">' +
+              '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_sub_rate_modal\').remove()">Отмена</button>' +
+              '<button type="submit" class="btn btn-sm btn-primary" id="_srm_save_btn">💾 Сохранить условия</button>' +
+            '</div>' +
+          '</div>' +
+        '</form>' +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(m);
+  window._recalcRateModal(ports, 'rate');
+};
+
+window._recalcRateModal = function(ports, source) {
+  var rateEl = document.getElementById('_srm_rate');
+  var totalWorkEl = document.getElementById('_srm_total_work');
+  var distEl = document.getElementById('_srm_dist');
+  var extEl = document.getElementById('_srm_extras');
+  if (!rateEl || !totalWorkEl) return;
+
+  var rate = parseFloat(rateEl.value) || 0;
+  var totalWork = parseFloat(totalWorkEl.value) || 0;
+  var dist = parseFloat(distEl ? distEl.value : 0) || 0;
+  var ext = parseFloat(extEl ? extEl.value : 0) || 0;
+
+  if (source === 'rate' && rate > 0) {
+    totalWork = Math.round(rate * ports);
+    totalWorkEl.value = totalWork;
+  } else if (source === 'total' && totalWork > 0) {
+    rate = ports > 0 ? Math.round(totalWork / ports) : totalWork;
+    rateEl.value = rate;
+  }
+
+  var subTotal = totalWork + dist + ext;
+  var previewSub = document.getElementById('_srm_preview_sub');
+  if (previewSub) previewSub.textContent = fmtMoney(subTotal);
+
+  var modal = document.getElementById('_sub_rate_modal');
+  if (modal) {
+    var form = modal.querySelector('form');
+    var taskIdMatch = form ? (form.getAttribute('onsubmit') || '').match(/'([^']+)'/) : null;
+    if (taskIdMatch && taskIdMatch[1]) {
+      var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskIdMatch[1]); });
+      if (t) {
+        var fin = getTaskFinance(t);
+        var margin = fin.total - subTotal;
+        var pctMargin = fin.total > 0 ? Math.round(margin / fin.total * 100) : 0;
+        var prevMargin = document.getElementById('_srm_preview_margin');
+        if (prevMargin) {
+          prevMargin.textContent = (margin >= 0 ? '+' : '') + fmtMoney(margin) + ' (' + pctMargin + '%)';
+          prevMargin.style.color = margin >= 0 ? 'var(--green)' : 'var(--red)';
+        }
+      }
+    }
+  }
+};
+
+window.saveSubcontractRateModal = function(taskId) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+  var rate = parseFloat(document.getElementById('_srm_rate').value) || 0;
+  var totalWork = parseFloat(document.getElementById('_srm_total_work').value) || 0;
+  var dist = parseFloat(document.getElementById('_srm_dist').value) || 0;
+  var ext = parseFloat(document.getElementById('_srm_extras').value) || 0;
+
+  if (!t.rawData) t.rawData = {};
+  t.rawData.subRate = rate;
+  t.rawData.subTotal = totalWork + dist + ext;
+  t.rawData.subDist = dist;
+  t.rawData.subExtras = ext;
+
+  var btn = document.getElementById('_srm_save_btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Сохранение...'; }
+
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rawData: t.rawData })
+  })
+  .then(function() {
+    var m = document.getElementById('_sub_rate_modal');
+    if (m) m.remove();
+    renderApp();
+  })
+  .catch(function(err) {
+    alert('Ошибка сохранения условий: ' + (err.message || err));
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Сохранить условия'; }
+  });
+};
+
+window.clearSubcontractRateModal = function(taskId) {
+  if (!confirm('Сбросить индивидуальные условия подряда? Заявка станет «Не оценена».')) return;
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+  if (!t.rawData) t.rawData = {};
+  delete t.rawData.subRate;
+  delete t.rawData.subTotal;
+  delete t.rawData.subDist;
+  delete t.rawData.subExtras;
+
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rawData: t.rawData })
+  })
+  .then(function() {
+    var m = document.getElementById('_sub_rate_modal');
+    if (m) m.remove();
+    renderApp();
+  })
+  .catch(function(err) {
+    alert('Ошибка сброса: ' + (err.message || err));
+  });
+};

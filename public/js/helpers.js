@@ -412,18 +412,57 @@ function getTaskContractorFinance(t) {
   var transport = 0;
   var unitPrice = 0;
   var total = 0;
+  var ports = Number(t.fact) || Number(t.inOrder) || 0;
 
-  // 1. Если есть назначенные субподряды с зафиксированной стоимостью
+  // 1. Индивидуальные договорные условия по конкретной заявке (доп. заказ к договору)
+  var raw = t.rawData || {};
+  var customRate = Number(raw.subRate || raw.sub_rate || t.contractor_rate) || 0;
+  var customTotal = Number(raw.subTotal || raw.sub_total || t.contractor_total) || 0;
+  var customDist = Number(raw.subDist || raw.sub_dist || t.contractor_transport) || 0;
+  var customExtras = Number(raw.subExtras || raw.sub_extras) || 0;
+
+  if (customRate > 0 || customTotal > 0) {
+    if (customRate > 0) {
+      unitPrice = customRate;
+      var count = ports > 0 ? ports : 1;
+      work = count * customRate;
+      transport = customDist;
+      total = work + transport + customExtras;
+    } else {
+      total = customTotal;
+      transport = customDist;
+      work = Math.max(0, total - transport - customExtras);
+      unitPrice = ports > 0 ? Math.round(work / ports) : work;
+    }
+    return {
+      unitPrice: unitPrice,
+      work: work,
+      transport: transport,
+      total: total,
+      isPaid: (String(t.oplata || '')).toLowerCase().includes('оплач'),
+      isCustom: true
+    };
+  }
+
+  // 2. Если есть назначенные субподряды с зафиксированной стоимостью (task_subcontracts)
   if (t.subcontracts && Array.isArray(t.subcontracts) && t.subcontracts.length > 0) {
     t.subcontracts.forEach(function(s) {
       total += Number(s.price_agreed || 0);
     });
     work = total;
-    var count = Number(t.fact) || Number(t.inOrder) || 1;
+    var count = ports || 1;
     unitPrice = count > 0 ? Math.round(work / count) : work;
+    return {
+      unitPrice: unitPrice,
+      work: work,
+      transport: transport,
+      total: total,
+      isPaid: (String(t.oplata || '')).toLowerCase().includes('оплач')
+    };
   }
-  // 2. Если есть спецификация с заполненными ставками подрядчика
-  else if (items && items.length > 0 && items.some(function(it){ return (Number(it.price_contractor || it.priceContractor) || 0) > 0; })) {
+
+  // 3. Если есть спецификация с заполненными ставками подрядчика
+  if (items && items.length > 0 && items.some(function(it){ return (Number(it.price_contractor || it.priceContractor) || 0) > 0; })) {
     items.forEach(function(it) {
       var q = Number(it.quantity) || 1;
       var pr = Number(it.price_contractor || it.priceContractor) || 0;
@@ -433,49 +472,67 @@ function getTaskContractorFinance(t) {
       transport += Number(it.distance_km || it.distanceKm) || 0;
     });
     total = work + transport;
+    return {
+      unitPrice: unitPrice,
+      work: work,
+      transport: transport,
+      total: total,
+      isPaid: (String(t.oplata || '')).toLowerCase().includes('оплач')
+    };
   } 
-  // 3. Если есть явная сумма оплаты из исходного реестра (t.oplata)
-  else {
-    var parsedOplata = 0;
-    if (t.oplata) {
-      var clean = String(t.oplata).replace(/[^\d.,]/g, '').replace(',', '.');
-      parsedOplata = parseFloat(clean) || 0;
-    }
-    // Защита: в поле oplata у некоторых заявок лежат 10-значные номера платежек (напр. 4503903976).
-    // Реальная сумма выплаты монтажнику по заявке не может превышать 500 тыс. руб. или сумму договора.
-    var taskAmt = Number(t.amount || 0);
-    if (parsedOplata > 0 && parsedOplata < 500000 && (!taskAmt || parsedOplata <= taskAmt * 1.5)) {
-      total = parsedOplata;
-      var count = Number(t.fact) || Number(t.inOrder) || 1;
-      unitPrice = count > 0 ? Math.round(total / count) : total;
-      work = total;
-    } else {
-      // 4. Нормативный расчет ставки субподряда по регламенту П0–П10
-      var ports = Number(t.fact) || Number(t.inOrder) || 0;
-      var custFin = getTaskFinance(t);
-      
-      if (ports > 0) {
-        unitPrice = ports >= 3 ? 3750 : (ports === 2 ? 4250 : 5000);
-        work = ports * unitPrice;
-      } else if (custFin.work > 0) {
-        work = Math.round(custFin.work * 0.58);
-        unitPrice = work;
-      }
-      
-      if (custFin.transport > 0) {
-        transport = Math.round(custFin.transport * 0.75);
-      }
-      
-      total = work + transport;
-    }
+
+  // 4. Если есть явная сумма оплаты из исходного реестра (t.oplata)
+  var parsedOplata = 0;
+  if (t.oplata) {
+    var clean = String(t.oplata).replace(/[^\d.,]/g, '').replace(',', '.');
+    parsedOplata = parseFloat(clean) || 0;
+  }
+  var taskAmt = Number(t.amount || 0);
+  if (parsedOplata > 0 && parsedOplata < 500000 && (!taskAmt || parsedOplata <= taskAmt * 1.5)) {
+    total = parsedOplata;
+    var count = ports || 1;
+    unitPrice = count > 0 ? Math.round(total / count) : total;
+    work = total;
+    return {
+      unitPrice: unitPrice,
+      work: work,
+      transport: transport,
+      total: total,
+      isPaid: (String(t.oplata || '')).toLowerCase().includes('оплач')
+    };
   }
 
+  // 5. Нормативный типовой расчет: применяется ТОЛЬКО для Сбербанка и ТОЛЬКО на малых объемах (до 10 портов)
+  var custName = String(t.customer || '').toLowerCase();
+  var isSber = custName.includes('сбер') || custName.includes('sber');
+
+  if (isSber && ports > 0 && ports <= 10) {
+    unitPrice = ports >= 3 ? 3750 : (ports === 2 ? 4250 : 5000);
+    work = ports * unitPrice;
+    var custFin = getTaskFinance(t);
+    if (custFin.transport > 0) {
+      transport = Math.round(custFin.transport * 0.75);
+    }
+    total = work + transport;
+    return {
+      unitPrice: unitPrice,
+      work: work,
+      transport: transport,
+      total: total,
+      isPaid: false,
+      isDefaultSber: true
+    };
+  }
+
+  // 6. Для всех остальных заказчиков (Судебный Департамент, разовые договоры, тендеры) или крупных объемов:
+  // Если условия индивидуально не согласованы — возвращаем 0 (Не оценено), не рисуя фиктивные миллионы!
   return {
-    unitPrice: unitPrice,
-    work: work,
-    transport: transport,
-    total: total,
-    isPaid: (String(t.oplata || '')).toLowerCase().includes('оплач')
+    unitPrice: 0,
+    work: 0,
+    transport: 0,
+    total: 0,
+    isPaid: false,
+    unassigned: true
   };
 }
 function prBadge(p) {
@@ -827,5 +884,24 @@ function showConfirm(msg, onYes) {
   document.getElementById('_myes').onclick = function() { modal.remove(); onYes(); };
   setTimeout(function(){ var b = document.getElementById('_myes'); if(b) b.focus(); }, 60);
 }
+
+// Исправление кракозябр (Latin-1 mojibake -> UTF-8 русский текст)
+function fixMojibake(str) {
+  if (!str || typeof str !== 'string') return '';
+  try {
+    if (/[\u00C0-\u00FF]/.test(str)) {
+      var bytes = new Uint8Array(str.length);
+      for (var i = 0; i < str.length; i++) {
+        bytes[i] = str.charCodeAt(i) & 0xff;
+      }
+      var decoded = new TextDecoder('utf-8').decode(bytes);
+      if (!decoded.includes('\uFFFD') && /[\u0400-\u04FF]/.test(decoded)) {
+        return decoded;
+      }
+    }
+  } catch(e) {}
+  return str;
+}
+window.fixMojibake = fixMojibake;
 
 // ─── Функции маршрутов ────────────────────────────────────────────────────────

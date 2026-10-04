@@ -1461,9 +1461,10 @@ function refreshAttachmentsList(taskId) {
     }
     var typeLabels = { photo_report: '📷 Фото', scheme: '🗺️ Схема', act: '📄 Акт', receipt: '🧾 Чек', pi_excel: '📊 Excel ПИ', order_pdf: '📑 Заказ (PDF)', checklist: '📋 Чек-лист' };
     el.innerHTML = list.map(function(a) {
+      var cleanName = (typeof fixMojibake === 'function' ? fixMojibake(a.original_name) : a.original_name) || 'файл';
       return '<div class="field-row">' +
         '<div class="field-lbl">' + (typeLabels[a.type] || a.type) + '</div>' +
-        '<div class="field-val"><a href="/api/attachments/' + a.id + '/file?token=' + '' + '" onclick="event.preventDefault();openAttachment(' + a.id + ')">' + escHtml(a.original_name || 'файл') + '</a>' +
+        '<div class="field-val"><a href="/api/attachments/' + a.id + '/file?token=' + '' + '" onclick="event.preventDefault();openAttachment(' + a.id + ')">' + escHtml(cleanName) + '</a>' +
         ' <button class="btn btn-sm btn-ghost" onclick="handleAttachmentDelete(' + a.id + ',\'' + taskId + '\')" title="Удалить">✖</button></div>' +
       '</div>';
     }).join('');
@@ -2616,10 +2617,19 @@ window._recalcSubFinance = function(taskId) {
   var rate = parseFloat(document.getElementById('sub_rate_input').value) || 0;
   var dist = parseFloat(document.getElementById('sub_distance_input').value) || 0;
   var ext = parseFloat(document.getElementById('sub_extras_input').value) || 0;
+  var ports = Number(t.fact) || Number(t.inOrder) || 1;
   if (!t.rawData) t.rawData = {};
   t.rawData.subRate = rate;
   t.rawData.subDist = dist;
   t.rawData.subExtras = ext;
+  t.rawData.subTotal = (rate * ports) + dist + ext;
+
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rawData: t.rawData })
+  }).catch(function(e){ console.error('Error auto-saving sub finance:', e); });
+
   renderApp();
 };
 

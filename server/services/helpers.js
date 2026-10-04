@@ -178,9 +178,10 @@ export function buildApp2(task, contractorName = null, items = []) {
   const wb = XLSX.utils.book_new();
   const ports = task.fact || task.inOrder || 0;
   const km = Number(task.distanceKm) || 0;
-  const tr = calcTransport(km);
-  const ppp = calcPricePerPort(ports);
-  const fallbackTotal = calcTotal(ports, km);
+  const tr = (task.rawData && task.rawData.subDist !== undefined) ? Number(task.rawData.subDist) : calcTransport(km);
+  const rawRate = task.rawData && (Number(task.rawData.subRate) || Number(task.rawData.sub_rate));
+  const ppp = rawRate > 0 ? rawRate : calcPricePerPort(ports);
+  const fallbackTotal = (task.rawData && Number(task.rawData.subTotal)) || (tr + ppp * ports);
 
   const executor = contractorName || task.assignee || task.contractor || '—';
 
@@ -250,10 +251,14 @@ export function buildApp2(task, contractorName = null, items = []) {
 
 export function buildInvoice(task) {
   const wb=XLSX.utils.book_new(),ports=task.fact||task.inOrder||0,km=Number(task.distanceKm)||0;
-  const ppp=calcPricePerPort(ports),tr=calcTransport(km),total=calcTotal(ports,km);
+  const tr = (task.rawData && task.rawData.subDist !== undefined) ? Number(task.rawData.subDist) : calcTransport(km);
+  const rawRate = task.rawData && (Number(task.rawData.subRate) || Number(task.rawData.sub_rate));
+  const ppp = rawRate > 0 ? rawRate : calcPricePerPort(ports);
+  const total = (task.rawData && Number(task.rawData.subTotal)) || (tr + ppp * ports);
+  const custName = task.customer || 'ПАО Сбербанк России';
   const desc=`Работы по заявке ${task.id} ${task.address||''} ${task.workType||''}, цена ${ppp} рублей, ${tr} руб. компенсация транспортных расходов.`;
   const data=[
-    ['Подрядчик','','Заказчик'],[task.contractor||task.assignee||'—','','ПАО Сбербанк России'],
+    ['Подрядчик','','Заказчик'],[task.contractor||task.assignee||'—','',custName],
     [],[],[],[],[],
     ['Счёт на оплату №',task.id,'от',fmtDate(task.deadline)],
     ['№','Товары и услуги','Кол-во','Цена, руб.','Сумма, руб.'],[1,desc,1,total,total],
@@ -266,11 +271,15 @@ export function buildInvoice(task) {
 
 export function buildAct(task) {
   const wb=XLSX.utils.book_new(),ports=task.fact||task.inOrder||0,km=Number(task.distanceKm)||0;
-  const ppp=calcPricePerPort(ports),tr=calcTransport(km),total=calcTotal(ports,km);
+  const tr = (task.rawData && task.rawData.subDist !== undefined) ? Number(task.rawData.subDist) : calcTransport(km);
+  const rawRate = task.rawData && (Number(task.rawData.subRate) || Number(task.rawData.sub_rate));
+  const ppp = rawRate > 0 ? rawRate : calcPricePerPort(ports);
+  const total = (task.rawData && Number(task.rawData.subTotal)) || (tr + ppp * ports);
+  const custName = task.customer || 'ПАО Сбербанк России';
   const desc=`Работы по заявке ${task.id} ${task.address||''} ${task.workType||''}, цена ${ppp} рублей, ${tr} руб. компенсация транспортных расходов.`;
   const actRows=[
     [`АКТ № ${task.id}`,'','','от',fmtDate(task.deadline)],['','приёмки выполненных работ'],
-    ['','к Договору № _____ от "__" _______ 202_г.'],['Заказчик'],['','ПАО Сбербанк России'],
+    ['','к Договору № _____ от "__" _______ 202_г.'],['Заказчик'],['',custName],
     ['Исполнитель'],['',task.contractor||task.assignee||'—'],
     ['Основание',`Договор №_____  от ${fmtDate(task.deadline)}`],[],
     ['№','Товары и услуги','Кол-во','Цена, руб.','Сумма, руб.'],[1,desc,1,total,total],

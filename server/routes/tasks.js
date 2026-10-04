@@ -4,7 +4,7 @@ import path from 'path';
 import XLSX from 'xlsx';
 import { pool } from '../config/db.js';
 import { authenticateToken } from '../middleware/auth.js';
-import { uploadAttachment, UPLOADS_DIR } from '../middleware/upload.js';
+import { uploadAttachment, UPLOADS_DIR, fixUtf8Filename } from '../middleware/upload.js';
 import { rowToTask, safeDate, calcPricePerPort, calcTransport, calcTotal, fmtDate, numToWords, buildApp2, buildInvoice, buildAct } from '../services/helpers.js';
 import { ID_ROLES, ID_STEPS, ID_STAGES, businessDue, hasRole, canStep, canUndo } from '../services/pipeline.js';
 import { createNotification, sendEmail } from '../services/notifications.js';
@@ -248,6 +248,7 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
         customer_id           = COALESCE($42::integer, customer_id),
         contract_id           = COALESCE($43::integer, contract_id),
         contract_lot          = COALESCE($44::integer, contract_lot),
+        raw_data              = COALESCE($45::jsonb, raw_data),
         version               = version + 1,
         updated_at    = NOW()
       WHERE id = $1
@@ -295,7 +296,8 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       d.activeProcesses ? JSON.stringify(d.activeProcesses) : null,
       d.customerId ? Number(d.customerId) : null,
       (d.contract_id || d.contractId) ? Number(d.contract_id || d.contractId) : null,
-      (d.contract_lot || d.contractLot) ? Number(d.contract_lot || d.contractLot) : null
+      (d.contract_lot || d.contractLot) ? Number(d.contract_lot || d.contractLot) : null,
+      (d.rawData || d.raw_data) ? JSON.stringify(d.rawData || d.raw_data) : null
     ]);
 
     // --- УВЕДОМЛЕНИЯ И EMAIL ДЛЯ ИСПОЛНИТЕЛЯ ---
@@ -834,6 +836,13 @@ router.get('/tasks/:id/attachments', authenticateToken, async (req, res) => {
       'SELECT id, type, original_name, mime_type, size_bytes, comment, created_at FROM task_attachments WHERE task_id = $1 ORDER BY created_at DESC',
       [req.params.id]
     )
+    for (const a of rows) {
+      const fixedName = fixUtf8Filename(a.original_name);
+      if (fixedName && fixedName !== a.original_name) {
+        a.original_name = fixedName;
+        pool.query('UPDATE task_attachments SET original_name = $1 WHERE id = $2', [fixedName, a.id]).catch(() => {});
+      }
+    }
     res.json(rows)
   } catch(e) { res.status(500).json({ error: e.message }) }
 });
@@ -849,10 +858,11 @@ router.post('/tasks/:id/attachments', authenticateToken, uploadAttachment.array(
     }
     const inserted = []
     for (const file of req.files) {
+      const cleanOriginalName = fixUtf8Filename(file.originalname);
       const { rows } = await pool.query(
         `INSERT INTO task_attachments (task_id, type, file_path, original_name, mime_type, size_bytes, uploaded_by, comment)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, type, original_name, mime_type, size_bytes, comment, created_at`,
-        [req.params.id, type, file.filename, file.originalname, file.mimetype, file.size, req.user.id, req.body.comment || null]
+        [req.params.id, type, file.filename, cleanOriginalName, file.mimetype, file.size, req.user.id, req.body.comment || null]
       )
       inserted.push(rows[0])
     }
@@ -868,8 +878,9 @@ router.get('/attachments/:attachmentId/file', authenticateToken, async (req, res
     if (!(await canAccessTaskAttachments(req.user, att.task_id))) {
       return res.status(403).json({ error: 'Нет доступа' })
     }
+    const cleanName = fixUtf8Filename(att.original_name || att.file_path);
     res.sendFile(path.join(UPLOADS_DIR, att.file_path), {
-      headers: { 'Content-Disposition': `inline; filename="${encodeURIComponent(att.original_name || att.file_path)}"` }
+      headers: { 'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(cleanName)}` }
     })
   } catch(e) { res.status(500).json({ error: e.message }) }
 });

@@ -5,7 +5,7 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { pool } from '../config/db.js';
 import { authenticateToken } from '../middleware/auth.js';
-import { uploadAttachment } from '../middleware/upload.js';
+import { uploadAttachment, fixUtf8Filename } from '../middleware/upload.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -733,7 +733,7 @@ router.post('/checklists/upload', authenticateToken, uploadAttachment.single('fi
     await client.query(`
       INSERT INTO task_attachments (task_id, type, file_path, original_name, mime_type, size_bytes, uploaded_by, comment)
       VALUES ($1, 'scheme', $2, $3, $4, $5, $6, 'Чек-лист Сбера (PDF)')
-    `, [taskId, req.file.path, req.file.originalname, req.file.mimetype, req.file.size, req.user.id]);
+    `, [taskId, req.file.path, fixUtf8Filename(req.file.originalname), req.file.mimetype, req.file.size, req.user.id]);
 
     const calculatedItems = calculateChecklistMaterials(checklist);
     const savedMaterials = [];
