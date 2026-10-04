@@ -232,7 +232,7 @@ function pageCard() {
             '</div>' +
             '<div style="display:flex;gap:4px">' +
               '<button type="button" class="btn btn-sm btn-ghost" onclick="openContractorPicker(\'' + eid + '\')" style="font-size:.74rem;padding:2px 7px" title="Выбрать другого подрядчика">🔍 Сменить</button>' +
-              '<button type="button" class="btn btn-sm btn-ghost" onclick="openSubcontractModal(\'' + eid + '\')" style="font-size:.74rem;padding:2px 7px;color:var(--primary)" title="Оформить поручение / Заказ-наряд">📄 Заказ-наряд</button>' +
+              '<button type="button" class="btn btn-sm btn-ghost" onclick="openSubcontractModal(\'' + eid + '\')" style="font-size:.74rem;padding:2px 7px;color:var(--primary)" title="Перейти к поручению и заказ-наряду">👷 В исполнение →</button>' +
             '</div>' +
           '</div>' +
         '</div>'
@@ -280,11 +280,11 @@ function pageCard() {
       }
 
       inp = '<div style="width:100%">' +
-        '<textarea name="'+key+'" data-key="'+key+'" style="width:100%;font-size:.82rem" rows="3">' + escHtml(rawContact) + '</textarea>' +
+        '<textarea name="'+key+'" data-key="'+key+'" style="width:100%;font-size:.82rem;min-height:54px;transition:min-height .2s ease" rows="3" onfocus="this.style.minHeight=\'110px\'" onblur="if(this.value.length < 120) this.style.minHeight=\'54px\'">' + escHtml(rawContact) + '</textarea>' +
         quickContactActions +
       '</div>';
     }
-    else if (type === 'textarea') inp = '<textarea name="'+key+'" data-key="'+key+'">'+val+'</textarea>';
+    else if (type === 'textarea') inp = '<textarea name="'+key+'" data-key="'+key+'" style="width:100%;font-size:.82rem;min-height:54px;transition:min-height .2s ease" onfocus="this.style.minHeight=\'110px\'" onblur="if(this.value.length < 120) this.style.minHeight=\'54px\'">'+val+'</textarea>';
     else if (type === 'checkbox') inp = '<input type="checkbox" name="'+key+'" data-key="'+key+'"'+(val ? ' checked' : '')+'>';
     else inp = '<input type="'+(type||'text')+'" name="'+key+'" data-key="'+key+'" value="'+String(val).replace(/"/g,'&quot;')+'">';
     var dirtyMark = isDirty ? ' <span class="badge b-orange" style="font-size:10px;padding:1px 5px">изменено</span>' : '';
@@ -927,32 +927,221 @@ function pageCard() {
     '</div>' +
   '</div>';
 
-  var paneFinance = '<div id="cardTabPane-finance" class="card-tab-pane" style="display:' + ((curTab === 'finance' || curTab === 'fin') ? 'block' : 'none') + '">' +
-    '<div class="card p mb">' +
-      '<div class="sec-title" style="margin-bottom:.5rem">Финансовые показатели договора</div>' +
-      field('Сумма договора', 'amount', 'number') +
-      field('Стоимость за ед.', 'pricePerUnit', 'number') +
-      '<div class="field-row" style="margin-top:-6px;margin-bottom:6px"><div class="field-lbl"></div><div class="field-val t3" style="font-size:.72rem">Расчётная ставка за ед. объема работ</div></div>' +
-      field('Транспорт / Удалёнка (₽)', 'distanceKm', 'number') +
-      field('Доп. расходы (₽)', 'extras', 'number') +
-      field('ТМЦ — Материалы (₽)', 'tmc', 'number') +
-      '<div class="field-row"><div class="field-lbl" style="font-weight:700">Итого от Заказчика</div><div class="field-val" style="font-weight:700; font-size:1.1rem; color:var(--blue)">' + fmtMoney(getTaskFinance(t).total) + '</div></div>' +
-      '<div class="divider"></div>' +
-      field('В заказе (портов)', 'inOrder', 'number') +
-      field('Факт', 'fact', 'number') +
-      field('Оплата подрядчику', 'oplata') +
-    '</div>' +
-    '<div class="card p">' +
-      '<div class="sec-title" style="margin-bottom:.5rem">Счета и ЭДО</div>' +
-      field('№ документа в ЭДО', 'edoNumber') +
-      field('№ счёта / сумма', 'invoiceInfo') +
-      field('В ЭДО', 'vedoStatus') +
-      '<div style="display:flex;gap:.5rem;margin-top:.75rem;flex-wrap:wrap">' +
-        '<button class="btn btn-sm" onclick="exportDoc(\'invoice\',\''+eid+'\')" title="Счёт">📄 Выгрузить Счёт</button>' +
-        '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'act\',\''+eid+'\')" title="Акт">✔ Выгрузить Акт</button>' +
+  var paneFinance = (function() {
+    var curC = (S.contracts || []).find(function(x){ return String(x.id) === String(t.contract_id); });
+    var curContractTitle = curC
+      ? ((curC.contract_number ? ('Договор № ' + escHtml(curC.contract_number)) : ('Контракт #' + curC.id)) +
+         (curC.internal_number ? (' · Вн. ' + escHtml(curC.internal_number)) : '') +
+         ' с ' + escHtml(curC.customer_name || 'Заказчиком'))
+      : 'Генеральный контракт не привязан';
+
+    var amountVal = parseFloat(t.amount) || 0;
+    var distanceVal = parseFloat(t.distanceKm) || 0;
+    var extrasVal = parseFloat(t.extras) || 0;
+    var tmcVal = parseFloat(t.tmc) || 0;
+    var inOrderVal = parseFloat(t.inOrder) || 0;
+    var factVal = parseFloat(t.fact) || 0;
+
+    // Расчет ставки за ед. по формуле Алексея: =(сумма - транспорт) / портов
+    var calcUnitRate = (inOrderVal > 0) ? Math.round((amountVal - distanceVal) / inOrderVal) : 0;
+    var calculatedUnitRateStr = calcUnitRate > 0 ? (calcUnitRate.toLocaleString('ru-RU') + ' ₽ / ед.') : '—';
+
+    var totalCustomerAmount = getTaskFinance(t).total;
+
+    // Субподрядчик
+    var taskContr = (t.contractor || '').trim();
+    var curSub = (window._curCardSubcontracts || [])[0] || null;
+
+    var subTitle = taskContr
+      ? ('🏢 ' + escHtml(taskContr) + (curSub && curSub.deadline ? (' · Дедлайн: ' + curSub.deadline.slice(0, 10).split('-').reverse().join('.')) : ''))
+      : 'Подрядчик пока не выбран';
+
+    // Формула Алексея для субподряда: Сумма = (ед * факт + уд + доп)
+    var subRate = (t.rawData && t.rawData.subRate != null) ? Number(t.rawData.subRate) : (curSub && curSub.price_agreed && factVal > 0 ? Math.round(curSub.price_agreed / factVal) : 500);
+    var subDist = (t.rawData && t.rawData.subDist != null) ? Number(t.rawData.subDist) : (distanceVal > 0 ? Math.round(distanceVal * 0.5) : 0);
+    var subExtras = (t.rawData && t.rawData.subExtras != null) ? Number(t.rawData.subExtras) : 0;
+
+    var calculatedSubTotal = curSub && curSub.price_agreed > 0
+      ? Number(curSub.price_agreed)
+      : Math.round((subRate * factVal) + subDist + subExtras);
+
+    // Реестр выплат субподрядчику
+    var payments = (t._payments || (t.rawData && t.rawData.subPayments) || []);
+    var totalPaid = payments.reduce(function(acc, p){ return acc + (Number(p.amount) || 0); }, 0);
+    var remainingToPay = Math.max(0, calculatedSubTotal - totalPaid);
+    var remainingColor = (remainingToPay === 0 && calculatedSubTotal > 0) ? 'var(--green)' : 'var(--orange-dark)';
+
+    var paymentsListHtml = payments.length ? payments.map(function(p, pIdx) {
+      return '<div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg);padding:6px 8px;border-radius:4px;margin-bottom:4px;font-size:.78rem">' +
+        '<div>' +
+          '<b>' + fmtMoney(p.amount) + '</b> <span class="t3">(' + (p.date || '—') + ')</span>' +
+          '<div style="font-size:.72rem;color:var(--text-3)">' + escHtml(p.note || 'Выплата по заказ-наряду') + '</div>' +
+        '</div>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="removeSubPayment(\'' + eid + '\', ' + pIdx + ')" style="color:var(--red);padding:1px 5px;font-size:.72rem">✕</button>' +
+      '</div>';
+    }).join('') : '<div class="t3" style="font-size:.76rem;padding:4px 0">Выплат подрядчику пока не зафиксировано</div>';
+
+    return '<div id="cardTabPane-finance" class="card-tab-pane" style="display:' + ((curTab === 'finance' || curTab === 'fin') ? 'block' : 'none') + '">' +
+      '<div style="display:grid;grid-template-columns:1.05fr 0.95fr;gap:1.25rem;align-items:start">' +
+
+        // ЛЕВАЯ КОЛОНКА: ВХОД (ЗАКАЗЧИК)
+        '<div style="display:flex;flex-direction:column;gap:1rem">' +
+          '<div style="font-weight:700;font-size:.86rem;color:var(--blue);display:flex;align-items:center;gap:6px;background:#eff6ff;padding:6px 10px;border-radius:6px;border:1px solid #bfdbfe">' +
+            '<span>📥</span> ВХОД: ДОГОВОР И ЗАКАЗЧИК' +
+          '</div>' +
+
+          '<div class="card p">' +
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.75rem">' +
+              '<div>' +
+                '<div class="sec-title" style="margin:0">Финансовые показатели контракта</div>' +
+                '<div style="font-size:.76rem;color:var(--text-3);margin-top:2px">' + curContractTitle + '</div>' +
+              '</div>' +
+              (curC ? '<button type="button" class="btn btn-sm btn-ghost" onclick="openContractModal(' + curC.id + ')" style="font-size:.74rem">👁️ Договор</button>' : '') +
+            '</div>' +
+
+            field('Сумма договора', 'amount', 'number') +
+
+            '<div class="field-row">' +
+              '<div class="field-lbl">Стоимость за ед.</div>' +
+              '<div class="field-val" style="display:flex;align-items:center;justify-content:space-between">' +
+                '<span style="font-weight:700;color:var(--blue);font-size:.92rem">' + calculatedUnitRateStr + '</span>' +
+                '<span class="t3" style="font-size:.7rem;opacity:.7">=(Сумма - Транспорт) / Порты</span>' +
+              '</div>' +
+            '</div>' +
+
+            field('Транспорт / Удалёнка (₽)', 'distanceKm', 'number') +
+            field('Доп. расходы (₽)', 'extras', 'number') +
+            field('ТМЦ — Материалы (₽)', 'tmc', 'number') +
+
+            '<div class="field-row" style="background:#f0fdf4;padding:8px 10px;border-radius:6px;border:1px solid #bbf7d0;margin-top:6px">' +
+              '<div class="field-lbl" style="font-weight:700;color:#166534">ИТОГО от Заказчика</div>' +
+              '<div class="field-val" style="font-weight:800;font-size:1.15rem;color:#15803d">' + fmtMoney(totalCustomerAmount) + '</div>' +
+            '</div>' +
+
+            '<div class="divider"></div>' +
+            '<div style="font-weight:700;font-size:.82rem;color:var(--text-2);margin-bottom:8px">Объемы выполнения:</div>' +
+            field('В заказе (портов)', 'inOrder', 'number') +
+            field('Факт выполненных портов', 'fact', 'number') +
+            field('Оплата подрядчику (план)', 'oplata') +
+          '</div>' +
+
+          '<div class="card p">' +
+            '<div class="sec-title" style="margin-bottom:.5rem">Счета и ЭДО с Заказчиком</div>' +
+            field('№ документа в ЭДО', 'edoNumber') +
+            field('№ счёта / сумма', 'invoiceInfo') +
+            field('Статус в ЭДО', 'vedoStatus') +
+            '<div style="display:flex;gap:.5rem;margin-top:.75rem;flex-wrap:wrap">' +
+              '<button class="btn btn-sm btn-primary" onclick="exportDoc(\'invoice\',\'' + eid + '\')">📄 Выгрузить Счёт</button>' +
+              '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'act\',\'' + eid + '\')">✔ Выгрузить Акт (КС-2)</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+
+        // ПРАВАЯ КОЛОНКА: ВЫХОД (СЕБЕСТОИМОСТЬ: ТМЦ + СУБПОДРЯД)
+        '<div style="display:flex;flex-direction:column;gap:1rem">' +
+          '<div style="font-weight:700;font-size:.86rem;color:var(--orange-dark);display:flex;align-items:center;gap:6px;background:#fffbeb;padding:6px 10px;border-radius:6px;border:1px solid #fde68a">' +
+            '<span>📤</span> ВЫХОД: СЕБЕСТОИМОСТЬ (ТМЦ + СУБПОДРЯД)' +
+          '</div>' +
+
+          // КАРТОЧКА 1: ТМЦ
+          '<div class="card p">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">' +
+              '<div>' +
+                '<div class="sec-title" style="margin:0">ТМЦ (Материалы и логистика)</div>' +
+                '<div style="font-size:.76rem;color:var(--text-3)">Списание со склада и доставка на объект</div>' +
+              '</div>' +
+              '<button type="button" class="btn btn-sm btn-ghost" onclick="setCardTab(\'supply\')" style="font-size:.74rem">📦 На склад →</button>' +
+            '</div>' +
+
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">' +
+              '<div style="background:var(--bg);padding:8px 10px;border-radius:6px">' +
+                '<div class="t3" style="font-size:.72rem">Стоимость материалов (ТМЦ)</div>' +
+                '<div style="font-weight:700;font-size:1rem;color:var(--text);margin-top:2px">' + fmtMoney(tmcVal) + '</div>' +
+              '</div>' +
+              '<div style="background:var(--bg);padding:8px 10px;border-radius:6px">' +
+                '<div class="t3" style="font-size:.72rem">Доставка / Логистика</div>' +
+                '<div style="font-weight:700;font-size:1rem;color:var(--text);margin-top:2px">' + fmtMoney(extrasVal) + '</div>' +
+              '</div>' +
+            '</div>' +
+
+            '<div style="font-size:.8rem;color:var(--text-2);border-top:1px dashed var(--border);padding-top:8px">' +
+              '<div style="display:flex;justify-content:space-between;margin-bottom:4px">' +
+                '<span>Кабель UTP / ВОЛС, разъемы, патч-панели</span>' +
+                '<b>' + fmtMoney(tmcVal) + '</b>' +
+              '</div>' +
+              '<div style="display:flex;justify-content:space-between;color:var(--text-3);font-size:.75rem">' +
+                '<span>Транспорт и доставка («откуда-куда-кто-почем»)</span>' +
+                '<span>' + fmtMoney(extrasVal) + '</span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+
+          // КАРТОЧКА 2: (СУБ)ПОДРЯДЧИК
+          '<div class="card p">' +
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.75rem">' +
+              '<div>' +
+                '<div class="sec-title" style="margin:0">Расчет с субподрядчиком</div>' +
+                '<div style="font-size:.78rem;color:var(--text-3);margin-top:2px">' + subTitle + '</div>' +
+              '</div>' +
+              '<button type="button" class="btn btn-sm btn-ghost" onclick="setCardTab(\'items\')" style="font-size:.74rem">👷 В поручения →</button>' +
+            '</div>' +
+
+            // Формула Алексея
+            '<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:6px;padding:8px 10px;margin-bottom:10px">' +
+              '<div style="display:flex;justify-content:space-between;align-items:center">' +
+                '<span style="font-size:.78rem;font-weight:700;color:#92400e">Формула: (Ставка × Факт) + Удаленка + Доп</span>' +
+                '<span style="font-size:.72rem;color:#b45309">авторасчет</span>' +
+              '</div>' +
+              '<div style="font-weight:800;font-size:1.18rem;color:#b45309;margin-top:4px">' +
+                fmtMoney(calculatedSubTotal) +
+              '</div>' +
+            '</div>' +
+
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:.82rem;margin-bottom:10px">' +
+              '<div>' +
+                '<label class="t3" style="display:block;font-size:.72rem;margin-bottom:2px">Ставка за порт (₽)</label>' +
+                '<input type="number" id="sub_rate_input" value="' + subRate + '" oninput="window._recalcSubFinance(\'' + eid + '\')" style="width:100%;padding:4px 8px;font-size:.82rem" placeholder="₽ / ед">' +
+              '</div>' +
+              '<div>' +
+                '<label class="t3" style="display:block;font-size:.72rem;margin-bottom:2px">Факт портов (из заявки)</label>' +
+                '<div style="padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-weight:700">' + factVal + ' шт.</div>' +
+              '</div>' +
+              '<div>' +
+                '<label class="t3" style="display:block;font-size:.72rem;margin-bottom:2px">Удалёнка подрядчика (₽)</label>' +
+                '<input type="number" id="sub_distance_input" value="' + subDist + '" oninput="window._recalcSubFinance(\'' + eid + '\')" style="width:100%;padding:4px 8px;font-size:.82rem" placeholder="0">' +
+              '</div>' +
+              '<div>' +
+                '<label class="t3" style="display:block;font-size:.72rem;margin-bottom:2px">Доп. расходы подрядчика (₽)</label>' +
+                '<input type="number" id="sub_extras_input" value="' + subExtras + '" oninput="window._recalcSubFinance(\'' + eid + '\')" style="width:100%;padding:4px 8px;font-size:.82rem" placeholder="0">' +
+              '</div>' +
+            '</div>' +
+
+            '<div class="divider"></div>' +
+
+            // Реестр выплат подрядчику
+            '<div style="margin-bottom:8px">' +
+              '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+                '<span style="font-weight:700;font-size:.8rem;color:var(--text)">Выплаты подрядчику (факт):</span>' +
+                '<button type="button" class="btn btn-sm btn-ghost" onclick="window._openAddSubPayment(\'' + eid + '\')" style="font-size:.74rem;color:var(--primary);padding:2px 6px">+ Добавить выплату</button>' +
+              '</div>' +
+              '<div id="subcontractPaymentsList">' +
+                paymentsListHtml +
+              '</div>' +
+            '</div>' +
+
+            // Остаток к выплате
+            '<div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg);padding:8px 10px;border-radius:6px;border:1px solid var(--border);margin-top:8px">' +
+              '<span style="font-size:.78rem;font-weight:600">Остаток к выплате:</span>' +
+              '<span style="font-weight:800;font-size:1.05rem;color:' + remainingColor + '">' + fmtMoney(remainingToPay) + '</span>' +
+            '</div>' +
+
+          '</div>' +
+
+        '</div>' +
+
       '</div>' +
-    '</div>' +
-  '</div>';
+    '</div>';
+  })();
 
   var paneHistory = '<div id="cardTabPane-history" class="card-tab-pane" style="display:' + (curTab === 'history' ? 'block' : 'none') + '">' +
     '<div class="card p">' +
@@ -1781,6 +1970,34 @@ function loadCardSubcontracts(taskId) {
     .then(function(subs) {
       window._curCardSubcontracts = subs || [];
       if (!Array.isArray(subs) || !subs.length) {
+        var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); }) || {};
+        var taskContr = (t.contractor || '').trim();
+        var contrObj = taskContr ? (S.contractors || []).find(function(c){ return c.name_short === taskContr; }) : null;
+
+        if (taskContr) {
+          cont.innerHTML = '<div style="background:#fff;border:1.5px solid var(--border);border-radius:8px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,0.04)">' +
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:10px">' +
+              '<div>' +
+                '<div style="font-size:.74rem;color:var(--text-3);text-transform:uppercase;font-weight:700">Исполнитель СМР на объекте</div>' +
+                '<div style="font-weight:700;font-size:1.05rem;color:var(--text);margin-top:2px">🏢 ' + escHtml(taskContr) + '</div>' +
+                '<div style="font-size:.78rem;color:var(--text-2);margin-top:2px">' +
+                  (contrObj && contrObj.inn ? ('ИНН: ' + escHtml(contrObj.inn)) : '') +
+                  (contrObj && contrObj.phone ? (' • Тел: ' + escHtml(contrObj.phone)) : '') +
+                '</div>' +
+              '</div>' +
+              '<span class="badge b-pink" style="font-size:.8rem;padding:4px 10px;font-weight:600">Назначен в заявке</span>' +
+            '</div>' +
+            '<div style="background:var(--bg);padding:10px 12px;border-radius:6px;font-size:.82rem;margin-bottom:12px;color:var(--text-2)">' +
+              'Подрядчик выбран в карточке заявки. Нажмите «Оформить Заказ-наряд», чтобы зафиксировать согласованную цену, дедлайн и паспортные данные монтажников для допуска.' +
+            '</div>' +
+            '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+              '<button class="btn btn-sm btn-primary" onclick="openSubcontractModal(\'' + escHtml(taskId) + '\')">📄 Оформить Заказ-наряд и поручение</button>' +
+              '<button class="btn btn-sm btn-ghost" onclick="openContractorPicker(\'' + escHtml(taskId) + '\')">🔍 Сменить подрядчика</button>' +
+            '</div>' +
+          '</div>';
+          return;
+        }
+
         cont.innerHTML = '<div style="background:var(--bg);padding:14px;border-radius:8px;text-align:center;color:var(--text-3);font-size:.85rem">' +
           '<span>Субподрядчики на объект еще не назначены.</span> ' +
           '<button class="btn btn-sm btn-link" onclick="openSubcontractModal(\'' + escHtml(taskId) + '\')">+ Назначить исполнителя на СКС/ВОЛС</button>' +
@@ -2209,6 +2426,12 @@ function saveSubcontract(taskId, editId) {
     if (res.error) throw new Error(res.error);
     var modal = document.getElementById('_subcontract_modal');
     if (modal) modal.remove();
+    var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+    var selContractor = (S.contractors || []).find(function(c){ return String(c.id) === String(contractorId); });
+    if (t && selContractor && t.contractor !== selContractor.name_short) {
+      t.contractor = selContractor.name_short;
+      api('/tasks/' + encodeURIComponent(taskId), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contractor: selContractor.name_short }) });
+    }
     loadCardSubcontracts(taskId);
     loadCardDocuments(taskId);
   })
@@ -2385,4 +2608,43 @@ window.markPaid = function(taskId) {
   api('/tasks/' + encodeURIComponent(taskId) + '/finance/paid', { method: 'POST' })
     .then(res => { if (res.error) alert(res.error); renderApp(); })
     .catch(err => alert(err));
+};
+
+window._recalcSubFinance = function(taskId) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+  var rate = parseFloat(document.getElementById('sub_rate_input').value) || 0;
+  var dist = parseFloat(document.getElementById('sub_distance_input').value) || 0;
+  var ext = parseFloat(document.getElementById('sub_extras_input').value) || 0;
+  if (!t.rawData) t.rawData = {};
+  t.rawData.subRate = rate;
+  t.rawData.subDist = dist;
+  t.rawData.subExtras = ext;
+  renderApp();
+};
+
+window._openAddSubPayment = function(taskId) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+  var amt = prompt('Введите сумму выплаты субподрядчику (₽):');
+  if (!amt || isNaN(parseFloat(amt))) return;
+  var note = prompt('Назначение / основание платежа:', 'Аванс по заказ-наряду');
+  if (!t._payments) t._payments = (t.rawData && t.rawData.subPayments) ? t.rawData.subPayments.slice() : [];
+  t._payments.push({
+    amount: parseFloat(amt),
+    date: new Date().toLocaleDateString('ru-RU'),
+    note: note || ''
+  });
+  if (!t.rawData) t.rawData = {};
+  t.rawData.subPayments = t._payments;
+  renderApp();
+};
+
+window.removeSubPayment = function(taskId, idx) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t || !t._payments) return;
+  t._payments.splice(idx, 1);
+  if (!t.rawData) t.rawData = {};
+  t.rawData.subPayments = t._payments;
+  renderApp();
 };
