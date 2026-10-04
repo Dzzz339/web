@@ -45,19 +45,19 @@ function pageContracts() {
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:1rem">
         <div>
           <h1 class="page-title" style="margin:0; display:flex; align-items:center; gap:8px">
-            <span>Договоры</span>
+            <span>Контракты</span>
             <span id="contracts_total_badge" class="badge b-gray" style="font-size:.78rem; font-weight:600">...</span>
           </h1>
           <div style="font-size:.82rem; color:var(--text-3); margin-top:2px">
-            Реестр генеральных договоров с заказчиками, условия, обеспечение и объекты работ
+            Реестр генеральных контрактов с заказчиками, условия, обеспечение и объекты работ
           </div>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap">
           <button class="btn btn-sm btn-ghost" onclick="triggerContractsImport()" title="Импортировать или обновить реестр из Excel файла">
             📥 Импорт реестра
           </button>
-          <button class="btn btn-sm" onclick="openContractForm()" title="Создать новый договор вручную">
-            + Новый договор
+          <button class="btn btn-sm" onclick="openContractForm()" title="Создать новый контракт вручную">
+            + Новый контракт
           </button>
         </div>
       </div>

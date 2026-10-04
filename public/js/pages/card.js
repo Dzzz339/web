@@ -115,13 +115,15 @@ function pageCard() {
     return '<option value="' + u.full_name + '"' + (curAssignee === u.full_name ? ' selected' : '') + '>#' + u.id + ' — ' + u.full_name + '</option>';
   }).join('');
 
-  var contractorOpts = '<option value="">— (Не указан) —</option>' + (S.contractors || []).map(function(c) {
-    var curContractor = Object.prototype.hasOwnProperty.call(S.cardDraft,'contractor') ? S.cardDraft.contractor : (t.contractor||'');
-    if (!c.name_short) return '';
-    return '<option value="' + c.name_short + '"' + (curContractor.trim() === c.name_short ? ' selected' : '') + '>' + c.name_short + '</option>';
-  }).join('');
+  var contractorOpts = '<option value="">— (Своими силами / Не назначен) —</option>' + (S.contractors || [])
+    .filter(function(c) { return c.type !== 'customer'; })
+    .map(function(c) {
+      var curContractor = Object.prototype.hasOwnProperty.call(S.cardDraft,'contractor') ? S.cardDraft.contractor : (t.contractor||'');
+      if (!c.name_short) return '';
+      return '<option value="' + c.name_short + '"' + (curContractor.trim() === c.name_short ? ' selected' : '') + '>' + c.name_short + '</option>';
+    }).join('');
 
-  if (t.contractor && !(S.contractors || []).some(c => c.name_short === t.contractor.trim())) {
+  if (t.contractor && !(S.contractors || []).filter(function(c){ return c.type !== 'customer'; }).some(function(c){ return c.name_short === t.contractor.trim(); })) {
     contractorOpts += '<option value="' + t.contractor + '" selected>⚠️ ' + t.contractor + ' (из Excel)</option>';
   }
 
@@ -203,6 +205,22 @@ function pageCard() {
     else if (key === 'priority') inp = '<select name="'+key+'" data-key="'+key+'">'+prioOpts+'</select>';
     else if (key === 'assignee' && ['admin', 'director', 'manager'].includes(String(S.user ? S.user.role : '').toLowerCase())) inp = '<select name="'+key+'" data-key="'+key+'">' + assigneeOpts + '</select>';
     else if (key === 'contractor' && ['admin', 'director', 'manager'].includes(String(S.user ? S.user.role : '').toLowerCase())) inp = '<select name="'+key+'" data-key="'+key+'" style="width:100%">' + contractorOpts + '</select>';
+    else if (key === 'customer' && ['admin', 'director', 'manager', 'to_engineer'].includes(String(S.user ? S.user.role : '').toLowerCase())) {
+      var custOptsList = ['ПАО Сбербанк'];
+      (S.contractors || []).filter(function(c){ return c.type === 'customer'; }).forEach(function(c){
+        if (!custOptsList.includes(c.name_short)) custOptsList.push(c.name_short);
+      });
+      (S.contracts || []).forEach(function(c){
+        if (c.customer_name && !custOptsList.includes(c.customer_name)) custOptsList.push(c.customer_name);
+      });
+      if (val && !custOptsList.includes(val)) custOptsList.unshift(val);
+
+      var custOptsHtml = custOptsList.map(function(opt) {
+        var isSel = (String(val || '').toLowerCase().trim() === opt.toLowerCase().trim()) ? ' selected' : '';
+        return '<option value="' + escHtml(opt) + '"' + isSel + '>' + escHtml(opt) + '</option>';
+      }).join('');
+      inp = '<select name="customer" data-key="customer" style="width:100%">' + custOptsHtml + '</select>';
+    }
     else if (type === 'textarea') inp = '<textarea name="'+key+'" data-key="'+key+'">'+val+'</textarea>';
     else if (type === 'checkbox') inp = '<input type="checkbox" name="'+key+'" data-key="'+key+'"'+(val ? ' checked' : '')+'>';
     else inp = '<input type="'+(type||'text')+'" name="'+key+'" data-key="'+key+'" value="'+String(val).replace(/"/g,'&quot;')+'">';
@@ -572,18 +590,21 @@ function pageCard() {
     (cleanPhone ? '<a href="tel:' + cleanPhone + '" class="quick-contact-btn call-btn">📞 Позвонить (' + escHtml(phoneMatch[0]) + ')</a>' : '') +
   '</div>';
 
+  var curContract = (S.contracts || []).find(function(x){ return String(x.id) === String(t.contract_id); });
+  var ourEntityName = (curContract && curContract.our_entity_name) ? curContract.our_entity_name : 'ООО "Кабельные Системы"';
+  var ourEntityHtml = isWorker ? '' : ('<div class="field-row"><div class="field-lbl">Генподрядчик (Мы)</div><div class="field-val" style="display:flex;align-items:center;padding:5px 0;font-weight:600;color:var(--text)">🏢 ' + escHtml(ourEntityName) + '</div></div>');
+
   var paneMain = '<div id="cardTabPane-main" class="card-tab-pane" style="display:' + (curTab === 'main' ? 'block' : 'none') + '">' +
     quickActionsBar +
     '<div style="display:grid;grid-template-columns:1.1fr 0.9fr;gap:1rem;align-items:start">' +
       '<div class="card p">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
-          '<div class="sec-title" style="margin:0">Объект и команда</div>' +
-          field('', 'archived') +
-        '</div>' +
+        '<div class="sec-title" style="margin-bottom:.5rem">Объект и стороны</div>' +
+        field('Заказчик', 'customer') +
+        (isWorker ? '' : field('Генеральный контракт', 'contract_id', 'select')) +
+        ourEntityHtml +
         field('Регион', 'region') +
         field('Адрес объекта', 'address') +
-        (isWorker ? '' : field('Генеральный договор', 'contract_id', 'select') +
-        field('Тип объекта', 'tipObj')) +
+        (isWorker ? '' : field('Тип объекта', 'tipObj')) +
         field('Тип работ', 'workType') +
         (isWorker ? '' : field('№ ГОСБ', 'gosb') +
         field('№ ВСП', 'vsp')) +
@@ -592,7 +613,7 @@ function pageCard() {
         field('Статус заявки', 'status') +
         field('Приоритет', 'priority') +
         (isWorker ? '' : field('Менеджер Заказчика', 'manager')) +
-        field('Контрагент (Основной)', 'contractor') +
+        field('Субподрядчик (СМР)', 'contractor') +
         field('Исполнитель (Наш)', 'assignee') +
         (t.assignee && t.assignmentStatus ? '<div class="field-row"><div class="field-lbl">Статус назначения</div><div class="field-val">' +
           (t.assignmentStatus === 'accepted' ? '<span class="badge b-green">Принял</span>' :
