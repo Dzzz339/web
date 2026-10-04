@@ -177,10 +177,25 @@ function pageCard() {
     var inp = '';
     if (key === 'contract_id') {
       var curC = (S.contracts || []).find(function(x){ return String(x.id) === String(val); });
-      var viewBtn = curC ? ' <button type="button" class="btn btn-sm btn-ghost" style="padding:2px 6px; font-size:.74rem" onclick="openContractModal(' + curC.id + ')">👁️ Карточка</button>' : '';
-      inp = '<div style="display:flex; gap:6px; align-items:center; width:100%">' +
-        '<select name="'+key+'" data-key="'+key+'" style="flex:1; padding:4px 8px; font-size:.82rem">' + contractOpts + '</select>' +
-        viewBtn +
+      var contractCardHtml = curC ? (
+        '<div style="margin-top:6px;padding:8px 10px;background:#f8fafc;border:1.5px solid var(--border);border-radius:6px;font-size:.78rem">' +
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">' +
+            '<div>' +
+              '<div style="font-weight:700;color:var(--text);font-size:.84rem">' +
+                (curC.contract_number ? ('Договор № ' + escHtml(curC.contract_number)) : ('Контракт #' + curC.id)) +
+                (curC.internal_number ? (' · Вн. ' + escHtml(curC.internal_number)) : '') +
+              '</div>' +
+              '<div style="color:var(--text-2);margin-top:2px">🏛️ Заказчик: <b>' + escHtml(curC.customer_name || 'Не указан') + '</b></div>' +
+              (curC.our_entity_name ? '<div style="color:var(--text-3);margin-top:1px">🏢 Генподрядчик: ' + escHtml(curC.our_entity_name) + '</div>' : '') +
+            '</div>' +
+            '<button type="button" class="btn btn-sm btn-ghost" onclick="openContractModal(' + curC.id + ')" style="border:1px solid var(--border);padding:3px 8px;font-size:.74rem;white-space:nowrap" title="Открыть карточку генерального договора">👁️ Открыть договор</button>' +
+          '</div>' +
+        '</div>'
+      ) : '';
+
+      inp = '<div style="width:100%">' +
+        '<select name="'+key+'" data-key="'+key+'" style="width:100%;padding:4px 8px;font-size:.82rem">' + contractOpts + '</select>' +
+        contractCardHtml +
       '</div>';
     }
     else if (key === 'status') {
@@ -204,7 +219,34 @@ function pageCard() {
     }
     else if (key === 'priority') inp = '<select name="'+key+'" data-key="'+key+'">'+prioOpts+'</select>';
     else if (key === 'assignee' && ['admin', 'director', 'manager'].includes(String(S.user ? S.user.role : '').toLowerCase())) inp = '<select name="'+key+'" data-key="'+key+'">' + assigneeOpts + '</select>';
-    else if (key === 'contractor' && ['admin', 'director', 'manager'].includes(String(S.user ? S.user.role : '').toLowerCase())) inp = '<select name="'+key+'" data-key="'+key+'" style="width:100%">' + contractorOpts + '</select>';
+    else if (key === 'contractor' && ['admin', 'director', 'manager'].includes(String(S.user ? S.user.role : '').toLowerCase())) {
+      var curContrName = String(val || '').trim();
+      var contrObj = (S.contractors || []).find(function(c){ return c.name_short === curContrName; });
+
+      var contrCard = curContrName ? (
+        '<div style="width:100%;background:#f8fafc;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;margin-bottom:4px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">' +
+            '<div>' +
+              '<div style="font-weight:700;font-size:.85rem;color:var(--text)">🏢 ' + escHtml(curContrName) + '</div>' +
+              (contrObj && contrObj.inn ? '<div style="font-size:.74rem;color:var(--text-3)">ИНН: ' + escHtml(contrObj.inn) + '</div>' : '') +
+            '</div>' +
+            '<div style="display:flex;gap:4px">' +
+              '<button type="button" class="btn btn-sm btn-ghost" onclick="openContractorPicker(\'' + eid + '\')" style="font-size:.74rem;padding:2px 7px" title="Выбрать другого подрядчика">🔍 Сменить</button>' +
+              '<button type="button" class="btn btn-sm btn-ghost" onclick="openSubcontractModal(\'' + eid + '\')" style="font-size:.74rem;padding:2px 7px;color:var(--primary)" title="Оформить поручение / Заказ-наряд">📄 Заказ-наряд</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>'
+      ) : (
+        '<div style="display:flex;align-items:center;justify-content:space-between;width:100%;padding:4px 0">' +
+          '<span class="t3" style="font-size:.84rem">— Не назначен —</span>' +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="openContractorPicker(\'' + eid + '\')" style="color:var(--orange-dark);font-weight:600;font-size:.78rem;padding:2px 8px">' +
+            '+ Назначить подрядчика' +
+          '</button>' +
+        '</div>'
+      );
+
+      inp = '<input type="hidden" name="contractor" data-key="contractor" value="' + escHtml(curContrName) + '">' + contrCard;
+    }
     else if (key === 'customer' && ['admin', 'director', 'manager', 'to_engineer'].includes(String(S.user ? S.user.role : '').toLowerCase())) {
       var custOptsList = ['ПАО Сбербанк'];
       (S.contractors || []).filter(function(c){ return c.type === 'customer'; }).forEach(function(c){
@@ -220,6 +262,27 @@ function pageCard() {
         return '<option value="' + escHtml(opt) + '"' + isSel + '>' + escHtml(opt) + '</option>';
       }).join('');
       inp = '<select name="customer" data-key="customer" style="width:100%">' + custOptsHtml + '</select>';
+    }
+    else if (key === 'contact') {
+      var rawContact = String(val || '');
+      var phoneMatch = rawContact.match(/(?:\+7|8)[\s\-(]?\d{3}[\s\-)]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}/);
+      var cleanPhone = phoneMatch ? phoneMatch[0].replace(/[^\d+]/g, '') : null;
+      var emailMatch = rawContact.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
+
+      var quickContactActions = '';
+      if (cleanPhone || emailMatch) {
+        var callBtn = cleanPhone ? '<a href="tel:' + cleanPhone + '" class="btn btn-sm btn-ghost" style="color:var(--green);font-size:.75rem;padding:2px 8px;border:1px solid var(--border)" title="Позвонить">📞 ' + escHtml(phoneMatch[0]) + '</a>' : '';
+        var waBtn = cleanPhone ? '<a href="https://wa.me/' + cleanPhone.replace('+','') + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="color:#16a34a;font-size:.75rem;padding:2px 8px;border:1px solid var(--border)" title="Написать в WhatsApp">💬 WhatsApp</a>' : '';
+        var tgBtn = cleanPhone ? '<a href="https://t.me/+' + cleanPhone.replace('+','') + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="color:#0284c7;font-size:.75rem;padding:2px 8px;border:1px solid var(--border)" title="Написать в Telegram">✈️ Telegram</a>' : '';
+        var mailBtn = emailMatch ? '<a href="mailto:' + emailMatch[0] + '" class="btn btn-sm btn-ghost" style="color:var(--blue);font-size:.75rem;padding:2px 8px;border:1px solid var(--border)" title="Отправить E-mail">✉️ ' + escHtml(emailMatch[0]) + '</a>' : '';
+
+        quickContactActions = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:5px">' + callBtn + waBtn + tgBtn + mailBtn + '</div>';
+      }
+
+      inp = '<div style="width:100%">' +
+        '<textarea name="'+key+'" data-key="'+key+'" style="width:100%;font-size:.82rem" rows="3">' + escHtml(rawContact) + '</textarea>' +
+        quickContactActions +
+      '</div>';
     }
     else if (type === 'textarea') inp = '<textarea name="'+key+'" data-key="'+key+'">'+val+'</textarea>';
     else if (type === 'checkbox') inp = '<input type="checkbox" name="'+key+'" data-key="'+key+'"'+(val ? ' checked' : '')+'>';
@@ -391,12 +454,15 @@ function pageCard() {
         macroStatusBadge(t.macroStatus || 'new') +
       '</div>';
 
-  var hdr = '<div class="card-hdr" style="flex-wrap:wrap;gap:10px">' +
-    '<button class="btn btn-sm btn-ghost" onclick="go(\'tasks\')">← Заявки</button>' +
-    '<h1 style="margin:0">'+t.id+'</h1>' +
-    macroStatusHtml +
-    docBtns +
-    cancelBtn +
+  var hdr = '<div class="card-hdr" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:.5rem">' +
+    '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+      '<button class="btn btn-sm btn-ghost" onclick="go(\'tasks\')" title="Вернуться к списку заявок" style="font-weight:600">← Заявки</button>' +
+      '<h1 style="margin:0;font-size:1.25rem">'+t.id+'</h1>' +
+      macroStatusHtml +
+    '</div>' +
+    '<div style="display:flex;align-items:center;gap:6px">' +
+      '<button class="btn btn-sm btn-ghost" onclick="window.print()" title="Распечатать карточку объекта / сохранить в PDF" style="font-size:.78rem">🖨️ Печать</button>' +
+    '</div>' +
   '</div>';
 
   var cancelledBanner = t.status === 'cancelled'
@@ -515,23 +581,23 @@ function pageCard() {
     : '';
 
   var isWorker = S.user && (S.user.role === 'worker' || S.user.role === 'installer' || S.user.role === 'contractor');
-  var tabsNav = '<div class="card-tabs-nav">' +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'main' ? 'active' : '') + '" data-tab="main" onclick="setCardTab(\'main\')">' +
-      '🏛️ 1. Информация' +
+  var tabsNav = '<div class="card-tabs-nav" style="display:flex;gap:4px;overflow-x:auto;padding-bottom:4px;margin-bottom:1rem;border-bottom:1.5px solid var(--border)">' +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'main' ? 'active' : '') + '" data-tab="main" onclick="setCardTab(\'main\')" style="padding:6px 14px;font-size:.82rem">' +
+      '🏛️ Информация' +
     '</button>' +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'items' ? 'active' : '') + '" data-tab="items" onclick="setCardTab(\'items\')">' +
-      '👷 2. Исполнение / СМР' +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'items' ? 'active' : '') + '" data-tab="items" onclick="setCardTab(\'items\')" style="padding:6px 14px;font-size:.82rem">' +
+      '👷 Исполнение / СМР' +
     '</button>' +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'supply' ? 'active' : '') + '" data-tab="supply" onclick="setCardTab(\'supply\')">' +
-      '📦 3. Снабжение' +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'supply' ? 'active' : '') + '" data-tab="supply" onclick="setCardTab(\'supply\')" style="padding:6px 14px;font-size:.82rem">' +
+      '📦 Снабжение' +
     '</button>' +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'files' ? 'active' : '') + '" data-tab="files" onclick="setCardTab(\'files\')">' +
-      '📄 4. Документы' + remarksTabBadge +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'files' ? 'active' : '') + '" data-tab="files" onclick="setCardTab(\'files\')" style="padding:6px 14px;font-size:.82rem">' +
+      '📄 Документы' + remarksTabBadge +
     '</button>' +
-    (isWorker ? '' : '<button type="button" class="card-tab-btn ' + (curTab === 'finance' ? 'active' : '') + '" data-tab="finance" onclick="setCardTab(\'finance\')">' +
-      '💰 5. Экономика' +
+    (isWorker ? '' : '<button type="button" class="card-tab-btn ' + (curTab === 'finance' ? 'active' : '') + '" data-tab="finance" onclick="setCardTab(\'finance\')" style="padding:6px 14px;font-size:.82rem">' +
+      '💰 Экономика' +
     '</button>') +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'history' ? 'active' : '') + '" data-tab="history" onclick="setCardTab(\'history\')">' +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'history' ? 'active' : '') + '" data-tab="history" onclick="setCardTab(\'history\')" style="padding:6px 14px;font-size:.82rem">' +
       '🕒 История' +
     '</button>' +
   '</div>';
@@ -594,8 +660,28 @@ function pageCard() {
   var ourEntityName = (curContract && curContract.our_entity_name) ? curContract.our_entity_name : 'ООО "Кабельные Системы"';
   var ourEntityHtml = isWorker ? '' : ('<div class="field-row"><div class="field-lbl">Генподрядчик (Мы)</div><div class="field-val" style="display:flex;align-items:center;padding:5px 0;font-weight:600;color:var(--text)">🏢 ' + escHtml(ourEntityName) + '</div></div>');
 
+  var assignedContrObj = (S.contractors || []).find(function(c){ return c.name_short === String(t.contractor || '').trim(); });
+  var contrPhoneHtml = (assignedContrObj && assignedContrObj.phone) ? (
+    '<div class="field-row">' +
+      '<div class="field-lbl">Телефон субподрядчика</div>' +
+      '<div class="field-val" style="display:flex;align-items:center;gap:8px">' +
+        '<a href="tel:' + assignedContrObj.phone.replace(/[^\d+]/g, '') + '" style="font-weight:600;color:var(--green)">📞 ' + escHtml(assignedContrObj.phone) + '</a>' +
+        '<a href="https://wa.me/' + assignedContrObj.phone.replace(/[^\d]/g, '') + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="padding:1px 6px;font-size:.74rem;color:#16a34a">💬 WhatsApp</a>' +
+      '</div>' +
+    '</div>'
+  ) : '';
+
+  var quickDocsCard = '<div class="card p" style="margin-bottom:1rem">' +
+    '<div class="sec-title" style="margin-bottom:.5rem;display:flex;align-items:center;gap:6px">📄 Документы объекта</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\'' + eid + '\')" title="Сформировать официальное письмо на допуск в Word (с паспортами монтажников)">🪪 Письмо на допуск</button>' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="exportDoc(\'app2\',\'' + eid + '\')" title="Сформировать Заказ-наряд (Приложение №2) в Word / PDF">📄 Приложение №2</button>' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="exportDoc(\'invoice\',\'' + eid + '\')" title="Сформировать и выгрузить Счёт на оплату">💰 Счёт на оплату</button>' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="exportDoc(\'act\',\'' + eid + '\')" title="Сформировать Акт сдачи-приемки выполненных работ (КС-2)">✅ Акт работ</button>' +
+    '</div>' +
+  '</div>';
+
   var paneMain = '<div id="cardTabPane-main" class="card-tab-pane" style="display:' + (curTab === 'main' ? 'block' : 'none') + '">' +
-    quickActionsBar +
     '<div style="display:grid;grid-template-columns:1.1fr 0.9fr;gap:1rem;align-items:start">' +
       '<div class="card p">' +
         '<div class="sec-title" style="margin-bottom:.5rem">Объект и стороны</div>' +
@@ -612,9 +698,10 @@ function pageCard() {
         '<div class="sec-title" style="margin-bottom:.5rem">Команда и контакты</div>' +
         field('Статус заявки', 'status') +
         field('Приоритет', 'priority') +
-        (isWorker ? '' : field('Менеджер Заказчика', 'manager')) +
-        field('Субподрядчик (СМР)', 'contractor') +
-        field('Исполнитель (Наш)', 'assignee') +
+        (isWorker ? '' : field('Ответственное лицо (Заказчик)', 'manager')) +
+        field('Субподрядчик (наш)', 'contractor') +
+        contrPhoneHtml +
+        field('Проект-менеджер (наш)', 'assignee') +
         (t.assignee && t.assignmentStatus ? '<div class="field-row"><div class="field-lbl">Статус назначения</div><div class="field-val">' +
           (t.assignmentStatus === 'accepted' ? '<span class="badge b-green">Принял</span>' :
           t.assignmentStatus === 'declined' ? '<span class="badge b-red">Отказался</span>' :
@@ -626,7 +713,7 @@ function pageCard() {
               '<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="declineTask(\'' + t.id.replace(/'/g,"\\'") + '\')">❌ Отказаться</button>' +
             '</div></div>'
           : '') +
-        field('Контролёр', 'controller') +
+        field('Контролёр (Держатель контракта)', 'controller') +
         field('Контакт на объекте', 'contact', 'textarea') +
         '<div class="divider"></div>' +
         '<div class="sec-title" style="margin-bottom:.5rem">Заметки и комментарии</div>' +
@@ -635,6 +722,7 @@ function pageCard() {
         (isWorker ? '' : rawExtraRows) +
       '</div>' +
       '<div style="display:flex;flex-direction:column;gap:1rem">' +
+        quickDocsCard +
         '<div class="card p">' +
           '<div class="sec-title" style="margin-bottom:.5rem">Карта объекта</div>' +
           mapHtml +
@@ -648,6 +736,14 @@ function pageCard() {
           field('Обследование', 'obsledovanie') +
           field('Доступ', 'dostup') +
           field('Приёмка (фото)', 'priemka') +
+          (t.status === 'cancelled'
+            ? '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)"><span class="badge b-red" style="padding:6px 12px;font-weight:700">🚫 Заявка отменена' + (t.overdueReason ? ': ' + escHtml(t.overdueReason) : '') + '</span></div>'
+            : (!isLocked
+                ? '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">' +
+                    '<span style="font-size:.74rem;color:var(--text-3)">Если работы невозможны:</span>' +
+                    '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.3);font-size:.78rem" onclick="cancelTaskPrompt(\'' + eid + '\')" title="Отменить заявку с указанием причины">🚫 Отменить заявку</button>' +
+                  '</div>'
+                : '')) +
         '</div>' +
         (isWorker ? '' : '<div class="card p" style="background:#f8fafc;border:1.5px solid var(--border)">' +
           '<div class="sec-title" style="margin-bottom:.4rem;display:flex;align-items:center;gap:6px">📌 Происхождение заявки (Data Lineage)</div>' +
@@ -1253,9 +1349,9 @@ function deletePortRow(rowId, taskId) {
 }
 
 var fieldLabels = {
-  status:'Статус', priority:'Приоритет', stage:'Этап', assignee:'Исполнитель',
+  status:'Статус', priority:'Приоритет', stage:'Этап', assignee:'Проект-менеджер (наш)',
   contract_id:'Генеральный договор',
-  controller:'Контролёр', comment:'Комментарий', distributedAt:'Дата распределения',
+  controller:'Контролёр (Держатель контракта)', comment:'Комментарий', distributedAt:'Дата распределения',
   contact:'Контакт на объекте', techLink:'Ссылка', deadline:'Дата окончания работ',
   dateZayavki:'Дата заявки', fact:'Факт', obsledovanie:'Обследование',
   dostup:'Доступ', dataVyhoda:'Дата выхода', priemka:'Приёмка',
@@ -1263,8 +1359,8 @@ var fieldLabels = {
   invoiceInfo:'№ счёта/сумма', vedoStatus:'В ЭДО',
   region:'Регион', address:'Адрес объекта', workType:'Тип работ',
   tipObj:'Тип объекта', gosb:'№ ГОСБ', vsp:'№ ВСП',
-  manager:'Менеджер Заказчика', amount:'Сумма договора', inOrder:'В заказе (портов)',
-  overdueDays:'Дней просрочки', contractor:'Подрядчик',
+  manager:'Ответственное лицо (Заказчик)', amount:'Сумма договора', inOrder:'В заказе (портов)',
+  overdueDays:'Дней просрочки', contractor:'Субподрядчик (наш)',
   distanceKm:'Удалённость (км)', pricePerUnit:'Стоимость за ед.',
   idStatus:'Статус ИД', excelComment:'Комментарий (Excel)',
   supplierOrderSigned:'Заказ подписан на портале', supplierIdUploaded:'ИД загружена на портал',
@@ -1306,6 +1402,7 @@ function saveCard() {
 }
 
 function cancelTaskPrompt(taskId) {
+  if (!confirm('Вы уверены, что хотите отменить заявку ' + taskId + '?\nДействие переведёт заявку в архив с фиксацией официальной причины.')) return;
   var reason = prompt('Укажите официальную причину отмены заявки:');
   if (reason === null) return;
   if (!reason.trim()) return alert('Причина отмены обязательна!');
