@@ -1682,6 +1682,7 @@ function loadCardSubcontracts(taskId) {
   if (!cont) return;
   api('/tasks/' + encodeURIComponent(taskId) + '/subcontracts')
     .then(function(subs) {
+      window._curCardSubcontracts = subs || [];
       if (!Array.isArray(subs) || !subs.length) {
         cont.innerHTML = '<div style="background:var(--bg);padding:14px;border-radius:8px;text-align:center;color:var(--text-3);font-size:.85rem">' +
           '<span>Субподрядчики на объект еще не назначены.</span> ' +
@@ -1761,47 +1762,272 @@ function openSubcontractModal(taskId, editId) {
   var old = document.getElementById('_subcontract_modal');
   if (old) old.remove();
 
-  var contractors = S.contractors || [];
-  var contrOptions = '<option value="">-- Выберите организацию --</option>' +
-    contractors.map(function(c){
-      return '<option value="' + c.id + '">' + escHtml(c.name_short) + ' (ИНН ' + escHtml(c.inn) + ')</option>';
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); }) || {};
+  var editSub = editId ? ((window._curCardSubcontracts || []).find(function(s){ return String(s.id) === String(editId); }) || null) : null;
+
+  function getRealSubcontractors() {
+    return (S.contractors || []).filter(function(c) {
+      if (!c || !c.name_short) return false;
+      if (c.type === 'customer') return false;
+      if (String(c.inn || '').startsWith('CUST-')) return false;
+      return true;
+    }).sort(function(a, b) {
+      return (a.name_short || '').localeCompare(b.name_short || '', 'ru');
+    });
+  }
+
+  var subsList = getRealSubcontractors();
+
+  var selectedCId = '';
+  var selectedCName = '';
+  var selectedCInn = '';
+
+  if (editSub && editSub.contractor_id) {
+    selectedCId = String(editSub.contractor_id);
+    var foundSub = subsList.find(function(c){ return String(c.id) === String(editSub.contractor_id); });
+    if (foundSub) {
+      selectedCName = foundSub.name_short;
+      selectedCInn = foundSub.inn || '';
+    } else {
+      selectedCName = editSub.contractor_name || ('Подрядчик #' + editSub.contractor_id);
+      selectedCInn = editSub.contractor_inn || '';
+    }
+  } else if (t.contractor) {
+    var matchByTask = subsList.find(function(c){ return c.name_short.trim().toLowerCase() === t.contractor.trim().toLowerCase(); });
+    if (matchByTask) {
+      selectedCId = String(matchByTask.id);
+      selectedCName = matchByTask.name_short;
+      selectedCInn = matchByTask.inn || '';
+    }
+  }
+
+  window._submSelectContractor = function(id, name, inn) {
+    var inpHid = document.getElementById('subm_contractor');
+    if (inpHid) inpHid.value = id;
+    var nameEl = document.getElementById('subm_selected_c_name');
+    if (nameEl) nameEl.textContent = name;
+    var innEl = document.getElementById('subm_selected_c_inn');
+    if (innEl) innEl.textContent = inn ? inn : 'не указан';
+
+    var selBox = document.getElementById('subm_contractor_selected_box');
+    if (selBox) selBox.style.display = 'flex';
+    var pickBox = document.getElementById('subm_contractor_picker_box');
+    if (pickBox) pickBox.style.display = 'none';
+    window._submToggleNewForm(false);
+  };
+
+  window._submClearContractor = function() {
+    var inpHid = document.getElementById('subm_contractor');
+    if (inpHid) inpHid.value = '';
+    var selBox = document.getElementById('subm_contractor_selected_box');
+    if (selBox) selBox.style.display = 'none';
+    var pickBox = document.getElementById('subm_contractor_picker_box');
+    if (pickBox) pickBox.style.display = 'block';
+
+    var searchInput = document.getElementById('subm_contractor_search');
+    if (searchInput) {
+      searchInput.value = '';
+      window._submFilterList('');
+      searchInput.focus();
+    }
+  };
+
+  window._submFilterList = function(q) {
+    var query = (q || '').trim().toLowerCase();
+    var listEl = document.getElementById('subm_contractors_list');
+    var countEl = document.getElementById('subm_c_count');
+    if (!listEl) return;
+
+    var currentList = getRealSubcontractors();
+    var filtered = currentList.filter(function(c) {
+      if (!query) return true;
+      return (c.name_short || '').toLowerCase().indexOf(query) !== -1 ||
+             (c.name_full || '').toLowerCase().indexOf(query) !== -1 ||
+             (c.inn || '').toLowerCase().indexOf(query) !== -1;
+    });
+
+    if (countEl) countEl.textContent = 'Подрядчиков в базе: ' + filtered.length;
+
+    if (!filtered.length) {
+      listEl.innerHTML = '<div style="padding:12px;text-align:center;color:var(--text-3);font-size:.82rem">' +
+        'Подрядчик не найден среди действующих.<br>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="window._submToggleNewForm(true)" style="color:var(--orange-dark);font-weight:600;margin-top:6px">' +
+          '➕ Ввести нового подрядчика' +
+        '</button>' +
+      '</div>';
+      return;
+    }
+
+    listEl.innerHTML = filtered.map(function(c) {
+      var safeName = escHtml(c.name_short);
+      var safeInn = escHtml(c.inn || '—');
+      return '<div class="subm-c-row" style="cursor:pointer;padding:7px 10px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;transition:background .1s" ' +
+        'onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'" ' +
+        'onclick="window._submSelectContractor(\'' + c.id + '\', \'' + safeName.replace(/'/g, "\\'") + '\', \'' + safeInn.replace(/'/g, "\\'") + '\')">' +
+          '<div style="font-weight:600;font-size:.82rem;color:var(--text)">🏢 ' + safeName + '</div>' +
+          '<div class="t3" style="font-size:.75rem">ИНН ' + safeInn + '</div>' +
+      '</div>';
     }).join('');
+  };
+
+  window._submToggleNewForm = function(show) {
+    var box = document.getElementById('subm_new_contractor_box');
+    if (!box) return;
+    var isShown = (show !== undefined) ? show : (box.style.display === 'none');
+    box.style.display = isShown ? 'block' : 'none';
+    if (isShown) {
+      var innInp = document.getElementById('qsub_inn');
+      if (innInp) innInp.focus();
+    }
+  };
+
+  window._submFetchDadata = function() {
+    var innInp = document.getElementById('qsub_inn');
+    var btn = document.getElementById('qsub_dadata_btn');
+    var inn = innInp ? innInp.value.trim() : '';
+    if (!inn) return alert('Введите ИНН организации или ИП');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Поиск...'; }
+
+    api('/dadata/party?inn=' + encodeURIComponent(inn))
+      .then(function(res) {
+        if (res.error) throw new Error(res.error);
+        var nameInp = document.getElementById('qsub_name');
+        var phoneInp = document.getElementById('qsub_phone');
+        if (nameInp && (res.name_short || res.name_full || res.name)) {
+          nameInp.value = res.name_short || res.name_full || res.name;
+        }
+        if (phoneInp && res.phones && res.phones.length && !phoneInp.value) {
+          phoneInp.value = res.phones[0];
+        }
+      })
+      .catch(function(err) {
+        alert('Не удалось получить данные по ИНН: ' + err.message);
+      })
+      .finally(function() {
+        if (btn) { btn.disabled = false; btn.textContent = '🔍 По ИНН'; }
+      });
+  };
+
+  window._submSaveNewContractor = function() {
+    var inn = (document.getElementById('qsub_inn').value || '').trim();
+    var name = (document.getElementById('qsub_name').value || '').trim();
+    var phone = (document.getElementById('qsub_phone').value || '').trim();
+
+    if (!name) return alert('Укажите краткое наименование подрядчика!');
+
+    var saveBtn = document.getElementById('qsub_save_btn');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Сохранение...'; }
+
+    var data = {
+      type: 'subcontractor',
+      name_short: name,
+      name_full: name,
+      inn: inn || null,
+      phone: phone || null
+    };
+
+    api('/contractors', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+    .then(function(newContractor) {
+      if (newContractor.error) throw new Error(newContractor.error);
+      if (!S.contractors) S.contractors = [];
+      S.contractors.push(newContractor);
+      window._submSelectContractor(newContractor.id, newContractor.name_short, newContractor.inn || '');
+      window._submToggleNewForm(false);
+    })
+    .catch(function(err) {
+      alert('Ошибка добавления подрядчика: ' + err.message);
+    })
+    .finally(function() {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '✓ Сохранить и выбрать'; }
+    });
+  };
+
+  var curWorkType = editSub ? editSub.work_type : 'Монтаж СКС';
+  var curPrice = editSub ? (editSub.price_agreed || '') : '';
+  var curDeadline = (editSub && editSub.deadline) ? editSub.deadline.slice(0, 10) : '';
+  var curFio = editSub ? (editSub.installer_fio || '') : '';
+  var curPhone = editSub ? (editSub.installer_phone || '') : '';
+  var curPass = editSub ? (editSub.installer_passport || '') : '';
+  var curAuto = editSub ? (editSub.auto_number || '') : '';
+  var curComment = editSub ? (editSub.comment || '') : '';
+
+  var modalTitle = editSub ? '✏️ Редактировать субподряд' : '🤝 Назначить субподрядчика';
+  var submitBtnLabel = editSub ? 'Сохранить изменения' : 'Сохранить субподряд';
 
   var modal = document.createElement('div');
   modal.id = '_subcontract_modal';
   modal.className = 'modal-overlay';
-  modal.innerHTML = '<div class="modal-box" style="max-width:560px;width:95%">' +
+  modal.innerHTML = '<div class="modal-box" style="max-width:580px;width:95%">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">' +
-      '<h3 style="margin:0">🤝 Назначить субподрядчика</h3>' +
+      '<h3 style="margin:0">' + modalTitle + '</h3>' +
       '<button class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_subcontract_modal\').remove()">✕</button>' +
     '</div>' +
 
     '<div style="display:flex;flex-direction:column;gap:10px">' +
       '<div>' +
-        '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Организация / Подрядчик *</label>' +
-        '<select id="subm_contractor" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' + contrOptions + '</select>' +
+        '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Организация / Подрядчик СМР *</label>' +
+        '<input type="hidden" id="subm_contractor" value="' + escHtml(selectedCId) + '">' +
+
+        '<div id="subm_contractor_selected_box" style="display:' + (selectedCId ? 'flex' : 'none') + ';align-items:center;justify-content:space-between;padding:8px 12px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px">' +
+          '<div>' +
+            '<div style="font-weight:700;color:#166534;font-size:.88rem">🏢 <span id="subm_selected_c_name">' + escHtml(selectedCName) + '</span></div>' +
+            '<div style="font-size:.75rem;color:#15803d">ИНН: <span id="subm_selected_c_inn">' + escHtml(selectedCInn || 'не указан') + '</span></div>' +
+          '</div>' +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="window._submClearContractor()" style="font-size:.78rem;color:#166534;padding:3px 8px">Сменить ✕</button>' +
+        '</div>' +
+
+        '<div id="subm_contractor_picker_box" style="display:' + (selectedCId ? 'none' : 'block') + '">' +
+          '<input type="text" id="subm_contractor_search" placeholder="🔍 Поиск по названию или ИНН..." style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;margin-bottom:6px" oninput="window._submFilterList(this.value)">' +
+          '<div id="subm_contractors_list" style="max-height:140px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--bg)"></div>' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">' +
+            '<span id="subm_c_count" style="font-size:.74rem;color:var(--text-3)">Подрядчиков в базе: ' + subsList.length + '</span>' +
+            '<button type="button" class="btn btn-sm btn-ghost" onclick="window._submToggleNewForm()" style="color:var(--orange-dark);font-weight:600;font-size:.78rem;padding:2px 8px">' +
+              '➕ Ввести нового подрядчика' +
+            '</button>' +
+          '</div>' +
+        '</div>' +
+
+        '<div id="subm_new_contractor_box" style="display:none;background:#fafaf9;border:1.5px solid var(--orange);border-radius:8px;padding:10px;margin-top:8px">' +
+          '<div style="font-weight:700;font-size:.82rem;margin-bottom:8px;color:var(--text)">Ввод нового подрядчика (СМР)</div>' +
+          '<div style="display:flex;gap:8px;margin-bottom:8px">' +
+            '<input type="text" id="qsub_inn" placeholder="ИНН организации или ИП" style="flex:1;padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:.82rem">' +
+            '<button type="button" class="btn btn-sm btn-ghost" id="qsub_dadata_btn" onclick="window._submFetchDadata()" style="white-space:nowrap;font-size:.78rem;border:1px solid var(--border)">🔍 По ИНН</button>' +
+          '</div>' +
+          '<div style="margin-bottom:8px">' +
+            '<input type="text" id="qsub_name" placeholder="Краткое наименование *" style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:.82rem">' +
+          '</div>' +
+          '<div style="margin-bottom:8px">' +
+            '<input type="text" id="qsub_phone" placeholder="Телефон (+7...)" style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:.82rem">' +
+          '</div>' +
+          '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+            '<button type="button" class="btn btn-sm btn-ghost" onclick="window._submToggleNewForm(false)">Отмена</button>' +
+            '<button type="button" class="btn btn-sm btn-primary" id="qsub_save_btn" onclick="window._submSaveNewContractor()">✓ Сохранить и выбрать</button>' +
+          '</div>' +
+        '</div>' +
       '</div>' +
 
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
         '<div>' +
           '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Вид работ *</label>' +
           '<select id="subm_work_type" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
-            '<option value="Монтаж СКС">Монтаж СКС</option>' +
-            '<option value="Сварка и монтаж ВОЛС">Сварка и монтаж ВОЛС</option>' +
-            '<option value="Пусконаладочные работы (ПНР)">Пусконаладочные работы (ПНР)</option>' +
-            '<option value="Обследование объекта">Обследование объекта</option>' +
-            '<option value="Электромонтажные работы">Электромонтажные работы</option>' +
+            ['Монтаж СКС', 'Сварка и монтаж ВОЛС', 'Пусконаладочные работы (ПНР)', 'Обследование объекта', 'Электромонтажные работы'].map(function(wt){
+              return '<option value="' + wt + '"' + (curWorkType === wt ? ' selected' : '') + '>' + wt + '</option>';
+            }).join('') +
           '</select>' +
         '</div>' +
         '<div>' +
           '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Согласованная цена (₽)</label>' +
-          '<input type="number" id="subm_price" placeholder="0" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+          '<input type="number" id="subm_price" value="' + escHtml(curPrice) + '" placeholder="0" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
         '</div>' +
       '</div>' +
 
       '<div>' +
         '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Дедлайн (срок сдачи)</label>' +
-        '<input type="date" id="subm_deadline" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+        '<input type="date" id="subm_deadline" value="' + escHtml(curDeadline) + '" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
       '</div>' +
 
       '<div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">' +
@@ -1809,42 +2035,46 @@ function openSubcontractModal(taskId, editId) {
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">' +
           '<div>' +
             '<label style="display:block;font-size:.75rem;color:var(--text-3);margin-bottom:3px">ФИО монтажника</label>' +
-            '<input type="text" id="subm_installer_fio" placeholder="Иванов И.И." style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+            '<input type="text" id="subm_installer_fio" value="' + escHtml(curFio) + '" placeholder="Иванов И.И." style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
           '</div>' +
           '<div>' +
             '<label style="display:block;font-size:.75rem;color:var(--text-3);margin-bottom:3px">Телефон</label>' +
-            '<input type="text" id="subm_installer_phone" placeholder="+7 (900) 000-00-00" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+            '<input type="text" id="subm_installer_phone" value="' + escHtml(curPhone) + '" placeholder="+7 (900) 000-00-00" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
           '</div>' +
         '</div>' +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
           '<div>' +
             '<label style="display:block;font-size:.75rem;color:var(--text-3);margin-bottom:3px">Паспортные данные</label>' +
-            '<input type="text" id="subm_installer_pass" placeholder="Серия, номер, кем выдан" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+            '<input type="text" id="subm_installer_pass" value="' + escHtml(curPass) + '" placeholder="Серия, номер, кем выдан" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
           '</div>' +
           '<div>' +
             '<label style="display:block;font-size:.75rem;color:var(--text-3);margin-bottom:3px">Автомобиль (госномер)</label>' +
-            '<input type="text" id="subm_auto" placeholder="х777хх 178" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+            '<input type="text" id="subm_auto" value="' + escHtml(curAuto) + '" placeholder="х777хх 178" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
           '</div>' +
         '</div>' +
       '</div>' +
 
       '<div>' +
         '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Примечание</label>' +
-        '<textarea id="subm_comment" rows="2" placeholder="Особые условия, график работ..." style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem;resize:vertical"></textarea>' +
+        '<textarea id="subm_comment" rows="2" placeholder="Особые условия, график работ..." style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem;resize:vertical">' + escHtml(curComment) + '</textarea>' +
       '</div>' +
     '</div>' +
 
     '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:1.25rem;border-top:1px solid var(--border);padding-top:10px">' +
       '<button class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_subcontract_modal\').remove()">Отмена</button>' +
-      '<button class="btn btn-sm btn-primary" onclick="saveSubcontract(\'' + escHtml(taskId) + '\')">Сохранить субподряд</button>' +
+      '<button class="btn btn-sm btn-primary" onclick="saveSubcontract(\'' + escHtml(taskId) + '\'' + (editId ? (', ' + editId) : '') + ')">' + submitBtnLabel + '</button>' +
     '</div>' +
   '</div>';
 
   document.body.appendChild(modal);
   modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
+
+  if (!selectedCId) {
+    window._submFilterList('');
+  }
 }
 
-function saveSubcontract(taskId) {
+function saveSubcontract(taskId, editId) {
   var contractorId = document.getElementById('subm_contractor').value;
   var workType = document.getElementById('subm_work_type').value;
   var price = parseFloat(document.getElementById('subm_price').value) || 0;
@@ -1855,7 +2085,7 @@ function saveSubcontract(taskId) {
   var auto = document.getElementById('subm_auto').value.trim();
   var comment = document.getElementById('subm_comment').value.trim();
 
-  if (!contractorId) return alert('Выберите подрядчика!');
+  if (!contractorId) return alert('Выберите подрядчика из списка или введите нового!');
   if (!workType) return alert('Укажите вид работ!');
 
   var body = {
@@ -1870,8 +2100,11 @@ function saveSubcontract(taskId) {
     comment: comment
   };
 
-  api('/tasks/' + encodeURIComponent(taskId) + '/subcontracts', {
-    method: 'POST',
+  var url = editId ? ('/subcontracts/' + editId) : ('/tasks/' + encodeURIComponent(taskId) + '/subcontracts');
+  var method = editId ? 'PUT' : 'POST';
+
+  api(url, {
+    method: method,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   })
@@ -1883,7 +2116,7 @@ function saveSubcontract(taskId) {
     loadCardDocuments(taskId);
   })
   .catch(function(err) {
-    alert('Ошибка назначения подрядчика: ' + err.message);
+    alert('Ошибка сохранения субподряда: ' + err.message);
   });
 }
 

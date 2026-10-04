@@ -759,6 +759,8 @@ function renderContractorPicker() {
   } else {
     var qy = (S.cpQuery || '').toLowerCase();
     var matches = (S.contractors || []).filter(function(c) {
+      if (!c || !c.name_short) return false;
+      if (c.type === 'customer' || String(c.inn || '').startsWith('CUST-')) return false;
       if (!qy) return true;
       return (c.name_short||'').toLowerCase().indexOf(qy) !== -1 ||
              (c.name_full||'').toLowerCase().indexOf(qy) !== -1 ||
@@ -857,6 +859,7 @@ function declineTaskFromNotif(taskId) {
 
 function addContractorFromPicker(taskId) {
   var data = {
+    type: 'subcontractor',
     inn:           document.getElementById('pc_inn').value.trim(),
     kpp:           document.getElementById('pc_kpp').value.trim(),
     name_short:    document.getElementById('pc_name_short').value.trim(),
