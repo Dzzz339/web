@@ -1,8 +1,8 @@
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import path from 'path';
-import fs from 'fs';
 import { computeDeadlineDate } from '../services/contractsImporter.js';
+import { initSubcontractDms } from '../services/subcontractDmsService.js';
 
 const { Pool } = pg;
 
@@ -1004,6 +1004,7 @@ export async function seedMaterialsAndWarehouses() {
     try {
       const { syncSubcontractsForTasks } = await import('../scripts/sync_task_subcontracts.js');
       await syncSubcontractsForTasks(pool);
+      await initSubcontractDms(pool);
     } catch (e) {
       console.error('[DB] Subcontracts auto-sync error:', e.message);
     }

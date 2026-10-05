@@ -691,10 +691,12 @@ function viewContractorDetails(contractorId) {
 
   Promise.all([
     api('/contractors/' + contractorId + '/specialists').catch(() => []),
-    api('/powers-of-attorney?contractorId=' + contractorId).catch(() => [])
+    api('/powers-of-attorney?contractorId=' + contractorId).catch(() => []),
+    api('/contractors/' + contractorId + '/contracts').catch(() => [])
   ]).then(function(results) {
     var specs = results[0] || [];
     var poas = results[1] || [];
+    var contracts = results[2] || [];
 
     var existing = document.getElementById('_contractor_details_modal');
     if (existing) existing.remove();
@@ -718,6 +720,26 @@ function viewContractorDetails(contractorId) {
       `;
     }).join('') : '<div style="color:var(--text-3);padding:1.5rem;text-align:center;font-size:.85rem">Нет привязанных монтажников в штате</div>';
 
+    var contractsHtml = contracts.length ? contracts.map(function(ct) {
+      var dStr = ct.contract_date ? new Date(ct.contract_date).toLocaleDateString('ru') : '—';
+      var plBadge = ct.price_list_name 
+        ? `<button type="button" class="btn btn-sm btn-ghost" style="color:var(--blue);font-size:.75rem;padding:2px 8px" onclick="viewContractPriceList(${ct.id}, '${escHtml(ct.contract_number).replace(/'/g, "\\'")}')">📋 Прайс: ${escHtml(ct.price_list_name)}</button>` 
+        : '<span class="t3" style="font-size:.72rem">Без прайса</span>';
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border);font-size:.85rem">
+          <div>
+            <b>№ ${escHtml(ct.contract_number)}</b> от ${dStr}
+            <div style="font-size:.74rem;color:var(--text-3);margin-top:2px">
+              Генподрядчик: <b style="color:var(--text)">${escHtml(ct.own_company_name || 'ООО "Кабельные Системы"')}</b>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px">
+            ${plBadge}
+          </div>
+        </div>
+      `;
+    }).join('') : '<div style="color:var(--text-3);padding:1rem;text-align:center;font-size:.85rem">Нет рамочных договоров субподряда</div>';
+
     var poasHtml = poas.length ? poas.map(function(p) {
       var dStr = p.valid_until ? new Date(p.valid_until).toLocaleDateString('ru') : 'Бессрочно';
       var st = p.computed_status === 'expired' ? '<span class="badge b-red">Просрочена</span>' : '<span class="badge b-green">Действует</span>';
@@ -735,7 +757,7 @@ function viewContractorDetails(contractorId) {
     }).join('') : '<div style="color:var(--text-3);padding:1rem;text-align:center;font-size:.85rem">Нет связанных доверенностей</div>';
 
     modal.innerHTML = `
-      <div style="background:#fff;border-radius:14px;padding:1.5rem;width:100%;max-width:680px;box-shadow:0 12px 48px rgba(0,0,0,.25);max-height:90vh;display:flex;flex-direction:column">
+      <div style="background:#fff;border-radius:14px;padding:1.5rem;width:100%;max-width:700px;box-shadow:0 12px 48px rgba(0,0,0,.25);max-height:90vh;display:flex;flex-direction:column">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1rem;border-bottom:1px solid var(--border);padding-bottom:10px">
           <div>
             <h2 style="margin:0;font-size:1.25rem">${escHtml(c.name_short)}</h2>
@@ -747,13 +769,24 @@ function viewContractorDetails(contractorId) {
         </div>
 
         <div style="overflow-y:auto;flex:1;padding-right:4px">
+          <!-- РАМОЧНЫЕ ДОГОВОРЫ И ПРАЙС-ЛИСТЫ СУБПОДРЯДА -->
+          <div style="margin-bottom:1.5rem">
+            <div style="font-weight:700;font-size:.9rem;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+              <span>📑 Рамочные договоры и прайс-листы субподряда (${contracts.length} шт.)</span>
+              <button class="btn btn-sm" onclick="openAddContractorContractModal(${c.id}, '${escHtml(c.name_short).replace(/'/g, "\\'")}')">+ Добавить договор</button>
+            </div>
+            <div style="background:var(--bg);border-radius:8px;border:1px solid var(--border);max-height:200px;overflow-y:auto">
+              ${contractsHtml}
+            </div>
+          </div>
+
           <!-- БРИГАДА МОНТАЖНИКОВ ПОДРЯДЧИКА -->
           <div style="margin-bottom:1.5rem">
             <div style="font-weight:700;font-size:.9rem;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
               <span>👷 Монтажники субподрядчика (${specs.length} чел.)</span>
-              <button class="btn btn-sm" onclick="openAddInstallerModal(${c.id}, '${escHtml(c.name_short)}')">+ Добавить монтажника</button>
+              <button class="btn btn-sm" onclick="openAddInstallerModal(${c.id}, '${escHtml(c.name_short).replace(/'/g, "\\'")}')">+ Добавить монтажника</button>
             </div>
-            <div style="background:var(--bg);border-radius:8px;border:1px solid var(--border);max-height:220px;overflow-y:auto">
+            <div style="background:var(--bg);border-radius:8px;border:1px solid var(--border);max-height:200px;overflow-y:auto">
               ${specsHtml}
             </div>
           </div>
@@ -764,7 +797,7 @@ function viewContractorDetails(contractorId) {
               <span>📜 Доверенности на получение груза / работы</span>
               <span class="badge b-gray" style="font-size:.72rem">${poas.length} шт.</span>
             </div>
-            <div style="background:var(--bg);border-radius:8px;border:1px solid var(--border);max-height:180px;overflow-y:auto">
+            <div style="background:var(--bg);border-radius:8px;border:1px solid var(--border);max-height:160px;overflow-y:auto">
               ${poasHtml}
             </div>
           </div>
@@ -778,6 +811,115 @@ function viewContractorDetails(contractorId) {
 
     document.body.appendChild(modal);
     modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
+  });
+}
+
+function viewContractPriceList(contractId, contractNum) {
+  api('/contractor-contracts/' + contractId + '/price-list')
+    .then(function(res) {
+      if (res.error) throw new Error(res.error);
+      var items = res.items || [];
+      var ct = res.contract || {};
+      var pl = res.priceList || {};
+
+      var rows = items.map(function(it, idx) {
+        var tierStr = (it.price_tier1 != null && it.price_tier2 != null)
+          ? `${fmtMoney(it.price_tier1)} (1–${it.threshold_tier1}) / ${fmtMoney(it.price_tier2)} (>${it.threshold_tier1})`
+          : (it.price_tier1 != null ? fmtMoney(it.price_tier1) : '—');
+
+        return `
+          <tr style="border-bottom:1px solid var(--border);font-size:.82rem">
+            <td style="padding:6px 8px;color:var(--text-3);text-align:center">${idx + 1}</td>
+            <td style="padding:6px 8px;font-weight:600">${escHtml(it.name)}</td>
+            <td style="padding:6px 8px;text-align:center">${escHtml(it.unit || 'шт')}</td>
+            <td style="padding:6px 8px;text-align:right;font-weight:700;color:var(--blue)">${tierStr}</td>
+          </tr>
+        `;
+      }).join('');
+
+      var pModal = document.createElement('div');
+      pModal.id = '_contract_price_list_modal';
+      pModal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(3px)';
+      pModal.innerHTML = `
+        <div style="background:#fff;border-radius:12px;padding:1.5rem;width:100%;max-width:760px;box-shadow:0 12px 48px rgba(0,0,0,.3);max-height:85vh;display:flex;flex-direction:column">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1rem;border-bottom:1px solid var(--border);padding-bottom:10px">
+            <div>
+              <h3 style="margin:0;font-size:1.15rem">📋 Прайс-лист: ${escHtml(pl.name || 'Приложение №1')}</h3>
+              <div style="font-size:.78rem;color:var(--text-3);margin-top:2px">
+                Договор № <b>${escHtml(contractNum)}</b> · Генподрядчик: <b>${escHtml(ct.own_company_name || 'Группа')}</b>
+              </div>
+            </div>
+            <button onclick="document.getElementById('_contract_price_list_modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-3);line-height:1">×</button>
+          </div>
+          <div style="overflow-y:auto;flex:1;border:1px solid var(--border);border-radius:6px">
+            <table style="width:100%;border-collapse:collapse;text-align:left">
+              <thead>
+                <tr style="background:var(--bg);font-size:.75rem;color:var(--text-3);border-bottom:1px solid var(--border)">
+                  <th style="padding:6px 8px;width:35px;text-align:center">№</th>
+                  <th style="padding:6px 8px">Наименование работ / позиции</th>
+                  <th style="padding:6px 8px;width:70px;text-align:center">Ед. изм.</th>
+                  <th style="padding:6px 8px;width:220px;text-align:right">Тарифы (дифференцированная шкала)</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows || '<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--text-3)">В прайс-листе нет позиций</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+          <div style="text-align:right;margin-top:1rem;border-top:1px solid var(--border);padding-top:8px">
+            <button onclick="document.getElementById('_contract_price_list_modal').remove()" class="btn btn-sm btn-ghost">Закрыть</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(pModal);
+      pModal.addEventListener('click', function(e){ if (e.target === pModal) pModal.remove(); });
+    })
+    .catch(function(err) {
+      alert('Ошибка загрузки прайс-листа: ' + err.message);
+    });
+}
+
+function openAddContractorContractModal(contractorId, contractorName) {
+  var ownOptions = (S.ownCompanies || []).map(function(oc) {
+    return { value: oc.id, label: oc.name_short + ' (' + (oc.vat_mode === 'with_vat' ? 'с НДС' : 'без НДС') + ')' };
+  });
+
+  if (!ownOptions.length) {
+    ownOptions = [
+      { value: 1, label: 'ООО "Кабельные Системы" (с НДС)' },
+      { value: 2, label: 'ООО "К10" (без НДС)' },
+      { value: 3, label: 'ООО "Ультима" (СПб)' }
+    ];
+  }
+
+  showModal('📑 Новый рамочный договор с «' + contractorName + '»', [
+    { key: 'ownCompanyId', label: 'Наше юрлицо (Генподрядчик)', type: 'select', value: 2, options: ownOptions, required: true },
+    { key: 'contractNumber', label: 'Номер договора', placeholder: 'например: К10/24-СЗ', required: true },
+    { key: 'contractDate', label: 'Дата заключения договора', type: 'date', value: new Date().toISOString().slice(0, 10), required: true },
+    { key: 'priceProtocol', label: 'Подключить стандартный протокол цен (Приложение №1 Сбербанк)?', type: 'select', value: 'yes', options: [
+        { value: 'yes', label: '✓ Да, создать Приложение №1 со шкалой (1–3 порта: 3000/2500 ₽, ТКШ, пробег 12 ₽/км)' },
+        { value: 'no', label: 'Нет, без прайс-листа (только рамочный договор)' }
+      ]
+    }
+  ], function(d) {
+    api('/contractors/' + contractorId + '/contracts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        own_company_id: parseInt(d.ownCompanyId, 10),
+        contract_number: d.contractNumber,
+        contract_date: d.contractDate,
+        create_standard_price_list: d.priceProtocol === 'yes'
+      })
+    }).then(function(res) {
+      if (res && res.error) return alert(res.error);
+      alert('✓ Договор успешно добавлен!');
+      var oldModal = document.getElementById('_contractor_details_modal');
+      if (oldModal) oldModal.remove();
+      viewContractorDetails(contractorId);
+    }).catch(function(err) {
+      alert('Ошибка сохранения договора: ' + err.message);
+    });
   });
 }
 

@@ -6,7 +6,7 @@ var S = {
   isOnline: navigator.onLine !== false,
   outboxCount: 0,
   syncing: false,
-  tasks: [], chains: [], stats: {}, importInfo: null, users: [], contractors: [], specialists: [], notifications: [],
+  tasks: [], chains: [], stats: {}, importInfo: null, users: [], contractors: [], ownCompanies: [], specialists: [], notifications: [],
   selChain: null, selChainStep: null, chainMgr: '',
   taskQ: '', taskSt: '', taskPr: '', taskReg: '', taskMgr: '', taskYear: '', taskOverdue: '',
   taskCustomer: '',

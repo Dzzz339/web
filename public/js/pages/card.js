@@ -139,6 +139,7 @@ function setCardTab(tabName) {
     refreshTaskItemsList(S.cardId);
     if (tabName === 'items') {
       loadCardSubcontracts(S.cardId);
+      if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(S.cardId);
     }
   }
 }
@@ -158,6 +159,7 @@ function openCard(id) {
   refreshRemarksList(id);
   refreshTaskItemsList(id);
   loadCardMaterials(id);
+  if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(id);
 }
 
 function pageCard() {
@@ -949,7 +951,7 @@ function pageCard() {
         '<div class="sec-title" style="margin:0;font-size:1.05rem">🤝 Исходящие поручения субподрядчикам</div>' +
         '<div style="font-size:.78rem;color:var(--text-3);margin-top:2px">Назначение подрядчиков (СКС, ВОЛС, ПНР), формирование Заказ-нарядов и Писем на допуск</div>' +
       '</div>' +
-      (!isLocked ? '<button class="btn btn-sm btn-primary" onclick="openSubcontractModal(\'' + eid + '\')">+ Назначить подрядчика</button>' : '') +
+      (!isLocked ? '<button class="btn btn-sm btn-primary" onclick="openSubcontractWizardModal(\'' + eid + '\')">🪄 Мастер назначения субподряда</button>' : '') +
     '</div>' +
     '<div id="cardSubcontractsContainer" class="t3">Загрузка субподрядов…</div>' +
     (function() {
@@ -998,6 +1000,7 @@ function pageCard() {
   '</div>';
 
   var paneItems = '<div id="cardTabPane-items" class="card-tab-pane" style="display:' + (curTab === 'items' ? 'block' : 'none') + '">' +
+    '<div id="cardSmrCalculatorBlock" style="margin-bottom:1rem"></div>' +
     subcontractsBlock +
     '<div class="card p mb" id="attachmentsBlock">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
@@ -2125,6 +2128,7 @@ function writeOffTaskMaterials(taskId) {
 
 function loadCardSubcontracts(taskId) {
   var cont = document.getElementById('cardSubcontractsContainer');
+  if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(taskId);
   if (!cont) return;
   api('/tasks/' + encodeURIComponent(taskId) + '/subcontracts')
     .then(function(subs) {
@@ -2148,10 +2152,10 @@ function loadCardSubcontracts(taskId) {
               '<span class="badge b-pink" style="font-size:.8rem;padding:4px 10px;font-weight:600">Назначен в заявке</span>' +
             '</div>' +
             '<div style="background:var(--bg);padding:10px 12px;border-radius:6px;font-size:.82rem;margin-bottom:12px;color:var(--text-2)">' +
-              'Подрядчик выбран в карточке заявки. Нажмите «Оформить Заказ-наряд», чтобы зафиксировать согласованную цену, дедлайн и паспортные данные монтажников для допуска.' +
+              'Подрядчик выбран в карточке заявки. Нажмите «Оформить через Мастер», чтобы рассчитать стоимость по прайс-листу (КС / К10), согласовать смету и сформировать официальные документы.' +
             '</div>' +
             '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-              '<button class="btn btn-sm btn-primary" onclick="openSubcontractModal(\'' + escHtml(taskId) + '\')">📄 Оформить Заказ-наряд и поручение</button>' +
+              '<button class="btn btn-sm btn-primary" onclick="openSubcontractWizardModal(\'' + escHtml(taskId) + '\')">🪄 Оформить через Мастер субподряда</button>' +
               '<button class="btn btn-sm btn-ghost" onclick="openContractorPicker(\'' + escHtml(taskId) + '\')">🔍 Сменить подрядчика</button>' +
             '</div>' +
           '</div>';
@@ -2160,7 +2164,7 @@ function loadCardSubcontracts(taskId) {
 
         cont.innerHTML = '<div style="background:var(--bg);padding:14px;border-radius:8px;text-align:center;color:var(--text-3);font-size:.85rem">' +
           '<span>Субподрядчики на объект еще не назначены.</span> ' +
-          '<button class="btn btn-sm btn-link" onclick="openSubcontractModal(\'' + escHtml(taskId) + '\')">+ Назначить исполнителя на СКС/ВОЛС</button>' +
+          '<button class="btn btn-sm btn-link" onclick="openSubcontractWizardModal(\'' + escHtml(taskId) + '\')">+ Назначить исполнителя через Мастер</button>' +
         '</div>';
         return;
       }
@@ -2201,6 +2205,8 @@ function loadCardSubcontracts(taskId) {
           '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:8px;background:var(--bg);padding:8px 10px;border-radius:6px;font-size:.8rem;margin-bottom:10px">' +
             '<div>Вид работ: <b>' + escHtml(sub.work_type) + '</b></div>' +
             '<div>Сумма субподряда: <b style="color:var(--blue)">' + priceStr + '</b></div>' +
+            (sub.own_company_name ? '<div>Генподрядчик: <b style="color:var(--primary)">' + escHtml(sub.own_company_name) + '</b></div>' : '') +
+            (sub.contract_number ? '<div>Договор: <b>' + escHtml(sub.contract_number) + (sub.contract_date ? (' от ' + escHtml(sub.contract_date.slice(0,10).split('-').reverse().join('.'))) : '') + '</b></div>' : '') +
             '<div>Срок (дедлайн): <b>' + deadlineStr + '</b></div>' +
             '<div>Монтажник: <b>' + escHtml(sub.installer_fio || 'Не назначен') + '</b></div>' +
             (sub.installer_phone ? '<div>Телефон: ' + escHtml(sub.installer_phone) + '</div>' : '') +
@@ -2218,7 +2224,7 @@ function loadCardSubcontracts(taskId) {
               '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'power_attorney\')" title="Сформировать доверенность М-2 на получение ТМЦ">📦 Доверенность М-2 (.docx)</button>' +
             '</div>' +
             '<div style="display:flex;gap:6px">' +
-              '<button class="btn btn-sm btn-ghost" onclick="openSubcontractModal(\'' + escHtml(taskId) + '\', ' + sub.id + ')" title="Редактировать">✏️</button>' +
+              '<button class="btn btn-sm btn-ghost" onclick="openSubcontractWizardModal(\'' + escHtml(taskId) + '\', ' + sub.id + ')" title="Редактировать в Мастере">✏️ Редактировать</button>' +
               '<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteSubcontract(\'' + escHtml(taskId) + '\', ' + sub.id + ')" title="Удалить">🗑️</button>' +
             '</div>' +
           '</div>' +

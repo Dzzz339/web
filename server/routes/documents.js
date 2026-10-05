@@ -70,13 +70,22 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, async (req, 
     // Загружаем данные субподряда, если передан
     let subcontract = null;
     let contractor = {};
+    let generalContractor = DEFAULT_GENERAL_CONTRACTOR;
     if (subcontract_id) {
       const subRes = await pool.query(`
-        SELECT s.*, c.name_short, c.name_full, c.inn, c.address_legal, c.director, c.phone, c.contract_number
+        SELECT s.*, 
+          c.name_short, c.name_full, c.inn, c.address_legal, c.director, c.phone, c.bank_name, c.bik, c.account_pay, c.account_corr,
+          cc.contract_number AS linked_contract_number, cc.contract_date AS linked_contract_date, cc.title AS linked_contract_title,
+          oc.id AS own_id, oc.name_short AS own_name_short, oc.name_full AS own_name_full, oc.inn AS own_inn, oc.kpp AS own_kpp,
+          oc.ogrn AS own_ogrn, oc.director AS own_director, oc.address_legal AS own_address_legal, oc.phone AS own_phone,
+          oc.bank_name AS own_bank_name, oc.bik AS own_bik, oc.account_pay AS own_account_pay, oc.account_corr AS own_account_corr
         FROM task_subcontracts s
         LEFT JOIN contractors c ON s.contractor_id = c.id
+        LEFT JOIN contractor_contracts cc ON s.contractor_contract_id = cc.id
+        LEFT JOIN own_companies oc ON s.own_company_id = oc.id
         WHERE s.id = $1
       `, [subcontract_id]);
+
       if (subRes.rows.length > 0) {
         subcontract = subRes.rows[0];
         contractor = {
@@ -86,8 +95,30 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, async (req, 
           address_legal: subcontract.address_legal,
           director: subcontract.director,
           phone: subcontract.phone,
-          contract_number: subcontract.contract_number
+          contract_number: subcontract.linked_contract_number || subcontract.contract_number,
+          contract_date: subcontract.linked_contract_date || null,
+          bank_name: subcontract.bank_name,
+          bik: subcontract.bik,
+          account_pay: subcontract.account_pay,
+          account_corr: subcontract.account_corr
         };
+
+        if (subcontract.own_name_full) {
+          generalContractor = {
+            name_full: subcontract.own_name_full,
+            name_short: subcontract.own_name_short,
+            inn: subcontract.own_inn,
+            kpp: subcontract.own_kpp || '',
+            ogrn: subcontract.own_ogrn || '',
+            address_legal: subcontract.own_address_legal,
+            phone: subcontract.own_phone || '',
+            director: subcontract.own_director,
+            bank_name: subcontract.own_bank_name || '',
+            bik: subcontract.own_bik || '',
+            account_pay: subcontract.own_account_pay || '',
+            account_corr: subcontract.own_account_corr || ''
+          };
+        }
       }
     }
 
@@ -105,15 +136,17 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, async (req, 
         task,
         subcontract: subcontract || {},
         contractor,
+        generalContractor,
         orderNumber: docNumber
       });
 
     } else if (doc_type === 'contract') {
-      docNumber = `ДГ-${contractor.inn || '000'}-${Date.now().toString().slice(-4)}`;
+      docNumber = contractor.contract_number || `ДГ-${contractor.inn || '000'}-${Date.now().toString().slice(-4)}`;
       title = `Договор подряда № ${docNumber}`;
       buffer = await generateContract({
         contractor: contractor || {},
-        date: new Date()
+        generalContractor,
+        date: contractor.contract_date || new Date()
       });
     } else if (doc_type === 'completion_act') {
       docNumber = `АКТ-${task.id}-${subcontract ? subcontract.id : '1'}`;
@@ -122,6 +155,7 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, async (req, 
         task,
         contractor: contractor || {},
         subcontract: subcontract || {},
+        generalContractor,
         date: new Date()
       });
 
@@ -132,6 +166,7 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, async (req, 
         task,
         contractor: contractor || {},
         subcontract: subcontract || {},
+        generalContractor,
         date: new Date()
       });
     } else if (doc_type === 'tmc_act') {
@@ -141,6 +176,7 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, async (req, 
         task,
         contractor: contractor || {},
         subcontract: subcontract || {},
+        generalContractor,
         date: new Date()
       });
     } else if (doc_type === 'permit_letter') {
@@ -160,6 +196,7 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, async (req, 
         task,
         specialists,
         contractor,
+        generalContractor,
         letterNumber: docNumber
       });
     } else if (doc_type === 'power_attorney') {

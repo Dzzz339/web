@@ -19,10 +19,15 @@ router.get('/tasks/:taskId/subcontracts', authenticateToken, async (req, res) =>
         c.address_legal AS contractor_address,
         COALESCE(sp.full_name, s.installer_fio) AS specialist_name,
         COALESCE(sp.phone, s.installer_phone) AS specialist_phone,
-        COALESCE(sp.passport_series_number, s.installer_passport) AS specialist_passport
+        COALESCE(sp.passport_series_number, s.installer_passport) AS specialist_passport,
+        oc.name_short AS own_company_name,
+        cc.contract_number,
+        cc.contract_date
       FROM task_subcontracts s
       LEFT JOIN contractors c ON s.contractor_id = c.id
       LEFT JOIN specialists sp ON s.specialist_id = sp.id
+      LEFT JOIN own_companies oc ON s.own_company_id = oc.id
+      LEFT JOIN contractor_contracts cc ON s.contractor_contract_id = cc.id
       WHERE s.task_id = $1
       ORDER BY s.id ASC
     `, [taskId]);
@@ -41,10 +46,15 @@ router.get('/tasks/:taskId/subcontracts', authenticateToken, async (req, res) =>
             c.address_legal AS contractor_address,
             COALESCE(sp.full_name, s.installer_fio) AS specialist_name,
             COALESCE(sp.phone, s.installer_phone) AS specialist_phone,
-            COALESCE(sp.passport_series_number, s.installer_passport) AS specialist_passport
+            COALESCE(sp.passport_series_number, s.installer_passport) AS specialist_passport,
+            oc.name_short AS own_company_name,
+            cc.contract_number,
+            cc.contract_date
           FROM task_subcontracts s
           LEFT JOIN contractors c ON s.contractor_id = c.id
           LEFT JOIN specialists sp ON s.specialist_id = sp.id
+          LEFT JOIN own_companies oc ON s.own_company_id = oc.id
+          LEFT JOIN contractor_contracts cc ON s.contractor_contract_id = cc.id
           WHERE s.task_id = $1
           ORDER BY s.id ASC
         `, [taskId]);

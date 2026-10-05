@@ -25,6 +25,7 @@ import automationRoutes from './routes/automation.js';
 import subcontractsRoutes from './routes/subcontracts.js';
 import documentsRoutes from './routes/documents.js';
 import contractsRoutes from './routes/contracts.js';
+import subcontractDmsRoutes from './routes/subcontractDms.js';
 
 const app = express();
 const server = createServer(app);
@@ -71,6 +72,7 @@ app.use('/api/automation', automationRoutes);
 app.use('/api', subcontractsRoutes);
 app.use('/api', documentsRoutes);
 app.use('/api', contractsRoutes);
+app.use('/api', subcontractDmsRoutes);
 
 // Инициализация WebSockets чата
 setupChatSocket(io);

@@ -45,7 +45,8 @@ function init() {
       api('/contracts').catch(function(){ return []; }),
       !isWorkerRole ? api('/contractors').catch(function(){ return []; }) : Promise.resolve([]),
       !isWorkerRole ? api('/specialists').catch(function(){ return []; }) : Promise.resolve([]),
-      (S.user && S.user.role === 'admin') ? api('/users').catch(function(){ return []; }) : Promise.resolve([])
+      (S.user && S.user.role === 'admin') ? api('/users').catch(function(){ return []; }) : Promise.resolve([]),
+      api('/own-companies').catch(function(){ return []; })
     ];
 
     Promise.all(requests).then(function(res) {
@@ -58,6 +59,7 @@ function init() {
       var netContractors = Array.isArray(res[6]) ? res[6] : cachedContractors;
       var netSpecialists = Array.isArray(res[7]) ? res[7] : [];
       var netUsers = Array.isArray(res[8]) ? res[8] : cachedUsers;
+      var netOwnCompanies = Array.isArray(res[9]) ? res[9] : [];
 
       S.stats = netStats;
       S.tasks = netTasks;
@@ -69,6 +71,7 @@ function init() {
       S.contractors = netContractors;
       S.specialists = netSpecialists;
       S.users = netUsers;
+      S.ownCompanies = netOwnCompanies;
 
       if (Array.isArray(S.chains) && S.chains.length) {
         var firstReal = S.chains.find(function(c){ return c.id && c.id !== '(без региона)'; });
