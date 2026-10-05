@@ -819,6 +819,8 @@ function openContractorPicker(taskId) {
 
 function closeContractorPicker() {
   S.cpTaskId = null;
+  var oldCp = document.getElementById('_app_contractor_picker_modal');
+  if (oldCp) oldCp.remove();
   renderApp();
 }
 
@@ -835,7 +837,10 @@ function assignContractorToTask(taskId, nameShort) {
     .then(function(){
       t.contractor = nameShort;
       t._history = hist;
-      closeContractorPicker(); if (typeof loadCardSubcontracts === 'function' && S.cardId && String(S.cardId) === String(taskId)) { loadCardSubcontracts(taskId); }
+      if (S.cardDraft) delete S.cardDraft.contractor;
+      closeContractorPicker(); 
+      if (typeof loadCardSubcontracts === 'function' && S.cardId && String(S.cardId) === String(taskId)) { loadCardSubcontracts(taskId); }
+      renderApp();
     })
     .catch(function(e){ alert('Ошибка: ' + e.message); });
 }

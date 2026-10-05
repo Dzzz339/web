@@ -1,3 +1,71 @@
+function cleanContractNumber(num) {
+  if (!num) return '';
+  return String(num).replace(/^[№\s#]+/, '').trim();
+}
+
+function getContractSortKey(c) {
+  var internal = String(c.internal_number || '').trim();
+  var m = internal.match(/^(\d{2})(\d{2})-(\d+)/);
+  if (m) {
+    var month = m[1], year = '20' + m[2], seq = m[3].padStart(4, '0');
+    return parseInt(year + month + seq, 10);
+  }
+  if (c.contract_date) {
+    var d = new Date(c.contract_date);
+    if (!isNaN(d.getTime())) return d.getTime();
+  }
+  return Number(c.id) || 0;
+}
+
+window.toggleCardContractPicker = function(force) {
+  S._cardContractPickerOpen = force !== undefined ? force : !S._cardContractPickerOpen;
+  var box = document.getElementById('card_contract_picker_box');
+  if (box) {
+    box.style.display = S._cardContractPickerOpen ? 'block' : 'none';
+  } else {
+    renderApp();
+  }
+};
+
+window.filterCardContractsList = function(q) {
+  var qy = String(q || '').toLowerCase().trim();
+  var inp = document.getElementById('card_contract_search_inp');
+  if (inp && inp.value !== q) inp.value = q;
+  var items = document.querySelectorAll('#card_contract_items_list .card-contract-picker-item');
+  items.forEach(function(el) {
+    var searchStr = el.getAttribute('data-search') || '';
+    if (!qy || searchStr.indexOf(qy) !== -1) {
+      el.style.display = '';
+    } else {
+      el.style.display = 'none';
+    }
+  });
+};
+
+window.selectCardContract = function(cId) {
+  var sel = document.getElementById('card_contract_select');
+  var valStr = cId ? String(cId) : '';
+  if (sel) {
+    sel.value = valStr;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  } else {
+    var t = S.tasks.find(function(x){ return String(x.id) === String(S.cardId); });
+    if (t) {
+      if (valStr) {
+        S.cardDraft.contract_id = Number(valStr);
+        t.contract_id = Number(valStr);
+        t.contractId = Number(valStr);
+      } else {
+        S.cardDraft.contract_id = null;
+        t.contract_id = null;
+        t.contractId = null;
+      }
+    }
+  }
+  S._cardContractPickerOpen = false;
+  renderApp();
+};
+
 function exportDoc(type, id, contractorName) {
   var url = '/api/export/' + type + '/' + encodeURIComponent(id);
   if (contractorName) {
@@ -130,10 +198,33 @@ function pageCard() {
     contractorOpts += '<option value="' + t.contractor + '" selected>⚠️ ' + t.contractor + ' (из Excel)</option>';
   }
 
-  var contractOpts = '<option value="">— (Не привязан к договору) —</option>' + (S.contracts || []).map(function(c) {
-    var curContractId = Object.prototype.hasOwnProperty.call(S.cardDraft, 'contract_id') ? S.cardDraft.contract_id : t.contract_id;
+  var curContractId = Object.prototype.hasOwnProperty.call(S.cardDraft, 'contract_id') 
+    ? S.cardDraft.contract_id 
+    : (t.contract_id != null ? t.contract_id : t.contractId);
+
+  // Автоматическая привязка по префиксу номера заявки (например, 0926-02-1 -> договор 0926-02)
+  if (!curContractId && t.id) {
+    var mPrefix = String(t.id).match(/^(\d{4}-\d{2})/);
+    if (mPrefix) {
+      var autoMatched = (S.contracts || []).find(function(c) {
+        return c.internal_number === mPrefix[1];
+      });
+      if (autoMatched) {
+        curContractId = autoMatched.id;
+        t.contract_id = autoMatched.id;
+        t.contractId = autoMatched.id;
+      }
+    }
+  }
+
+  var sortedContracts = (S.contracts || []).slice().sort(function(a, b) {
+    return getContractSortKey(b) - getContractSortKey(a);
+  });
+
+  var contractOpts = '<option value="">— (Не привязан к договору) —</option>' + sortedContracts.map(function(c) {
     var isSel = String(curContractId) === String(c.id);
-    var label = (c.internal_number ? 'Вн. ' + c.internal_number : '') + (c.contract_number ? ' (№ ' + c.contract_number + ')' : '') + ' · ' + (c.customer_name || '') + ' · ' + (c.contract_type_summary || '');
+    var cleanNum = cleanContractNumber(c.contract_number);
+    var label = (c.internal_number ? 'Вн. ' + c.internal_number : '') + (cleanNum ? ' (№ ' + cleanNum + ')' : '') + ' · ' + (c.customer_name || '') + ' · ' + (c.contract_type_summary || '');
     return '<option value="' + c.id + '"' + (isSel ? ' selected' : '') + '>' + escHtml(label) + '</option>';
   }).join('');
 
@@ -155,8 +246,11 @@ function pageCard() {
       } else if (type === 'url') {
         displayVal = val ? ('<a href="' + escHtml(val) + '" target="_blank" rel="noopener noreferrer" style="color:var(--blue);text-decoration:underline;word-break:break-all">🔗 Открыть ссылку</a>') : '—';
       } else if (key === 'contract_id') {
-        var curC = (S.contracts || []).find(function(x){ return String(x.id) === String(val); });
-        displayVal = curC ? (curC.contract_number ? ('Договор № ' + escHtml(curC.contract_number) + ' (' + escHtml(curC.name_short) + ')') : escHtml(curC.name_short)) : '—';
+        var curC = (S.contracts || []).find(function(x){ return String(x.id) === String(val || curContractId); });
+        var cleanNum = curC ? cleanContractNumber(curC.contract_number) : '';
+        displayVal = curC 
+          ? ((curC.internal_number ? ('[Вн. ' + escHtml(curC.internal_number) + '] ') : '') + (cleanNum ? ('№ ' + escHtml(cleanNum) + ' · ') : '') + escHtml(curC.customer_name || curC.name_short || '—')) 
+          : '—';
       } else if (key === 'status') {
         displayVal = stBadge(val);
       } else if (key === 'priority') {
@@ -179,26 +273,79 @@ function pageCard() {
 
     var inp = '';
     if (key === 'contract_id') {
-      var curC = (S.contracts || []).find(function(x){ return String(x.id) === String(val); });
-      var contractCardHtml = curC ? (
-        '<div style="margin-top:6px;padding:8px 10px;background:#f8fafc;border:1.5px solid var(--border);border-radius:6px;font-size:.78rem">' +
+      var curC = (S.contracts || []).find(function(x){ return String(x.id) === String(val || curContractId); });
+      var cleanNum = curC ? cleanContractNumber(curC.contract_number) : '';
+      var showPicker = S._cardContractPickerOpen || !curC;
+
+      var selectedContractCard = curC ? (
+        '<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px;padding:10px 12px;margin-bottom:6px;box-shadow:0 1px 3px rgba(0,0,0,0.03)">' +
           '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">' +
             '<div>' +
-              '<div style="font-weight:700;color:var(--text);font-size:.84rem">' +
-                (curC.contract_number ? ('Договор № ' + escHtml(curC.contract_number)) : ('Контракт #' + curC.id)) +
-                (curC.internal_number ? (' · Вн. ' + escHtml(curC.internal_number)) : '') +
+              '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+                (curC.internal_number ? '<span class="badge b-orange" style="font-weight:700;font-size:.78rem;font-family:monospace">Вн. ' + escHtml(curC.internal_number) + '</span>' : '') +
+                (cleanNum ? '<span class="badge b-blue" style="font-weight:600;font-size:.78rem">№ ' + escHtml(cleanNum) + '</span>' : '') +
+                '<span class="badge b-green" style="font-size:.72rem">🔗 Привязан</span>' +
               '</div>' +
-              '<div style="color:var(--text-2);margin-top:2px">🏛️ Заказчик: <b>' + escHtml(curC.customer_name || 'Не указан') + '</b></div>' +
-              (curC.our_entity_name ? '<div style="color:var(--text-3);margin-top:1px">🏢 Генподрядчик: ' + escHtml(curC.our_entity_name) + '</div>' : '') +
+              '<div style="font-weight:700;font-size:.88rem;color:var(--text);margin-top:4px">' +
+                escHtml(curC.customer_name || 'Не указан') +
+              '</div>' +
+              '<div style="font-size:.76rem;color:var(--text-2);margin-top:2px">' +
+                (curC.contract_type_summary ? ('<b>' + escHtml(curC.contract_type_summary) + '</b> · ') : '') +
+                '🏢 ' + escHtml(curC.our_entity_name || 'ООО "Кабельные Системы"') +
+              '</div>' +
             '</div>' +
-            '<button type="button" class="btn btn-sm btn-ghost" onclick="openContractModal(' + curC.id + ')" style="border:1px solid var(--border);padding:3px 8px;font-size:.74rem;white-space:nowrap" title="Открыть карточку генерального договора">👁️ Открыть договор</button>' +
+            '<div style="display:flex;gap:4px;flex-shrink:0">' +
+              '<button type="button" class="btn btn-sm btn-ghost" onclick="openContractModal(' + curC.id + ')" style="padding:3px 8px;font-size:.74rem;border:1px solid #bbf7d0" title="Открыть карточку генерального договора">👁️ Договор</button>' +
+              '<button type="button" class="btn btn-sm btn-ghost" onclick="toggleCardContractPicker()" style="padding:3px 8px;font-size:.74rem;color:var(--text-3);border:1px solid var(--border)" title="Выбрать другой договор или отвязать">' + (showPicker ? 'Скрыть ▲' : 'Сменить ✕') + '</button>' +
+            '</div>' +
           '</div>' +
         '</div>'
       ) : '';
 
+      var pickerDisplay = showPicker ? 'block' : 'none';
+
+      var quickFiltersHtml = '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="filterCardContractsList(\'\')" style="padding:1px 6px;font-size:.72rem">Все</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="filterCardContractsList(\'0926\')" style="padding:1px 6px;font-size:.72rem;background:#fef3c7;color:#92400e;border-color:#fde68a">0926 (Сент 26)</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="filterCardContractsList(\'0826\')" style="padding:1px 6px;font-size:.72rem;background:#f1f5f9;color:#334155;border-color:#cbd5e1">0826 (Авг 26)</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="filterCardContractsList(\'0726\')" style="padding:1px 6px;font-size:.72rem;background:#f1f5f9;color:#334155;border-color:#cbd5e1">0726 (Июль 26)</button>' +
+      '</div>';
+
+      var contractsItemsHtml = sortedContracts.slice(0, 100).map(function(c) {
+        var isThisSel = String(curContractId) === String(c.id);
+        var cleanN = cleanContractNumber(c.contract_number);
+        var searchHaystack = ((c.internal_number || '') + ' ' + cleanN + ' ' + (c.customer_name || '') + ' ' + (c.contract_type_summary || '') + ' ' + (c.our_entity_name || '')).toLowerCase();
+        return '<div class="card-contract-picker-item" data-search="' + escHtml(searchHaystack) + '" onclick="selectCardContract(' + c.id + ')" style="padding:6px 8px;border-radius:6px;cursor:pointer;border-bottom:1px solid #f1f5f9;background:' + (isThisSel ? '#ecfdf5' : '#fff') + ';transition:background .15s" onmouseover="if(!' + isThisSel + ')this.style.background=\'#f8fafc\'" onmouseout="if(!' + isThisSel + ')this.style.background=\'#fff\'">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px">' +
+            '<div style="display:flex;align-items:center;gap:6px">' +
+              (c.internal_number ? '<span class="badge b-orange" style="font-size:.72rem;font-family:monospace;padding:1px 5px">Вн. ' + escHtml(c.internal_number) + '</span>' : '') +
+              (cleanN ? '<span class="badge b-gray" style="font-size:.72rem;padding:1px 5px">№ ' + escHtml(cleanN) + '</span>' : '') +
+              (c.contract_type_summary ? '<span style="font-size:.72rem;color:var(--text-2);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(c.contract_type_summary) + '</span>' : '') +
+            '</div>' +
+            (isThisSel ? '<span style="color:var(--green);font-size:.75rem;font-weight:700">✓ Выбран</span>' : '') +
+          '</div>' +
+          '<div style="font-size:.78rem;font-weight:600;color:var(--text);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(c.customer_name || '') + '">' +
+            '🏛️ ' + escHtml(c.customer_name || 'Не указан') +
+          '</div>' +
+        '</div>';
+      }).join('');
+
+      var pickerHtml = '<div id="card_contract_picker_box" style="display:' + pickerDisplay + ';border:1.5px solid var(--orange);border-radius:8px;padding:8px;background:#fff;margin-top:4px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+          '<span style="font-size:.78rem;font-weight:700;color:var(--text)">Выбор генерального контракта:</span>' +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="selectCardContract(\'\')" style="font-size:.72rem;color:var(--red);padding:1px 6px">✕ Отвязать от договора</button>' +
+        '</div>' +
+        '<input type="text" id="card_contract_search_inp" placeholder="🔍 Поиск по номеру (0926...), договору или заказчику..." oninput="filterCardContractsList(this.value)" style="width:100%;padding:5px 8px;font-size:.82rem;border:1px solid var(--border);border-radius:6px;margin-bottom:6px">' +
+        quickFiltersHtml +
+        '<div id="card_contract_items_list" style="max-height:220px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px;background:#fff">' +
+          contractsItemsHtml +
+        '</div>' +
+      '</div>';
+
       inp = '<div style="width:100%">' +
-        '<select name="'+key+'" data-key="'+key+'" style="width:100%;padding:4px 8px;font-size:.82rem">' + contractOpts + '</select>' +
-        contractCardHtml +
+        '<select name="contract_id" data-key="contract_id" id="card_contract_select" style="display:none">' + contractOpts + '</select>' +
+        selectedContractCard +
+        pickerHtml +
       '</div>';
     }
     else if (key === 'status') {
@@ -659,7 +806,10 @@ function pageCard() {
     (cleanPhone ? '<a href="tel:' + cleanPhone + '" class="quick-contact-btn call-btn">📞 Позвонить (' + escHtml(phoneMatch[0]) + ')</a>' : '') +
   '</div>';
 
-  var curContract = (S.contracts || []).find(function(x){ return String(x.id) === String(t.contract_id); });
+  var curContract = (S.contracts || []).find(function(x){ 
+    var cid = (t.contract_id != null ? t.contract_id : t.contractId) || curContractId;
+    return String(x.id) === String(cid); 
+  });
   var ourEntityName = (curContract && curContract.our_entity_name) ? curContract.our_entity_name : 'ООО "Кабельные Системы"';
   var ourEntityHtml = isWorker ? '' : ('<div class="field-row"><div class="field-lbl">Генподрядчик (Мы)</div><div class="field-val" style="display:flex;align-items:center;padding:5px 0;font-weight:600;color:var(--text)">🏢 ' + escHtml(ourEntityName) + '</div></div>');
 
@@ -931,7 +1081,10 @@ function pageCard() {
   '</div>';
 
   var paneFinance = (function() {
-    var curC = (S.contracts || []).find(function(x){ return String(x.id) === String(t.contract_id); });
+    var curC = (S.contracts || []).find(function(x){ 
+      var cid = (t.contract_id != null ? t.contract_id : t.contractId) || curContractId;
+      return String(x.id) === String(cid); 
+    });
     var curContractTitle = curC
       ? ((curC.contract_number ? ('Договор № ' + escHtml(curC.contract_number)) : ('Контракт #' + curC.id)) +
          (curC.internal_number ? (' · Вн. ' + escHtml(curC.internal_number)) : '') +

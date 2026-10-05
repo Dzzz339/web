@@ -380,6 +380,18 @@ function renderApp() {
   // 3. Вешаем события заново
   bindEvents();
 
+  // 3.1. Если открыт выбор подрядчика (S.cpTaskId) вне страницы tasks, рендерим его модалку
+  var oldCp = document.getElementById('_app_contractor_picker_modal');
+  if (oldCp) oldCp.remove();
+  if (S.cpTaskId && S.page !== 'tasks' && typeof renderContractorPicker === 'function') {
+    var cpWrap = document.createElement('div');
+    cpWrap.innerHTML = renderContractorPicker();
+    if (cpWrap.firstElementChild) {
+      cpWrap.firstElementChild.id = '_app_contractor_picker_modal';
+      document.body.appendChild(cpWrap.firstElementChild);
+    }
+  }
+
   // 4. ВОЗВРАЩАЕМ ФОКУС
   if (activeId) {
     var el = document.getElementById(activeId);
