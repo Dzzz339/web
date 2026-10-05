@@ -773,28 +773,13 @@ function renderContractorPicker() {
       '</div>';
   } else {
     var qy = (S.cpQuery || '').toLowerCase();
-    var matches = (S.contractors || []).filter(function(c) {
-      if (!c || !c.name_short) return false;
-      if (c.type === 'customer' || String(c.inn || '').startsWith('CUST-')) return false;
-      if (!qy) return true;
-      return (c.name_short||'').toLowerCase().indexOf(qy) !== -1 ||
-             (c.name_full||'').toLowerCase().indexOf(qy) !== -1 ||
-             (c.inn||'').toLowerCase().indexOf(qy) !== -1;
-    }).slice(0, 30);
-
-    var list = matches.length
-      ? matches.map(function(c) {
-          return '<div class="field-row" style="cursor:pointer" onclick="assignContractorToTask(\'' + S.cpTaskId.replace(/'/g,"\\'") + '\',\'' + (c.name_short||'').replace(/'/g,"\\'") + '\')">' +
-            '<div class="field-lbl">' + escHtml(c.name_short) + '</div>' +
-            '<div class="field-val t3">ИНН ' + (c.inn||'—') + '</div>' +
-          '</div>';
-        }).join('')
-      : '<div class="t3" style="padding:.5rem 0">Ничего не найдено</div>';
-
     body =
-      '<input type="text" placeholder="Поиск по названию или ИНН..." value="' + (S.cpQuery||'').replace(/"/g,'&quot;') + '" ' +
-        'oninput="S.cpQuery=this.value;renderApp()" style="width:100%;margin-bottom:.75rem" autofocus>' +
-      '<div style="max-height:300px;overflow-y:auto">' + list + '</div>' +
+      '<div style="position:relative; margin-bottom:.75rem">' +
+        '<input type="text" id="cp_search_inp" placeholder="Поиск по названию или ИНН..." value="' + (S.cpQuery||'').replace(/"/g,'&quot;') + '" ' +
+          'oninput="onContractorPickerSearch(this.value)" style="width:100%; padding:8px 30px 8px 10px; border:1px solid var(--border); border-radius:6px" autofocus>' +
+        '<button id="cp_search_clear_btn" onclick="clearContractorPickerSearch()" style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; color:var(--text-3); font-size:1.1rem; display:' + (S.cpQuery ? 'block' : 'none') + '">&times;</button>' +
+      '</div>' +
+      '<div id="cp_list_container" style="max-height:300px;overflow-y:auto">' + renderContractorPickerRows(qy) + '</div>' +
       '<div style="text-align:right;margin-top:1rem">' +
         '<button class="btn btn-sm" onclick="S.cpMode=\'new\';renderApp()">+ Добавить нового</button>' +
       '</div>';
@@ -823,6 +808,49 @@ function closeContractorPicker() {
   var oldCp = document.getElementById('_app_contractor_picker_modal');
   if (oldCp) oldCp.remove();
   renderApp();
+}
+
+function renderContractorPickerRows(qy) {
+  qy = (qy || '').toLowerCase();
+  var matches = (S.contractors || []).filter(function(c) {
+    if (!c || !c.name_short) return false;
+    if (c.type === 'customer' || String(c.inn || '').startsWith('CUST-')) return false;
+    if (!qy) return true;
+    return (c.name_short||'').toLowerCase().indexOf(qy) !== -1 ||
+           (c.name_full||'').toLowerCase().indexOf(qy) !== -1 ||
+           (c.inn||'').toLowerCase().indexOf(qy) !== -1;
+  }).slice(0, 30);
+
+  return matches.length
+    ? matches.map(function(c) {
+        return '<div class="field-row" style="cursor:pointer" onclick="assignContractorToTask(\'' + String(S.cpTaskId).replace(/'/g,"\\'") + '\',\'' + (c.name_short||'').replace(/'/g,"\\'") + '\')">' +
+          '<div class="field-lbl">' + escHtml(c.name_short) + '</div>' +
+          '<div class="field-val t3">ИНН ' + (c.inn||'—') + '</div>' +
+        '</div>';
+      }).join('')
+    : '<div class="t3" style="padding:.5rem 0">Ничего не найдено</div>';
+}
+
+function onContractorPickerSearch(val) {
+  S.cpQuery = val;
+  var clearBtn = document.getElementById('cp_search_clear_btn');
+  if (clearBtn) clearBtn.style.display = val ? 'block' : 'none';
+  var container = document.getElementById('cp_list_container');
+  if (container) {
+    container.innerHTML = renderContractorPickerRows(val);
+  }
+}
+
+function clearContractorPickerSearch() {
+  S.cpQuery = '';
+  var inp = document.getElementById('cp_search_inp');
+  if (inp) { inp.value = ''; inp.focus(); }
+  var clearBtn = document.getElementById('cp_search_clear_btn');
+  if (clearBtn) clearBtn.style.display = 'none';
+  var container = document.getElementById('cp_list_container');
+  if (container) {
+    container.innerHTML = renderContractorPickerRows('');
+  }
 }
 
 function assignContractorToTask(taskId, nameShort) {

@@ -46,11 +46,35 @@ function pageContractors() {
       <div id="contractor_form_container"></div>
     </div>
 
+    <!-- СТРОКА ПОИСКА ОРГАНИЗАЦИЙ (НЕ ПЕРЕСОЗДАЕТСЯ ПРИ ВВОДЕ, ФОКУС НЕ ТЕРЯЕТСЯ) -->
+    <div class="card p mb" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap">
+      <div style="position:relative; flex:1; min-width:280px">
+        <input type="text" id="contractor_search_input" value="${escHtml(S.contractorSearch || '')}" 
+               placeholder="${getContractorSearchPlaceholder(S.contractorActiveTab)}" 
+               style="width:100%; padding:9px 12px; border:1px solid var(--border); border-radius:8px; font-size:.88rem"
+               oninput="onContractorSearch(this.value)">
+        <button id="contractor_search_clear_btn" onclick="clearContractorSearch()" 
+                style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; color:var(--text-3); font-size:1.1rem; display:${S.contractorSearch ? 'block' : 'none'}" 
+                title="Очистить поиск">&times;</button>
+      </div>
+      <div id="contractor_count_badge" style="font-size:.82rem; color:var(--text-3)">Организаций в базе: <b>0</b></div>
+    </div>
+
     <!-- ТАБЛИЦА КОНТРАГЕНТОВ -->
     <div id="contractors_table_container">
       <div class="card p" style="text-align:center; padding:3rem; color:var(--text-3)">Загрузка организаций...</div>
     </div>
   `;
+}
+
+function getContractorSearchPlaceholder(tab) {
+  var p = {
+    customer: '🔍 Поиск заказчика по названию, ИНН, договору или куратору...',
+    supplier: '🔍 Поиск поставщика по названию, ИНН, телефону или городу...',
+    logistics: '🔍 Поиск транспортной компании по названию, ИНН, телефону или городу...',
+    subcontractor: '🔍 Поиск подрядчика по названию, ИНН, договору или директору...'
+  };
+  return p[tab] || '🔍 Поиск по названию или ИНН...';
 }
 
 function getContractorCount(type) {
@@ -128,6 +152,17 @@ function renderContractorsView() {
 
   if (!container) return;
 
+  // Обновляем бейдж с количеством и плейсхолдер
+  var countBadge = document.getElementById('contractor_count_badge');
+  if (countBadge) {
+    var titles = { customer: 'Заказчиков', supplier: 'Поставщиков', logistics: 'Транспортных компаний', subcontractor: 'Подрядчиков СМР' };
+    countBadge.innerHTML = (titles[curTab] || 'Организаций') + ' в базе: <b>' + list.length + '</b>';
+  }
+  var searchInp = document.getElementById('contractor_search_input');
+  if (searchInp && document.activeElement !== searchInp) {
+    searchInp.placeholder = getContractorSearchPlaceholder(curTab);
+  }
+
   if (curTab === 'customer') {
     renderCustomersTable(container, list);
   } else if (curTab === 'supplier') {
@@ -183,14 +218,6 @@ function renderCustomersTable(container, list) {
   }).join('');
 
   container.innerHTML = `
-    <!-- ПОИСК И ФИЛЬТР -->
-    <div class="card p mb" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap">
-      <input type="text" value="${escHtml(S.contractorSearch)}" placeholder="🔍 Поиск заказчика по названию, ИНН, договору или куратору..." 
-             style="flex:1; min-width:280px; padding:8px 12px; border:1px solid var(--border); border-radius:8px"
-             oninput="onContractorSearch(this.value)">
-      <div style="font-size:.82rem; color:var(--text-3)">Заказчиков в базе: <b>${list.length}</b></div>
-    </div>
-
     <div class="card tbl-wrap">
       <table>
         <thead>
@@ -253,14 +280,6 @@ function renderSuppliersTable(container, list) {
   }).join('');
 
   container.innerHTML = `
-    <!-- ПОИСК И ФИЛЬТР -->
-    <div class="card p mb" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap">
-      <input type="text" value="${escHtml(S.contractorSearch)}" placeholder="🔍 Поиск поставщика по названию, ИНН, телефону или городу..." 
-             style="flex:1; min-width:280px; padding:8px 12px; border:1px solid var(--border); border-radius:8px"
-             oninput="onContractorSearch(this.value)">
-      <div style="font-size:.82rem; color:var(--text-3)">Поставщиков материалов: <b>${list.length}</b></div>
-    </div>
-
     <div class="card tbl-wrap">
       <table>
         <thead>
@@ -324,14 +343,6 @@ function renderLogisticsTable(container, list) {
   }).join('');
 
   container.innerHTML = `
-    <!-- ПОИСК И ФИЛЬТР -->
-    <div class="card p mb" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap">
-      <input type="text" value="${escHtml(S.contractorSearch)}" placeholder="🔍 Поиск транспортной компании по названию, ИНН, телефону или городу..." 
-             style="flex:1; min-width:280px; padding:8px 12px; border:1px solid var(--border); border-radius:8px"
-             oninput="onContractorSearch(this.value)">
-      <div style="font-size:.82rem; color:var(--text-3)">Транспортных компаний (ТК): <b>${list.length}</b></div>
-    </div>
-
     <div class="card tbl-wrap">
       <table>
         <thead>
@@ -393,14 +404,6 @@ function renderSubcontractorsTable(container, list) {
   }).join('');
 
   container.innerHTML = `
-    <!-- ПОИСК И ФИЛЬТР -->
-    <div class="card p mb" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap">
-      <input type="text" value="${escHtml(S.contractorSearch)}" placeholder="🔍 Поиск подрядчика по названию, ИНН, договору или директору..." 
-             style="flex:1; min-width:280px; padding:8px 12px; border:1px solid var(--border); border-radius:8px"
-             oninput="onContractorSearch(this.value)">
-      <div style="font-size:.82rem; color:var(--text-3)">Подрядчиков СМР: <b>${list.length}</b></div>
-    </div>
-
     <div class="card tbl-wrap">
       <table>
         <thead>
@@ -420,8 +423,26 @@ function renderSubcontractorsTable(container, list) {
   `;
 }
 
+var _contractorSearchTimer = null;
 function onContractorSearch(val) {
   S.contractorSearch = val;
+  var clearBtn = document.getElementById('contractor_search_clear_btn');
+  if (clearBtn) clearBtn.style.display = val ? 'block' : 'none';
+  clearTimeout(_contractorSearchTimer);
+  _contractorSearchTimer = setTimeout(function() {
+    renderContractorsView();
+  }, 100);
+}
+
+function clearContractorSearch() {
+  S.contractorSearch = '';
+  var inp = document.getElementById('contractor_search_input');
+  if (inp) {
+    inp.value = '';
+    inp.focus();
+  }
+  var clearBtn = document.getElementById('contractor_search_clear_btn');
+  if (clearBtn) clearBtn.style.display = 'none';
   renderContractorsView();
 }
 

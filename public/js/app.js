@@ -337,6 +337,9 @@ function doLogout() {
 }
 
 function setApp(html) { document.getElementById('app').innerHTML = html; }
+var kanbanSearchTimeout = null;
+var searchTimeout = null;
+
 // ─── RENDER ───────────────────────────────────────────────────────────────────
 function renderApp() {
   if (!S.token) {
@@ -350,6 +353,8 @@ function renderApp() {
   // 1. ЗАПОМИНАЕМ ФОКУС (Безопасно)
   var activeEl = document.activeElement;
   var activeId = (activeEl && activeEl.id) ? activeEl.id : null;
+  var activeName = (activeEl && activeEl.name) ? activeEl.name : null;
+  var activePlaceholder = (activeEl && activeEl.placeholder) ? activeEl.placeholder : null;
   var start = null, end = null;
   
   // Проверяем, поддерживает ли элемент выделение (только для текстовых инпутов)
@@ -396,13 +401,22 @@ function renderApp() {
   }
 
   // 4. ВОЗВРАЩАЕМ ФОКУС
+  var elToFocus = null;
   if (activeId) {
-    var el = document.getElementById(activeId);
-    if (el) {
-      el.focus();
-      if (start !== null && el.setSelectionRange) {
-        try { el.setSelectionRange(start, end); } catch(e) {}
-      }
+    elToFocus = document.getElementById(activeId);
+  } else if (activeName) {
+    try {
+      elToFocus = document.querySelector('input[name="' + CSS.escape(activeName) + '"], textarea[name="' + CSS.escape(activeName) + '"], select[name="' + CSS.escape(activeName) + '"]');
+    } catch(e) {}
+  } else if (activePlaceholder) {
+    try {
+      elToFocus = document.querySelector('input[placeholder="' + CSS.escape(activePlaceholder) + '"]');
+    } catch(e) {}
+  }
+  if (elToFocus) {
+    elToFocus.focus();
+    if (start !== null && elToFocus.setSelectionRange) {
+      try { elToFocus.setSelectionRange(start, end); } catch(e) {}
     }
   }
 }
@@ -543,7 +557,16 @@ function bindEvents() {
   });
   // kanban filters
   var kq = document.getElementById('kq');
-  if (kq) kq.addEventListener('input', function(){ S.kanbanQ = this.value; renderApp(); });
+  if (kq) {
+    kq.addEventListener('input', function(){
+      var val = this.value;
+      clearTimeout(kanbanSearchTimeout);
+      kanbanSearchTimeout = setTimeout(function() {
+        S.kanbanQ = val;
+        renderApp();
+      }, 200);
+    });
+  }
   var kreg = document.getElementById('kreg');
   if (kreg) kreg.addEventListener('change', function(){ S.kanbanReg = this.value; renderApp(); });
   var kmgr = document.getElementById('kmgr');

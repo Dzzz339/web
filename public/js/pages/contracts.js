@@ -143,7 +143,7 @@ function pageContracts() {
                    placeholder="🔍 Поиск по номеру договора, заказчику, менеджеру, предмету, адресу, компании..." 
                    style="width:100%; padding:9px 12px; border:1px solid var(--border); border-radius:8px; font-size:.88rem"
                    oninput="onContractSearchInput(this.value)">
-            ${S.contractSearch ? `<button onclick="clearContractSearch()" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; color:var(--text-3); font-size:1.1rem" title="Очистить поиск">&times;</button>` : ''}
+            <button id="contract_search_clear_btn" onclick="clearContractSearch()" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; color:var(--text-3); font-size:1.1rem; display:${S.contractSearch ? 'block' : 'none'}" title="Очистить поиск">&times;</button>
           </div>
 
           <select id="contract_filter_status" style="padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:.82rem" onchange="onContractFilterChange('contractStatus', this.value)">
@@ -382,17 +382,24 @@ function updateContractStatsWidgets() {
 
 function onContractSearchInput(val) {
   S.contractSearch = val;
+  var btn = document.getElementById('contract_search_clear_btn');
+  if (btn) btn.style.display = val ? 'block' : 'none';
   updateContractResetButton();
   clearTimeout(contractSearchTimeout);
   contractSearchTimeout = setTimeout(function() {
     fetchContracts();
-  }, 300);
+  }, 250);
 }
 
 function clearContractSearch() {
   S.contractSearch = '';
   var inp = document.getElementById('contract_search_input');
-  if (inp) inp.value = '';
+  if (inp) {
+    inp.value = '';
+    inp.focus();
+  }
+  var btn = document.getElementById('contract_search_clear_btn');
+  if (btn) btn.style.display = 'none';
   updateContractResetButton();
   fetchContracts();
 }
