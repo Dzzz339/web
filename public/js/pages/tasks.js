@@ -835,7 +835,7 @@ function assignContractorToTask(taskId, nameShort) {
     .then(function(){
       t.contractor = nameShort;
       t._history = hist;
-      closeContractorPicker();
+      closeContractorPicker(); if (typeof loadCardSubcontracts === 'function' && S.cardId && String(S.cardId) === String(taskId)) { loadCardSubcontracts(taskId); }
     })
     .catch(function(e){ alert('Ошибка: ' + e.message); });
 }

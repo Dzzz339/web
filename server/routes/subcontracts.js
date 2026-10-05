@@ -1,7 +1,7 @@
-// server/routes/subcontracts.js - Маршруты управления исходящими субподрядами
 import express from 'express';
 import { pool } from '../config/db.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { syncSingleTaskSubcontract } from '../scripts/sync_task_subcontracts.js';
 
 const router = express.Router();
 
@@ -9,23 +9,47 @@ const router = express.Router();
 router.get('/tasks/:taskId/subcontracts', authenticateToken, async (req, res) => {
   try {
     const { taskId } = req.params;
-    const result = await pool.query(`
+    let result = await pool.query(`
       SELECT 
         s.*,
-        c.name_short AS contractor_name,
+        COALESCE(c.name_short, s.contractor_name) AS contractor_name,
         c.inn AS contractor_inn,
         c.phone AS contractor_phone,
         c.director AS contractor_director,
         c.address_legal AS contractor_address,
-        sp.full_name AS specialist_name,
-        sp.phone AS specialist_phone,
-        sp.passport_series_number AS specialist_passport
+        COALESCE(sp.full_name, s.installer_fio) AS specialist_name,
+        COALESCE(sp.phone, s.installer_phone) AS specialist_phone,
+        COALESCE(sp.passport_series_number, s.installer_passport) AS specialist_passport
       FROM task_subcontracts s
       LEFT JOIN contractors c ON s.contractor_id = c.id
       LEFT JOIN specialists sp ON s.specialist_id = sp.id
       WHERE s.task_id = $1
       ORDER BY s.id ASC
     `, [taskId]);
+
+    // Если субподрядов еще нет, но в самой заявке назначен подрядчик — создаем субподряд автоматически
+    if (result.rows.length === 0) {
+      const synced = await syncSingleTaskSubcontract(pool, taskId);
+      if (synced) {
+        result = await pool.query(`
+          SELECT 
+            s.*,
+            COALESCE(c.name_short, s.contractor_name) AS contractor_name,
+            c.inn AS contractor_inn,
+            c.phone AS contractor_phone,
+            c.director AS contractor_director,
+            c.address_legal AS contractor_address,
+            COALESCE(sp.full_name, s.installer_fio) AS specialist_name,
+            COALESCE(sp.phone, s.installer_phone) AS specialist_phone,
+            COALESCE(sp.passport_series_number, s.installer_passport) AS specialist_passport
+          FROM task_subcontracts s
+          LEFT JOIN contractors c ON s.contractor_id = c.id
+          LEFT JOIN specialists sp ON s.specialist_id = sp.id
+          WHERE s.task_id = $1
+          ORDER BY s.id ASC
+        `, [taskId]);
+      }
+    }
 
     res.json(result.rows);
   } catch (err) {
@@ -38,8 +62,9 @@ router.get('/tasks/:taskId/subcontracts', authenticateToken, async (req, res) =>
 router.post('/tasks/:taskId/subcontracts', authenticateToken, async (req, res) => {
   try {
     const { taskId } = req.params;
-    const {
+    let {
       contractor_id,
+      contractor_name,
       work_type,
       price_agreed,
       deadline,
@@ -52,20 +77,58 @@ router.post('/tasks/:taskId/subcontracts', authenticateToken, async (req, res) =
     } = req.body;
 
     if (!work_type) {
-      return res.status(400).json({ error: 'Укажите вид работ для субподряда' });
+      work_type = 'Монтаж СКС';
+    }
+
+    // Если передан contractor_id, уточняем имя подрядчика
+    if (contractor_id && !contractor_name) {
+      const cRes = await pool.query('SELECT name_short FROM contractors WHERE id = $1', [contractor_id]);
+      if (cRes.rows.length) contractor_name = cRes.rows[0].name_short;
+    }
+    if (!contractor_id && contractor_name) {
+      const cRes = await pool.query(`
+        SELECT id, name_short FROM contractors 
+        WHERE LOWER(TRIM(name_short)) = LOWER(TRIM($1)) OR LOWER(TRIM(name_full)) = LOWER(TRIM($1)) 
+        LIMIT 1
+      `, [contractor_name]);
+      if (cRes.rows.length) {
+        contractor_id = cRes.rows[0].id;
+        contractor_name = cRes.rows[0].name_short;
+      }
+    }
+
+    // Если передан специалист_id, подтягиваем его данные при отсутствии
+    if (specialist_id) {
+      const spRes = await pool.query('SELECT full_name, phone, passport_raw, passport_series_number, auto_number FROM specialists WHERE id = $1', [specialist_id]);
+      if (spRes.rows.length) {
+        const sp = spRes.rows[0];
+        if (!installer_fio) installer_fio = sp.full_name;
+        if (!installer_phone) installer_phone = sp.phone;
+        if (!installer_passport) installer_passport = sp.passport_raw || sp.passport_series_number;
+        if (!auto_number) auto_number = sp.auto_number;
+      }
+    } else if (installer_fio && installer_fio.trim()) {
+      const spMatch = await pool.query('SELECT id, phone, passport_raw, passport_series_number, auto_number FROM specialists WHERE LOWER(TRIM(full_name)) = LOWER(TRIM($1)) LIMIT 1', [installer_fio.trim()]);
+      if (spMatch.rows.length) {
+        specialist_id = spMatch.rows[0].id;
+        if (!installer_phone) installer_phone = spMatch.rows[0].phone;
+        if (!installer_passport) installer_passport = spMatch.rows[0].passport_raw || spMatch.rows[0].passport_series_number;
+        if (!auto_number) auto_number = spMatch.rows[0].auto_number;
+      }
     }
 
     const result = await pool.query(`
       INSERT INTO task_subcontracts (
-        task_id, contractor_id, work_type, price_agreed, deadline,
+        task_id, contractor_id, contractor_name, work_type, price_agreed, deadline,
         specialist_id, installer_fio, installer_phone, installer_passport,
         auto_number, comment, status
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'assigned')
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'assigned')
       RETURNING *
     `, [
       taskId,
       contractor_id || null,
+      contractor_name || null,
       work_type,
       price_agreed || 0,
       deadline || null,
@@ -76,6 +139,11 @@ router.post('/tasks/:taskId/subcontracts', authenticateToken, async (req, res) =
       auto_number || null,
       comment || null
     ]);
+
+    // Синхронизируем поле contractor в самой задаче
+    if (contractor_name) {
+      await pool.query('UPDATE tasks SET contractor = $1 WHERE id = $2', [contractor_name, taskId]);
+    }
 
     // Обновляем макро-статус заявки в 'assigned', если она была 'new' или 'in_progress'
     await pool.query(`
@@ -95,8 +163,9 @@ router.post('/tasks/:taskId/subcontracts', authenticateToken, async (req, res) =
 router.put('/subcontracts/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const {
+    let {
       contractor_id,
+      contractor_name,
       work_type,
       status,
       price_agreed,
@@ -112,28 +181,46 @@ router.put('/subcontracts/:id', authenticateToken, async (req, res) => {
       comment
     } = req.body;
 
+    if (contractor_id && !contractor_name) {
+      const cRes = await pool.query('SELECT name_short FROM contractors WHERE id = $1', [contractor_id]);
+      if (cRes.rows.length) contractor_name = cRes.rows[0].name_short;
+    }
+    if (!contractor_id && contractor_name) {
+      const cRes = await pool.query(`
+        SELECT id, name_short FROM contractors 
+        WHERE LOWER(TRIM(name_short)) = LOWER(TRIM($1)) OR LOWER(TRIM(name_full)) = LOWER(TRIM($1)) 
+        LIMIT 1
+      `, [contractor_name]);
+      if (cRes.rows.length) {
+        contractor_id = cRes.rows[0].id;
+        contractor_name = cRes.rows[0].name_short;
+      }
+    }
+
     const result = await pool.query(`
       UPDATE task_subcontracts
       SET 
         contractor_id = COALESCE($1, contractor_id),
-        work_type = COALESCE($2, work_type),
-        status = COALESCE($3, status),
-        price_agreed = COALESCE($4, price_agreed),
-        deadline = COALESCE($5, deadline),
-        specialist_id = COALESCE($6, specialist_id),
-        installer_fio = COALESCE($7, installer_fio),
-        installer_phone = COALESCE($8, installer_phone),
-        installer_passport = COALESCE($9, installer_passport),
-        auto_number = COALESCE($10, auto_number),
-        tmc_issued = COALESCE($11, tmc_issued),
-        report_photos = COALESCE($12, report_photos),
-        cable_journal = COALESCE($13, cable_journal),
-        comment = COALESCE($14, comment),
+        contractor_name = COALESCE($2, contractor_name),
+        work_type = COALESCE($3, work_type),
+        status = COALESCE($4, status),
+        price_agreed = COALESCE($5, price_agreed),
+        deadline = COALESCE($6, deadline),
+        specialist_id = COALESCE($7, specialist_id),
+        installer_fio = COALESCE($8, installer_fio),
+        installer_phone = COALESCE($9, installer_phone),
+        installer_passport = COALESCE($10, installer_passport),
+        auto_number = COALESCE($11, auto_number),
+        tmc_issued = COALESCE($12, tmc_issued),
+        report_photos = COALESCE($13, report_photos),
+        cable_journal = COALESCE($14, cable_journal),
+        comment = COALESCE($15, comment),
         updated_at = NOW()
-      WHERE id = $15
+      WHERE id = $16
       RETURNING *
     `, [
       contractor_id,
+      contractor_name,
       work_type,
       status,
       price_agreed,
@@ -154,7 +241,12 @@ router.put('/subcontracts/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Субподряд не найден' });
     }
 
-    res.json(result.rows[0]);
+    const updatedRow = result.rows[0];
+    if (contractor_name && updatedRow.task_id) {
+      await pool.query('UPDATE tasks SET contractor = $1 WHERE id = $2', [contractor_name, updatedRow.task_id]);
+    }
+
+    res.json(updatedRow);
   } catch (err) {
     console.error('Error updating subcontract:', err);
     res.status(500).json({ error: 'Ошибка обновления субподряда' });

@@ -10,6 +10,7 @@ import { ID_ROLES, ID_STEPS, ID_STAGES, businessDue, hasRole, canStep, canUndo }
 import { createNotification, sendEmail } from '../services/notifications.js';
 import { cleanAddressDaData } from '../services/dadata.js';
 import { runBackgroundGeocoding } from '../services/geoWorker.js';
+import { syncSingleTaskSubcontract } from '../scripts/sync_task_subcontracts.js';
 
 const router = express.Router();
 
@@ -334,6 +335,13 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
             }
           }
         }).catch(err => console.error('Notification / Email lookup error:', err));
+    }
+
+    // --- АВТОСИНХРОНИЗАЦИЯ СУБПОДРЯДОВ ПРИ НАЗНАЧЕНИИ ПОДРЯДЧИКА ---
+    if (d.contractor) {
+      syncSingleTaskSubcontract(pool, req.params.id).catch(err => {
+        console.error('Auto-sync subcontract error:', err.message);
+      });
     }
 
     res.json({ success: true });

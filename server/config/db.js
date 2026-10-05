@@ -72,6 +72,7 @@ export async function initDB() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_specialists_name ON specialists(full_name)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_specialists_contractor ON specialists(contractor_id)`);
+  await pool.query(`ALTER TABLE specialists ADD COLUMN IF NOT EXISTS auto_number TEXT`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tasks (
@@ -392,6 +393,7 @@ export async function initDB() {
   // Добавляем новые колонки в существующую таблицу через ALTER (для безопасного обновления)
   await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS date_start DATE`);
   await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS date_finish DATE`);
+  await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS contractor_name TEXT`);
 
   // Реестр сформированных и прикрепленных документов
   await pool.query(`
@@ -998,6 +1000,13 @@ export async function seedMaterialsAndWarehouses() {
     `);
 
     console.log('[DB] Безопасные витрины данных v_ai_* успешно инициализированы');
+
+    try {
+      const { syncSubcontractsForTasks } = await import('../scripts/sync_task_subcontracts.js');
+      await syncSubcontractsForTasks(pool);
+    } catch (e) {
+      console.error('[DB] Subcontracts auto-sync error:', e.message);
+    }
   } catch (err) {
     console.error('[DB] Ошибка сидирования материалов/складов:', err);
   }

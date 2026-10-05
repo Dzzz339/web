@@ -18,18 +18,22 @@ router.get('/contracts', authenticateToken, async (req, res) => {
   }
 
   try {
-    const { q, type, customer, status, year } = req.query;
+    const { q, type, customer, status, year, manager, entity } = req.query;
     let whereConditions = [];
     let params = [];
     let paramIndex = 1;
 
-    // 1. Поиск по строке (номер, заказчик, предмет, место, лоты)
+    // 1. Поиск по строке (номер, заказчик, менеджер, предмет, место, юрлицо, регион, лоты)
     if (q && q.trim()) {
       const searchVal = `%${q.trim()}%`;
       whereConditions.push(`(
         c.internal_number ILIKE $${paramIndex} OR
         c.contract_number ILIKE $${paramIndex} OR
         c.customer_name ILIKE $${paramIndex} OR
+        c.our_entity_name ILIKE $${paramIndex} OR
+        c.manager_name ILIKE $${paramIndex} OR
+        u.full_name ILIKE $${paramIndex} OR
+        u.username ILIKE $${paramIndex} OR
         c.subject ILIKE $${paramIndex} OR
         c.delivery_place ILIKE $${paramIndex} OR
         c.our_entity_region ILIKE $${paramIndex} OR
@@ -46,7 +50,7 @@ router.get('/contracts', authenticateToken, async (req, res) => {
       paramIndex++;
     }
 
-    // 3. Фильтр по заказчику
+    // 3. Фильтр по Стороне 1 (Заказчик)
     if (customer && customer !== 'all') {
       if (/^\d+$/.test(customer)) {
         whereConditions.push(`c.customer_id = $${paramIndex}`);
@@ -67,8 +71,37 @@ router.get('/contracts', authenticateToken, async (req, res) => {
 
     // 5. Фильтр по году
     if (year && year !== 'all') {
-      whereConditions.push(`EXTRACT(YEAR FROM c.contract_date) = $${paramIndex}`);
-      params.push(parseInt(year, 10));
+      const yr = parseInt(year, 10);
+      const twoDigit = String(yr).slice(-2);
+      whereConditions.push(`(
+        EXTRACT(YEAR FROM c.contract_date) = $${paramIndex} OR
+        (c.contract_date IS NULL AND c.internal_number ~ ('(?:^|\\D)' || '${twoDigit}' || '-\\d+'))
+      )`);
+      params.push(yr);
+      paramIndex++;
+    }
+
+    // 6. Фильтр по Менеджеру (кто ведет контракт)
+    if (manager && manager !== 'all') {
+      if (manager === 'unassigned' || manager === 'none') {
+        whereConditions.push(`(c.manager_id IS NULL AND (c.manager_name IS NULL OR TRIM(c.manager_name) = ''))`);
+      } else if (manager === 'assigned') {
+        whereConditions.push(`(c.manager_id IS NOT NULL OR (c.manager_name IS NOT NULL AND TRIM(c.manager_name) != ''))`);
+      } else if (/^\d+$/.test(manager)) {
+        whereConditions.push(`c.manager_id = $${paramIndex}`);
+        params.push(parseInt(manager, 10));
+        paramIndex++;
+      } else {
+        whereConditions.push(`(c.manager_name ILIKE $${paramIndex} OR u.full_name ILIKE $${paramIndex} OR u.username ILIKE $${paramIndex})`);
+        params.push(`%${manager}%`);
+        paramIndex++;
+      }
+    }
+
+    // 7. Фильтр по Стороне 2 (Исполнитель / Наша организация)
+    if (entity && entity !== 'all') {
+      whereConditions.push(`c.our_entity_name ILIKE $${paramIndex}`);
+      params.push(`%${entity}%`);
       paramIndex++;
     }
 
@@ -77,8 +110,10 @@ router.get('/contracts', authenticateToken, async (req, res) => {
     const listQuery = `
       SELECT 
         c.*,
+        COALESCE(c.manager_name, u.full_name, u.username) AS manager_display_name,
         (SELECT COUNT(*) FROM tasks t WHERE t.contract_id = c.id) AS linked_tasks_count
       FROM contracts c
+      LEFT JOIN users u ON u.id = c.manager_id
       ${whereClause}
       ORDER BY c.contract_date DESC NULLS LAST, c.id DESC
     `;
@@ -86,16 +121,30 @@ router.get('/contracts', authenticateToken, async (req, res) => {
     const statsQuery = `
       SELECT 
         COUNT(*) as total_count,
-        COALESCE(SUM(amount), 0) as total_amount,
-        COALESCE(SUM(security_amount), 0) as total_security,
-        COUNT(CASE WHEN jsonb_array_length(COALESCE(lots, '[]'::jsonb)) > 0 THEN 1 END) as multi_lot_count
+        COALESCE(SUM(c.amount), 0) as total_amount,
+        COALESCE(SUM(c.security_amount), 0) as total_security,
+        COUNT(CASE WHEN jsonb_array_length(COALESCE(c.lots, '[]'::jsonb)) > 0 THEN 1 END) as multi_lot_count
       FROM contracts c
+      LEFT JOIN users u ON u.id = c.manager_id
       ${whereClause}
     `;
 
-    const [listResult, statsResult] = await Promise.all([
+    const filterOptionsQuery = `
+      SELECT
+        (SELECT jsonb_agg(DISTINCT our_entity_name) FROM contracts WHERE our_entity_name IS NOT NULL AND our_entity_name != '') AS entities,
+        (SELECT jsonb_agg(DISTINCT EXTRACT(YEAR FROM contract_date)::int ORDER BY EXTRACT(YEAR FROM contract_date)::int DESC) FROM contracts WHERE contract_date IS NOT NULL) AS years,
+        (SELECT jsonb_agg(DISTINCT customer_name) FROM (
+          SELECT customer_name FROM contracts WHERE customer_name IS NOT NULL AND customer_name != '' ${year && year !== 'all' ? `AND (EXTRACT(YEAR FROM contract_date) = ${parseInt(year, 10)} OR internal_number ~ '(?:^|\\D)${String(parseInt(year, 10)).slice(-2)}-\\d+')` : ''} LIMIT 300
+        ) sub_cust) AS customers,
+        (SELECT jsonb_agg(jsonb_build_object('id', sub_u.id, 'name', sub_u.name, 'role', sub_u.role)) FROM (
+          SELECT u.id, COALESCE(u.full_name, u.username) AS name, u.role FROM users u ORDER BY COALESCE(u.full_name, u.username)
+        ) sub_u) AS users
+    `;
+
+    const [listResult, statsResult, filterResult] = await Promise.all([
       pool.query(listQuery, params),
-      pool.query(statsQuery, params)
+      pool.query(statsQuery, params),
+      pool.query(filterOptionsQuery)
     ]);
 
     res.json({
@@ -105,7 +154,8 @@ router.get('/contracts', authenticateToken, async (req, res) => {
         total_amount: 0,
         total_security: 0,
         multi_lot_count: 0
-      }
+      },
+      filterOptions: filterResult.rows[0] || {}
     });
   } catch (err) {
     console.error('Error fetching contracts:', err);

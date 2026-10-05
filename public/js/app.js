@@ -35,11 +35,18 @@ function init() {
     var cachedContractors = Array.isArray(cached[6]) ? cached[6] : [];
     var cachedContracts = Array.isArray(cached[7]) ? cached[7] : [];
 
-    var requests = [api('/stats'), api('/tasks'), api('/chains'), api('/import-info'), api('/marches'), api('/contracts')];
-    if (S.user && S.user.role === 'admin') {
-      requests.push(api('/users'));
-      requests.push(api('/contractors'));
-    }
+    var isWorkerRole = S.user && (S.user.role === 'worker' || S.user.role === 'installer');
+    var requests = [
+      api('/stats').catch(function(){ return {}; }),
+      api('/tasks').catch(function(){ return []; }),
+      api('/chains').catch(function(){ return []; }),
+      api('/import-info').catch(function(){ return null; }),
+      api('/marches').catch(function(){ return []; }),
+      api('/contracts').catch(function(){ return []; }),
+      !isWorkerRole ? api('/contractors').catch(function(){ return []; }) : Promise.resolve([]),
+      !isWorkerRole ? api('/specialists').catch(function(){ return []; }) : Promise.resolve([]),
+      (S.user && S.user.role === 'admin') ? api('/users').catch(function(){ return []; }) : Promise.resolve([])
+    ];
 
     Promise.all(requests).then(function(res) {
       var netStats = (res[0] && !res[0].error) ? res[0] : cachedStats;
@@ -48,8 +55,9 @@ function init() {
       var netImportInfo = (res[3] && !res[3].error) ? res[3] : cachedImportInfo;
       var netMarches = Array.isArray(res[4]) ? res[4] : cachedMarches;
       var contractsData = (res[5] && res[5].contracts) ? res[5].contracts : (Array.isArray(res[5]) ? res[5] : cachedContracts);
-      var netUsers = Array.isArray(res[6]) ? res[6] : cachedUsers;
-      var netContractors = Array.isArray(res[7]) ? res[7] : cachedContractors;
+      var netContractors = Array.isArray(res[6]) ? res[6] : cachedContractors;
+      var netSpecialists = Array.isArray(res[7]) ? res[7] : [];
+      var netUsers = Array.isArray(res[8]) ? res[8] : cachedUsers;
 
       S.stats = netStats;
       S.tasks = netTasks;
@@ -58,8 +66,9 @@ function init() {
       S.marches = netMarches;
       S.contracts = contractsData;
       if (res[5] && res[5].stats) S.contractStats = res[5].stats;
-      S.users = netUsers;
       S.contractors = netContractors;
+      S.specialists = netSpecialists;
+      S.users = netUsers;
 
       if (Array.isArray(S.chains) && S.chains.length) {
         var firstReal = S.chains.find(function(c){ return c.id && c.id !== '(без региона)'; });

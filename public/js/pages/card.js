@@ -69,6 +69,9 @@ function setCardTab(tabName) {
   if ((tabName === 'items' || tabName === 'supply') && S.cardId) {
     loadCardMaterials(S.cardId);
     refreshTaskItemsList(S.cardId);
+    if (tabName === 'items') {
+      loadCardSubcontracts(S.cardId);
+    }
   }
 }
 window.setCardTab = setCardTab;
@@ -2077,6 +2080,19 @@ function openSubcontractModal(taskId, editId) {
   var old = document.getElementById('_subcontract_modal');
   if (old) old.remove();
 
+  var specPromise = (Array.isArray(S.specialists) && S.specialists.length)
+    ? Promise.resolve(S.specialists)
+    : api('/specialists').then(function(specs){ S.specialists = specs || []; return S.specialists; }).catch(function(){ return []; });
+
+  specPromise.then(function() {
+    _renderSubcontractModal(taskId, editId);
+  });
+}
+
+function _renderSubcontractModal(taskId, editId) {
+  var old = document.getElementById('_subcontract_modal');
+  if (old) old.remove();
+
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); }) || {};
   var editSub = editId ? ((window._curCardSubcontracts || []).find(function(s){ return String(s.id) === String(editId); }) || null) : null;
 
@@ -2097,28 +2113,66 @@ function openSubcontractModal(taskId, editId) {
   var selectedCName = '';
   var selectedCInn = '';
 
-  if (editSub && editSub.contractor_id) {
-    selectedCId = String(editSub.contractor_id);
-    var foundSub = subsList.find(function(c){ return String(c.id) === String(editSub.contractor_id); });
-    if (foundSub) {
-      selectedCName = foundSub.name_short;
-      selectedCInn = foundSub.inn || '';
-    } else {
-      selectedCName = editSub.contractor_name || ('Подрядчик #' + editSub.contractor_id);
-      selectedCInn = editSub.contractor_inn || '';
+  var taskContr = (t.contractor || '').trim();
+
+  if (editSub) {
+    if (editSub.contractor_id) {
+      selectedCId = String(editSub.contractor_id);
+      var foundSub = subsList.find(function(c){ return String(c.id) === String(editSub.contractor_id); });
+      if (foundSub) {
+        selectedCName = foundSub.name_short;
+        selectedCInn = foundSub.inn || '';
+      } else {
+        selectedCName = editSub.contractor_name || ('Подрядчик #' + editSub.contractor_id);
+        selectedCInn = editSub.contractor_inn || '';
+      }
+    } else if (editSub.contractor_name) {
+      selectedCName = editSub.contractor_name;
+      var foundByName = subsList.find(function(c){
+        return c.name_short.trim().toLowerCase() === editSub.contractor_name.trim().toLowerCase() ||
+               (c.name_full && c.name_full.trim().toLowerCase() === editSub.contractor_name.trim().toLowerCase());
+      });
+      if (foundByName) {
+        selectedCId = String(foundByName.id);
+        selectedCInn = foundByName.inn || '';
+      }
     }
-  } else if (t.contractor) {
-    var matchByTask = subsList.find(function(c){ return c.name_short.trim().toLowerCase() === t.contractor.trim().toLowerCase(); });
+  } else if (taskContr) {
+    // Многоступенчатый поиск назначенного подрядчика
+    var matchByTask = subsList.find(function(c){ return c.name_short.trim().toLowerCase() === taskContr.toLowerCase(); });
+    if (!matchByTask) {
+      matchByTask = subsList.find(function(c){ return (c.name_full || '').trim().toLowerCase() === taskContr.toLowerCase(); });
+    }
+    var normTaskContr = taskContr.replace(/^(?:ИП|ООО|СЗ|АО|ЗАО)s+/i, '').trim().toLowerCase();
+    if (!matchByTask && normTaskContr.length >= 3) {
+      matchByTask = subsList.find(function(c){
+        var normC = (c.name_short || '').replace(/^(?:ИП|ООО|СЗ|АО|ЗАО)s+/i, '').trim().toLowerCase();
+        return normC === normTaskContr;
+      });
+    }
+    if (!matchByTask && normTaskContr.length >= 3) {
+      matchByTask = subsList.find(function(c){
+        var normC = (c.name_short || '').toLowerCase();
+        return normC.indexOf(normTaskContr) !== -1 || normTaskContr.indexOf(normC) !== -1;
+      });
+    }
+
     if (matchByTask) {
       selectedCId = String(matchByTask.id);
       selectedCName = matchByTask.name_short;
       selectedCInn = matchByTask.inn || '';
+    } else {
+      selectedCId = '';
+      selectedCName = taskContr;
+      selectedCInn = 'из заявки';
     }
   }
 
   window._submSelectContractor = function(id, name, inn) {
     var inpHid = document.getElementById('subm_contractor');
     if (inpHid) inpHid.value = id;
+    var inpNameHid = document.getElementById('subm_contractor_name_input');
+    if (inpNameHid) inpNameHid.value = name;
     var nameEl = document.getElementById('subm_selected_c_name');
     if (nameEl) nameEl.textContent = name;
     var innEl = document.getElementById('subm_selected_c_inn');
@@ -2134,6 +2188,8 @@ function openSubcontractModal(taskId, editId) {
   window._submClearContractor = function() {
     var inpHid = document.getElementById('subm_contractor');
     if (inpHid) inpHid.value = '';
+    var inpNameHid = document.getElementById('subm_contractor_name_input');
+    if (inpNameHid) inpNameHid.value = '';
     var selBox = document.getElementById('subm_contractor_selected_box');
     if (selBox) selBox.style.display = 'none';
     var pickBox = document.getElementById('subm_contractor_picker_box');
@@ -2261,13 +2317,170 @@ function openSubcontractModal(taskId, editId) {
     });
   };
 
-  var curWorkType = editSub ? editSub.work_type : 'Монтаж СКС';
-  var curPrice = editSub ? (editSub.price_agreed || '') : '';
-  var curDeadline = (editSub && editSub.deadline) ? editSub.deadline.slice(0, 10) : '';
+  // --- Данные монтажников и справочника специалистов ---
+  var curSpecId = editSub ? editSub.specialist_id : null;
   var curFio = editSub ? (editSub.installer_fio || '') : '';
   var curPhone = editSub ? (editSub.installer_phone || '') : '';
   var curPass = editSub ? (editSub.installer_passport || '') : '';
   var curAuto = editSub ? (editSub.auto_number || '') : '';
+
+  if (!curSpecId && curFio) {
+    var spMatch = (S.specialists || []).find(function(s){
+      return (s.full_name || '').trim().toLowerCase() === curFio.trim().toLowerCase();
+    });
+    if (spMatch) {
+      curSpecId = spMatch.id;
+      if (!curPhone) curPhone = spMatch.phone || '';
+      if (!curPass) curPass = spMatch.passport_raw || spMatch.passport_series_number || '';
+      if (!curAuto) curAuto = spMatch.auto_number || '';
+    }
+  }
+
+  if (!curSpecId && !curFio && selectedCName) {
+    var cleanContr = selectedCName.replace(/^(?:ИП|ООО|СЗ|АО|ЗАО)s+/i, '').trim().toLowerCase();
+    var spMatchContr = (S.specialists || []).find(function(s){
+      return (s.full_name || '').trim().toLowerCase() === cleanContr;
+    });
+    if (spMatchContr) {
+      curSpecId = spMatchContr.id;
+      curFio = spMatchContr.full_name;
+      curPhone = spMatchContr.phone || '';
+      curPass = spMatchContr.passport_raw || spMatchContr.passport_series_number || '';
+      curAuto = spMatchContr.auto_number || '';
+    }
+  }
+
+  function buildSpecsOptions(selectedId) {
+    var specs = (S.specialists || []).slice().sort(function(a, b){
+      return (a.full_name || '').localeCompare(b.full_name || '', 'ru');
+    });
+
+    var html = '<option value="">-- Выберите монтажника из справочника --</option>' +
+      '<option value="__new__">➕ Добавить нового монтажника в справочник...</option>' +
+      '<option value="__manual__">✏️ Ввести ФИО вручную (без справочника)...</option>';
+
+    if (specs.length) {
+      html += '<optgroup label="Специалисты / Монтажники (' + specs.length + ')">';
+      specs.forEach(function(sp) {
+        var isSel = selectedId && String(sp.id) === String(selectedId);
+        var label = sp.full_name;
+        if (sp.position) label += ' — ' + sp.position;
+        else if (sp.organization) label += ' (' + sp.organization + ')';
+        html += '<option value="' + sp.id + '"' + (isSel ? ' selected' : '') + '>' + escHtml(label) + '</option>';
+      });
+      html += '</optgroup>';
+    }
+    return html;
+  }
+
+  window._submOnSpecialistChange = function(val) {
+    var fioInp = document.getElementById('subm_installer_fio');
+    var hidSpecId = document.getElementById('subm_specialist_id');
+    var phoneInp = document.getElementById('subm_installer_phone');
+    var passInp = document.getElementById('subm_installer_pass');
+    var autoInp = document.getElementById('subm_auto');
+
+    if (val === '__new__') {
+      window._submToggleNewSpecialistForm(true);
+      return;
+    }
+
+    window._submToggleNewSpecialistForm(false);
+
+    if (val === '__manual__') {
+      if (hidSpecId) hidSpecId.value = '';
+      if (fioInp) {
+        fioInp.style.display = 'block';
+        fioInp.focus();
+      }
+      return;
+    }
+
+    if (!val) {
+      if (hidSpecId) hidSpecId.value = '';
+      if (fioInp) {
+        fioInp.value = '';
+        fioInp.style.display = 'none';
+      }
+      return;
+    }
+
+    var sp = (S.specialists || []).find(function(s){ return String(s.id) === String(val); });
+    if (sp) {
+      if (hidSpecId) hidSpecId.value = sp.id;
+      if (fioInp) {
+        fioInp.value = sp.full_name || '';
+        fioInp.style.display = 'none';
+      }
+      if (phoneInp) phoneInp.value = sp.phone || '';
+      if (passInp) passInp.value = sp.passport_raw || sp.passport_series_number || '';
+      if (autoInp) autoInp.value = sp.auto_number || '';
+    }
+  };
+
+  window._submToggleNewSpecialistForm = function(show) {
+    var box = document.getElementById('subm_new_spec_box');
+    if (!box) return;
+    var isShown = (show !== undefined) ? show : (box.style.display === 'none');
+    box.style.display = isShown ? 'block' : 'none';
+    if (isShown) {
+      var nameInp = document.getElementById('qspec_name');
+      if (nameInp) nameInp.focus();
+    }
+  };
+
+  window._submSaveNewSpecialist = function() {
+    var name = (document.getElementById('qspec_name').value || '').trim();
+    var phone = (document.getElementById('qspec_phone').value || '').trim();
+    var pass = (document.getElementById('qspec_pass').value || '').trim();
+    var auto = (document.getElementById('qspec_auto').value || '').trim();
+    var org = (document.getElementById('qspec_org').value || '').trim();
+    var pos = (document.getElementById('qspec_pos').value || '').trim() || 'Монтажник СКС';
+
+    if (!name) return alert('Укажите ФИО монтажника!');
+
+    var saveBtn = document.getElementById('qspec_save_btn');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Сохранение...'; }
+
+    var data = {
+      full_name: name,
+      phone: phone || null,
+      passport_raw: pass || null,
+      passport_series_number: pass || null,
+      auto_number: auto || null,
+      organization: org || (selectedCName || 'ООО "Ультима"'),
+      position: pos
+    };
+
+    api('/specialists', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+    .then(function(newSpec) {
+      if (newSpec.error) throw new Error(newSpec.error);
+      if (!S.specialists) S.specialists = [];
+      S.specialists.push(newSpec);
+
+      var sel = document.getElementById('subm_specialist_select');
+      if (sel) {
+        sel.innerHTML = buildSpecsOptions(newSpec.id);
+        sel.value = String(newSpec.id);
+      }
+      window._submOnSpecialistChange(newSpec.id);
+      window._submToggleNewSpecialistForm(false);
+    })
+    .catch(function(err) {
+      alert('Ошибка добавления монтажника: ' + err.message);
+    })
+    .finally(function() {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '✓ Сохранить и выбрать'; }
+    });
+  };
+
+  var curWorkType = editSub ? editSub.work_type : (t.work_type || 'Монтаж СКС');
+  var curPrice = editSub ? (editSub.price_agreed || '') : (t.amount || '');
+  var curDeadline = (editSub && editSub.deadline) ? editSub.deadline.slice(0, 10) : ((t.deadline) ? String(t.deadline).slice(0, 10) : '');
   var curComment = editSub ? (editSub.comment || '') : '';
 
   var modalTitle = editSub ? '✏️ Редактировать субподряд' : '🤝 Назначить субподрядчика';
@@ -2286,8 +2499,9 @@ function openSubcontractModal(taskId, editId) {
       '<div>' +
         '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Организация / Подрядчик СМР *</label>' +
         '<input type="hidden" id="subm_contractor" value="' + escHtml(selectedCId) + '">' +
+        '<input type="hidden" id="subm_contractor_name_input" value="' + escHtml(selectedCName) + '">' +
 
-        '<div id="subm_contractor_selected_box" style="display:' + (selectedCId ? 'flex' : 'none') + ';align-items:center;justify-content:space-between;padding:8px 12px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px">' +
+        '<div id="subm_contractor_selected_box" style="display:' + (selectedCName ? 'flex' : 'none') + ';align-items:center;justify-content:space-between;padding:8px 12px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px">' +
           '<div>' +
             '<div style="font-weight:700;color:#166534;font-size:.88rem">🏢 <span id="subm_selected_c_name">' + escHtml(selectedCName) + '</span></div>' +
             '<div style="font-size:.75rem;color:#15803d">ИНН: <span id="subm_selected_c_inn">' + escHtml(selectedCInn || 'не указан') + '</span></div>' +
@@ -2295,7 +2509,7 @@ function openSubcontractModal(taskId, editId) {
           '<button type="button" class="btn btn-sm btn-ghost" onclick="window._submClearContractor()" style="font-size:.78rem;color:#166534;padding:3px 8px">Сменить ✕</button>' +
         '</div>' +
 
-        '<div id="subm_contractor_picker_box" style="display:' + (selectedCId ? 'none' : 'block') + '">' +
+        '<div id="subm_contractor_picker_box" style="display:' + (selectedCName ? 'none' : 'block') + '">' +
           '<input type="text" id="subm_contractor_search" placeholder="🔍 Поиск по названию или ИНН..." style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;margin-bottom:6px" oninput="window._submFilterList(this.value)">' +
           '<div id="subm_contractors_list" style="max-height:140px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--bg)"></div>' +
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">' +
@@ -2345,12 +2559,21 @@ function openSubcontractModal(taskId, editId) {
         '<input type="date" id="subm_deadline" value="' + escHtml(curDeadline) + '" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
       '</div>' +
 
-      '<div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">' +
-        '<div style="font-weight:700;font-size:.82rem;color:var(--text);margin-bottom:6px">Данные монтажника (для Заказ-наряда и Допуска):</div>' +
+      '<div style="border-top:1px solid var(--border);padding-top:10px;margin-top:6px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+          '<div style="font-weight:700;font-size:.82rem;color:var(--text)">Данные монтажника (для Заказ-наряда и Допуска):</div>' +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="window._submToggleNewSpecialistForm()" style="color:var(--orange-dark);font-size:.74rem;font-weight:600;padding:1px 6px">' +
+            '➕ Добавить в справочник' +
+          '</button>' +
+        '</div>' +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">' +
           '<div>' +
-            '<label style="display:block;font-size:.75rem;color:var(--text-3);margin-bottom:3px">ФИО монтажника</label>' +
-            '<input type="text" id="subm_installer_fio" value="' + escHtml(curFio) + '" placeholder="Иванов И.И." style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+            '<label style="display:block;font-size:.75rem;color:var(--text-3);margin-bottom:3px">ФИО монтажника *</label>' +
+            '<select id="subm_specialist_select" onchange="window._submOnSpecialistChange(this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+              buildSpecsOptions(curSpecId) +
+            '</select>' +
+            '<input type="hidden" id="subm_specialist_id" value="' + escHtml(curSpecId || '') + '">' +
+            '<input type="text" id="subm_installer_fio" value="' + escHtml(curFio) + '" placeholder="Иванов Иван Иванович" style="width:100%;margin-top:4px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem;display:' + ((!curSpecId && curFio) ? 'block' : 'none') + '">' +
           '</div>' +
           '<div>' +
             '<label style="display:block;font-size:.75rem;color:var(--text-3);margin-bottom:3px">Телефон</label>' +
@@ -2365,6 +2588,26 @@ function openSubcontractModal(taskId, editId) {
           '<div>' +
             '<label style="display:block;font-size:.75rem;color:var(--text-3);margin-bottom:3px">Автомобиль (госномер)</label>' +
             '<input type="text" id="subm_auto" value="' + escHtml(curAuto) + '" placeholder="х777хх 178" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+          '</div>' +
+        '</div>' +
+
+        '<div id="subm_new_spec_box" style="display:none;background:#fafaf9;border:1.5px solid var(--orange);border-radius:8px;padding:10px;margin-top:8px">' +
+          '<div style="font-weight:700;font-size:.82rem;margin-bottom:8px;color:var(--text)">➕ Добавление нового монтажника в справочник</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
+            '<input type="text" id="qspec_name" placeholder="ФИО полностью *" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+            '<input type="text" id="qspec_phone" placeholder="Телефон (+7...)" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
+            '<input type="text" id="qspec_pass" placeholder="Паспортные данные (серия, номер, кем выдан)" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+            '<input type="text" id="qspec_auto" placeholder="Автомобиль (госномер)" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
+            '<input type="text" id="qspec_org" placeholder="Организация" value="' + escHtml(selectedCName || 'ООО "Ультима"') + '" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+            '<input type="text" id="qspec_pos" placeholder="Должность" value="Монтажник СКС" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+          '</div>' +
+          '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+            '<button type="button" class="btn btn-sm btn-ghost" onclick="window._submToggleNewSpecialistForm(false)">Отмена</button>' +
+            '<button type="button" class="btn btn-sm btn-primary" id="qspec_save_btn" onclick="window._submSaveNewSpecialist()">✓ Сохранить и выбрать</button>' +
           '</div>' +
         '</div>' +
       '</div>' +
@@ -2384,34 +2627,50 @@ function openSubcontractModal(taskId, editId) {
   document.body.appendChild(modal);
   modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
 
-  if (!selectedCId) {
+  if (!selectedCName) {
     window._submFilterList('');
   }
 }
 
 function saveSubcontract(taskId, editId) {
   var contractorId = document.getElementById('subm_contractor').value;
+  var contractorName = (document.getElementById('subm_contractor_name_input') ? document.getElementById('subm_contractor_name_input').value : '').trim();
+  if (!contractorName) {
+    var nameEl = document.getElementById('subm_selected_c_name');
+    if (nameEl) contractorName = nameEl.textContent.trim();
+  }
+
   var workType = document.getElementById('subm_work_type').value;
   var price = parseFloat(document.getElementById('subm_price').value) || 0;
   var deadline = document.getElementById('subm_deadline').value || null;
-  var fio = document.getElementById('subm_installer_fio').value.trim();
+
+  var specId = document.getElementById('subm_specialist_id') ? document.getElementById('subm_specialist_id').value : '';
+  var fio = (document.getElementById('subm_installer_fio') ? document.getElementById('subm_installer_fio').value : '').trim();
+
+  if (!fio && specId) {
+    var chosenSp = (S.specialists || []).find(function(s){ return String(s.id) === String(specId); });
+    if (chosenSp) fio = chosenSp.full_name;
+  }
+
   var phone = document.getElementById('subm_installer_phone').value.trim();
   var pass = document.getElementById('subm_installer_pass').value.trim();
   var auto = document.getElementById('subm_auto').value.trim();
   var comment = document.getElementById('subm_comment').value.trim();
 
-  if (!contractorId) return alert('Выберите подрядчика из списка или введите нового!');
+  if (!contractorId && !contractorName) return alert('Выберите подрядчика из списка или введите нового!');
   if (!workType) return alert('Укажите вид работ!');
 
   var body = {
-    contractor_id: parseInt(contractorId),
+    contractor_id: (contractorId && !isNaN(parseInt(contractorId))) ? parseInt(contractorId) : null,
+    contractor_name: contractorName || null,
     work_type: workType,
     price_agreed: price,
     deadline: deadline,
-    installer_fio: fio,
-    installer_phone: phone,
-    installer_passport: pass,
-    auto_number: auto,
+    specialist_id: (specId && !isNaN(parseInt(specId))) ? parseInt(specId) : null,
+    installer_fio: fio || null,
+    installer_phone: phone || null,
+    installer_passport: pass || null,
+    auto_number: auto || null,
     comment: comment
   };
 
@@ -2428,10 +2687,10 @@ function saveSubcontract(taskId, editId) {
     var modal = document.getElementById('_subcontract_modal');
     if (modal) modal.remove();
     var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
-    var selContractor = (S.contractors || []).find(function(c){ return String(c.id) === String(contractorId); });
-    if (t && selContractor && t.contractor !== selContractor.name_short) {
-      t.contractor = selContractor.name_short;
-      api('/tasks/' + encodeURIComponent(taskId), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contractor: selContractor.name_short }) });
+    var targetContr = contractorName;
+    if (t && targetContr && t.contractor !== targetContr) {
+      t.contractor = targetContr;
+      api('/tasks/' + encodeURIComponent(taskId), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contractor: targetContr }) });
     }
     loadCardSubcontracts(taskId);
     loadCardDocuments(taskId);

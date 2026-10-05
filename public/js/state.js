@@ -6,7 +6,7 @@ var S = {
   isOnline: navigator.onLine !== false,
   outboxCount: 0,
   syncing: false,
-  tasks: [], chains: [], stats: {}, importInfo: null, users: [], contractors: [], notifications: [],
+  tasks: [], chains: [], stats: {}, importInfo: null, users: [], contractors: [], specialists: [], notifications: [],
   selChain: null, selChainStep: null, chainMgr: '',
   taskQ: '', taskSt: '', taskPr: '', taskReg: '', taskMgr: '', taskYear: '', taskOverdue: '',
   taskCustomer: '',
@@ -21,6 +21,7 @@ var S = {
   marches: [], marchId: null,
   contracts: [], contractStats: { total_count: 0, total_amount: 0, total_security: 0, multi_lot_count: 0 },
   contractSearch: '', contractType: 'all', contractCustomer: 'all', contractStatus: 'all', contractYear: 'all',
+  contractManager: 'all', contractEntity: 'all', contractFilterOptions: null,
   contractModalId: null, contractEditDraft: null,
   aiActive: false, aiMode: 'general', aiMessages: [], aiLoading: false, aiStreaming: false, aiStreamText: '',
   supplyTab: 'stages'

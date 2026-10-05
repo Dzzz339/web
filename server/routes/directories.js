@@ -97,6 +97,7 @@ router.post('/specialists', authenticateToken, async (req, res) => {
       passport_issue_date,
       passport_code,
       passport_raw,
+      auto_number,
       organization,
       position,
       contractor_id
@@ -129,8 +130,9 @@ router.post('/specialists', authenticateToken, async (req, res) => {
           passport_raw = COALESCE(NULLIF($7, ''), passport_raw),
           organization = COALESCE(NULLIF($8, ''), organization),
           position = COALESCE(NULLIF($9, ''), position),
-          contractor_id = COALESCE($10, contractor_id)
-        WHERE id = $11
+          contractor_id = COALESCE($10, contractor_id),
+          auto_number = COALESCE(NULLIF($11, ''), auto_number)
+        WHERE id = $12
         RETURNING *`,
         [
           full_name.trim(),
@@ -143,6 +145,7 @@ router.post('/specialists', authenticateToken, async (req, res) => {
           organization || null,
           position || null,
           contractor_id ? parseInt(contractor_id) : null,
+          auto_number || null,
           targetId
         ]
       );
@@ -151,8 +154,8 @@ router.post('/specialists', authenticateToken, async (req, res) => {
 
     const { rows } = await pool.query(
       `INSERT INTO specialists 
-       (full_name, phone, passport_series_number, passport_issued_by, passport_issue_date, passport_code, passport_raw, organization, position, contractor_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       (full_name, phone, passport_series_number, passport_issued_by, passport_issue_date, passport_code, passport_raw, organization, position, contractor_id, auto_number)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
       [
         full_name.trim(),
@@ -164,7 +167,8 @@ router.post('/specialists', authenticateToken, async (req, res) => {
         passport_raw || null,
         organization || 'ООО "Ультима"',
         position || 'Монтажник СКС',
-        contractor_id || null
+        contractor_id || null,
+        auto_number || null
       ]
     );
     res.status(201).json(rows[0]);
@@ -185,6 +189,7 @@ router.put('/specialists/:id', authenticateToken, async (req, res) => {
       passport_issue_date,
       passport_code,
       passport_raw,
+      auto_number,
       organization,
       position,
       contractor_id
@@ -201,8 +206,9 @@ router.put('/specialists/:id', authenticateToken, async (req, res) => {
            passport_raw = $7,
            organization = COALESCE($8, organization),
            position = COALESCE($9, position),
-           contractor_id = $10
-       WHERE id = $11
+           contractor_id = $10,
+           auto_number = COALESCE($11, auto_number)
+       WHERE id = $12
        RETURNING *`,
       [
         full_name ? full_name.trim() : null,
@@ -215,6 +221,7 @@ router.put('/specialists/:id', authenticateToken, async (req, res) => {
         organization || null,
         position || null,
         contractor_id || null,
+        auto_number !== undefined ? (auto_number || null) : null,
         id
       ]
     );

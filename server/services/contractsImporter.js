@@ -235,6 +235,8 @@ export function parseContractRow(r) {
   let ourEntityName = 'ООО «Ультима»';
   if (regionRaw.toLowerCase().includes('к10')) {
     ourEntityName = 'ООО «К10»';
+  } else if (/(?:^|[^а-яa-z0-9])кс(?:[^а-яa-z0-9]|$)|кабельн/i.test(regionRaw)) {
+    ourEntityName = 'ООО «Кабельные Системы»';
   } else if (regionRaw.toLowerCase().includes('ультима')) {
     ourEntityName = 'ООО «Ультима»';
   }

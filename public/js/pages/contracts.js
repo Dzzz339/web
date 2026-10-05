@@ -36,6 +36,56 @@ function pageContracts() {
   S.contractCustomer = S.contractCustomer || 'all';
   S.contractStatus = S.contractStatus || 'all';
   S.contractYear = S.contractYear || 'all';
+  S.contractManager = S.contractManager || 'all';
+  S.contractEntity = S.contractEntity || 'all';
+
+  // Менеджеры для фильтра
+  var usersList = (S.contractFilterOptions && S.contractFilterOptions.users) || S.users || [];
+  var managerOptionsHtml = usersList.map(function(u) {
+    var uName = u.name || u.fullName || u.username;
+    var isSel = (String(S.contractManager) === String(u.id) || S.contractManager === uName) ? 'selected' : '';
+    return `<option value="${u.id}" ${isSel}>👤 ${escHtml(uName)}</option>`;
+  }).join('');
+
+  // Сторона 2 (Юрлица / Исполнители)
+  var entitiesList = (S.contractFilterOptions && Array.isArray(S.contractFilterOptions.entities)) ? S.contractFilterOptions.entities.slice() : ['ООО «Ультима»', 'ООО «К10»'];
+  ['ООО «Ультима»', 'ООО «К10»', 'ООО «Кабельные Системы»'].forEach(function(e) {
+    if (!entitiesList.includes(e)) entitiesList.push(e);
+  });
+  var entityOptionsHtml = entitiesList.map(function(e) {
+    var isSel = (S.contractEntity === e) ? 'selected' : '';
+    return `<option value="${escHtml(e)}" ${isSel}>${escHtml(e)}</option>`;
+  }).join('');
+
+  // Сторона 1 (Заказчики)
+  var custList = (S.contractFilterOptions && Array.isArray(S.contractFilterOptions.customers)) ? S.contractFilterOptions.customers.slice() : [];
+  if (S.contractCustomer && S.contractCustomer !== 'all' && !custList.includes(S.contractCustomer)) {
+    custList.unshift(S.contractCustomer);
+  }
+  var customerOptionsHtml = custList.map(function(cust) {
+    var isSel = (S.contractCustomer === cust) ? 'selected' : '';
+    var label = cust.length > 45 ? cust.slice(0, 45) + '…' : cust;
+    return `<option value="${escHtml(cust)}" title="${escHtml(cust)}" ${isSel}>${escHtml(label)}</option>`;
+  }).join('');
+
+  // Года
+  var yearsList = (S.contractFilterOptions && Array.isArray(S.contractFilterOptions.years) && S.contractFilterOptions.years.length > 0)
+    ? S.contractFilterOptions.years
+    : [2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017];
+  var yearOptionsHtml = yearsList.map(function(y) {
+    var isSel = (String(S.contractYear) === String(y)) ? 'selected' : '';
+    return `<option value="${y}" ${isSel}>${y}</option>`;
+  }).join('');
+
+  var hasActiveFilters = Boolean(
+    S.contractSearch || 
+    (S.contractType && S.contractType !== 'all') || 
+    (S.contractCustomer && S.contractCustomer !== 'all') || 
+    (S.contractStatus && S.contractStatus !== 'all') || 
+    (S.contractYear && S.contractYear !== 'all') || 
+    (S.contractManager && S.contractManager !== 'all') || 
+    (S.contractEntity && S.contractEntity !== 'all')
+  );
 
   // Загружаем договоры с бэкенда
   fetchContracts();
@@ -84,19 +134,66 @@ function pageContracts() {
         </div>
       </div>
 
-      <!-- ПАНЕЛЬ ПОИСКА И ФИЛЬТРОВ -->
+      <!-- ПАНЕЛЬ ПОИСКА И ФИЛЬТРОВ (ДВЕ СТРОКИ: ПОИСК СВЕРХУ, ОТБОРЫ СНИЗУ) -->
       <div class="card p mb" style="display:flex; flex-direction:column; gap:10px">
+        <!-- СТРОКА 1: Поиск + Статус + Год + Сброс -->
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center">
           <div style="position:relative; flex:1; min-width:280px">
             <input type="text" id="contract_search_input" value="${escHtml(S.contractSearch)}" 
-                   placeholder="🔍 Поиск по номеру договора, заказчику, предмету, адресу или лоту..." 
+                   placeholder="🔍 Поиск по номеру договора, заказчику, менеджеру, предмету, адресу, компании..." 
                    style="width:100%; padding:9px 12px; border:1px solid var(--border); border-radius:8px; font-size:.88rem"
                    oninput="onContractSearchInput(this.value)">
-            ${S.contractSearch ? `<button onclick="clearContractSearch()" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; color:var(--text-3); font-size:1.1rem">&times;</button>` : ''}
+            ${S.contractSearch ? `<button onclick="clearContractSearch()" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; color:var(--text-3); font-size:1.1rem" title="Очистить поиск">&times;</button>` : ''}
           </div>
 
-          <select id="contract_filter_type" style="padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:.82rem" onchange="onContractFilterChange('contractType', this.value)">
-            <option value="all" ${S.contractType === 'all' ? 'selected' : ''}>О чем договор (Все)</option>
+          <select id="contract_filter_status" style="padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:.82rem" onchange="onContractFilterChange('contractStatus', this.value)">
+            <option value="all" ${S.contractStatus === 'all' ? 'selected' : ''}>Статус (Все)</option>
+            ${CONTRACT_STATUSES.map(function(st) {
+              return `<option value="${st.id}" ${S.contractStatus === st.id ? 'selected' : ''}>${st.label}</option>`;
+            }).join('')}
+          </select>
+
+          <select id="contract_filter_year" style="padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:.82rem" onchange="onContractFilterChange('contractYear', this.value)">
+            <option value="all" ${S.contractYear === 'all' ? 'selected' : ''}>Год (Все)</option>
+            ${yearOptionsHtml}
+          </select>
+
+          <div id="contract_reset_filters_wrap" style="display:${hasActiveFilters ? 'inline-flex' : 'none'}">
+            <button class="btn btn-sm btn-ghost" onclick="resetContractFilters()" style="color:var(--red); font-size:.78rem; font-weight:600">
+              ✕ Сбросить
+            </button>
+          </div>
+        </div>
+
+        <!-- СТРОКА 2: Отборы (Менеджер, Сторона 2, Сторона 1, О чем договор) -->
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; padding-top:6px; border-top:1px dashed var(--border)">
+          <div style="display:inline-flex; align-items:center; gap:5px; font-size:.74rem; font-weight:700; color:var(--text-2); text-transform:uppercase; letter-spacing:0.5px">
+            <span>🎯</span> <span>Отбор:</span>
+          </div>
+
+          <!-- МЕНЕДЖЕР (КТО ВЕДЕТ КОНТРАКТ) -->
+          <select id="contract_filter_manager" style="padding:7px 10px; border:1px solid var(--border); border-radius:8px; font-size:.82rem; min-width:175px; flex:1" onchange="onContractFilterChange('contractManager', this.value)" title="Отбор по менеджеру договора">
+            <option value="all" ${S.contractManager === 'all' ? 'selected' : ''}>👤 Менеджер (Все)</option>
+            <option value="unassigned" ${S.contractManager === 'unassigned' ? 'selected' : ''}>👤 Без менеджера</option>
+            <option value="assigned" ${S.contractManager === 'assigned' ? 'selected' : ''}>👤 Любой назначенный</option>
+            ${managerOptionsHtml}
+          </select>
+
+          <!-- СТОРОНА 2 (ИСПОЛНИТЕЛЬ / НАША ОРГАНИЗАЦИЯ) -->
+          <select id="contract_filter_entity" style="padding:7px 10px; border:1px solid var(--border); border-radius:8px; font-size:.82rem; min-width:185px; flex:1" onchange="onContractFilterChange('contractEntity', this.value)" title="Отбор по стороне 2 (Исполнитель / Наша организация)">
+            <option value="all" ${S.contractEntity === 'all' ? 'selected' : ''}>🏢 Сторона 2: Исполнитель (Все)</option>
+            ${entityOptionsHtml}
+          </select>
+
+          <!-- СТОРОНА 1 (ЗАКАЗЧИК) -->
+          <select id="contract_filter_customer" style="padding:7px 10px; border:1px solid var(--border); border-radius:8px; font-size:.82rem; min-width:210px; max-width:320px; flex:1" onchange="onContractFilterChange('contractCustomer', this.value)" title="Отбор по стороне 1 (Заказчик)">
+            <option value="all" ${S.contractCustomer === 'all' ? 'selected' : ''}>🏛️ Сторона 1: Заказчик (Все)</option>
+            ${customerOptionsHtml}
+          </select>
+
+          <!-- О ЧЕМ ДОГОВОР -->
+          <select id="contract_filter_type" style="padding:7px 10px; border:1px solid var(--border); border-radius:8px; font-size:.82rem; min-width:160px; flex:1" onchange="onContractFilterChange('contractType', this.value)" title="Отбор по предмету / типу работ">
+            <option value="all" ${S.contractType === 'all' ? 'selected' : ''}>🏷️ О чем договор (Все)</option>
             <option value="СМР / СКС и ЛВС" ${S.contractType === 'СМР / СКС и ЛВС' ? 'selected' : ''}>СМР / СКС и ЛВС</option>
             <option value="Поставка" ${S.contractType === 'Поставка' ? 'selected' : ''}>Поставка</option>
             <option value="ПИР / Проектирование" ${S.contractType === 'ПИР / Проектирование' ? 'selected' : ''}>ПИР / Проектирование</option>
@@ -108,33 +205,6 @@ function pageContracts() {
             <option value="Логистика / ПРР" ${S.contractType === 'Логистика / ПРР' ? 'selected' : ''}>Логистика / ПРР</option>
             <option value="Прочее" ${S.contractType === 'Прочее' ? 'selected' : ''}>Прочее</option>
           </select>
-
-          <select id="contract_filter_status" style="padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:.82rem" onchange="onContractFilterChange('contractStatus', this.value)">
-            <option value="all" ${S.contractStatus === 'all' ? 'selected' : ''}>Статус (Все)</option>
-            ${CONTRACT_STATUSES.map(function(st) {
-              return `<option value="${st.id}" ${S.contractStatus === st.id ? 'selected' : ''}>${st.label}</option>`;
-            }).join('')}
-          </select>
-
-          <select id="contract_filter_year" style="padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:.82rem" onchange="onContractFilterChange('contractYear', this.value)">
-            <option value="all" ${S.contractYear === 'all' ? 'selected' : ''}>Год (Все)</option>
-            <option value="2026" ${S.contractYear === '2026' ? 'selected' : ''}>2026</option>
-            <option value="2025" ${S.contractYear === '2025' ? 'selected' : ''}>2025</option>
-            <option value="2024" ${S.contractYear === '2024' ? 'selected' : ''}>2024</option>
-            <option value="2023" ${S.contractYear === '2023' ? 'selected' : ''}>2023</option>
-            <option value="2022" ${S.contractYear === '2022' ? 'selected' : ''}>2022</option>
-            <option value="2021" ${S.contractYear === '2021' ? 'selected' : ''}>2021</option>
-            <option value="2020" ${S.contractYear === '2020' ? 'selected' : ''}>2020</option>
-            <option value="2019" ${S.contractYear === '2019' ? 'selected' : ''}>2019</option>
-            <option value="2018" ${S.contractYear === '2018' ? 'selected' : ''}>2018</option>
-            <option value="2017" ${S.contractYear === '2017' ? 'selected' : ''}>2017</option>
-          </select>
-
-          ${(S.contractSearch || S.contractType !== 'all' || S.contractStatus !== 'all' || S.contractYear !== 'all') ? `
-            <button class="btn btn-sm btn-ghost" onclick="resetContractFilters()" style="color:var(--red); font-size:.78rem">
-              ✕ Сбросить
-            </button>
-          ` : ''}
         </div>
       </div>
     </div>
@@ -177,6 +247,8 @@ function fetchContracts() {
   if (S.contractCustomer && S.contractCustomer !== 'all') params.push('customer=' + encodeURIComponent(S.contractCustomer));
   if (S.contractStatus && S.contractStatus !== 'all') params.push('status=' + encodeURIComponent(S.contractStatus));
   if (S.contractYear && S.contractYear !== 'all') params.push('year=' + encodeURIComponent(S.contractYear));
+  if (S.contractManager && S.contractManager !== 'all') params.push('manager=' + encodeURIComponent(S.contractManager));
+  if (S.contractEntity && S.contractEntity !== 'all') params.push('entity=' + encodeURIComponent(S.contractEntity));
 
   var url = '/contracts' + (params.length ? '?' + params.join('&') : '');
 
@@ -184,11 +256,16 @@ function fetchContracts() {
     if (res && res.contracts) {
       S.contracts = res.contracts;
       S.contractStats = res.stats || {};
+      if (res.filterOptions) {
+        S.contractFilterOptions = res.filterOptions;
+        updateContractFilterSelectOptions(res.filterOptions);
+      }
     } else if (Array.isArray(res)) {
       S.contracts = res;
     }
     renderContractsTable();
     updateContractStatsWidgets();
+    updateContractResetButton();
   }).catch(function(err) {
     console.error('Failed to load contracts:', err);
     var container = document.getElementById('contracts_table_container');
@@ -196,6 +273,83 @@ function fetchContracts() {
       container.innerHTML = `<div class="card p" style="text-align:center; padding:2rem; color:var(--red)">Ошибка загрузки договоров: ${escHtml(err.message)}</div>`;
     }
   });
+}
+
+function updateContractFilterSelectOptions(opts) {
+  if (!opts) return;
+
+  // 1. Сторона 1 (Заказчики)
+  var selCust = document.getElementById('contract_filter_customer');
+  if (selCust && Array.isArray(opts.customers)) {
+    var curCust = S.contractCustomer || 'all';
+    var custHtml = '<option value="all">🏛️ Сторона 1: Заказчик (Все)</option>';
+    opts.customers.forEach(function(cName) {
+      var isSel = (cName === curCust) ? 'selected' : '';
+      var short = cName.length > 40 ? cName.slice(0, 40) + '…' : cName;
+      custHtml += `<option value="${escHtml(cName)}" title="${escHtml(cName)}" ${isSel}>${escHtml(short)}</option>`;
+    });
+    selCust.innerHTML = custHtml;
+  }
+
+  // 2. Сторона 2 (Исполнитель / Юрлицо)
+  var selEnt = document.getElementById('contract_filter_entity');
+  if (selEnt && Array.isArray(opts.entities)) {
+    var curEnt = S.contractEntity || 'all';
+    var entList = opts.entities.slice();
+    ['ООО «Ультима»', 'ООО «К10»', 'ООО «Кабельные Системы»'].forEach(function(x) {
+      if (!entList.includes(x)) entList.push(x);
+    });
+    var entHtml = '<option value="all">🏢 Сторона 2: Исполнитель (Все)</option>';
+    entList.forEach(function(eName) {
+      var isSel = (eName === curEnt) ? 'selected' : '';
+      entHtml += `<option value="${escHtml(eName)}" ${isSel}>${escHtml(eName)}</option>`;
+    });
+    selEnt.innerHTML = entHtml;
+  }
+
+  // 3. Менеджеры
+  var selMgr = document.getElementById('contract_filter_manager');
+  if (selMgr && Array.isArray(opts.users)) {
+    var curMgr = S.contractManager || 'all';
+    var mgrHtml = `
+      <option value="all">👤 Менеджер (Все)</option>
+      <option value="unassigned" ${curMgr === 'unassigned' ? 'selected' : ''}>👤 Без менеджера</option>
+      <option value="assigned" ${curMgr === 'assigned' ? 'selected' : ''}>👤 Любой назначенный</option>
+    `;
+    opts.users.forEach(function(u) {
+      var uName = u.name || u.username;
+      var isSel = (String(curMgr) === String(u.id) || curMgr === uName) ? 'selected' : '';
+      mgrHtml += `<option value="${u.id}" ${isSel}>👤 ${escHtml(uName)}</option>`;
+    });
+    selMgr.innerHTML = mgrHtml;
+  }
+
+  // 4. Года
+  var selYr = document.getElementById('contract_filter_year');
+  if (selYr && Array.isArray(opts.years) && opts.years.length > 0) {
+    var curYr = S.contractYear || 'all';
+    var yrHtml = '<option value="all">📅 Год (Все)</option>';
+    opts.years.forEach(function(y) {
+      var isSel = (String(curYr) === String(y)) ? 'selected' : '';
+      yrHtml += `<option value="${y}" ${isSel}>${y}</option>`;
+    });
+    selYr.innerHTML = yrHtml;
+  }
+}
+
+function updateContractResetButton() {
+  var btnWrap = document.getElementById('contract_reset_filters_wrap');
+  if (!btnWrap) return;
+  var hasActive = Boolean(
+    S.contractSearch || 
+    (S.contractType && S.contractType !== 'all') || 
+    (S.contractCustomer && S.contractCustomer !== 'all') || 
+    (S.contractStatus && S.contractStatus !== 'all') || 
+    (S.contractYear && S.contractYear !== 'all') || 
+    (S.contractManager && S.contractManager !== 'all') || 
+    (S.contractEntity && S.contractEntity !== 'all')
+  );
+  btnWrap.style.display = hasActive ? 'inline-flex' : 'none';
 }
 
 function updateContractStatsWidgets() {
@@ -223,6 +377,7 @@ function updateContractStatsWidgets() {
 
 function onContractSearchInput(val) {
   S.contractSearch = val;
+  updateContractResetButton();
   clearTimeout(contractSearchTimeout);
   contractSearchTimeout = setTimeout(function() {
     fetchContracts();
@@ -233,11 +388,13 @@ function clearContractSearch() {
   S.contractSearch = '';
   var inp = document.getElementById('contract_search_input');
   if (inp) inp.value = '';
+  updateContractResetButton();
   fetchContracts();
 }
 
 function onContractFilterChange(key, val) {
   S[key] = val;
+  updateContractResetButton();
   fetchContracts();
 }
 
@@ -247,7 +404,26 @@ function resetContractFilters() {
   S.contractCustomer = 'all';
   S.contractStatus = 'all';
   S.contractYear = 'all';
-  renderApp();
+  S.contractManager = 'all';
+  S.contractEntity = 'all';
+
+  var inp = document.getElementById('contract_search_input');
+  if (inp) inp.value = '';
+  var selT = document.getElementById('contract_filter_type');
+  if (selT) selT.value = 'all';
+  var selS = document.getElementById('contract_filter_status');
+  if (selS) selS.value = 'all';
+  var selY = document.getElementById('contract_filter_year');
+  if (selY) selY.value = 'all';
+  var selM = document.getElementById('contract_filter_manager');
+  if (selM) selM.value = 'all';
+  var selE = document.getElementById('contract_filter_entity');
+  if (selE) selE.value = 'all';
+  var selC = document.getElementById('contract_filter_customer');
+  if (selC) selC.value = 'all';
+
+  updateContractResetButton();
+  fetchContracts();
 }
 
 /**
@@ -462,14 +638,34 @@ function renderContractsTable() {
       </div>
     `;
 
-    // Заказчик и сторона
+    // Заказчик, сторона 2 и менеджер
+    var mgrName = c.manager_display_name || c.manager_name;
+    var managerChip = mgrName ? `
+      <div style="margin-top:4px">
+        <button class="btn-ghost" onclick="event.stopPropagation(); openAssignContractManagerModal(${c.id}, ${c.manager_id || 'null'})"
+                style="padding:1px 6px; font-size:.72rem; border-radius:4px; border:1px solid #bbf7d0; background:#f0fdf4; color:#15803d; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px"
+                title="Ответственный менеджер (кликните, чтобы изменить)">
+          <span>👤</span> <span>${highlight(escHtml(mgrName), S.contractSearch)}</span>
+        </button>
+      </div>
+    ` : `
+      <div style="margin-top:3px">
+        <button class="btn-ghost" onclick="event.stopPropagation(); openAssignContractManagerModal(${c.id}, null)"
+                style="padding:1px 6px; font-size:.70rem; border-radius:4px; border:1px dashed #cbd5e1; background:transparent; color:var(--text-3); cursor:pointer; display:inline-flex; align-items:center; gap:4px"
+                title="Назначить ответственного менеджера">
+          <span>👤</span> <span style="opacity:0.8">+ Менеджер</span>
+        </button>
+      </div>
+    `;
+
     var customerHtml = `
       <div style="font-weight:700; font-size:.88rem; color:var(--text)">
         ${highlight(escHtml(c.customer_name || 'Не указан'), S.contractSearch)}
       </div>
       <div style="font-size:.72rem; color:var(--text-3); margin-top:2px">
-        ${escHtml(c.our_entity_name || 'ООО «Ультима»')} ${c.our_entity_region ? '· ' + escHtml(c.our_entity_region) : ''}
+        ${highlight(escHtml(c.our_entity_name || 'ООО «Ультима»'), S.contractSearch)} ${c.our_entity_region ? '· ' + highlight(escHtml(c.our_entity_region), S.contractSearch) : ''}
       </div>
+      ${managerChip}
     `;
 
     // Предмет и место
@@ -1653,7 +1849,10 @@ function saveContractManager(contractId) {
       showToast('Ответственный менеджер сохранен', 'success');
       var backdrop = document.getElementById('contract_manager_modal_backdrop');
       if (backdrop) backdrop.style.display = 'none';
-      openContractModal(contractId, 'main');
+      var modalBackdrop = document.getElementById('contract_detail_modal_backdrop');
+      if (modalBackdrop && modalBackdrop.style.display !== 'none' && window._activeContract && window._activeContract.id === contractId) {
+        openContractModal(contractId, 'main');
+      }
       fetchContracts();
     }
   }).catch(function(err) {
