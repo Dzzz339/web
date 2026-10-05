@@ -232,6 +232,11 @@ function pageContracts() {
       <div id="contract_create_task_modal" class="card" style="width:100%; max-width:780px; max-height:92vh; overflow-y:auto; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); position:relative"></div>
     </div>
 
+    <!-- МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ МАТЕРИАЛОВ (ПРОВОДНИК / БРАУЗЕР) -->
+    <div id="contract_materials_modal_backdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:10002; align-items:center; justify-content:center; padding:16px" onclick="if(event.target===this) closeAddContractMaterialsModal()">
+      <div id="contract_materials_modal" class="card" style="width:100%; max-width:640px; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); overflow:hidden"></div>
+    </div>
+
     <!-- СКРЫТЫЙ ИНПУТ ДЛЯ ЗАГРУЗКИ EXCEL -->
     <input type="file" id="contract_excel_input" accept=".xlsx,.xls" style="display:none" onchange="handleContractExcelUpload(event)">
   `;
@@ -624,7 +629,7 @@ function renderContractsTable() {
         </button>
         ${c.contract_number ? `
           <div style="font-size:.73rem; color:var(--text-3)">
-            № ${highlight(escHtml(c.contract_number), S.contractSearch)}
+            № ${highlight(escHtml(cleanContractNumber(c.contract_number)), S.contractSearch)}
           </div>
         ` : ''}
         <button class="btn btn-sm btn-ghost" onclick="openContractModal(${c.id})" style="padding:2px 8px; font-size:.75rem; border:1px solid var(--border); border-radius:6px; display:inline-flex; align-items:center; gap:4px; align-self:flex-start; margin-top:2px; font-weight:600; color:var(--text)" title="Открыть подробности договора">
@@ -793,7 +798,7 @@ function openContractModal(id, activeTab) {
         <div>
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
             <span class="badge b-orange" style="font-size:.85rem; font-weight:800; font-family:monospace">Вн. № ${escHtml(c.internal_number || '—')}</span>
-            ${c.contract_number ? `<span class="badge b-gray" style="font-size:.85rem; font-weight:700">№ ${escHtml(c.contract_number)}</span>` : ''}
+            ${c.contract_number ? `<span class="badge b-gray" style="font-size:.85rem; font-weight:700">№ ${escHtml(cleanContractNumber(c.contract_number))}</span>` : ''}
             <span class="badge b-blue">${escHtml(c.contract_type_summary || 'Договор')}</span>
 
             <div style="display:inline-flex; align-items:center; gap:6px; background:#f8fafc; padding:3px 8px; border-radius:8px; border:1px solid var(--border)">
@@ -977,13 +982,14 @@ function renderContractTabMain(c, dDate, dEnd) {
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
           ${c.zakupki_url ? `<a href="${escHtml(c.zakupki_url)}" target="_blank" class="btn btn-sm btn-ghost" style="border:1px solid var(--border)">🔗 Закупки / ЭТП</a>` : ''}
           ${c.cloud_url ? `
-            <a href="${escHtml(c.cloud_url)}" target="_blank" class="btn btn-sm btn-ghost" style="border:1px solid var(--border); color:var(--text)" title="Внешняя ссылка на Seafile / Диск">☁️ Папка Seafile</a>
-            <button class="btn btn-xs btn-ghost" onclick="promptCloudUrl(${c.id})" title="Изменить внешнюю ссылку">✏️</button>
-          ` : `
-            <button class="btn btn-sm btn-ghost" onclick="promptCloudUrl(${c.id})" style="border:1px dashed var(--border); color:var(--text-3); font-size:.78rem" title="Если есть архив в Seafile или Яндекс.Диске">+ Ссылка Seafile/Облако</button>
-          `}
-          <button class="btn btn-sm" onclick="triggerContractAttachmentUpload(${c.id})" style="background:#2563eb; color:#fff; display:flex; align-items:center; gap:6px; font-weight:600" title="Загрузить приложения к договору (ТЗ, сметы, спецификации, схемы)">
-            📂 Загрузить файл с ПК
+            <a href="${escHtml(c.cloud_url)}" target="_blank" class="btn btn-sm" style="border:1.5px solid #93c5fd; background:#eff6ff; color:#1d4ed8; font-weight:600; display:inline-flex; align-items:center; gap:5px" title="Открыть веб-папку Seafile в браузере">☁️ Папка Seafile</a>
+            <button class="btn btn-xs btn-ghost" onclick="openAddContractMaterialsModal(${c.id})" title="Изменить ссылку на Seafile" style="border:1px solid var(--border)">✏️</button>
+          ` : ''}
+          <button class="btn btn-sm" onclick="openAddContractMaterialsModal(${c.id})" style="background:#2563eb; color:#fff; display:inline-flex; align-items:center; gap:6px; font-weight:700; box-shadow:0 1px 3px rgba(37,99,235,0.3)" title="Добавить материалы: выбрать в Проводнике (ПК / Seafile) или указать ссылку в Браузере">
+            ➕ Добавить материалы
+          </button>
+          <button class="btn btn-sm btn-ghost" onclick="triggerContractAttachmentUpload(${c.id})" style="border:1px solid var(--border); color:var(--text); display:inline-flex; align-items:center; gap:5px; font-weight:500" title="Быстрый выбор файлов с компьютера через Проводник">
+            📁 Проводник
           </button>
           <input type="file" id="contract_attachment_input_${c.id}" multiple style="display:none" onchange="handleContractAttachmentUpload(${c.id}, this)">
         </div>
@@ -1195,11 +1201,164 @@ function saveTermsText(id) {
 /**
  * Быстрое прикрепление ссылки на облако
  */
+
+/**
+ * Модальное окно добавления материалов к договору (Проводник vs Браузер)
+ */
+function openAddContractMaterialsModal(contractId) {
+  var c = (S.contracts || []).find(function(x) { return x.id === contractId; });
+  if (!c && window._activeContract && window._activeContract.id === contractId) {
+    c = window._activeContract;
+  }
+  if (!c) {
+    showToast('Договор не найден', 'error');
+    return;
+  }
+
+  var backdrop = document.getElementById('contract_materials_modal_backdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.id = 'contract_materials_modal_backdrop';
+    backdrop.style.cssText = 'display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:10002; align-items:center; justify-content:center; padding:16px';
+    backdrop.onclick = function(e) { if (e.target === backdrop) closeAddContractMaterialsModal(); };
+    backdrop.innerHTML = '<div id="contract_materials_modal" class="card" style="width:100%; max-width:640px; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); overflow:hidden"></div>';
+    document.body.appendChild(backdrop);
+  }
+
+  var modal = document.getElementById('contract_materials_modal');
+  if (!modal) return;
+
+  var cleanNum = typeof cleanContractNumber === 'function' ? cleanContractNumber(c.contract_number) : (c.contract_number || '');
+  var numBadge = cleanNum ? ('№ ' + escHtml(cleanNum)) : ('Вн. № ' + escHtml(c.internal_number || c.id));
+
+  modal.innerHTML = `
+    <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:#fafafa">
+      <div>
+        <div style="display:flex; align-items:center; gap:8px">
+          <span style="font-weight:700; font-size:1.05rem">➕ Добавить материалы к договору</span>
+          <span class="badge b-gray" style="font-weight:700; font-size:.8rem">${numBadge}</span>
+        </div>
+        <div style="font-size:.78rem; color:var(--text-3); margin-top:2px">
+          Выберите источник: файлы на ПК / папке Seafile или веб-ссылка на облако
+        </div>
+      </div>
+      <button class="btn btn-sm btn-ghost" onclick="closeAddContractMaterialsModal()" style="font-size:1.3rem; line-height:1; color:var(--text-3)">&times;</button>
+    </div>
+
+    <div style="padding:20px; display:flex; flex-direction:column; gap:16px">
+      <!-- ВАРИАНТ 1: ПРОВОДНИК -->
+      <div style="border:1.5px solid #bfdbfe; background:#f0f7ff; border-radius:10px; padding:16px">
+        <div style="display:flex; align-items:flex-start; gap:12px">
+          <div style="font-size:2rem; line-height:1">📁</div>
+          <div style="flex:1">
+            <div style="font-weight:700; font-size:.95rem; color:#1e40af">1. Проводник (Файлы с компьютера / папки Seafile)</div>
+            <div style="font-size:.8rem; color:#3b82f6; margin-top:4px; line-height:1.4">
+              Загрузить локальные файлы (ТЗ, сметы, спецификации, схемы, акты, сканы договоров) из любой папки ПК или синхронизированной папки Seafile.
+            </div>
+            <div style="margin-top:12px">
+              <button class="btn btn-primary" onclick="closeAddContractMaterialsModal(); triggerContractAttachmentUpload(${c.id})" style="display:inline-flex; align-items:center; gap:8px; font-weight:600; padding:8px 16px; background:#2563eb; color:#fff; border-radius:7px; box-shadow:0 1px 3px rgba(37,99,235,0.3)">
+                📂 Открыть Проводник и выбрать файлы
+              </button>
+            </div>
+            <div style="font-size:.72rem; color:var(--text-3); margin-top:8px">
+              💡 Можно также перетаскивать файлы мышью (Drag & Drop) в окно карточки договора
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ВАРИАНТ 2: БРАУЗЕР -->
+      <div style="border:1.5px solid #fed7aa; background:#fffaf5; border-radius:10px; padding:16px">
+        <div style="display:flex; align-items:flex-start; gap:12px">
+          <div style="font-size:2rem; line-height:1">🌐</div>
+          <div style="flex:1">
+            <div style="font-weight:700; font-size:.95rem; color:#9a3412">2. Браузер (Веб-ссылка на папку Seafile / Облако)</div>
+            <div style="font-size:.8rem; color:#c2410c; margin-top:4px; line-height:1.4">
+              Укажите прямую веб-ссылку на сетевую папку договора в браузере (Seafile, Яндекс.Диск, Google Drive). Кнопка ссылки появится в шапке карточки договора.
+            </div>
+            <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px">
+              <input type="text" id="modal_contract_cloud_url_input_${c.id}" 
+                     value="${escHtml(c.cloud_url || '')}" 
+                     placeholder="https://seafile... или https://disk.yandex.ru/..." 
+                     style="width:100%; padding:9px 12px; border:1px solid #fdba74; border-radius:7px; font-size:.85rem; background:#fff"
+                     onkeydown="if(event.key==='Enter'){ event.preventDefault(); saveContractCloudUrlModal(${c.id}); }">
+              
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+                <button class="btn btn-sm" onclick="saveContractCloudUrlModal(${c.id})" style="background:#ea580c; color:#fff; font-weight:600; padding:7px 14px; border-radius:6px">
+                  💾 Сохранить ссылку
+                </button>
+                ${c.cloud_url ? `
+                  <a href="${escHtml(c.cloud_url)}" target="_blank" class="btn btn-sm btn-ghost" style="border:1px solid #fdba74; color:#c2410c; text-decoration:none; display:inline-flex; align-items:center; gap:4px">
+                    🔗 Открыть в браузере
+                  </a>
+                  <button class="btn btn-sm btn-ghost" onclick="clearContractCloudUrlModal(${c.id})" style="color:#ef4444; font-size:.8rem">
+                    Удалить ссылку
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding:12px 20px; border-top:1px solid var(--border); background:#fafafa; display:flex; justify-content:flex-end">
+      <button class="btn btn-sm btn-ghost" onclick="closeAddContractMaterialsModal()">Закрыть</button>
+    </div>
+  `;
+
+  backdrop.style.display = 'flex';
+  var inp = document.getElementById('modal_contract_cloud_url_input_' + c.id);
+  if (inp && !c.cloud_url) {
+    setTimeout(function() { inp.focus(); }, 150);
+  }
+}
+
+function closeAddContractMaterialsModal() {
+  var el = document.getElementById('contract_materials_modal_backdrop');
+  if (el) el.style.display = 'none';
+}
+
+function saveContractCloudUrlModal(id) {
+  var inp = document.getElementById('modal_contract_cloud_url_input_' + id);
+  var newUrl = inp ? inp.value.trim() : '';
+
+  api('/contracts/' + id, {
+    method: 'PUT',
+    body: JSON.stringify({ cloud_url: newUrl })
+  }).then(function(res) {
+    if (res && res.error) {
+      showToast('Ошибка: ' + res.error, 'error');
+    } else {
+      showToast(newUrl ? 'Ссылка на облако сохранена' : 'Ссылка очищена', 'success');
+      var c = S.contracts ? S.contracts.find(function(x){ return x.id === id; }) : null;
+      if (c) c.cloud_url = newUrl;
+      if (window._activeContract && window._activeContract.id === id) {
+        window._activeContract.cloud_url = newUrl;
+      }
+      closeAddContractMaterialsModal();
+      fetchContracts();
+      var modalBackdrop = document.getElementById('contract_detail_modal_backdrop');
+      if (modalBackdrop && modalBackdrop.style.display !== 'none') {
+        openContractModal(id, 'main');
+      }
+    }
+  }).catch(function(err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  });
+}
+
+function clearContractCloudUrlModal(id) {
+  if (!confirm('Удалить сохраненную ссылку на облако?')) return;
+  var inp = document.getElementById('modal_contract_cloud_url_input_' + id);
+  if (inp) inp.value = '';
+  saveContractCloudUrlModal(id);
+}
+
 function promptCloudUrl(id) {
-  var c = S.contracts ? S.contracts.find(x => x.id === id) : null;
-  var curUrl = c ? (c.cloud_url || '') : '';
-  var newUrl = prompt('Введите ссылку на папку договора в облаке (Яндекс.Диск, Google Drive и т.д.):', curUrl);
-  if (newUrl === null) return; // Нажали отмену
+  // Перенаправляем на удобное модальное окно выбора материалов
+  openAddContractMaterialsModal(id);
+  return;
 
   api('/contracts/' + id, {
     method: 'PUT',
@@ -2157,6 +2316,10 @@ function removeContractChecklistItem(contractId, key) {
 window.initContractMap = initContractMap;
 window.openAssignContractManagerModal = openAssignContractManagerModal;
 window.saveContractManager = saveContractManager;
+window.openAddContractMaterialsModal = openAddContractMaterialsModal;
+window.closeAddContractMaterialsModal = closeAddContractMaterialsModal;
+window.saveContractCloudUrlModal = saveContractCloudUrlModal;
+window.clearContractCloudUrlModal = clearContractCloudUrlModal;
 window.triggerContractAttachmentUpload = triggerContractAttachmentUpload;
 window.uploadContractFiles = uploadContractFiles;
 window.handleContractAttachmentUpload = handleContractAttachmentUpload;
@@ -2251,7 +2414,7 @@ function openCreateTaskForContractModal(contractId) {
         <div style="display:flex; align-items:center; gap:8px">
           <span class="badge b-blue" style="font-size:.78rem">Связка с договором</span>
           <span class="badge b-orange" style="font-size:.78rem; font-family:monospace; font-weight:700">Вн. № ${escHtml(c.internal_number || '—')}</span>
-          ${c.contract_number ? `<span class="badge b-gray" style="font-size:.78rem">№ ${escHtml(c.contract_number)}</span>` : ''}
+          ${c.contract_number ? `<span class="badge b-gray" style="font-size:.78rem">№ ${escHtml(cleanContractNumber(c.contract_number))}</span>` : ''}
         </div>
         <h3 style="margin:6px 0 0; font-size:1.15rem; font-weight:700">➕ Создание новой заявки / объекта</h3>
       </div>

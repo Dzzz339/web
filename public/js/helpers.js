@@ -580,6 +580,11 @@ function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function cleanContractNumber(num) {
+  if (!num) return '';
+  return String(num).replace(/^[№\s#]+/, '').trim();
+}
+
 // ─── Карта маршрута ──────────────────────────────────────────────────────────
 
 function showModal(title, fields, onSave) {

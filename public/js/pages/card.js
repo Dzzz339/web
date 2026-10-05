@@ -1245,11 +1245,14 @@ function pageCard() {
             // Формула Алексея
             '<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:6px;padding:8px 10px;margin-bottom:10px">' +
               '<div style="display:flex;justify-content:space-between;align-items:center">' +
-                '<span style="font-size:.78rem;font-weight:700;color:#92400e">Формула: (Ставка × Факт) + Удаленка + Доп</span>' +
-                '<span style="font-size:.72rem;color:#b45309">авторасчет</span>' +
+                '<span style="font-size:.78rem;font-weight:700;color:#92400e">Формула: (Ставка × ' + (isFactKnown ? 'Факт' : 'В заказе') + ') + Удаленка + Доп</span>' +
+                '<span style="font-size:.72rem;color:#b45309">' + (isFactKnown ? 'расчет по факту' : 'плановый расчет') + '</span>' +
               '</div>' +
-              '<div style="font-weight:800;font-size:1.18rem;color:#b45309;margin-top:4px">' +
-                fmtMoney(calculatedSubTotal) +
+              '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:4px">' +
+                '<div style="font-weight:800;font-size:1.18rem;color:#b45309">' +
+                  fmtMoney(calculatedSubTotal) +
+                '</div>' +
+                ((curSub && Number(curSub.price_agreed) > 0) ? '<span class="badge b-green" style="font-size:.72rem">📄 Из заказ-наряда</span>' : '') +
               '</div>' +
             '</div>' +
 
@@ -1259,8 +1262,8 @@ function pageCard() {
                 '<input type="number" id="sub_rate_input" value="' + subRate + '" oninput="window._recalcSubFinance(\'' + eid + '\')" style="width:100%;padding:4px 8px;font-size:.82rem" placeholder="₽ / ед">' +
               '</div>' +
               '<div>' +
-                '<label class="t3" style="display:block;font-size:.72rem;margin-bottom:2px">Факт портов (из заявки)</label>' +
-                '<div style="padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-weight:700">' + factVal + ' шт.</div>' +
+                '<label class="t3" style="display:block;font-size:.72rem;margin-bottom:2px">' + (isFactKnown ? 'Факт портов (из заявки)' : 'В заказе (план портов)') + '</label>' +
+                '<div style="padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-weight:700;color:var(--text)">' + effectivePorts + ' шт.' + (!isFactKnown ? ' <span class="t3" style="font-weight:normal;font-size:.7rem">(факт 0)</span>' : '') + '</div>' +
               '</div>' +
               '<div>' +
                 '<label class="t3" style="display:block;font-size:.72rem;margin-bottom:2px">Удалёнка подрядчика (₽)</label>' +
@@ -3029,7 +3032,10 @@ window._recalcSubFinance = function(taskId) {
   var rate = parseFloat(document.getElementById('sub_rate_input').value) || 0;
   var dist = parseFloat(document.getElementById('sub_distance_input').value) || 0;
   var ext = parseFloat(document.getElementById('sub_extras_input').value) || 0;
-  var ports = Number(t.fact) || Number(t.inOrder) || 1;
+  var isDraft = function(k) { return Object.prototype.hasOwnProperty.call(S.cardDraft, k); };
+  var fact = isDraft('fact') ? (parseFloat(S.cardDraft.fact) || 0) : (parseFloat(t.fact) || 0);
+  var inOrder = isDraft('inOrder') ? (parseFloat(S.cardDraft.inOrder) || 0) : (parseFloat(t.inOrder) || 0);
+  var ports = fact > 0 ? fact : (inOrder > 0 ? inOrder : 1);
   if (!t.rawData) t.rawData = {};
   t.rawData.subRate = rate;
   t.rawData.subDist = dist;
