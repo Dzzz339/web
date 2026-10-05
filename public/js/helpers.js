@@ -585,6 +585,83 @@ function cleanContractNumber(num) {
   return String(num).replace(/^[№\s#]+/, '').trim();
 }
 
+/**
+ * Определение параметров последней загрузки реестра / пакета импорта
+ */
+function getLatestImportMetrics(tasks) {
+  var maxBatchId = 0;
+  var maxImportTime = 0;
+  if (Array.isArray(tasks)) {
+    for (var i = 0; i < tasks.length; i++) {
+      var t = tasks[i];
+      if (t.importBatchId && t.importBatchId > maxBatchId) {
+        maxBatchId = t.importBatchId;
+      }
+      var d = t.lastImportedAt || t.firstImportedAt || t.createdAt;
+      if (d) {
+        var ms = new Date(d).getTime();
+        if (!isNaN(ms) && ms > maxImportTime) {
+          maxImportTime = ms;
+        }
+      }
+    }
+  }
+  return {
+    maxBatchId: maxBatchId > 0 ? maxBatchId : null,
+    maxImportTime: maxImportTime > 0 ? maxImportTime : null
+  };
+}
+
+/**
+ * Проверка соответствия заявки выбранному этапу регламента
+ * Поддерживает этап "1. Новые (дата последней загрузки)", отбирая заявки,
+ * которые только поступили в базу с последним импортом, независимо от даты в Excel.
+ */
+function isTaskMatchingStage(t, stageKey, latestInfo) {
+  if (!stageKey || stageKey === 'all') return true;
+
+  if (stageKey === 'new') {
+    // 1. По ID пакета последней загрузки
+    if (latestInfo && latestInfo.maxBatchId && t.importBatchId === latestInfo.maxBatchId) {
+      if (t.status !== 'cancelled' && t.status !== 'paid' && t.status !== 'done') {
+        return true;
+      }
+    }
+
+    // 2. По временному окну последней загрузки (сессия импорта)
+    if (latestInfo && latestInfo.maxImportTime) {
+      var tTime = new Date(t.lastImportedAt || t.firstImportedAt || t.createdAt || 0).getTime();
+      if (!isNaN(tTime) && Math.abs(latestInfo.maxImportTime - tTime) <= 2 * 3600 * 1000) {
+        if (t.status !== 'cancelled' && t.status !== 'paid' && t.status !== 'done') {
+          return true;
+        }
+      }
+    }
+
+    // 3. Либо явный статус 'new' / П0
+    var ms = String(t.macroStatus || '').toLowerCase().trim();
+    if (ms === 'new') {
+      return true;
+    }
+
+    return false;
+  }
+
+  var ms = String(t.macroStatus || '').toLowerCase().trim();
+  if (stageKey === 'review') return ms === 'review';
+  if (stageKey === 'rejected') return ms === 'rejected' || ms === 'cancelled' || t.status === 'cancelled';
+  if (stageKey === 'in_progress') return ms === 'in_progress';
+  if (stageKey === 'assigned') return ms === 'assigned';
+  if (stageKey === 'install') return ms === 'install' || t.stage === 'install';
+  if (stageKey === 'smr_done') return ms === 'smr_done' || ms === 'correction';
+  if (stageKey === 'id_in_progress') return ms === 'id_in_progress';
+  if (stageKey === 'accepted') return ms === 'accepted' || ms === 'id_delivered' || t.stage === 'acceptance';
+  if (stageKey === 'billing') return ms === 'billing';
+  if (stageKey === 'paid') return ms === 'paid' || ms === 'archived' || t.status === 'paid' || t.stage === 'payment';
+
+  return ms === stageKey || t.stage === stageKey;
+}
+
 // ─── Карта маршрута ──────────────────────────────────────────────────────────
 
 function showModal(title, fields, onSave) {

@@ -5,7 +5,7 @@
 var KANBAN_COLS = [
   {
     id: 'new',
-    label: '1. Новые (за сегодня)',
+    label: '1. Новые (дата последней загрузки)',
     color: '#475569',
     badgeCls: 'b-gray',
     icon: '📥',
@@ -279,6 +279,7 @@ function pageKanban() {
   var quick = S.kanbanQuick || 'all';
 
   var todayStr = new Date().toISOString().split('T')[0];
+  var latestInfo = getLatestImportMetrics(S.tasks || []);
 
   var regions = Array.from(new Set(S.tasks.map(function(t){ return (t.region || '').trim(); }).filter(Boolean))).sort();
   var managers = Array.from(new Set(S.tasks.map(function(t){ return (t.manager || '').trim(); }).filter(Boolean))).sort();
@@ -300,9 +301,7 @@ function pageKanban() {
 
     // Быстрый фильтр
     if (quick === 'today') {
-      var isToday = (t.dateZayavki && t.dateZayavki === todayStr) || 
-                    (t.currentDate && t.currentDate === todayStr);
-      if (!isToday && (t.macroStatus || 'new') !== 'new') return false;
+      if (!isTaskMatchingStage(t, 'new', latestInfo)) return false;
     } else if (quick === 'overdue') {
       var isOvd = t.overdueDays > 0 || (t.stageDue && new Date(t.stageDue) < new Date());
       if (!isOvd) return false;
@@ -335,7 +334,7 @@ function pageKanban() {
     return sum + Number(t.openRemarksCount || 0); 
   }, 0);
   var todayCount = S.tasks.filter(function(t){
-    return !t.archived && ((t.dateZayavki && t.dateZayavki === todayStr) || (t.currentDate && t.currentDate === todayStr) || (t.macroStatus || 'new') === 'new');
+    return !t.archived && isTaskMatchingStage(t, 'new', latestInfo);
   }).length;
 
   // Расчет объектов по фазам для табов
@@ -407,7 +406,7 @@ function pageKanban() {
       var curMs = (t.macroStatus || 'new').toLowerCase();
       var custName = (t.customer || '').trim();
 
-      var isTaskToday = (t.dateZayavki && t.dateZayavki === todayStr) || (t.currentDate && t.currentDate === todayStr);
+      var isTaskToday = isTaskMatchingStage(t, 'new', latestInfo);
 
       // Бейдж срока / просрочки
       var dueBadge = '';

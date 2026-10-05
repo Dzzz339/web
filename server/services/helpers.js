@@ -69,6 +69,7 @@ export function rowToTask(r) {
     contractLot:   r.contract_lot ? Number(r.contract_lot) : null,
     contract_lot:  r.contract_lot ? Number(r.contract_lot) : null,
     importSource:  r.import_source || null,
+    createdAt:       r.created_at ? new Date(r.created_at).toISOString() : null,
     firstImportedAt: r.first_imported_at ? new Date(r.first_imported_at).toISOString() : (r.created_at ? new Date(r.created_at).toISOString() : null),
     lastImportedAt:  r.last_imported_at ? new Date(r.last_imported_at).toISOString() : null,
     importBatchId:   r.import_batch_id || null,

@@ -104,6 +104,7 @@ function pageTasks() {
   }
   
   // 1. Фильтрация
+  var latestInfo = getLatestImportMetrics(S.tasks || []);
   var filtered = S.tasks.filter(function(t) {
     // УМНЫЙ ПОИСК
     if (q) {
@@ -167,7 +168,7 @@ function pageTasks() {
     if (ovd==='yes' && !(t.overdueDays>0)) return false;
     if (ovd==='no'  && t.overdueDays>0)    return false;
     if (S.taskArch === 'no' && t.archived) return false;
-    if (S.taskStage && t.stage !== S.taskStage) return false;
+    if (S.taskStage && !isTaskMatchingStage(t, S.taskStage, latestInfo)) return false;
     if (S.taskView === 'montage' && (t.stageNum != null && t.stageNum > 2)) return false;
     if (S.taskView === 'id_queue' && t.stageNum !== 3) return false;
     if (S.taskView === 'design' && t.stageNum !== 4) return false;
@@ -238,7 +239,7 @@ function pageTasks() {
   if (mgr) activeFilters.push({ key: 'mgr', label: '👔 ' + mgr });
   if (S.taskStage) {
     var stageLabels = {
-      'new': '📥 Новые (за сегодня)',
+      'new': '📥 Новые (дата последней загрузки)',
       'review': '🔍 На проверке ТЗ',
       'rejected': '⛔ Отклонены',
       'in_progress': '🤝 Поиск подрядчика',
@@ -331,7 +332,7 @@ function pageTasks() {
             '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Процесс / Этап регламента</label>' +
               '<select id="tstage" style="width:100%">' +
                 '<option value="">Все этапы (любой)</option>' +
-                '<option value="new"' + (S.taskStage==='new'?' selected':'') + '>📥 1. Новые (за сегодня)</option>' +
+                '<option value="new"' + (S.taskStage==='new'?' selected':'') + '>📥 1. Новые (дата последней загрузки)</option>' +
                 '<option value="review"' + (S.taskStage==='review'?' selected':'') + '>🔍 2. На проверке ТЗ</option>' +
                 '<option value="rejected"' + (S.taskStage==='rejected'?' selected':'') + '>⛔ 3. Отклонены / Доработка</option>' +
                 '<option value="in_progress"' + (S.taskStage==='in_progress'?' selected':'') + '>🤝 4. В поиске подрядчика</option>' +
