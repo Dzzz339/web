@@ -208,6 +208,8 @@ function macroStatusBadge(code) {
 function changeTaskMacroStatus(taskId, newStatus, callback) {
   if (!newStatus) return;
   var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
+  var targetId = (typeof S !== 'undefined' && S.page === 'kanban') ? ('kcard_' + taskId) : ('task_row_' + taskId);
+  if (window.savePageScroll) window.savePageScroll(targetId);
   return api('/tasks/' + encodeURIComponent(taskId), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -216,7 +218,10 @@ function changeTaskMacroStatus(taskId, newStatus, callback) {
   .then(function() {
     if (t) t.macroStatus = newStatus;
     if (typeof callback === 'function') callback(null, newStatus);
-    else renderApp();
+    else {
+      renderApp();
+      if (window.restorePageScroll) window.restorePageScroll(targetId);
+    }
   })
   .catch(function(err) {
     alert('Ошибка смены статуса: ' + (err.message || err));

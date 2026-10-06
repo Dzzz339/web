@@ -271,6 +271,7 @@ function fetchContracts() {
     renderContractsTable();
     updateContractStatsWidgets();
     updateContractResetButton();
+    if (typeof window.restorePageScroll === 'function') window.restorePageScroll();
   }).catch(function(err) {
     console.error('Failed to load contracts:', err);
     var container = document.getElementById('contracts_table_container');
@@ -717,7 +718,7 @@ function renderContractsTable() {
     ` : '';
 
     return `
-      <tr style="border-bottom: 1px solid var(--border); transition:background .15s" onmouseover="this.style.background='#fafafa'" onmouseout="this.style.background='transparent'">
+      <tr id="contract_row_${c.id}" data-contract-id="${c.id}" style="border-bottom: 1px solid var(--border); transition:background .15s" onmouseover="this.style.background='#fafafa'" onmouseout="this.style.background='transparent'">
         <td style="padding: 10px 12px; vertical-align:top; width:135px">${numberHtml}</td>
         <td style="padding: 10px 12px; vertical-align:top; width:130px">${dateCellHtml}</td>
         <td style="padding: 10px 12px; vertical-align:top">${customerHtml}</td>
@@ -772,6 +773,7 @@ function renderContractsTable() {
  */
 function openContractModal(id, activeTab) {
   activeTab = activeTab || 'main';
+  if (typeof window.savePageScroll === 'function') window.savePageScroll('contract_row_' + id);
   var modalBackdrop = document.getElementById('contract_detail_modal_backdrop');
   var modalEl = document.getElementById('contract_detail_modal');
   if (!modalBackdrop || !modalEl) return;
@@ -801,7 +803,7 @@ function openContractModal(id, activeTab) {
 
     // Отрисовываем содержимое карточки
     modalEl.innerHTML = `
-      <div style="padding:20px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px">
+      <div class="modal-header" style="padding:20px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px">
         <div>
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
             <span class="badge b-orange" style="font-size:.85rem; font-weight:800; font-family:monospace">Вн. № ${escHtml(c.internal_number || '—')}</span>
@@ -1168,7 +1170,11 @@ function renderContractTabTasks(c, tasks) {
 
 function closeContractModal() {
   var modalBackdrop = document.getElementById('contract_detail_modal_backdrop');
-  if (modalBackdrop) modalBackdrop.style.display = 'none';
+  if (modalBackdrop) {
+    modalBackdrop.style.display = 'none';
+    modalBackdrop.classList.remove('is-floating');
+  }
+  if (typeof window.restorePageScroll === 'function') window.restorePageScroll();
 }
 
 /**
@@ -1390,6 +1396,7 @@ function promptCloudUrl(id) {
  * Форма добавления / редактирования договора
  */
 function openContractForm(id) {
+  if (id && typeof window.savePageScroll === 'function') window.savePageScroll('contract_row_' + id);
   var modalBackdrop = document.getElementById('contract_form_modal_backdrop');
   var modalEl = document.getElementById('contract_form_modal');
   if (!modalBackdrop || !modalEl) return;
@@ -1409,7 +1416,7 @@ function openContractForm(id) {
   });
 
   modalEl.innerHTML = `
-    <div style="padding:20px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center">
+    <div class="modal-header" style="padding:20px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center">
       <h2 style="margin:0; font-size:1.15rem">${isEdit ? 'Редактировать договор' : 'Новый договор'}</h2>
       <button class="btn btn-sm btn-ghost" onclick="closeContractFormModal()" style="font-size:1.2rem; line-height:1">&times;</button>
     </div>
@@ -1594,7 +1601,11 @@ function renderContractFormFilesChips() {
 function closeContractFormModal() {
   S.contractFormPendingFiles = [];
   var modalBackdrop = document.getElementById('contract_form_modal_backdrop');
-  if (modalBackdrop) modalBackdrop.style.display = 'none';
+  if (modalBackdrop) {
+    modalBackdrop.style.display = 'none';
+    modalBackdrop.classList.remove('is-floating');
+  }
+  if (typeof window.restorePageScroll === 'function') window.restorePageScroll();
 }
 
 function handleContractFormSubmit(e, id) {
@@ -1654,18 +1665,21 @@ function handleContractFormSubmit(e, id) {
         }).then(function() {
           S.contractFormPendingFiles = [];
           showToast(isEdit ? 'Договор обновлен, файлы загружены' : 'Договор создан, файлы успешно прикреплены!', 'success');
+          if (contractId && typeof window.savePageScroll === 'function') window.savePageScroll('contract_row_' + contractId);
           closeContractFormModal();
           fetchContracts();
           openContractModal(contractId, 'main');
         }).catch(function(err) {
           console.error(err);
           showToast('Договор сохранен, но произошла ошибка при загрузке файлов', 'warning');
+          if (contractId && typeof window.savePageScroll === 'function') window.savePageScroll('contract_row_' + contractId);
           closeContractFormModal();
           fetchContracts();
           openContractModal(contractId, 'main');
         });
       } else {
         showToast(isEdit ? 'Договор успешно обновлен' : 'Договор создан', 'success');
+        if (contractId && typeof window.savePageScroll === 'function') window.savePageScroll('contract_row_' + contractId);
         closeContractFormModal();
         fetchContracts();
         if (isEdit) openContractModal(id);

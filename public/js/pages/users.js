@@ -190,7 +190,7 @@ function renderSpecialistRowHtml(s) {
   }
 
   return `
-    <tr style="border-bottom: 1px solid var(--border)">
+    <tr id="spec_row_${s.id}" data-spec-id="${s.id}" style="border-bottom: 1px solid var(--border); transition: background .2s">
       <td style="padding: 10px 12px; font-weight:600">
         <div>${escHtml(s.full_name)}</div>
         <div style="font-size:.73rem; color:var(--text-3); font-weight:normal">${escHtml(s.position || 'Монтажник СКС')}</div>
@@ -347,6 +347,7 @@ function openAddSpecialistModal() {
 function editSpecialist(id) {
   var s = (S.specialists || []).find(x => x.id === id);
   if (!s) return;
+  if (window.savePageScroll) window.savePageScroll('spec_row_' + id);
 
   showModal('✏️ Редактировать специалиста #' + id, [
     { key: 'fullName', label: 'ФИО специалиста', value: s.full_name, required: true },
@@ -376,6 +377,7 @@ function editSpecialist(id) {
       api('/specialists').then(function(specs) {
         S.specialists = specs;
         renderTeamActiveTabContent();
+        if (window.restorePageScroll) window.restorePageScroll('spec_row_' + id);
       });
     });
   });
@@ -487,7 +489,7 @@ function renderPoaRowHtml(p) {
   var validUntilStr = p.valid_until ? new Date(p.valid_until).toLocaleDateString('ru') : 'Бессрочно';
 
   return `
-    <tr style="border-bottom: 1px solid var(--border)">
+    <tr id="poa_row_${p.id}" data-poa-id="${p.id}" style="border-bottom: 1px solid var(--border); transition: background .2s">
       <td style="padding: 10px 12px; font-weight:700">
         <div style="font-family:monospace; font-size:.92rem">${escHtml(p.number)}</div>
       </td>
@@ -644,6 +646,7 @@ function openAddPoaModal() {
 function editPoa(id) {
   var p = (S.powersOfAttorney || []).find(x => x.id === id);
   if (!p) return;
+  if (window.savePageScroll) window.savePageScroll('poa_row_' + id);
 
   var issueDateStr = p.issue_date ? p.issue_date.slice(0, 10) : '';
   var validUntilStr = p.valid_until ? p.valid_until.slice(0, 10) : '';
@@ -672,6 +675,7 @@ function editPoa(id) {
       api('/powers-of-attorney').then(function(poas) {
         S.powersOfAttorney = poas;
         renderTeamActiveTabContent();
+        if (window.restorePageScroll) window.restorePageScroll('poa_row_' + id);
       });
     });
   });
@@ -702,7 +706,7 @@ function renderUsersView(container) {
     var regBadge = u.assigned_regions ? '<div style="font-size:.72rem;color:var(--text-3);margin-top:2px" title="Закрепленные регионы">📍 ' + escHtml(u.assigned_regions) + '</div>' : '';
 
     return `
-      <tr style="border-bottom: 1px solid var(--border)">
+      <tr id="user_row_${u.id}" data-user-id="${u.id}" style="border-bottom: 1px solid var(--border); transition: background .2s">
         <td style="padding: 10px 12px"><b>#${u.id}</b></td>
         <td style="padding: 10px 12px; font-weight:600">${escHtml(u.username)}</td>
         <td style="padding: 10px 12px">
@@ -782,6 +786,7 @@ function toggleUserForm(open) {
 function editUser(id) {
   var user = (S.users || []).find(u => u.id === id);
   if (!user) return;
+  if (window.savePageScroll) window.savePageScroll('user_row_' + id);
 
   var issueDateStr = user.passport_issue_date ? user.passport_issue_date.slice(0, 10) : '';
 
@@ -810,7 +815,11 @@ function editUser(id) {
       body: JSON.stringify(d)
     }).then(function(res) {
       if (res && res.error) return alert(res.error);
-      api('/users').then(list => { S.users = list; renderApp(); });
+      api('/users').then(list => {
+        S.users = list;
+        renderApp();
+        if (window.restorePageScroll) window.restorePageScroll('user_row_' + id);
+      });
     });
   });
 }

@@ -195,7 +195,7 @@ function renderCustomersTable(container, list) {
     }
 
     return `
-      <tr style="border-bottom: 1px solid var(--border)">
+      <tr id="contractor_row_${c.id}" data-contractor-id="${c.id}" style="border-bottom: 1px solid var(--border); transition: background .2s">
         <td style="padding: 10px 12px">
           <div style="font-weight:700; font-size:.9rem">${escHtml(c.name_short)}</div>
           <div style="font-size:.74rem; color:var(--text-3); margin-top:2px">
@@ -254,7 +254,7 @@ function renderSuppliersTable(container, list) {
     var bankInfo = c.bank_name ? `<div style="font-size:.75rem; color:var(--text-2); margin-top:3px">🏛️ ${escHtml(c.bank_name)} ${c.bik ? '· БИК ' + escHtml(c.bik) : ''}</div>` : '';
 
     return `
-      <tr style="border-bottom: 1px solid var(--border)">
+      <tr id="contractor_row_${c.id}" data-contractor-id="${c.id}" style="border-bottom: 1px solid var(--border); transition: background .2s">
         <td style="padding: 10px 12px">
           <div style="font-weight:700; font-size:.9rem">${escHtml(c.name_short)}</div>
           <div style="font-size:.74rem; color:var(--text-3); margin-top:2px">
@@ -317,7 +317,7 @@ function renderLogisticsTable(container, list) {
     var bankInfo = c.bank_name ? `<div style="font-size:.75rem; color:var(--text-2); margin-top:3px">🏛️ ${escHtml(c.bank_name)} ${c.bik ? '· БИК ' + escHtml(c.bik) : ''}</div>` : '';
 
     return `
-      <tr style="border-bottom: 1px solid var(--border)">
+      <tr id="contractor_row_${c.id}" data-contractor-id="${c.id}" style="border-bottom: 1px solid var(--border); transition: background .2s">
         <td style="padding: 10px 12px">
           <div style="font-weight:700; font-size:.9rem">${escHtml(c.name_short)}</div>
           <div style="font-size:.74rem; color:var(--text-3); margin-top:2px">
@@ -378,7 +378,7 @@ function renderSubcontractorsTable(container, list) {
       : '<span style="color:var(--text-3); font-size:.8rem">Договор не привязан</span>';
 
     return `
-      <tr style="border-bottom: 1px solid var(--border)">
+      <tr id="contractor_row_${c.id}" data-contractor-id="${c.id}" style="border-bottom: 1px solid var(--border); transition: background .2s">
         <td style="padding: 10px 12px">
           <div style="font-weight:700; font-size:.9rem">${escHtml(c.name_short)}</div>
           <div style="font-size:.74rem; color:var(--text-3); margin-top:2px">
@@ -635,6 +635,7 @@ function saveNewContractor(tabType) {
 function editContractor(id) {
   var c = (S.contractors || []).find(x => x.id === id);
   if (!c) return;
+  if (window.savePageScroll) window.savePageScroll('contractor_row_' + id);
 
   var contractDateStr = c.contract_date ? c.contract_date.slice(0, 10) : '';
 
@@ -688,6 +689,7 @@ function editContractor(id) {
       api('/contractors').then(function(list) {
         S.contractors = list;
         renderApp();
+        if (window.restorePageScroll) window.restorePageScroll('contractor_row_' + id);
       });
     });
   });
@@ -706,9 +708,17 @@ function deleteContractor(id) {
 // 5. ДЕТАЛЬНАЯ КАРТОЧКА ПОДРЯДЧИКА / ПОСТАВЩИКА С МОНТАЖНИКАМИ
 // ─────────────────────────────────────────────────────────────────────────────
 
+function closeContractorDetailsModal() {
+  var el = document.getElementById('_contractor_details_modal');
+  if (el) el.remove();
+  if (window.restorePageScroll) window.restorePageScroll();
+}
+window.closeContractorDetailsModal = closeContractorDetailsModal;
+
 function viewContractorDetails(contractorId) {
   var c = (S.contractors || []).find(function(x){ return x.id === contractorId; });
   if (!c) return;
+  if (window.savePageScroll) window.savePageScroll('contractor_row_' + contractorId);
 
   Promise.all([
     api('/contractors/' + contractorId + '/specialists').catch(() => []),
@@ -786,7 +796,7 @@ function viewContractorDetails(contractorId) {
               ИНН: <b>${escHtml(c.inn)}</b> ${c.contract_number ? '· Договор № ' + escHtml(c.contract_number) : ''}
             </div>
           </div>
-          <button onclick="document.getElementById('_contractor_details_modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-3);line-height:1">×</button>
+          <button onclick="closeContractorDetailsModal()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-3);line-height:1">×</button>
         </div>
 
         <div style="overflow-y:auto;flex:1;padding-right:4px">
@@ -825,13 +835,13 @@ function viewContractorDetails(contractorId) {
         </div>
 
         <div style="text-align:right;margin-top:1.25rem;border-top:1px solid var(--border);padding-top:10px">
-          <button onclick="document.getElementById('_contractor_details_modal').remove()" class="btn btn-sm btn-ghost">Закрыть</button>
+          <button onclick="closeContractorDetailsModal()" class="btn btn-sm btn-ghost">Закрыть</button>
         </div>
       </div>
     `;
 
     document.body.appendChild(modal);
-    modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
+    modal.addEventListener('click', function(e){ if (e.target === modal) closeContractorDetailsModal(); });
   });
 }
 
@@ -1181,6 +1191,14 @@ function onBikDirectInput(val, prefix) {
     if (statusEl) statusEl.innerHTML = '<span style="color:var(--text-3)">9 цифр</span>';
   }
 }
+
+window.onBikDirectInput = onBikDirectInput;
+window.fillBankFromDaData = function(prefix) {
+  prefix = prefix || 'nc';
+  var inp = document.getElementById(prefix + '_bik');
+  var val = inp ? inp.value : '';
+  onBikDirectInput(val, prefix);
+};
 
 document.addEventListener('click', function(e) {
   var box = document.getElementById('nc_suggestions_box');

@@ -259,6 +259,9 @@
     var old = document.getElementById('_subcontract_wizard_modal');
     if (old) old.remove();
 
+    var targetId = (typeof S !== 'undefined' && S.page === 'kanban') ? ('kcard_' + taskId) : ('task_row_' + taskId);
+    if (window.savePageScroll) window.savePageScroll(targetId);
+
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
     var editSub = editSubId ? ((window._curCardSubcontracts || []).find(function(s){ return String(s.id) === String(editSubId); }) || null) : null;
 
@@ -638,6 +641,20 @@
             '<input type="number" id="wiz_km" value="' + defaultKm + '" min="0" style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem" oninput="window._wizUpdateSummary()">' +
           '</div>' +
         '</div>' +
+        '<div style="background:#fff;border:1px dashed #3b82f6;border-radius:6px;padding:8px 10px;margin-top:8px;margin-bottom:8px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+            '<label style="font-size:.76rem;font-weight:700;color:var(--text)">Индивидуальная договорная цена (ручной ввод):</label>' +
+            '<span class="t3" style="font-size:.68rem">Необязательно — если сумма оговорена индивидуально</span>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+            '<div>' +
+              '<input type="number" id="wiz_manual_rate" placeholder="Ставка за порт (₽)" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:4px;font-size:.82rem" oninput="window._wizUpdateSummary(\'manual_rate\')">' +
+            '</div>' +
+            '<div>' +
+              '<input type="number" id="wiz_manual_total" placeholder="Или фиксированная сумма (₽)" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:4px;font-size:.82rem;font-weight:700" oninput="window._wizUpdateSummary(\'manual_total\')">' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
         '<div id="wiz_calc_summary" style="font-weight:700;font-size:.92rem;color:var(--blue);text-align:right">Итого к начислению: 0 ₽</div>' +
       '</div>';
 
@@ -661,7 +678,7 @@
     window._wizUpdateSummary();
   };
 
-  window._wizUpdateSummary = function() {
+  window._wizUpdateSummary = function(src) {
     var sumEl = document.getElementById('wiz_calc_summary');
     if (!sumEl) return;
 
@@ -674,10 +691,23 @@
       return;
     }
 
-    var ports = document.getElementById('wiz_ports') ? document.getElementById('wiz_ports').value : 0;
+    var ports = document.getElementById('wiz_ports') ? parseFloat(document.getElementById('wiz_ports').value) || 0 : 0;
     var portType = document.getElementById('wiz_port_type') ? document.getElementById('wiz_port_type').value : 'port_5e';
     var cab = document.getElementById('wiz_cab') ? document.getElementById('wiz_cab').value : '';
     var km = document.getElementById('wiz_km') ? document.getElementById('wiz_km').value : 0;
+
+    var mRateEl = document.getElementById('wiz_manual_rate');
+    var mTotalEl = document.getElementById('wiz_manual_total');
+    var mRate = mRateEl ? (parseFloat(mRateEl.value) || 0) : 0;
+    var mTotal = mTotalEl ? (parseFloat(mTotalEl.value) || 0) : 0;
+
+    if (src === 'manual_rate' && mRate > 0) {
+      mTotal = Math.round(mRate * (ports || 1));
+      if (mTotalEl) mTotalEl.value = mTotal;
+    } else if (src === 'manual_total' && mTotal > 0 && ports > 0) {
+      mRate = Math.round(mTotal / ports);
+      if (mRateEl) mRateEl.value = mRate;
+    }
 
     var res = calcSmrLocal({
       ports: ports,
@@ -686,8 +716,12 @@
       distanceKm: km
     });
 
-    sumEl.innerHTML = 'Расчет по прайсу: <span style="color:var(--blue)">' + fmtMoney(res.totalAmount) + '</span>' +
-      (res.transportAmount > 0 ? (' <span class="t3" style="font-size:.75rem">(в т.ч. выезд ' + fmtMoney(res.transportAmount) + ')</span>') : '');
+    if (mTotal > 0) {
+      sumEl.innerHTML = 'По базовому прайсу: <span style="text-decoration:line-through;opacity:.65">' + fmtMoney(res.totalAmount) + '</span> → <span style="color:var(--green)">Согласовано вручную: ' + fmtMoney(mTotal) + '</span>';
+    } else {
+      sumEl.innerHTML = 'Расчет по прайсу: <span style="color:var(--blue)">' + fmtMoney(res.totalAmount) + '</span>' +
+        (res.transportAmount > 0 ? (' <span class="t3" style="font-size:.75rem">(в т.ч. выезд ' + fmtMoney(res.transportAmount) + ')</span>') : '');
+    }
   };
 
   window._wizOnSpecialistSelect = function(val) {
@@ -762,6 +796,16 @@
       ownCompanyId = document.getElementById('wiz_new_own_company') ? parseInt(document.getElementById('wiz_new_own_company').value, 10) : null;
     }
 
+    var mTotal = document.getElementById('wiz_manual_total') ? parseFloat(document.getElementById('wiz_manual_total').value) : 0;
+    var mRate = document.getElementById('wiz_manual_rate') ? parseFloat(document.getElementById('wiz_manual_rate').value) : 0;
+    if (mTotal > 0) {
+      finalPrice = mTotal;
+      calcDetails = Object.assign({}, calcRes, { manualOverride: { total: mTotal, rate: mRate, originalCalc: calcRes.totalAmount } });
+    } else if (mRate > 0) {
+      finalPrice = Math.round(mRate * (ports || 1));
+      calcDetails = Object.assign({}, calcRes, { manualOverride: { total: finalPrice, rate: mRate, originalCalc: calcRes.totalAmount } });
+    }
+
     var specId = document.getElementById('wiz_specialist_id') ? document.getElementById('wiz_specialist_id').value : '';
     var fio = document.getElementById('wiz_installer_fio') ? document.getElementById('wiz_installer_fio').value : '';
     var phone = document.getElementById('wiz_installer_phone') ? document.getElementById('wiz_installer_phone').value : '';
@@ -802,6 +846,9 @@
         t.contractor = cName;
         t.own_company_id = ownCompanyId;
         t.amount = finalPrice;
+        if (!t.rawData) t.rawData = {};
+        t.rawData.subRate = mRate || (ports > 0 ? Math.round(finalPrice / ports) : finalPrice);
+        t.rawData.subTotal = finalPrice;
       }
 
       var modalEl = document.getElementById('_subcontract_wizard_modal');
@@ -814,6 +861,8 @@
       if (typeof window.renderCardSmrCalculator === 'function') {
         window.renderCardSmrCalculator(taskId);
       }
+      if (typeof renderApp === 'function') renderApp();
+      if (typeof window.restorePageScroll === 'function') window.restorePageScroll('task_row_' + taskId);
     })
     .catch(function(err) {
       alert('Ошибка сохранения поручения: ' + err.message);

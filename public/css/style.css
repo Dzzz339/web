@@ -2202,5 +2202,143 @@
   color: #991b1b;
 }
 
+/* ─── АНИМАЦИЯ ПОДСВЕТКИ СТРОКИ / КАРТОЧКИ ПРИ ВОЗВРАТЕ ──────────── */
+@keyframes rowHighlightPulse {
+  0% {
+    background-color: rgba(234, 88, 12, 0.28) !important;
+    box-shadow: 0 0 0 2px var(--orange) !important;
+  }
+  30% {
+    background-color: rgba(234, 88, 12, 0.18) !important;
+    box-shadow: 0 0 0 2px var(--orange) !important;
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+.row-highlight-pulse {
+  animation: rowHighlightPulse 2.5s ease-out forwards !important;
+}
+
+/* ─── ОКОННАЯ СИСТЕМА (DRAGGABLE & MINIMIZABLE DOCK) ─────────────── */
+#app_window_dock {
+  position: fixed;
+  bottom: 12px;
+  right: 18px;
+  z-index: 100050;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  max-width: 80vw;
+  pointer-events: none;
+}
+
+.dock-item {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #ffffff;
+  border: 1.5px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+.dock-item:hover {
+  border-color: var(--orange);
+  background: #fff7ed;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(234, 88, 12, 0.25);
+}
+
+.dock-item-close {
+  color: var(--text-3);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 2px;
+  border-radius: 50%;
+  transition: color 0.15s;
+}
+
+.dock-item-close:hover {
+  color: var(--red);
+}
+
+/* Шапка плавающего окна (захват для перетаскивания) */
+.modal-drag-handle {
+  cursor: grab !important;
+  user-select: none;
+}
+
+.modal-drag-handle:active {
+  cursor: grabbing !important;
+}
+
+/* Кнопки управления окном (свернуть, развернуть, закрыть) */
+.win-ctrl-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-2);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1;
+  transition: all 0.15s ease;
+}
+
+.win-ctrl-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text);
+}
+
+.win-ctrl-btn.btn-close:hover {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+/* Режим плавающего окна со снятым глухим оверлеем */
+.modal-overlay.is-floating,
+[id*="backdrop"].is-floating,
+[id^="_sub_"].is-floating,
+[id^="_contractor_"].is-floating,
+[id^="_app_"].is-floating {
+  background: rgba(0, 0, 0, 0.15) !important;
+  pointer-events: none !important;
+}
+
+.modal-overlay.is-floating > *,
+[id*="backdrop"].is-floating > *,
+[id^="_sub_"].is-floating > *,
+[id^="_contractor_"].is-floating > *,
+[id^="_app_"].is-floating > * {
+  pointer-events: auto !important;
+}
+
+/* Развернутое окно */
+.modal-maximized {
+  width: 98vw !important;
+  max-width: 98vw !important;
+  height: 96vh !important;
+  max-height: 96vh !important;
+  top: 2vh !important;
+  left: 1vw !important;
+  border-radius: 12px !important;
+}
+
 
 

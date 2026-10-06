@@ -350,7 +350,25 @@ function renderApp() {
     document.body.classList.toggle('page-kanban-active', S.page === 'kanban');
   }
 
-  // 1. ЗАПОМИНАЕМ ФОКУС (Безопасно)
+  // 1. ЗАПОМИНАЕМ ФОКУС И СКРОЛЛЫ (Безопасно)
+  var kanbanScrollState = null;
+  if (S.page === 'kanban') {
+    var kBoard = document.querySelector('.kanban');
+    if (kBoard) {
+      kanbanScrollState = {
+        boardLeft: kBoard.scrollLeft,
+        cols: {}
+      };
+      document.querySelectorAll('.kcol').forEach(function(col) {
+        var colCards = col.querySelector('.kcol-cards');
+        var colStatus = col.getAttribute('data-status') || col.id;
+        if (colCards && colStatus) {
+          kanbanScrollState.cols[colStatus] = colCards.scrollTop;
+        }
+      });
+    }
+  }
+
   var activeEl = document.activeElement;
   var activeId = (activeEl && activeEl.id) ? activeEl.id : null;
   var activeName = (activeEl && activeEl.name) ? activeEl.name : null;
@@ -388,7 +406,25 @@ function renderApp() {
   // 3. Вешаем события заново
   bindEvents();
 
-  // 3.1. Если открыт выбор подрядчика (S.cpTaskId) вне страницы tasks, рендерим его модалку
+  // 3.1. Восстанавливаем скролл канбана (доска и колонки)
+  if (S.page === 'kanban' && kanbanScrollState) {
+    var newBoard = document.querySelector('.kanban');
+    if (newBoard) newBoard.scrollLeft = kanbanScrollState.boardLeft;
+    document.querySelectorAll('.kcol').forEach(function(col) {
+      var colCards = col.querySelector('.kcol-cards');
+      var colStatus = col.getAttribute('data-status') || col.id;
+      if (colCards && colStatus && kanbanScrollState.cols[colStatus] !== undefined) {
+        colCards.scrollTop = kanbanScrollState.cols[colStatus];
+      }
+    });
+  }
+
+  // 3.2. Если было сохранено целевое место (строка таблицы, карточка), восстанавливаем
+  if (window.restorePageScroll && window._savedScrollState && window._savedScrollState.targetId) {
+    window.restorePageScroll();
+  }
+
+  // 3.3. Если открыт выбор подрядчика (S.cpTaskId) вне страницы tasks, рендерим его модалку
   var oldCp = document.getElementById('_app_contractor_picker_modal');
   if (oldCp) oldCp.remove();
   if (S.cpTaskId && S.page !== 'tasks' && typeof renderContractorPicker === 'function') {

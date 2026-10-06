@@ -255,6 +255,7 @@ function moveKanbanTaskToCol(taskId, colId) {
   }
 
   var targetStatus = targetCol.targetMacro;
+  if (window.savePageScroll) window.savePageScroll('kcard_' + taskId);
   changeTaskMacroStatus(taskId, targetStatus);
 }
 
@@ -454,7 +455,7 @@ function pageKanban() {
         '</div>';
       }
 
-      cards += '<div class="kcard" draggable="true" ' +
+      cards += '<div class="kcard" id="kcard_' + tid + '" data-tid="' + tid + '" draggable="true" ' +
         'ondragstart="kanbanCardDragStart(event, \'' + tid + '\')" ' +
         'ondragend="kanbanCardDragEnd(event)" ' +
         'onclick="openCard(\'' + tid + '\')" style="cursor:pointer">' +

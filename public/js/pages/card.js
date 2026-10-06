@@ -146,6 +146,11 @@ function setCardTab(tabName) {
 window.setCardTab = setCardTab;
 
 function openCard(id) {
+  if (S.page !== 'card') {
+    S._cardOriginPage = S.page || 'tasks';
+    var targetId = (S._cardOriginPage === 'kanban') ? ('kcard_' + id) : ('task_row_' + id);
+    if (window.savePageScroll) window.savePageScroll(targetId);
+  }
   S.cardId = id;
   if (!S.cardTab) S.cardTab = 'main';
   S.cardDraft = {};
@@ -162,9 +167,19 @@ function openCard(id) {
   if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(id);
 }
 
+function returnFromCard() {
+  var orig = S._cardOriginPage || 'tasks';
+  var targetId = (orig === 'kanban') ? ('kcard_' + S.cardId) : ('task_row_' + S.cardId);
+  go(orig);
+  setTimeout(function() {
+    if (window.restorePageScroll) window.restorePageScroll(targetId);
+  }, 40);
+}
+window.returnFromCard = returnFromCard;
+
 function pageCard() {
   var t = S.tasks.find(function(x){ return String(x.id) === String(S.cardId); });
-  if (!t) return '<div class="card p"><p class="t3">Заявка не найдена.</p><button class="btn" onclick="go(\'tasks\')">← Назад</button></div>';
+  if (!t) return '<div class="card p"><p class="t3">Заявка не найдена.</p><button class="btn" onclick="returnFromCard()">← Назад</button></div>';
 
   var statusOpts = [
     {v: 'pending',   l: 'Не распределено'},
@@ -608,7 +623,7 @@ function pageCard() {
 
   var hdr = '<div class="card-hdr" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:.5rem">' +
     '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
-      '<button class="btn btn-sm btn-ghost" onclick="go(\'tasks\')" title="Вернуться к списку заявок" style="font-weight:600">← Заявки</button>' +
+      '<button class="btn btn-sm btn-ghost" onclick="returnFromCard()" title="Вернуться назад к списку" style="font-weight:600">← ' + (S._cardOriginPage === 'kanban' ? 'Канбан' : 'Заявки') + '</button>' +
       '<h1 style="margin:0;font-size:1.25rem">'+t.id+'</h1>' +
       macroStatusHtml +
     '</div>' +
@@ -1100,6 +1115,8 @@ function pageCard() {
     var tmcVal = parseFloat(t.tmc) || 0;
     var inOrderVal = parseFloat(t.inOrder) || 0;
     var factVal = parseFloat(t.fact) || 0;
+    var isFactKnown = factVal > 0;
+    var effectivePorts = isFactKnown ? factVal : (inOrderVal > 0 ? inOrderVal : (parseFloat(t.ports) || 1));
 
     // Расчет ставки за ед. по формуле Алексея: =(сумма - транспорт) / портов
     var calcUnitRate = (inOrderVal > 0) ? Math.round((amountVal - distanceVal) / inOrderVal) : 0;
@@ -1116,13 +1133,13 @@ function pageCard() {
       : 'Подрядчик пока не выбран';
 
     // Формула Алексея для субподряда: Сумма = (ед * факт + уд + доп)
-    var subRate = (t.rawData && t.rawData.subRate != null) ? Number(t.rawData.subRate) : (curSub && curSub.price_agreed && factVal > 0 ? Math.round(curSub.price_agreed / factVal) : 500);
+    var subRate = (t.rawData && t.rawData.subRate != null) ? Number(t.rawData.subRate) : (curSub && curSub.price_agreed && effectivePorts > 0 ? Math.round(curSub.price_agreed / effectivePorts) : 500);
     var subDist = (t.rawData && t.rawData.subDist != null) ? Number(t.rawData.subDist) : (distanceVal > 0 ? Math.round(distanceVal * 0.5) : 0);
     var subExtras = (t.rawData && t.rawData.subExtras != null) ? Number(t.rawData.subExtras) : 0;
 
     var calculatedSubTotal = curSub && curSub.price_agreed > 0
       ? Number(curSub.price_agreed)
-      : Math.round((subRate * factVal) + subDist + subExtras);
+      : Math.round((subRate * effectivePorts) + subDist + subExtras);
 
     // Реестр выплат субподрядчику
     var payments = (t._payments || (t.rawData && t.rawData.subPayments) || []);

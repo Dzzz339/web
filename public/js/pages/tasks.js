@@ -690,7 +690,7 @@ function pageTasks() {
     // 10. Действия
     var colActions = '<td style="vertical-align:top;text-align:right"><button class="btn btn-sm btn-ghost btn-icon" onclick="exportTask(\'' + tid + '\')" title="Экспорт заявки / печать">&#x2B07;</button></td>';
 
-    tableRows += '<tr>' +
+    tableRows += '<tr id="task_row_' + tid + '" data-tid="' + tid + '" style="transition:background .2s">' +
       colNumber +
       colDate +
       colDeadline +
@@ -797,6 +797,8 @@ function renderContractorPicker() {
 }
 
 function openContractorPicker(taskId) {
+  var targetId = (typeof S !== 'undefined' && S.page === 'kanban') ? ('kcard_' + taskId) : ('task_row_' + taskId);
+  if (window.savePageScroll) window.savePageScroll(targetId);
   S.cpTaskId = taskId;
   S.cpMode = 'search';
   S.cpQuery = '';
@@ -808,6 +810,7 @@ function closeContractorPicker() {
   var oldCp = document.getElementById('_app_contractor_picker_modal');
   if (oldCp) oldCp.remove();
   renderApp();
+  if (window.restorePageScroll) window.restorePageScroll();
 }
 
 function renderContractorPickerRows(qy) {
@@ -856,6 +859,8 @@ function clearContractorPickerSearch() {
 function assignContractorToTask(taskId, nameShort) {
   var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
   if (!t) return;
+  var targetId = (typeof S !== 'undefined' && S.page === 'kanban') ? ('kcard_' + taskId) : ('task_row_' + taskId);
+  if (window.savePageScroll) window.savePageScroll(targetId);
   var now = new Date().toLocaleString('ru');
   var author = S.user ? (S.user.full_name || S.user.username) : 'Система';
   var hist = t._history || [];
@@ -870,6 +875,7 @@ function assignContractorToTask(taskId, nameShort) {
       closeContractorPicker(); 
       if (typeof loadCardSubcontracts === 'function' && S.cardId && String(S.cardId) === String(taskId)) { loadCardSubcontracts(taskId); }
       renderApp();
+      if (window.restorePageScroll) window.restorePageScroll(targetId);
     })
     .catch(function(e){ alert('Ошибка: ' + e.message); });
 }
@@ -1251,6 +1257,9 @@ window.openSubcontractRateModal = function(taskId) {
   var old = document.getElementById('_sub_rate_modal');
   if (old) old.remove();
 
+  var targetId = (typeof S !== 'undefined' && S.page === 'kanban') ? ('kcard_' + taskId) : ('task_row_' + taskId);
+  if (window.savePageScroll) window.savePageScroll(targetId);
+
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
   if (!t) return;
 
@@ -1406,6 +1415,8 @@ window.saveSubcontractRateModal = function(taskId) {
     var m = document.getElementById('_sub_rate_modal');
     if (m) m.remove();
     renderApp();
+    var targetId = (typeof S !== 'undefined' && S.page === 'kanban') ? ('kcard_' + taskId) : ('task_row_' + taskId);
+    if (window.restorePageScroll) window.restorePageScroll(targetId);
   })
   .catch(function(err) {
     alert('Ошибка сохранения условий: ' + (err.message || err));
@@ -1432,6 +1443,8 @@ window.clearSubcontractRateModal = function(taskId) {
     var m = document.getElementById('_sub_rate_modal');
     if (m) m.remove();
     renderApp();
+    var targetId = (typeof S !== 'undefined' && S.page === 'kanban') ? ('kcard_' + taskId) : ('task_row_' + taskId);
+    if (window.restorePageScroll) window.restorePageScroll(targetId);
   })
   .catch(function(err) {
     alert('Ошибка сброса: ' + (err.message || err));
