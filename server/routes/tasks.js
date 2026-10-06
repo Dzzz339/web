@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import XLSX from 'xlsx';
 import { pool } from '../config/db.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { uploadAttachment, UPLOADS_DIR, fixUtf8Filename } from '../middleware/upload.js';
 import { rowToTask, safeDate, calcPricePerPort, calcTransport, calcTotal, fmtDate, numToWords, buildApp2, buildInvoice, buildAct } from '../services/helpers.js';
 import { ID_ROLES, ID_STEPS, ID_STAGES, businessDue, hasRole, canStep, canUndo } from '../services/pipeline.js';
@@ -56,8 +56,11 @@ router.get('/tasks', authenticateToken, async (req, res) => {
     `;
     let params = [];
 
-    // Если зашел рабочий (worker), показываем только ЕГО задачи
-    if (req.user.role === 'worker') {
+    const role = String(req.user?.role || '').toLowerCase();
+    const isWorker = role === 'worker' || role === 'installer' || role === 'contractor';
+
+    // Если зашел рабочий / монтажник, показываем только ЕГО задачи
+    if (isWorker) {
       query += ' WHERE t.assignee = $1';
       params.push(req.user.fullName);
     }
@@ -65,13 +68,15 @@ router.get('/tasks', authenticateToken, async (req, res) => {
     query += ' ORDER BY t.created_at';
     const { rows } = await pool.query(query, params);
     
-    // Если рабочий — удаляем финансовую информацию из ответа, чтобы он её не видел
+    // Если рабочий — скрываем коммерческую/финансовую информацию заказчика
     const tasks = rows.map(r => {
       const task = rowToTask(r);
-      if (req.user.role === 'worker') {
+      if (isWorker) {
         task.amount = 0;
         task.tmc = 0;
         task.extras = 0;
+        task.pricePerUnit = 0;
+        task.kmRate = 0;
       }
       return task;
     });
@@ -90,7 +95,24 @@ router.get('/tasks/:id', authenticateToken, async (req, res) => {
       WHERE t.id = $1
     `, [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: 'Заявка не найдена' });
-    res.json(rowToTask(rows[0]));
+
+    const task = rowToTask(rows[0]);
+    const role = String(req.user?.role || '').toLowerCase();
+    const isWorker = role === 'worker' || role === 'installer' || role === 'contractor';
+
+    // Защита от BOLA/IDOR: монтажник может просматривать только свою назначенную задачу
+    if (isWorker) {
+      if (task.assignee && task.assignee !== req.user.fullName) {
+        return res.status(403).json({ error: 'Доступ ограничен: данная заявка назначена другому специалисту' });
+      }
+      task.amount = 0;
+      task.tmc = 0;
+      task.extras = 0;
+      task.pricePerUnit = 0;
+      task.kmRate = 0;
+    }
+
+    res.json(task);
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
@@ -132,7 +154,7 @@ router.get('/tasks/:id/chat', authenticateToken, async (req, res) => {
 });
 
 // Создание одиночной заявки вручную (или через ИИ)
-router.post('/tasks', authenticateToken, async (req, res) => {
+router.post('/tasks', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
   try {
     const t = req.body;
     
@@ -175,10 +197,10 @@ router.post('/tasks', authenticateToken, async (req, res) => {
       t.region || null, 
       t.address || null, 
       t.workType || null,
-      Number(t.amount) || 0, 
-      Number(t.pricePerUnit) || 0,
-      Number(t.inOrder) || 0, 
-      Number(t.fact) || 0,
+      Math.max(0, Number(t.amount) || 0), 
+      Math.max(0, Number(t.pricePerUnit) || 0),
+      Math.max(0, Number(t.inOrder) || 0), 
+      Math.max(0, Number(t.fact) || 0),
       safeDate(t.dateZayavki), 
       safeDate(t.deadline),
       t.techLink || null, 
@@ -208,6 +230,13 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
     // Защита полей от несанкционированного изменения по ролям
     if (!isAdminOrDirector) {
       if (role === 'worker' || role === 'installer' || role === 'contractor') {
+        // Защита от BOLA/IDOR: монтажник может обновлять только свою назначенную задачу
+        const { rows: tRows } = await pool.query('SELECT assignee FROM tasks WHERE id = $1', [req.params.id]);
+        if (!tRows.length) return res.status(404).json({ error: 'Заявка не найдена' });
+        if (tRows[0].assignee && tRows[0].assignee !== req.user.fullName) {
+          return res.status(403).json({ error: 'Доступ ограничен: данная заявка назначена другому специалисту' });
+        }
+
         const allowed = ['fact', 'dataVyhoda', 'obsledovanie', 'dostup', 'priemka', 'assignmentStatus'];
         for (const k of Object.keys(d)) {
           if (!allowed.includes(k) && k !== '_history' && k !== 'history') {
@@ -317,22 +346,22 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       safeDate(d.distributedAt),
       d.contact     !== undefined ? d.contact : null,
       d.techLink    || null,
-      d.fact        !== undefined ? Number(d.fact)        : null,
-      d.overdueDays !== undefined ? Number(d.overdueDays) : null,
+      d.fact        !== undefined && d.fact !== null ? Math.max(0, Number(d.fact) || 0) : null,
+      d.overdueDays !== undefined && d.overdueDays !== null ? Math.max(0, Number(d.overdueDays) || 0) : null,
       d.contractor  !== undefined ? d.contractor          : null,
-      d.inOrder     !== undefined ? Number(d.inOrder)     : null,
-      d.amount      !== undefined ? Number(d.amount)      : null,
-      d.distanceKm  !== undefined ? Number(d.distanceKm)  : null,
-      d.pricePerUnit!== undefined ? Number(d.pricePerUnit): null,
+      d.inOrder     !== undefined && d.inOrder !== null ? Math.max(0, Number(d.inOrder) || 0) : null,
+      d.amount      !== undefined && d.amount !== null ? Math.max(0, Number(d.amount) || 0) : null,
+      d.distanceKm  !== undefined && d.distanceKm !== null ? Math.max(0, Number(d.distanceKm) || 0) : null,
+      d.pricePerUnit!== undefined && d.pricePerUnit !== null ? Math.max(0, Number(d.pricePerUnit) || 0) : null,
       d.idStatus    || null,
       d.excelComment|| null,
       d.edoNumber   || null,
       d.invoiceInfo || null,
       d.vedoStatus  || null,
       d.history     ? JSON.stringify(d.history) : null,
-      d.kmRate      !== undefined ? Number(d.kmRate)      : null,
-      d.tmc         !== undefined ? Number(d.tmc)         : null,
-      d.extras      !== undefined ? Number(d.extras)      : null,
+      d.kmRate      !== undefined && d.kmRate !== null ? Math.max(0, Number(d.kmRate) || 0) : null,
+      d.tmc         !== undefined && d.tmc !== null ? Math.max(0, Number(d.tmc) || 0) : null,
+      d.extras      !== undefined && d.extras !== null ? Math.max(0, Number(d.extras) || 0) : null,
       d.supplierOrderSigned !== undefined ? Boolean(d.supplierOrderSigned) : null,
       d.supplierIdUploaded  !== undefined ? Boolean(d.supplierIdUploaded)  : null,
       d.overdueReason !== undefined ? d.overdueReason : null,
@@ -437,7 +466,7 @@ router.post('/tasks/:id/decline', authenticateToken, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }) }
 });
 
-router.delete('/tasks/:id', async (req, res) => {
+router.delete('/tasks/:id', authenticateToken, requireRole('admin', 'director'), async (req, res) => {
   try {
     await pool.query('DELETE FROM notifications WHERE link=$1', [req.params.id]);
     await pool.query('DELETE FROM tasks WHERE id=$1', [req.params.id]);
@@ -880,10 +909,12 @@ router.post('/ai/parse-pdf', authenticateToken, uploadAttachment.single('file'),
 
 // Хелпер: может ли этот пользователь трогать вложения этой заявки
 async function canAccessTaskAttachments(user, taskId) {
-  if (user.role === 'admin') return true
-  const { rows } = await pool.query('SELECT assignee FROM tasks WHERE id = $1', [taskId])
-  if (!rows[0]) return false
-  return rows[0].assignee === user.fullName
+  if (!user) return false;
+  const role = String(user.role || '').toLowerCase();
+  if (['admin', 'director', 'manager', 'logistics', 'designer', 'accountant', 'to_engineer'].includes(role)) return true;
+  const { rows } = await pool.query('SELECT assignee FROM tasks WHERE id = $1', [taskId]);
+  if (!rows[0]) return false;
+  return rows[0].assignee === user.fullName;
 }
 
 router.get('/tasks/:id/attachments', authenticateToken, async (req, res) => {
@@ -949,8 +980,9 @@ router.delete('/attachments/:attachmentId', authenticateToken, async (req, res) 
     const { rows } = await pool.query('SELECT * FROM task_attachments WHERE id = $1', [req.params.attachmentId])
     const att = rows[0]
     if (!att) return res.status(404).json({ error: 'Файл не найден' })
-    // Удалять может админ, или сам загрузивший — реши по своему усмотрению
-    if (req.user.role !== 'admin' && att.uploaded_by !== req.user.id) {
+    const role = String(req.user?.role || '').toLowerCase();
+    // Удалять может админ, руководитель, или сам загрузивший
+    if (!['admin', 'director'].includes(role) && att.uploaded_by !== req.user.id) {
       return res.status(403).json({ error: 'Нет доступа' })
     }
     await pool.query('DELETE FROM task_attachments WHERE id = $1', [req.params.attachmentId])
@@ -1233,7 +1265,7 @@ router.get('/tasks/:id/items', authenticateToken, async (req, res) => {
   }
 });
 
-router.post('/tasks/:id/items', authenticateToken, async (req, res) => {
+router.post('/tasks/:id/items', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
   try {
     const {
       work_type,
@@ -1287,7 +1319,7 @@ router.post('/tasks/:id/items', authenticateToken, async (req, res) => {
   }
 });
 
-router.put('/tasks/:id/items/:itemId', authenticateToken, async (req, res) => {
+router.put('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
   try {
     const {
       work_type,
@@ -1356,7 +1388,7 @@ router.put('/tasks/:id/items/:itemId', authenticateToken, async (req, res) => {
   }
 });
 
-router.delete('/tasks/:id/items/:itemId', authenticateToken, async (req, res) => {
+router.delete('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', 'director', 'manager'), async (req, res) => {
   try {
     await pool.query('DELETE FROM task_items WHERE id = $1 AND task_id = $2', [req.params.itemId, req.params.id]);
     // Авто-пересчет суммы в tasks

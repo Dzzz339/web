@@ -40,6 +40,14 @@ app.set('io', io);
 // Порт 3001 по умолчанию для изолированной среды рефакторинга
 const PORT = process.env.PORT || 3001;
 
+// Базовые заголовки безопасности HTTP
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
 app.use(cors());
 // GZIP-сжатие всех ответов сервера (уменьшает передаваемый JSON с 26 МБ до 2.7 МБ)
 app.use(compression({
@@ -51,8 +59,8 @@ app.use(compression({
     return compression.filter(req, res);
   }
 }));
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ limit: '15mb', extended: true }));
 
 // Статика: тяжелые неизменяемые библиотеки кэшируем, скрипты приложения держим свежими
 const staticOptions = {
@@ -66,7 +74,13 @@ const staticOptions = {
 };
 app.use(express.static(ROOT, staticOptions));
 app.use(express.static(path.join(ROOT, 'public'), staticOptions));
-app.use('/uploads', express.static(UPLOADS_DIR));
+
+// Файлы загрузок отдаются с CSP-песочницей (изоляция скриптов и предотвращение Stored XSS)
+app.use('/uploads', (req, res, next) => {
+  res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox;");
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  next();
+}, express.static(UPLOADS_DIR));
 
 app.get('/', (req, res) => res.sendFile(path.join(ROOT, 'index.html')));
 

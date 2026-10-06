@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { pool } from '../config/db.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { uploadAttachment } from '../middleware/upload.js';
 import { 
   runFullImport, 
@@ -78,6 +78,23 @@ router.get('/specialists', authenticateToken, async (req, res) => {
     }
 
     const { rows } = await pool.query(query, params);
+
+    // Защита персональных данных: маскируем паспортные данные для не-административных ролей
+    const role = String(req.user?.role || '').toLowerCase();
+    const canSeePassports = ['admin', 'director', 'manager'].includes(role);
+    if (!canSeePassports) {
+      for (const s of rows) {
+        if (s.passport_series_number) {
+          s.passport_series_number = s.passport_series_number.replace(/\d(?=\d{2})/g, '*');
+        }
+        if (s.passport_raw) {
+          s.passport_raw = 'Данные паспорта скрыты';
+        }
+        if (s.passport_issued_by) s.passport_issued_by = '***';
+        if (s.passport_code) s.passport_code = '***';
+      }
+    }
+
     res.json(rows);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -85,7 +102,7 @@ router.get('/specialists', authenticateToken, async (req, res) => {
 });
 
 // POST /api/specialists - Create or update specialist (avoiding duplicates)
-router.post('/specialists', authenticateToken, async (req, res) => {
+router.post('/specialists', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
   try {
     const {
       specialist_id,
@@ -178,7 +195,7 @@ router.post('/specialists', authenticateToken, async (req, res) => {
 });
 
 // PUT /api/specialists/:id - Update specialist
-router.put('/specialists/:id', authenticateToken, async (req, res) => {
+router.put('/specialists/:id', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const {
@@ -234,7 +251,7 @@ router.put('/specialists/:id', authenticateToken, async (req, res) => {
 });
 
 // DELETE /api/specialists/:id - Delete specialist
-router.delete('/specialists/:id', authenticateToken, async (req, res) => {
+router.delete('/specialists/:id', authenticateToken, requireRole('admin', 'director'), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     await pool.query('DELETE FROM specialists WHERE id = $1', [id]);
@@ -406,7 +423,7 @@ router.put('/powers-of-attorney/:id', authenticateToken, async (req, res) => {
 });
 
 // DELETE /api/powers-of-attorney/:id - Delete power of attorney
-router.delete('/powers-of-attorney/:id', authenticateToken, async (req, res) => {
+router.delete('/powers-of-attorney/:id', authenticateToken, requireRole('admin', 'director', 'manager'), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     await pool.query('DELETE FROM powers_of_attorney WHERE id = $1', [id]);
@@ -490,7 +507,7 @@ router.post('/tasks/:id/access-letter', authenticateToken, async (req, res) => {
 });
 
 // POST /api/directories/upload-specialists - Upload specialists file (.docx or .xlsx)
-router.post('/directories/upload-specialists', authenticateToken, uploadAttachment.single('file'), async (req, res) => {
+router.post('/directories/upload-specialists', authenticateToken, requireRole('admin', 'director', 'manager'), uploadAttachment.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'Файл не прикреплен' });
   }
@@ -507,7 +524,7 @@ router.post('/directories/upload-specialists', authenticateToken, uploadAttachme
 });
 
 // POST /api/directories/upload-poa - Upload powers of attorney (.xlsx)
-router.post('/directories/upload-poa', authenticateToken, uploadAttachment.single('file'), async (req, res) => {
+router.post('/directories/upload-poa', authenticateToken, requireRole('admin', 'director', 'manager'), uploadAttachment.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'Файл не прикреплен' });
   }

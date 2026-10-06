@@ -1,6 +1,6 @@
 import express from 'express';
 import { pool } from '../config/db.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -14,21 +14,23 @@ router.get('/marches', authenticateToken, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-router.post('/marches', async (req, res) => {
+router.post('/marches', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
   try {
     const id = 'march_' + Date.now();
+    const kmRate = Math.max(0, Number(req.body.kmRate) || 70);
     const { rows } = await pool.query(
       `INSERT INTO marches (id, name, base_city, km_rate) VALUES ($1,$2,$3,$4) RETURNING *`,
-      [id, req.body.name||'Новый маршрут', req.body.baseCity||'', Number(req.body.kmRate)||70]
+      [id, req.body.name || 'Новый маршрут', req.body.baseCity || '', kmRate]
     );
     const r = rows[0];
     res.json({ id: r.id, name: r.name, baseCity: r.base_city, kmRate: Number(r.km_rate), points: [], createdAt: r.created_at });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-router.put('/marches/:id', authenticateToken, async (req, res) => {
+router.put('/marches/:id', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
   try {
     const d = req.body;
+    const kmRate = d.kmRate !== undefined && d.kmRate !== null ? Math.max(0, Number(d.kmRate)) : null;
     await pool.query(`
       UPDATE marches SET
         name      = COALESCE($2, name),
@@ -36,13 +38,13 @@ router.put('/marches/:id', authenticateToken, async (req, res) => {
         km_rate   = COALESCE($4::numeric, km_rate),
         points    = COALESCE($5::jsonb, points)
       WHERE id = $1
-    `, [req.params.id, d.name||null, d.baseCity||null, d.kmRate ? Number(d.kmRate) : null,
+    `, [req.params.id, d.name || null, d.baseCity || null, kmRate,
         d.points !== undefined ? JSON.stringify(d.points) : null]);
     res.json({ success: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-router.delete('/marches/:id', async (req, res) => {
+router.delete('/marches/:id', authenticateToken, requireRole('admin', 'director', 'manager'), async (req, res) => {
   try {
     await pool.query('DELETE FROM marches WHERE id=$1', [req.params.id]);
     res.json({ success: true });

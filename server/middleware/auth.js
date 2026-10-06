@@ -1,6 +1,11 @@
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 
-export const JWT_SECRET = process.env.JWT_SECRET || 'hahahksdjscndufn4738';
+if (!process.env.JWT_SECRET) {
+  console.warn('⚠️ [SECURITY] process.env.JWT_SECRET is not set! Using a cryptographically secure random secret for this session.');
+}
+
+export const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
 
 export function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
@@ -8,7 +13,7 @@ export function authenticateToken(req, res, next) {
 
   if (!token) return res.status(401).json({ error: 'Требуется авторизация' });
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
+  jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }, (err, user) => {
     if (err) return res.status(403).json({ error: 'Невалидный токен' });
     req.user = user;
     next();

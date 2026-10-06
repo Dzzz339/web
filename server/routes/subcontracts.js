@@ -1,6 +1,6 @@
 import express from 'express';
 import { pool } from '../config/db.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { syncSingleTaskSubcontract } from '../scripts/sync_task_subcontracts.js';
 
 const router = express.Router();
@@ -69,7 +69,7 @@ router.get('/tasks/:taskId/subcontracts', authenticateToken, async (req, res) =>
 });
 
 // 2. Создать субподряд (назначить подрядчика на часть работ)
-router.post('/tasks/:taskId/subcontracts', authenticateToken, async (req, res) => {
+router.post('/tasks/:taskId/subcontracts', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
   try {
     const { taskId } = req.params;
     let {
@@ -85,6 +85,8 @@ router.post('/tasks/:taskId/subcontracts', authenticateToken, async (req, res) =
       auto_number,
       comment
     } = req.body;
+
+    price_agreed = price_agreed !== undefined && price_agreed !== null ? Math.max(0, Number(price_agreed) || 0) : null;
 
     if (!work_type) {
       work_type = 'Монтаж СКС';
@@ -170,7 +172,7 @@ router.post('/tasks/:taskId/subcontracts', authenticateToken, async (req, res) =
 });
 
 // 3. Обновить субподряд
-router.put('/subcontracts/:id', authenticateToken, async (req, res) => {
+router.put('/subcontracts/:id', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
   try {
     const { id } = req.params;
     let {
@@ -190,6 +192,8 @@ router.put('/subcontracts/:id', authenticateToken, async (req, res) => {
       cable_journal,
       comment
     } = req.body;
+
+    price_agreed = price_agreed !== undefined && price_agreed !== null ? Math.max(0, Number(price_agreed) || 0) : null;
 
     if (contractor_id && !contractor_name) {
       const cRes = await pool.query('SELECT name_short FROM contractors WHERE id = $1', [contractor_id]);
@@ -264,7 +268,7 @@ router.put('/subcontracts/:id', authenticateToken, async (req, res) => {
 });
 
 // 4. Удалить субподряд
-router.delete('/subcontracts/:id', authenticateToken, async (req, res) => {
+router.delete('/subcontracts/:id', authenticateToken, requireRole('admin', 'director', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
     await pool.query('DELETE FROM task_subcontracts WHERE id = $1', [id]);

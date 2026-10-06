@@ -7,24 +7,85 @@ import { pool } from '../config/db.js';
 import { JWT_SECRET, authenticateToken } from '../middleware/auth.js';
 import { uploadAttachment, UPLOADS_DIR } from '../middleware/upload.js';
 
-const router = express.Router();
+// Rate limiting для /login: не более 10 неудачных попыток за 15 минут с одного IP
+const loginAttempts = new Map();
+const MAX_FAILED_ATTEMPTS = 10;
+const LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, data] of loginAttempts.entries()) {
+    if (now - data.firstAttempt > LOCKOUT_WINDOW_MS) {
+      loginAttempts.delete(ip);
+    }
+  }
+}, LOCKOUT_WINDOW_MS).unref();
+
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) return forwarded.split(',')[0].trim();
+  return req.socket?.remoteAddress || req.ip || 'unknown';
+}
+
+// Предотвращение timing-attack при переборе логинов
+const DUMMY_HASH = '$2a$10$wN9a8N4oB2M0W1j7yM7w1.eGkKkG4B0M0W1j7yM7w1eGkKkG4B0M0';
 
 router.post('/login', async (req, res) => {
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const attempts = loginAttempts.get(ip);
+
+  if (attempts && attempts.count >= MAX_FAILED_ATTEMPTS) {
+    if (now - attempts.firstAttempt < LOCKOUT_WINDOW_MS) {
+      const waitMinutes = Math.ceil((LOCKOUT_WINDOW_MS - (now - attempts.firstAttempt)) / 60000);
+      return res.status(429).json({
+        error: `Слишком много неудачных попыток входа. Пожалуйста, повторите попытку через ${waitMinutes} мин.`
+      });
+    } else {
+      loginAttempts.delete(ip);
+    }
+  }
+
+  const recordFailedAttempt = () => {
+    const cur = loginAttempts.get(ip);
+    if (!cur || now - cur.firstAttempt > LOCKOUT_WINDOW_MS) {
+      loginAttempts.set(ip, { count: 1, firstAttempt: now });
+    } else {
+      cur.count += 1;
+    }
+  };
+
   try {
-    const { username, password } = req.body;
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      recordFailedAttempt();
+      return res.status(401).json({ error: 'Неверное имя пользователя или пароль' });
+    }
+
     const { rows } = await pool.query('SELECT * FROM users WHERE LOWER(username) = LOWER($1)', [username.trim()]);
     const user = rows[0];
 
-    if (!user) return res.status(401).json({ error: 'Пользователь не найден' });
+    if (!user) {
+      // Имитируем вычисление bcrypt для защиты от timing-атаки
+      await bcrypt.compare(password, DUMMY_HASH);
+      recordFailedAttempt();
+      return res.status(401).json({ error: 'Неверное имя пользователя или пароль' });
+    }
 
     const validPassword = await bcrypt.compare(password, user.password_hash);
-    if (!validPassword) return res.status(401).json({ error: 'Неверный пароль' });
+    if (!validPassword) {
+      recordFailedAttempt();
+      return res.status(401).json({ error: 'Неверное имя пользователя или пароль' });
+    }
+
+    // Успешный вход — сбрасываем счетчик ошибок для IP
+    loginAttempts.delete(ip);
 
     // Создаем токен (в него упаковываем ID, роль, ФИО и закрепленные регионы)
     const token = jwt.sign(
       { id: user.id, role: user.role, fullName: user.full_name, contractorId: user.contractor_id, assignedRegions: user.assigned_regions },
       JWT_SECRET,
-      { expiresIn: '24h' }
+      { expiresIn: '24h', algorithm: 'HS256' }
     );
 
     res.json({

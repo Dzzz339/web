@@ -26,6 +26,19 @@ export function fixUtf8Filename(name) {
   return name;
 }
 
+const ALLOWED_EXTENSIONS = new Set([
+  '.jpg', '.jpeg', '.png', '.webp', '.gif',
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx',
+  '.txt', '.csv', '.zip', '.rar', '.7z'
+]);
+
+const DANGEROUS_EXTENSIONS = new Set([
+  '.html', '.htm', '.svg', '.xml', '.xhtml',
+  '.js', '.mjs', '.cjs', '.php', '.phtml',
+  '.exe', '.bat', '.cmd', '.sh', '.ps1', '.vbs',
+  '.py', '.cgi', '.jsp', '.asp', '.aspx', '.jar'
+]);
+
 const attachmentStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     file.originalname = fixUtf8Filename(file.originalname);
@@ -33,7 +46,7 @@ const attachmentStorage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     file.originalname = fixUtf8Filename(file.originalname);
-    const ext = path.extname(file.originalname) || '';
+    const ext = (path.extname(file.originalname) || '').toLowerCase();
     cb(null, crypto.randomUUID() + ext);
   }
 });
@@ -42,6 +55,16 @@ export const uploadAttachment = multer({
   storage: attachmentStorage,
   fileFilter: (req, file, cb) => {
     file.originalname = fixUtf8Filename(file.originalname);
+    const ext = (path.extname(file.originalname) || '').toLowerCase();
+
+    if (DANGEROUS_EXTENSIONS.has(ext)) {
+      return cb(new Error(`Загрузка файлов с расширением «${ext}» запрещена из соображений безопасности`));
+    }
+
+    if (!ALLOWED_EXTENSIONS.has(ext)) {
+      return cb(new Error(`Недопустимый формат файла «${ext || 'без расширения'}». Разрешены: фото/сканы (JPG, PNG, WEBP, GIF), документы (PDF, DOC/DOCX, XLS/XLSX, TXT, CSV) и архивы (ZIP, RAR, 7Z)`));
+    }
+
     cb(null, true);
   },
   limits: { fileSize: 15 * 1024 * 1024 }

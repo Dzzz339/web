@@ -1,6 +1,6 @@
 import express from 'express';
 import { pool } from '../config/db.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { computeStats, buildChainsFromRows, rowToTask, safeDate } from '../services/helpers.js';
 import { cleanData, getInitialStage } from '../services/pipeline.js';
 import { runBackgroundGeocoding } from '../services/geoWorker.js';
@@ -187,7 +187,7 @@ router.get('/import-info', authenticateToken, async (req, res) => {
 });
 
 // ─── API: IMPORT ROWS (батчи от браузера) ────────────────────────────────────
-router.post('/excel/import-rows', async (req, res) => {
+router.post('/excel/import-rows', authenticateToken, requireRole('admin', 'director', 'manager'), async (req, res) => {
   try {
     let { rows: newBatch, name, isFirst, totalRows, batchId } = req.body;
     newBatch = await cleanData(newBatch);
@@ -199,15 +199,7 @@ router.post('/excel/import-rows', async (req, res) => {
 
       let currentBatchId = batchId;
       if (isFirst || !currentBatchId) {
-        let authorName = 'Администратор';
-        try {
-          const authH = req.headers['authorization'];
-          if (authH && authH.startsWith('Bearer ')) {
-            const jwt = (await import('jsonwebtoken')).default;
-            const dec = jwt.decode(authH.split(' ')[1]);
-            if (dec && (dec.fullName || dec.username)) authorName = dec.fullName || dec.username;
-          }
-        } catch (_) {}
+        const authorName = req.user?.fullName || req.user?.username || 'Администратор';
 
         const { rows: bRows } = await client.query(`
           INSERT INTO import_batches (file_name, user_name, total_rows, imported_at, status)

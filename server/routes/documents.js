@@ -3,7 +3,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { pool } from '../config/db.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { UPLOADS_DIR } from '../middleware/upload.js';
 import {
   generateSubcontractOrder,
@@ -51,7 +51,7 @@ router.get('/tasks/:taskId/documents', authenticateToken, async (req, res) => {
 });
 
 // 2. Сгенерировать и зарегистрировать документ
-router.post('/tasks/:taskId/documents/generate', authenticateToken, async (req, res) => {
+router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
   try {
     const { taskId } = req.params;
     const {
@@ -256,7 +256,7 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, async (req, 
 });
 
 // 3. Удалить документ
-router.delete('/documents/:id', authenticateToken, async (req, res) => {
+router.delete('/documents/:id', authenticateToken, requireRole('admin', 'director', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
     const docRes = await pool.query('SELECT * FROM task_documents WHERE id = $1', [id]);

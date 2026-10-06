@@ -277,6 +277,13 @@ router.delete('/chats/:roomId/members/:userId', authenticateToken, async (req, r
     const room = roomRows[0];
     if (!room) return res.status(404).json({ error: 'Комната чата не найдена' });
 
+    const role = String(req.user?.role || '').toLowerCase();
+    const isSelf = Number(req.user.id) === Number(userId);
+    const isPrivileged = ['admin', 'director', 'manager'].includes(role) || (room.created_by && Number(room.created_by) === Number(req.user.id));
+    if (!isSelf && !isPrivileged) {
+      return res.status(403).json({ error: 'Недостаточно прав для удаления участников из чата' });
+    }
+
     const { rows: userRows } = await pool.query('SELECT id, full_name, username FROM users WHERE id = $1', [userId]);
     const targetUser = userRows[0];
 
