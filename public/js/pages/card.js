@@ -3162,6 +3162,7 @@ function renderTaskChatComponent(taskId, isDrawer) {
           '</div>' +
         '</div>' +
         '<div style="display:flex;align-items:center;gap:6px">' +
+          '<button type="button" class="btn btn-xs btn-ghost chat-members-btn" onclick="openChatMembersModal(null, \'' + id + '\')" title="Управление участниками" style="font-size:.74rem">👥 Участники</button>' +
           '<button type="button" class="btn btn-xs btn-ghost" onclick="setCardTab(\'chat\');toggleTaskChatDrawer(null,false)" title="Развернуть во всю вкладку" style="font-size:.74rem">Вкладка ↗</button>' +
           '<button type="button" class="btn btn-xs btn-ghost" onclick="toggleTaskChatDrawer(null,false)" title="Закрыть шторку" style="font-size:1rem;line-height:1;padding:2px 7px">✕</button>' +
         '</div>' +
@@ -3174,7 +3175,10 @@ function renderTaskChatComponent(taskId, isDrawer) {
             '<div style="font-size:.74rem;color:var(--text-3)">Сообщения и файлы доступны ответственным и руководству</div>' +
           '</div>' +
         '</div>' +
-        '<button type="button" class="btn btn-xs btn-ghost" onclick="toggleTaskChatDrawer(\'' + id + '\',true)" title="Открыть в боковой шторке" style="font-size:.76rem">Открыть сбоку ◨</button>' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+          '<button type="button" class="btn btn-xs btn-ghost chat-members-btn" onclick="openChatMembersModal(null, \'' + id + '\')" title="Управление участниками" style="font-size:.76rem">👥 Участники</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="toggleTaskChatDrawer(\'' + id + '\',true)" title="Открыть в боковой шторке" style="font-size:.76rem">Открыть сбоку ◨</button>' +
+        '</div>' +
       '</div>';
 
   return '<div class="task-chat-container">' +
@@ -3322,9 +3326,16 @@ function loadTaskChat(taskId) {
       if (!res || !res.room) return;
       S.taskChatRoom = res.room;
       S.taskChatMessages = res.messages || [];
+      S.taskChatMembers = res.members || [];
 
       if (S.socket && res.room.id) {
         S.socket.emit('join-room', res.room.id);
+      }
+
+      var count = (res.members || []).length;
+      var btns = document.querySelectorAll('.chat-members-btn');
+      for (var i = 0; i < btns.length; i++) {
+        btns[i].innerHTML = '👥 Участники (' + count + ')';
       }
 
       renderTaskChatMessages(taskId);
