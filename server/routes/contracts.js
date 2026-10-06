@@ -658,4 +658,133 @@ router.post('/contracts/import', authenticateToken, uploadAttachment.single('fil
   }
 });
 
+/**
+ * Поиск доступных заявок для привязки к договору
+ */
+router.get('/contracts/:id/available-tasks', authenticateToken, async (req, res) => {
+  try {
+    const contractId = parseInt(req.params.id, 10);
+    const q = (req.query.q || '').trim();
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+
+    const { rows: cRows } = await pool.query('SELECT id, internal_number, customer_name, delivery_place FROM contracts WHERE id = $1', [contractId]);
+    if (!cRows.length) {
+      return res.status(404).json({ error: 'Договор не найден' });
+    }
+    const contract = cRows[0];
+    const prefix = contract.internal_number ? contract.internal_number.trim() : '';
+    const custName = contract.customer_name ? contract.customer_name.trim() : '';
+
+    let query = `
+      SELECT 
+        t.id, t.region, t.address, t.work_type, t.customer, t.status, t.stage, t.amount,
+        t.date_zayavki, t.deadline, t.assignee, t.contract_id,
+        c.internal_number AS linked_contract_num,
+        c.contract_number AS linked_contract_official_num
+      FROM tasks t
+      LEFT JOIN contracts c ON c.id = t.contract_id
+      WHERE (t.contract_id IS NULL OR t.contract_id != $1)
+    `;
+    const params = [contractId];
+
+    if (q) {
+      params.push(`%${q}%`);
+      query += ` AND (t.id ILIKE $${params.length} OR t.address ILIKE $${params.length} OR t.customer ILIKE $${params.length} OR t.region ILIKE $${params.length})`;
+    }
+
+    query += `
+      ORDER BY 
+        CASE 
+          WHEN $${params.length + 1} != '' AND t.id ILIKE $${params.length + 1} || '%' THEN 0 
+          WHEN $${params.length + 2} != '' AND t.customer ILIKE '%' || $${params.length + 2} || '%' THEN 1
+          ELSE 2 
+        END,
+        CASE WHEN t.contract_id IS NULL THEN 0 ELSE 1 END,
+        t.date_zayavki DESC NULLS LAST,
+        t.id DESC
+      LIMIT $${params.length + 3}
+    `;
+    params.push(prefix, custName, limit);
+
+    const { rows } = await pool.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching available tasks for contract:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Привязать существующую заявку к договору
+ */
+router.post('/contracts/:id/link-task', authenticateToken, async (req, res) => {
+  const role = String(req.user.role || '').toLowerCase();
+  if (!['admin', 'director', 'manager', 'accountant'].includes(role)) {
+    return res.status(403).json({ error: 'Недостаточно прав для привязки заявки к договору' });
+  }
+
+  try {
+    const contractId = parseInt(req.params.id, 10);
+    const { taskId } = req.body;
+    if (!taskId) {
+      return res.status(400).json({ error: 'Не указан taskId заявки' });
+    }
+
+    const { rows: cRows } = await pool.query('SELECT id, internal_number, contract_number, customer_name FROM contracts WHERE id = $1', [contractId]);
+    if (!cRows.length) {
+      return res.status(404).json({ error: 'Договор не найден' });
+    }
+
+    const { rows: tRows } = await pool.query('SELECT id, contract_id, customer FROM tasks WHERE id = $1', [taskId]);
+    if (!tRows.length) {
+      return res.status(404).json({ error: 'Заявка не найдена' });
+    }
+
+    await pool.query(`
+      UPDATE tasks 
+      SET 
+        contract_id = $1,
+        updated_at = NOW()
+      WHERE id = $2
+    `, [contractId, taskId]);
+
+    res.json({ success: true, taskId, contractId });
+  } catch (err) {
+    console.error('Error linking task to contract:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Отвязать заявку от договора
+ */
+router.post('/contracts/:id/unlink-task', authenticateToken, async (req, res) => {
+  const role = String(req.user.role || '').toLowerCase();
+  if (!['admin', 'director', 'manager', 'accountant'].includes(role)) {
+    return res.status(403).json({ error: 'Недостаточно прав для отвязки заявки от договора' });
+  }
+
+  try {
+    const contractId = parseInt(req.params.id, 10);
+    const { taskId } = req.body;
+    if (!taskId) {
+      return res.status(400).json({ error: 'Не указан taskId заявки' });
+    }
+
+    await pool.query(`
+      UPDATE tasks 
+      SET 
+        contract_id = NULL,
+        updated_at = NOW()
+      WHERE id = $1 AND contract_id = $2
+    `, [taskId, contractId]);
+
+    res.json({ success: true, taskId });
+  } catch (err) {
+    console.error('Error unlinking task from contract:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
+

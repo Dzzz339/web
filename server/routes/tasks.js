@@ -149,7 +149,16 @@ router.post('/tasks', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: `Заявка с номером ${cleanId} уже существует в базе` });
     }
 
-    const contractId = (t.contractId || t.contract_id) ? Number(t.contractId || t.contract_id) : null;
+    let contractId = (t.contractId || t.contract_id) ? Number(t.contractId || t.contract_id) : null;
+    if (!contractId && cleanId) {
+      const mPrefix = String(cleanId).match(/^(\d{4}-\d{2})/);
+      if (mPrefix) {
+        const { rows: matchedC } = await pool.query('SELECT id FROM contracts WHERE internal_number = $1 LIMIT 1', [mPrefix[1]]);
+        if (matchedC.length > 0) {
+          contractId = matchedC[0].id;
+        }
+      }
+    }
     const contractLot = (t.contractLot || t.contract_lot) ? Number(t.contractLot || t.contract_lot) : null;
 
     await pool.query(`
@@ -288,7 +297,7 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
         macro_status          = COALESCE($40, macro_status),
         active_processes      = COALESCE($41::jsonb, active_processes),
         customer_id           = COALESCE($42::integer, customer_id),
-        contract_id           = COALESCE($43::integer, contract_id),
+        contract_id           = CASE WHEN $46::boolean THEN $43::integer ELSE contract_id END,
         contract_lot          = COALESCE($44::integer, contract_lot),
         raw_data              = COALESCE($45::jsonb, raw_data),
         version               = version + 1,
@@ -339,7 +348,8 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       d.customerId ? Number(d.customerId) : null,
       (d.contract_id || d.contractId) ? Number(d.contract_id || d.contractId) : null,
       (d.contract_lot || d.contractLot) ? Number(d.contract_lot || d.contractLot) : null,
-      (d.rawData || d.raw_data) ? JSON.stringify(d.rawData || d.raw_data) : null
+      (d.rawData || d.raw_data) ? JSON.stringify(d.rawData || d.raw_data) : null,
+      (d.contract_id !== undefined || d.contractId !== undefined)
     ]);
 
     // --- УВЕДОМЛЕНИЯ И EMAIL ДЛЯ ИСПОЛНИТЕЛЯ ---

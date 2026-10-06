@@ -1100,11 +1100,14 @@ function renderContractTabTasks(c, tasks) {
         <span style="font-weight:700; font-size:.95rem">Связанные заявки и объекты</span>
         <span class="badge ${tasks.length ? 'b-blue' : 'b-gray'}" style="font-size:.75rem">${tasks.length}</span>
       </div>
-      <div style="display:flex; gap:8px">
-        <button class="btn btn-sm btn-outline" onclick="goToScenario3WithContract(${c.id})" title="Создать через Сценарий 3 с загрузкой PDF или схемы">
+      <div style="display:flex; gap:8px; flex-wrap:wrap">
+        <button class="btn btn-sm btn-outline" onclick="openLinkTaskToContractModal(${c.id})" style="display:inline-flex; align-items:center; gap:5px; font-weight:600" title="Выбрать и привязать существующую в системе заявку к этому договору">
+          🔗 Привязать заявку
+        </button>
+        <button class="btn btn-sm btn-outline" onclick="goToScenario3WithContract(${c.id})" title="Создать через Сценарий 3 с загрузкой PDF или схемы" style="display:inline-flex; align-items:center; gap:5px">
           ✨ Создать через ИИ / PDF
         </button>
-        <button class="btn btn-sm" onclick="openCreateTaskForContractModal(${c.id})" style="background:var(--blue); color:#fff">
+        <button class="btn btn-sm" onclick="openCreateTaskForContractModal(${c.id})" style="background:var(--blue); color:#fff; display:inline-flex; align-items:center; gap:5px; font-weight:600">
           ➕ Создать заявку по договору
         </button>
       </div>
@@ -1118,10 +1121,13 @@ function renderContractTabTasks(c, tasks) {
         <div style="font-size:2.5rem; margin-bottom:10px">📋</div>
         <div style="font-weight:700; font-size:1.05rem; color:var(--text)">По этому договору пока нет привязанных заявок</div>
         <div style="font-size:.84rem; margin-top:6px; max-width:480px; margin-left:auto; margin-right:auto; line-height:1.4">
-          Вы можете быстро создать заявку по кнопке выше — все основные реквизиты договора (заказчик, адрес, регион, тип работ, куратор) заполнятся автоматически.
+          Вы можете привязать уже заведенную ранее заявку или создать новую — основные реквизиты договора заполнятся автоматически.
         </div>
-        <div style="margin-top:16px">
-          <button class="btn" onclick="openCreateTaskForContractModal(${c.id})" style="background:var(--blue); color:#fff">
+        <div style="margin-top:16px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap">
+          <button class="btn btn-outline" onclick="openLinkTaskToContractModal(${c.id})" style="display:inline-flex; align-items:center; gap:6px; font-weight:600">
+            🔗 Привязать существующую заявку
+          </button>
+          <button class="btn" onclick="openCreateTaskForContractModal(${c.id})" style="background:var(--blue); color:#fff; display:inline-flex; align-items:center; gap:6px; font-weight:600">
             ➕ Создать первую заявку
           </button>
         </div>
@@ -1141,6 +1147,11 @@ function renderContractTabTasks(c, tasks) {
         </td>
         <td style="padding:10px 12px">${stBadge(t.status)}</td>
         <td style="padding:10px 12px; font-weight:700; text-align:right">${fmtMoney(t.amount)}</td>
+        <td style="padding:8px 10px; text-align:center" onclick="event.stopPropagation()">
+          <button class="btn btn-xs btn-ghost" title="Отвязать заявку от договора" onclick="unlinkTaskFromContractPrompt('${escHtml(t.id)}', ${c.id})" style="color:var(--text-3); font-size:.85rem; padding:2px 6px">
+            ✕
+          </button>
+        </td>
       </tr>
     `;
   }).join('');
@@ -1158,6 +1169,7 @@ function renderContractTabTasks(c, tasks) {
             <th>Исполнитель / Субподрядчик</th>
             <th>Статус</th>
             <th style="text-align:right">Сумма</th>
+            <th style="width:36px; text-align:center" title="Отвязать от договора"></th>
           </tr>
         </thead>
         <tbody>
@@ -2602,3 +2614,349 @@ function submitCreateTaskForContract(contractId) {
     alert('Ошибка сети при создании заявки: ' + err.message);
   });
 }
+
+/**
+ * =========================================================================
+ * ПРИВЯЗКА СУЩЕСТВУЮЩИХ ЗАЯВОК К ДОГОВОРУ
+ * =========================================================================
+ */
+
+var _linkTaskSearchTimeout = null;
+window._activeLinkContractId = null;
+window._availableTasksCache = [];
+
+function ensureLinkTaskModalInDOM() {
+  if (!document.getElementById('contract_link_task_modal_backdrop')) {
+    var div = document.createElement('div');
+    div.id = 'contract_link_task_modal_backdrop';
+    div.style.cssText = 'display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:10002; align-items:center; justify-content:center; padding:16px';
+    div.onclick = function(e) { if (e.target === div) closeLinkTaskToContractModal(); };
+    div.innerHTML = '<div id="contract_link_task_modal" class="card" style="width:100%; max-width:820px; max-height:90vh; display:flex; flex-direction:column; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); overflow:hidden; position:relative"></div>';
+    document.body.appendChild(div);
+  }
+}
+
+function openLinkTaskToContractModal(contractId) {
+  ensureLinkTaskModalInDOM();
+  var backdrop = document.getElementById('contract_link_task_modal_backdrop');
+  var modal = document.getElementById('contract_link_task_modal');
+  if (!backdrop || !modal) return;
+
+  window._activeLinkContractId = contractId;
+
+  var c = (window._activeContract && String(window._activeContract.id) === String(contractId))
+    ? window._activeContract
+    : ((S.contracts || []).find(function(x) { return String(x.id) === String(contractId); }));
+
+  if (!c) {
+    api('/contracts/' + contractId).then(function(res) {
+      if (res && !res.error) {
+        window._activeContract = res;
+        openLinkTaskToContractModal(contractId);
+      } else {
+        alert('Не удалось загрузить данные договора');
+      }
+    });
+    return;
+  }
+
+  backdrop.style.display = 'flex';
+  modal.innerHTML = `
+    <div style="padding:18px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:#fafafa">
+      <div>
+        <div style="display:flex; align-items:center; gap:8px">
+          <span class="badge b-blue" style="font-size:.78rem">Связка с договором</span>
+          <span class="badge b-orange" style="font-size:.78rem; font-family:monospace; font-weight:700">Вн. № ${escHtml(c.internal_number || '—')}</span>
+          ${c.contract_number ? `<span class="badge b-gray" style="font-size:.78rem">№ ${escHtml(cleanContractNumber(c.contract_number))}</span>` : ''}
+        </div>
+        <h3 style="margin:6px 0 0; font-size:1.15rem; font-weight:700">🔗 Привязка существующей заявки к договору</h3>
+      </div>
+      <button class="btn btn-sm btn-ghost" onclick="closeLinkTaskToContractModal()" style="font-size:1.3rem; line-height:1; color:var(--text-3)">&times;</button>
+    </div>
+
+    <!-- ИНФО-ПАРАМЕТРЫ ДОГОВОРА -->
+    <div style="background:#f8fafc; border-bottom:1px solid var(--border); padding:12px 24px; font-size:.83rem; display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px">
+      <div>
+        <div style="font-size:.68rem; text-transform:uppercase; font-weight:700; color:var(--text-3)">🏛️ Заказчик</div>
+        <div style="font-weight:600; color:var(--text); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="${escHtml(c.customer_name || '')}">
+          ${escHtml(c.customer_name || 'Не указан')}
+        </div>
+      </div>
+      <div>
+        <div style="font-size:.68rem; text-transform:uppercase; font-weight:700; color:var(--text-3)">📍 Объект / Регион</div>
+        <div style="font-weight:600; color:var(--text); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="${escHtml(c.delivery_place || c.our_entity_region || '')}">
+          ${escHtml(c.delivery_place || c.our_entity_region || '—')}
+        </div>
+      </div>
+      <div>
+        <div style="font-size:.68rem; text-transform:uppercase; font-weight:700; color:var(--text-3)">💰 Сумма договора</div>
+        <div style="font-weight:700; color:var(--blue); margin-top:2px">${fmtMoney(c.amount)}</div>
+      </div>
+    </div>
+
+    <!-- ПОИСКОВАЯ СТРОКА -->
+    <div style="padding:14px 24px; border-bottom:1px solid var(--border); background:#fff">
+      <div style="position:relative">
+        <input type="text" id="link_task_search_inp" 
+               placeholder="🔍 Поиск по номеру заявки (#...), адресу, городу или заказчику..." 
+               oninput="handleLinkTaskSearchInput(${c.id})" 
+               style="width:100%; padding:9px 14px 9px 36px; font-size:.88rem; border:1.5px solid var(--border); border-radius:8px; outline:none; transition:border-color .15s ease">
+        <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:1rem; opacity:.5">🔍</span>
+      </div>
+    </div>
+
+    <!-- СПИСОК ЗАЯВОК (СКРОЛЛИРУЕМЫЙ) -->
+    <div id="link_task_modal_list" style="padding:16px 24px; overflow-y:auto; flex:1; max-height:450px; background:#fafafa">
+      <div style="padding:2.5rem; text-align:center; color:var(--text-3)">
+        <div class="spin" style="margin:0 auto 10px"></div>
+        Поиск доступных заявок...
+      </div>
+    </div>
+
+    <!-- ФУТЕР -->
+    <div style="padding:12px 24px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:#fff">
+      <div style="font-size:.78rem; color:var(--text-3)">
+        Не нашли нужную заявку? Вы можете
+        <button class="btn-link" onclick="closeLinkTaskToContractModal(); openCreateTaskForContractModal(${c.id})" style="font-weight:600; color:var(--blue); font-size:.78rem">создать новую заявку по договору</button>
+      </div>
+      <button class="btn btn-ghost" onclick="closeLinkTaskToContractModal()">Закрыть</button>
+    </div>
+  `;
+
+  // Загружаем список доступных заявок
+  api('/contracts/' + contractId + '/available-tasks').then(function(tasks) {
+    window._availableTasksCache = tasks || [];
+    renderLinkTaskModalList(c, window._availableTasksCache, '');
+  }).catch(function(err) {
+    var listEl = document.getElementById('link_task_modal_list');
+    if (listEl) {
+      listEl.innerHTML = `<div style="padding:2rem; text-align:center; color:var(--red)">Ошибка загрузки заявок: ${escHtml(err.message)}</div>`;
+    }
+  });
+}
+
+function closeLinkTaskToContractModal() {
+  var backdrop = document.getElementById('contract_link_task_modal_backdrop');
+  if (backdrop) backdrop.style.display = 'none';
+  window._activeLinkContractId = null;
+}
+
+function handleLinkTaskSearchInput(contractId) {
+  var inp = document.getElementById('link_task_search_inp');
+  var q = inp ? inp.value.trim() : '';
+  
+  clearTimeout(_linkTaskSearchTimeout);
+  _linkTaskSearchTimeout = setTimeout(function() {
+    var c = window._activeContract;
+    if (!c) return;
+
+    var listEl = document.getElementById('link_task_modal_list');
+    if (listEl) {
+      listEl.innerHTML = `<div style="padding:2rem; text-align:center; color:var(--text-3)"><div class="spin" style="margin:0 auto 8px"></div>Поиск...</div>`;
+    }
+
+    api('/contracts/' + contractId + '/available-tasks?q=' + encodeURIComponent(q)).then(function(tasks) {
+      renderLinkTaskModalList(c, tasks || [], q);
+    }).catch(function(err) {
+      if (listEl) {
+        listEl.innerHTML = `<div style="padding:2rem; text-align:center; color:var(--red)">Ошибка поиска: ${escHtml(err.message)}</div>`;
+      }
+    });
+  }, 250);
+}
+
+function renderLinkTaskModalList(c, tasks, filterQuery) {
+  var listEl = document.getElementById('link_task_modal_list');
+  if (!listEl) return;
+
+  if (!tasks || !tasks.length) {
+    listEl.innerHTML = `
+      <div class="card p" style="text-align:center; padding:3rem 1.5rem; background:#fff; border:1px dashed var(--border); border-radius:10px">
+        <div style="font-size:2.2rem; margin-bottom:8px">🔍</div>
+        <div style="font-weight:700; font-size:1rem; color:var(--text)">Подходящих заявок не найдено</div>
+        <div style="font-size:.82rem; color:var(--text-3); margin-top:4px; max-width:440px; margin-left:auto; margin-right:auto">
+          ${filterQuery ? 'Попробуйте изменить поисковый запрос или создайте новую заявку с реквизитами этого договора.' : 'В системе нет свободных заявок. Вы можете создать новую:'}
+        </div>
+        <div style="margin-top:14px">
+          <button class="btn btn-sm" onclick="closeLinkTaskToContractModal(); openCreateTaskForContractModal(${c.id})" style="background:var(--blue); color:#fff; font-weight:600">
+            ➕ Создать заявку по договору
+          </button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  var cPrefix = c.internal_number ? c.internal_number.trim().toLowerCase() : '';
+  var cCust = c.customer_name ? c.customer_name.trim().toLowerCase() : '';
+
+  // Разделяем на рекомендуемые и остальные
+  var recommended = [];
+  var others = [];
+
+  tasks.forEach(function(t) {
+    var tid = String(t.id || '').toLowerCase();
+    var tCust = String(t.customer || '').toLowerCase();
+    var isRec = (cPrefix && tid.indexOf(cPrefix) !== -1) || 
+                (cCust && tCust && (tCust.indexOf(cCust) !== -1 || cCust.indexOf(tCust) !== -1));
+    if (isRec) {
+      recommended.push(t);
+    } else {
+      others.push(t);
+    }
+  });
+
+  function renderItem(t, isRec) {
+    var isLinkedOther = !!t.linked_contract_num;
+    var otherLabel = t.linked_contract_num || t.linked_contract_official_num || 'другой договор';
+    var dDateStr = t.date_zayavki ? new Date(t.date_zayavki).toLocaleDateString('ru-RU') : '';
+
+    return `
+      <div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; margin-bottom:8px; background:${isRec ? '#f0fdf4' : '#fff'}; border:${isRec ? '1.5px solid #86efac' : '1px solid var(--border)'}; border-radius:10px; transition:box-shadow .15s ease" onmouseover="this.style.boxShadow='0 3px 12px rgba(0,0,0,0.06)'" onmouseout="this.style.boxShadow='none'">
+        <div style="flex:1; min-width:0; padding-right:16px">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+            <span style="font-weight:700; font-family:monospace; font-size:.92rem; color:var(--blue)">${escHtml(t.id)}</span>
+            <span class="badge b-gray" style="font-size:.72rem">${escHtml(t.work_type || '—')}</span>
+            ${stBadge(t.status)}
+            ${isRec ? '<span class="badge b-green" style="font-size:.7rem; font-weight:700">✨ Рекомендуется</span>' : ''}
+            ${isLinkedOther ? '<span class="badge b-orange" style="font-size:.7rem" title="Заявка уже связана с другим договором">⚠️ В договоре ' + escHtml(otherLabel) + '</span>' : ''}
+          </div>
+
+          <div style="font-weight:600; font-size:.85rem; color:var(--text); margin-top:5px; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="${escHtml(t.address || '')}">
+            📍 ${escHtml(t.address || 'Адрес не указан')}
+          </div>
+
+          <div style="font-size:.76rem; color:var(--text-3); margin-top:4px; display:flex; gap:14px; flex-wrap:wrap; align-items:center">
+            ${t.customer ? '<span>🏛️ <b>' + escHtml(t.customer) + '</b></span>' : ''}
+            ${t.region ? '<span>🌍 ' + escHtml(t.region) + '</span>' : ''}
+            ${dDateStr ? '<span>📅 от ' + escHtml(dDateStr) + '</span>' : ''}
+            <span style="color:var(--text); font-weight:700">💰 ' + fmtMoney(t.amount) + '</span>
+          </div>
+        </div>
+
+        <div style="flex-shrink:0">
+          ${isLinkedOther ? `
+            <button class="btn btn-sm btn-outline" 
+                    onclick="linkTaskToContract('${escHtml(t.id)}', ${c.id}, true, '${escHtml(otherLabel)}')" 
+                    style="color:var(--orange); border-color:var(--orange); font-size:.78rem; font-weight:600; display:inline-flex; align-items:center; gap:5px" 
+                    title="Заявка привязана к договору ${escHtml(otherLabel)}. Нажмите, чтобы перепривязать к этому.">
+              🔄 Перепривязать
+            </button>
+          ` : `
+            <button class="btn btn-sm" 
+                    onclick="linkTaskToContract('${escHtml(t.id)}', ${c.id}, false)" 
+                    style="background:var(--blue); color:#fff; font-size:.8rem; font-weight:600; display:inline-flex; align-items:center; gap:5px; box-shadow:0 1px 3px rgba(37,99,235,0.25)">
+              🔗 Привязать
+            </button>
+          `}
+        </div>
+      </div>
+    `;
+  }
+
+  var html = '';
+
+  if (recommended.length > 0) {
+    html += `
+      <div style="margin-bottom:14px">
+        <div style="font-size:.74rem; text-transform:uppercase; font-weight:700; color:#15803d; margin-bottom:8px; display:flex; align-items:center; gap:6px">
+          <span>💡 Рекомендуемые к привязке (${recommended.length})</span>
+          <span style="font-size:.7rem; font-weight:normal; color:var(--text-3); text-transform:none">совпадение по номеру или заказчику</span>
+        </div>
+        ${recommended.map(function(t) { return renderItem(t, true); }).join('')}
+      </div>
+    `;
+  }
+
+  if (others.length > 0) {
+    html += `
+      <div>
+        <div style="font-size:.74rem; text-transform:uppercase; font-weight:700; color:var(--text-2); margin-bottom:8px">
+          <span>📋 Все доступные заявки (${others.length})</span>
+        </div>
+        ${others.map(function(t) { return renderItem(t, false); }).join('')}
+      </div>
+    `;
+  }
+
+  listEl.innerHTML = html;
+}
+
+function linkTaskToContract(taskId, contractId, isRebind, oldContractNum) {
+  if (isRebind) {
+    var msg = 'Заявка ' + taskId + ' сейчас привязана к договору ' + (oldContractNum ? ('№ ' + oldContractNum) : '') + '.\nПерепривязать её к текущему договору?';
+    if (!confirm(msg)) return;
+  }
+
+  api('/contracts/' + contractId + '/link-task', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ taskId: taskId })
+  }).then(function(res) {
+    if (res && res.error) {
+      alert('Ошибка привязки: ' + res.error);
+      return;
+    }
+
+    closeLinkTaskToContractModal();
+    showToast('✅ Заявка ' + taskId + ' успешно привязана к договору', 'success');
+
+    // Синхронизируем локальное состояние задач
+    if (Array.isArray(S.tasks)) {
+      var t = S.tasks.find(function(x) { return String(x.id) === String(taskId); });
+      if (t) {
+        t.contract_id = Number(contractId);
+        t.contractId = Number(contractId);
+      }
+    }
+
+    // Обновляем карточку договора
+    openContractModal(contractId, 'tasks');
+    fetchContracts();
+  }).catch(function(err) {
+    alert('Ошибка сети: ' + err.message);
+  });
+}
+
+function unlinkTaskFromContractPrompt(taskId, contractId) {
+  var msg = 'Вы уверены, что хотите отвязать заявку ' + taskId + ' от этого договора?\nЗаявка останется в общем списке заявок, но больше не будет отображаться в этом контракте.';
+  if (!confirm(msg)) return;
+
+  api('/contracts/' + contractId + '/unlink-task', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ taskId: taskId })
+  }).then(function(res) {
+    if (res && res.error) {
+      alert('Ошибка: ' + res.error);
+      return;
+    }
+
+    showToast('Заявка ' + taskId + ' отвязана от договора', 'info');
+
+    // Синхронизируем локальное состояние
+    if (Array.isArray(S.tasks)) {
+      var t = S.tasks.find(function(x) { return String(x.id) === String(taskId); });
+      if (t) {
+        t.contract_id = null;
+        t.contractId = null;
+      }
+    }
+
+    // Обновляем карточку договора
+    openContractModal(contractId, 'tasks');
+    fetchContracts();
+  }).catch(function(err) {
+    alert('Ошибка сети: ' + err.message);
+  });
+}
+
+// Экспорт функций в глобальную область
+window.openLinkTaskToContractModal = openLinkTaskToContractModal;
+window.closeLinkTaskToContractModal = closeLinkTaskToContractModal;
+window.handleLinkTaskSearchInput = handleLinkTaskSearchInput;
+window.linkTaskToContract = linkTaskToContract;
+window.unlinkTaskFromContractPrompt = unlinkTaskFromContractPrompt;
+window.openCreateTaskForContractModal = openCreateTaskForContractModal;
+window.closeCreateTaskForContractModal = closeCreateTaskForContractModal;
+

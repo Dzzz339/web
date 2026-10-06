@@ -43,24 +43,18 @@ window.filterCardContractsList = function(q) {
 };
 
 window.selectCardContract = function(cId) {
-  var sel = document.getElementById('card_contract_select');
   var valStr = cId ? String(cId) : '';
+  var numVal = cId ? Number(cId) : null;
+  S.cardDraft.contract_id = numVal;
+
+  var sel = document.getElementById('card_contract_select');
   if (sel) {
     sel.value = valStr;
-    sel.dispatchEvent(new Event('change', { bubbles: true }));
-  } else {
-    var t = S.tasks.find(function(x){ return String(x.id) === String(S.cardId); });
-    if (t) {
-      if (valStr) {
-        S.cardDraft.contract_id = Number(valStr);
-        t.contract_id = Number(valStr);
-        t.contractId = Number(valStr);
-      } else {
-        S.cardDraft.contract_id = null;
-        t.contract_id = null;
-        t.contractId = null;
-      }
-    }
+  }
+  var t = S.tasks.find(function(x){ return String(x.id) === String(S.cardId); });
+  if (t) {
+    t.contract_id = numVal;
+    t.contractId = numVal;
   }
   S._cardContractPickerOpen = false;
   renderApp();

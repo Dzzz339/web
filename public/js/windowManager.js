@@ -100,36 +100,82 @@
     return dock;
   }
 
-  // ─── 3. ДЕЛАЕМ ОКНО ПЕРЕТАСКИВАЕМЫМ И СВОРАЧИВАЕМЫМ ─────────────────────────
+  // ─── 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ УПРАВЛЕНИЯ ОКНАМИ ────────────────────────
+  function safeEsc(str) {
+    if (typeof escHtml === 'function') return escHtml(str);
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  // Надежный поиск исходной кнопки закрытия модалки
+  function findCloseButton(container, modalBox) {
+    if (!container && !modalBox) return null;
+    var searchScopes = [container, modalBox].filter(Boolean);
+
+    for (var s = 0; s < searchScopes.length; s++) {
+      var scope = searchScopes[s];
+      // 1. По атрибутам onclick и close-классам
+      var btn = scope.querySelector(
+        'button[onclick*="close" i], button[onclick*="remove" i], button[onclick*="hide" i], ' +
+        'button[data-close], button.btn-close, button.close, [data-dismiss="modal"], ' +
+        'button[title*="Закрыть" i], button[aria-label*="Закрыть" i]'
+      );
+      if (btn && !btn.classList.contains('win-ctrl-btn')) return btn;
+
+      // 2. По символу крестика в содержимом (но НЕ длинный текст вроде "Сохранить")
+      var allButtons = scope.querySelectorAll('button');
+      for (var i = 0; i < allButtons.length; i++) {
+        var b = allButtons[i];
+        if (b.classList.contains('win-ctrl-btn')) continue;
+        var txt = b.textContent.trim();
+        if (txt === '✕' || txt === '×' || txt === '⨯' || (txt.toLowerCase() === 'x' && txt.length === 1)) {
+          return b;
+        }
+      }
+    }
+    return null;
+  }
+
+  // ─── 4. ДЕЛАЕМ ОКНО ПЕРЕТАСКИВАЕМЫМ И СВОРАЧИВАЕМЫМ ─────────────────────────
   window.makeWindowDraggableAndMinimizable = function(modalBox, options) {
-    if (!modalBox || modalBox._hasWindowControls) return;
-    modalBox._hasWindowControls = true;
+    if (!modalBox) return;
+    // Если кнопки управления уже есть внутри modalBox, не дублируем
+    if (modalBox.querySelector('.win-ctrls-wrap')) return;
 
     options = options || {};
-    var backdrop = options.backdrop || modalBox.closest('.modal-overlay') || modalBox.parentElement;
+    var backdrop = options.backdrop || modalBox.closest('.modal-overlay, .wf-modal-overlay') || modalBox.parentElement;
     var title = options.title || modalBox.querySelector('h1, h2, h3, .modal-title')?.textContent?.trim() || 'Окно';
     var icon = options.icon || '📄';
     var onClose = options.onClose || function() {
-      if (backdrop) backdrop.style.display = 'none';
-      else modalBox.remove();
-      window.restorePageScroll();
+      if (backdrop) {
+        if (backdrop.id && backdrop.id.startsWith('_')) backdrop.remove();
+        else backdrop.style.display = 'none';
+      } else {
+        if (modalBox.id && modalBox.id.startsWith('_')) modalBox.remove();
+        else modalBox.style.display = 'none';
+      }
+      if (typeof window.restorePageScroll === 'function') window.restorePageScroll();
     };
 
     var dockId = 'dock_win_' + Math.random().toString(36).substr(2, 9);
 
-    // 3.1. Находим шапку окна для захвата перетаскивания (Drag Handle)
-    var handle = options.handle || modalBox.querySelector('.modal-header') || modalBox.firstElementChild;
+    // 4.1. Находим шапку окна для захвата перетаскивания (Drag Handle)
+    var handle = options.handle || modalBox.querySelector('.modal-header, .wf-modal-header') || modalBox.firstElementChild;
     if (handle) {
       handle.classList.add('modal-drag-handle');
       handle.title = 'Зажмите левую кнопку мыши, чтобы перетащить окно';
     }
 
-    // 3.2. Добавляем кнопки управления окном: [— Свернуть], [▢ Развернуть], [✕ Закрыть]
+    // 4.2. Добавляем кнопки управления окном: [— Свернуть], [▢ Развернуть], [✕ Закрыть]
     var btnContainer = handle ? handle.querySelector('.win-ctrls-wrap') : null;
+    var existingCloseBtn = findCloseButton(handle, modalBox);
+
     if (!btnContainer && handle) {
-      // Ищем существующий крестик закрытия
-      var existingCloseBtn = handle.querySelector('button[onclick*="close"], button[onclick*="remove"], button:last-child');
-      
       var wrap = document.createElement('div');
       wrap.className = 'win-ctrls-wrap';
       wrap.style.cssText = 'display:inline-flex; align-items:center; gap:4px; margin-left:auto; z-index:10;';
@@ -170,7 +216,7 @@
       };
       wrap.appendChild(closeBtn);
 
-      if (existingCloseBtn) {
+      if (existingCloseBtn && existingCloseBtn.parentNode) {
         existingCloseBtn.style.display = 'none'; // заменяем на унифицированный блок
         existingCloseBtn.parentNode.insertBefore(wrap, existingCloseBtn);
       } else {
@@ -178,18 +224,18 @@
       }
     }
 
-    // 3.3. Логика перетаскивания (Drag and Drop)
+    // 4.3. Логика перетаскивания (Drag and Drop)
     var isDragging = false;
     var startX, startY, initLeft, initTop;
 
     function onPointerDown(e) {
-      // Игнорируем клики по кнопкам, инпутам, селектам
-      if (e.target.closest('button, input, select, textarea, a, .win-ctrl-btn')) return;
+      // Игнорируем клики по элементам ввода и кнопкам управления
+      if (e.target.closest('button, input, select, textarea, a, .win-ctrl-btn, .badge')) return;
       if (e.button !== 0) return; // только левая кнопка мыши
 
       isDragging = true;
       var rect = modalBox.getBoundingClientRect();
-      
+
       startX = e.clientX;
       startY = e.clientY;
       initLeft = rect.left;
@@ -203,7 +249,7 @@
       modalBox.style.transform = 'none';
       modalBox.style.zIndex = '100010';
 
-      // Разрешаем кликать и скроллить под окном
+      // Снимаем блокировку фона
       if (backdrop) {
         backdrop.classList.add('is-floating');
       }
@@ -231,10 +277,11 @@
     }
 
     if (handle) {
+      handle.removeEventListener('pointerdown', onPointerDown);
       handle.addEventListener('pointerdown', onPointerDown);
     }
 
-    // 3.4. Логика сворачивания в Dock bar
+    // 4.4. Логика сворачивания в Dock bar
     function minimizeWindow() {
       if (backdrop) backdrop.style.display = 'none';
       else modalBox.style.display = 'none';
@@ -247,7 +294,7 @@
         dockItem.className = 'dock-item';
         dockItem.innerHTML = `
           <span>${icon}</span>
-          <span style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${escHtml(title)}</span>
+          <span style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${safeEsc(title)}</span>
           <span class="dock-item-close" title="Закрыть">&times;</span>
         `;
 
@@ -270,14 +317,12 @@
       var dockItem = document.getElementById(dockId);
       if (dockItem) dockItem.remove();
 
-      // Фокусируемся на окне
       modalBox.style.zIndex = '100020';
     }
 
     function toggleMaximize() {
       var isMax = modalBox.classList.toggle('modal-maximized');
       if (!isMax) {
-        // Возвращаем компактную позицию
         modalBox.style.left = '';
         modalBox.style.top = '';
         modalBox.style.transform = '';
@@ -289,24 +334,65 @@
       var dockItem = document.getElementById(dockId);
       if (dockItem) dockItem.remove();
       if (backdrop) backdrop.classList.remove('is-floating');
-      onClose();
+
+      // 1. Вызываем исходную кнопку закрытия, если она существовала
+      if (existingCloseBtn && typeof existingCloseBtn.click === 'function') {
+        try {
+          if (document.body.contains(existingCloseBtn)) {
+            existingCloseBtn.click();
+          }
+        } catch (err) {
+          console.warn('[windowManager] Error calling existingCloseBtn.click:', err);
+        }
+      }
+
+      // 2. Вызываем явный onClose callback
+      if (typeof onClose === 'function') {
+        try {
+          onClose();
+        } catch (err) {
+          console.warn('[windowManager] Error calling onClose:', err);
+        }
+      }
+
+      // 3. Fallback: гарантированное сокрытие/удаление через 20 мс
+      setTimeout(function() {
+        if (backdrop && document.body.contains(backdrop) && backdrop.style.display !== 'none') {
+          if (backdrop.id && backdrop.id.startsWith('_')) {
+            backdrop.remove();
+          } else {
+            backdrop.style.display = 'none';
+          }
+        }
+        if (modalBox && document.body.contains(modalBox) && modalBox.style.display !== 'none') {
+          if (modalBox.id && modalBox.id.startsWith('_')) {
+            modalBox.remove();
+          } else {
+            modalBox.style.display = 'none';
+          }
+        }
+        if (typeof window.restorePageScroll === 'function') {
+          window.restorePageScroll();
+        }
+      }, 20);
     }
 
     modalBox._restoreFromDock = restoreWindow;
     modalBox._minimizeToDock = minimizeWindow;
+    modalBox._closeWindow = closeWindow;
   };
 
-  // ─── 4. АВТОМАТИЧЕСКАЯ ИНИЦИАЛИЗАЦИЯ И НАБЛЮДАТЕЛЬ ЗА ОКНАМИ ─────────────────
+  // ─── 5. АВТОМАТИЧЕСКАЯ ИНИЦИАЛИЗАЦИЯ И НАБЛЮДАТЕЛЬ ЗА ОКНАМИ ─────────────────
   function checkAndEnhanceModal(node) {
     if (!node || node.nodeType !== 1) return;
 
-    // Договор: карточка просмотра деталей
-    if (node.id === 'contract_detail_modal' || node.querySelector?.('#contract_detail_modal')) {
-      var el = node.id === 'contract_detail_modal' ? node : node.querySelector('#contract_detail_modal');
+    // 1. Договор: карточка просмотра деталей
+    var cdmEl = (node.id === 'contract_detail_modal') ? node : (node.querySelector?.('#contract_detail_modal') || node.closest?.('#contract_detail_modal'));
+    if (cdmEl) {
       var backdrop = document.getElementById('contract_detail_modal_backdrop');
-      if (backdrop && backdrop.style.display !== 'none' && !el._hasWindowControls) {
+      if (backdrop && backdrop.style.display !== 'none' && !cdmEl.querySelector('.win-ctrls-wrap')) {
         var title = window._activeContract ? ('Вн. № ' + (window._activeContract.internal_number || '—') + ' ' + (window._activeContract.customer_name || '')) : 'Карточка договора';
-        window.makeWindowDraggableAndMinimizable(el, {
+        window.makeWindowDraggableAndMinimizable(cdmEl, {
           title: title,
           icon: '📜',
           backdrop: backdrop,
@@ -315,15 +401,16 @@
           }
         });
       }
+      return;
     }
 
-    // Договор: форма создания / редактирования договора
-    if (node.id === 'contract_form_modal' || node.querySelector?.('#contract_form_modal')) {
-      var cfEl = node.id === 'contract_form_modal' ? node : node.querySelector('#contract_form_modal');
+    // 2. Договор: форма создания / редактирования договора
+    var cfmEl = (node.id === 'contract_form_modal') ? node : (node.querySelector?.('#contract_form_modal') || node.closest?.('#contract_form_modal'));
+    if (cfmEl) {
       var cfBackdrop = document.getElementById('contract_form_modal_backdrop');
-      if (cfBackdrop && cfBackdrop.style.display !== 'none' && !cfEl._hasWindowControls) {
-        window.makeWindowDraggableAndMinimizable(cfEl, {
-          title: cfEl.querySelector('h2')?.textContent || 'Форма договора',
+      if (cfBackdrop && cfBackdrop.style.display !== 'none' && !cfmEl.querySelector('.win-ctrls-wrap')) {
+        window.makeWindowDraggableAndMinimizable(cfmEl, {
+          title: cfmEl.querySelector('h2')?.textContent || 'Форма договора',
           icon: '📝',
           backdrop: cfBackdrop,
           onClose: function() {
@@ -331,64 +418,231 @@
           }
         });
       }
+      return;
     }
 
-    // Визард подряда (субподряд)
-    if (node.id === '_subcontract_wizard_modal' || node.querySelector?.('#_subcontract_wizard_modal')) {
-      var wizNode = node.id === '_subcontract_wizard_modal' ? node : node.querySelector('#_subcontract_wizard_modal');
-      var box = wizNode.querySelector('.card, [style*="background:#fff"]') || wizNode;
-      if (!box._hasWindowControls) {
-        window.makeWindowDraggableAndMinimizable(box, {
+    // 3. Договор: материалы / папка облака
+    var cmmEl = (node.id === 'contract_materials_modal') ? node : (node.querySelector?.('#contract_materials_modal') || node.closest?.('#contract_materials_modal'));
+    if (cmmEl) {
+      var cmBackdrop = document.getElementById('contract_materials_modal_backdrop');
+      if (cmBackdrop && cmBackdrop.style.display !== 'none' && !cmmEl.querySelector('.win-ctrls-wrap')) {
+        window.makeWindowDraggableAndMinimizable(cmmEl, {
+          title: 'Материалы и файлы договора',
+          icon: '📁',
+          backdrop: cmBackdrop,
+          onClose: function() {
+            if (typeof closeAddContractMaterialsModal === 'function') closeAddContractMaterialsModal();
+          }
+        });
+      }
+      return;
+    }
+
+    // 4. Договор: создание заявки к договору
+    var cctEl = (node.id === 'contract_create_task_modal') ? node : (node.querySelector?.('#contract_create_task_modal') || node.closest?.('#contract_create_task_modal'));
+    if (cctEl) {
+      var cctBackdrop = document.getElementById('contract_create_task_modal_backdrop');
+      if (cctBackdrop && cctBackdrop.style.display !== 'none' && !cctEl.querySelector('.win-ctrls-wrap')) {
+        window.makeWindowDraggableAndMinimizable(cctEl, {
+          title: 'Создание заявки по договору',
+          icon: '📋',
+          backdrop: cctBackdrop,
+          onClose: function() {
+            if (typeof closeContractCreateTaskModal === 'function') closeContractCreateTaskModal();
+          }
+        });
+      }
+      return;
+    }
+
+    // 5. Договор: привязка существующей заявки к договору
+    var cltEl = (node.id === 'contract_link_task_modal') ? node : (node.querySelector?.('#contract_link_task_modal') || node.closest?.('#contract_link_task_modal'));
+    if (cltEl) {
+      var cltBackdrop = document.getElementById('contract_link_task_modal_backdrop');
+      if (cltBackdrop && cltBackdrop.style.display !== 'none' && !cltEl.querySelector('.win-ctrls-wrap')) {
+        window.makeWindowDraggableAndMinimizable(cltEl, {
+          title: 'Привязать существующую заявку',
+          icon: '🔗',
+          backdrop: cltBackdrop,
+          onClose: function() {
+            if (typeof closeContractLinkTaskModal === 'function') closeContractLinkTaskModal();
+          }
+        });
+      }
+      return;
+    }
+
+    // 6. Визард подряда (субподряд)
+    var wizEl = (node.id === '_subcontract_wizard_modal') ? node : (node.querySelector?.('#_subcontract_wizard_modal') || node.closest?.('#_subcontract_wizard_modal'));
+    if (wizEl) {
+      var wizBox = wizEl.querySelector('.card, .modal-box, [style*="background:#fff"]') || wizEl;
+      if (!wizBox.querySelector('.win-ctrls-wrap')) {
+        window.makeWindowDraggableAndMinimizable(wizBox, {
           title: 'Поручение подрядчику (Визард)',
           icon: '👷',
-          backdrop: wizNode,
+          backdrop: wizEl,
           onClose: function() {
-            wizNode.remove();
+            wizEl.remove();
             window.restorePageScroll();
           }
         });
       }
+      return;
     }
 
-    // Индивидуальные расценки подряда (_sub_rate_modal)
-    if (node.id === '_sub_rate_modal' || node.querySelector?.('#_sub_rate_modal')) {
-      var srmNode = node.id === '_sub_rate_modal' ? node : node.querySelector('#_sub_rate_modal');
-      var srmBox = srmNode.querySelector('.card, [style*="background:#fff"]') || srmNode;
-      if (!srmBox._hasWindowControls) {
+    // 7. Карточка заявки: назначение/редактирование субподрядчика (_subcontract_modal)
+    var scEl = (node.id === '_subcontract_modal') ? node : (node.querySelector?.('#_subcontract_modal') || node.closest?.('#_subcontract_modal'));
+    if (scEl) {
+      var scBox = scEl.querySelector('.modal-box') || scEl;
+      if (!scBox.querySelector('.win-ctrls-wrap')) {
+        window.makeWindowDraggableAndMinimizable(scBox, {
+          title: scBox.querySelector('h3')?.textContent || 'Субподрядчик по заявке',
+          icon: '🤝',
+          backdrop: scEl,
+          onClose: function() {
+            scEl.remove();
+            window.restorePageScroll();
+          }
+        });
+      }
+      return;
+    }
+
+    // 8. Чат: управление участниками чата заявки (_chat_members_modal)
+    var chmEl = (node.id === '_chat_members_modal') ? node : (node.querySelector?.('#_chat_members_modal') || node.closest?.('#_chat_members_modal'));
+    if (chmEl) {
+      var chmBox = chmEl.querySelector('.modal-box') || chmEl;
+      if (!chmBox.querySelector('.win-ctrls-wrap')) {
+        window.makeWindowDraggableAndMinimizable(chmBox, {
+          title: chmBox.querySelector('h3')?.textContent || 'Участники чата',
+          icon: '👥',
+          backdrop: chmEl,
+          onClose: function() {
+            chmEl.remove();
+            window.restorePageScroll();
+          }
+        });
+      }
+      return;
+    }
+
+    // 9. Индивидуальные расценки подряда (_sub_rate_modal)
+    var srmEl = (node.id === '_sub_rate_modal') ? node : (node.querySelector?.('#_sub_rate_modal') || node.closest?.('#_sub_rate_modal'));
+    if (srmEl) {
+      var srmBox = srmEl.querySelector('.card, .modal-box, [style*="background:#fff"]') || srmEl;
+      if (!srmBox.querySelector('.win-ctrls-wrap')) {
         window.makeWindowDraggableAndMinimizable(srmBox, {
           title: 'Индивидуальные условия подряда',
           icon: '💰',
-          backdrop: srmNode,
+          backdrop: srmEl,
           onClose: function() {
-            srmNode.remove();
+            srmEl.remove();
             window.restorePageScroll();
           }
         });
       }
+      return;
     }
 
-    // Детали контрагента (_contractor_details_modal)
-    if (node.id === '_contractor_details_modal' || node.querySelector?.('#_contractor_details_modal')) {
-      var cdmNode = node.id === '_contractor_details_modal' ? node : node.querySelector('#_contractor_details_modal');
-      var cdmBox = cdmNode.querySelector('[style*="background:#fff"]') || cdmNode;
-      if (!cdmBox._hasWindowControls) {
+    // 10. Письмо на доступ на объект (_access_letter_modal)
+    var almEl = (node.id === '_access_letter_modal') ? node : (node.querySelector?.('#_access_letter_modal') || node.closest?.('#_access_letter_modal'));
+    if (almEl) {
+      var almBox = almEl.querySelector('div[style*="background:#fff"], .card') || almEl;
+      if (!almBox.querySelector('.win-ctrls-wrap')) {
+        window.makeWindowDraggableAndMinimizable(almBox, {
+          title: 'Письмо на доступ на объект',
+          icon: '✉️',
+          backdrop: almEl,
+          onClose: function() {
+            almEl.remove();
+            window.restorePageScroll();
+          }
+        });
+      }
+      return;
+    }
+
+    // 11. Детали контрагента (_contractor_details_modal)
+    var cdmMod = (node.id === '_contractor_details_modal') ? node : (node.querySelector?.('#_contractor_details_modal') || node.closest?.('#_contractor_details_modal'));
+    if (cdmMod) {
+      var cdmBox = cdmMod.querySelector('[style*="background:#fff"]') || cdmMod;
+      if (!cdmBox.querySelector('.win-ctrls-wrap')) {
         window.makeWindowDraggableAndMinimizable(cdmBox, {
           title: cdmBox.querySelector('h2')?.textContent || 'Карточка контрагента',
           icon: '🏢',
-          backdrop: cdmNode,
+          backdrop: cdmMod,
           onClose: function() {
-            cdmNode.remove();
+            if (typeof closeContractorDetailsModal === 'function') closeContractorDetailsModal();
+            else cdmMod.remove();
             window.restorePageScroll();
           }
         });
       }
+      return;
     }
 
-    // Назначение подрядчика (_app_contractor_picker_modal)
-    if (node.id === '_app_contractor_picker_modal' || node.querySelector?.('#_app_contractor_picker_modal') || (node.classList && node.classList.contains('modal-overlay') && node.querySelector?.('.modal-box'))) {
+    // 12. Справка этапа (stageHelpModalOverlay)
+    var shEl = (node.id === 'stageHelpModalOverlay') ? node : (node.querySelector?.('#stageHelpModalOverlay') || node.closest?.('#stageHelpModalOverlay'));
+    if (shEl) {
+      var shBox = shEl.querySelector('.modal-box') || shEl;
+      if (!shBox.querySelector('.win-ctrls-wrap')) {
+        window.makeWindowDraggableAndMinimizable(shBox, {
+          title: shBox.querySelector('h3, .badge')?.textContent || 'Справка этапа',
+          icon: '💡',
+          backdrop: shEl,
+          onClose: function() {
+            if (typeof closeStageHelpModal === 'function') closeStageHelpModal();
+            else shEl.remove();
+            window.restorePageScroll();
+          }
+        });
+      }
+      return;
+    }
+
+    // 13. Автоматизация чата (wf-full-modal)
+    var wfEl = (node.id === 'wf-full-modal') ? node : (node.querySelector?.('#wf-full-modal') || node.closest?.('#wf-full-modal'));
+    if (wfEl) {
+      var wfBox = wfEl.querySelector('.wf-modal-container') || wfEl;
+      if (!wfBox.querySelector('.win-ctrls-wrap')) {
+        window.makeWindowDraggableAndMinimizable(wfBox, {
+          title: 'Центр автоматизации',
+          icon: '🎛️',
+          backdrop: wfEl,
+          onClose: function() {
+            if (typeof closeFullAutomationModal === 'function') closeFullAutomationModal();
+            else wfEl.remove();
+            window.restorePageScroll();
+          }
+        });
+      }
+      return;
+    }
+
+    // 14. Заявки партии импорта в логах (batchTasksModal)
+    var btmEl = (node.id === 'batchTasksModal') ? node : (node.querySelector?.('#batchTasksModal') || node.closest?.('#batchTasksModal'));
+    if (btmEl) {
+      var btmBox = btmEl.querySelector('.modal-box, .card, [style*="background:#fff"]') || btmEl;
+      if (btmEl.style.display !== 'none' && !btmBox.querySelector('.win-ctrls-wrap')) {
+        window.makeWindowDraggableAndMinimizable(btmBox, {
+          title: 'Заявки партии импорта',
+          icon: '📦',
+          backdrop: btmEl,
+          onClose: function() {
+            if (typeof closeBatchModal === 'function') closeBatchModal();
+            else btmEl.style.display = 'none';
+            window.restorePageScroll();
+          }
+        });
+      }
+      return;
+    }
+
+    // 15. Назначение подрядчика по заявке (tasks.js)
+    if (node.id === '_app_contractor_picker_modal' || node.querySelector?.('#_app_contractor_picker_modal') || (node.classList && node.classList.contains('modal-overlay') && node.querySelector?.('button[onclick*="closeContractorPicker"]'))) {
       var cpNode = node.id === '_app_contractor_picker_modal' ? node : (node.querySelector?.('#_app_contractor_picker_modal') || node);
-      var cpBox = cpNode.querySelector('.modal-box') || cpNode.querySelector('[style*="background:#fff"]') || cpNode;
-      if (cpBox && !cpBox._hasWindowControls) {
+      var cpBox = cpNode.querySelector('.modal-box') || cpNode;
+      if (!cpBox.querySelector('.win-ctrls-wrap')) {
         window.makeWindowDraggableAndMinimizable(cpBox, {
           title: cpBox.querySelector('h3')?.textContent || 'Выбор подрядчика',
           icon: '👤',
@@ -402,23 +656,51 @@
           }
         });
       }
+      return;
     }
 
-    // Универсальная модалка showModal (_mmodal)
-    if (node.id === '_mmodal' || node.querySelector?.('#_mmodal')) {
-      var mmNode = node.id === '_mmodal' ? node : node.querySelector('#_mmodal');
-      var mbox = mmNode.querySelector('div[style*="background:#fff"]');
-      if (mbox && !mbox._hasWindowControls) {
+    // 16. Универсальная модалка showModal (_mmodal)
+    var mmEl = (node.id === '_mmodal') ? node : (node.querySelector?.('#_mmodal') || node.closest?.('#_mmodal'));
+    if (mmEl) {
+      var mbox = mmEl.querySelector('div[style*="background:#fff"], .card') || mmEl;
+      if (!mbox.querySelector('.win-ctrls-wrap')) {
         window.makeWindowDraggableAndMinimizable(mbox, {
           title: mbox.querySelector('div[style*="font-weight:700"]')?.textContent || 'Форма',
           icon: '📋',
-          backdrop: mmNode,
+          backdrop: mmEl,
           onClose: function() {
-            mmNode.remove();
+            mmEl.remove();
             window.restorePageScroll();
           }
         });
       }
+      return;
+    }
+
+    // 17. Любое другое модальное окно с .modal-overlay и .modal-box
+    if (node.classList && (node.classList.contains('modal-overlay') || node.classList.contains('wf-modal-overlay'))) {
+      if (node.id === 'cardConfirmOverlay') return; // небольшое подтверждение внутри карточки не превращаем в окно
+      var genericBox = node.querySelector('.modal-box, .card');
+      if (genericBox && !genericBox.querySelector('.win-ctrls-wrap')) {
+        var origClose = findCloseButton(genericBox);
+        window.makeWindowDraggableAndMinimizable(genericBox, {
+          title: genericBox.querySelector('h1, h2, h3, .modal-title')?.textContent || 'Окно',
+          icon: '📄',
+          backdrop: node,
+          onClose: function() {
+            if (origClose && typeof origClose.click === 'function') {
+              try { origClose.click(); return; } catch(e) {}
+            }
+            if (node.id && node.id.startsWith('_')) {
+              node.remove();
+            } else {
+              node.style.display = 'none';
+            }
+            window.restorePageScroll();
+          }
+        });
+      }
+      return;
     }
   }
 
@@ -442,5 +724,26 @@
       observer.observe(document.body, obsConfig);
     });
   }
+
+  // ─── 6. ГЛОБАЛЬНОЕ ЗАКРЫТИЕ ВЕРХНЕГО ОКНА ПО ESC ─────────────────────────────
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' || e.keyCode === 27) {
+      // Игнорируем если открыт выпадающий автокомплит
+      var openDrop = document.querySelector('.modal-suggest-dropdown:not([style*="display: none"]):not([style*="display:none"])');
+      if (openDrop) return;
+
+      var closeButtons = Array.from(document.querySelectorAll('.win-ctrls-wrap .btn-close'));
+      if (closeButtons.length > 0) {
+        // Находим самое верхнее видимое окно
+        for (var i = closeButtons.length - 1; i >= 0; i--) {
+          var btn = closeButtons[i];
+          if (btn.offsetParent !== null) {
+            btn.click();
+            break;
+          }
+        }
+      }
+    }
+  });
 
 })();

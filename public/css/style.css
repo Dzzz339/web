@@ -2312,20 +2312,12 @@
 }
 
 /* Режим плавающего окна со снятым глухим оверлеем */
-.modal-overlay.is-floating,
-[id*="backdrop"].is-floating,
-[id^="_sub_"].is-floating,
-[id^="_contractor_"].is-floating,
-[id^="_app_"].is-floating {
+.is-floating {
   background: rgba(0, 0, 0, 0.15) !important;
   pointer-events: none !important;
 }
 
-.modal-overlay.is-floating > *,
-[id*="backdrop"].is-floating > *,
-[id^="_sub_"].is-floating > *,
-[id^="_contractor_"].is-floating > *,
-[id^="_app_"].is-floating > * {
+.is-floating * {
   pointer-events: auto !important;
 }
 
