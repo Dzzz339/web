@@ -2467,18 +2467,18 @@ function openCreateTaskForContractModal(contractId) {
       <div style="display:flex; flex-direction:column; gap:12px; font-size:.85rem">
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
           <div>
-            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Номер заявки (ID) *</label>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Номер заявки (ID) * ${(typeof getHintIcon === 'function') ? getHintIcon('number') : ''}</label>
             <input type="text" id="ct_id" value="${escHtml(suggestedId)}" required style="width:100%; font-weight:700; border-color:var(--orange)">
           </div>
           <div>
-            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">№ ВСП / Объекта</label>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">№ ВСП / Объекта ${(typeof getHintIcon === 'function') ? getHintIcon('vsp') : ''}</label>
             <input type="text" id="ct_vsp" placeholder="Например: ВСП 0128" style="width:100%">
           </div>
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
           <div>
-            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Заказчик (Организация)</label>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Заказчик (Организация) ${(typeof getHintIcon === 'function') ? getHintIcon('customer') : ''}</label>
             <select id="ct_customer" style="width:100%">
               ${custOptions.map(function(opt) {
                 var isSel = (opt.toLowerCase().trim() === (c.customer_name || '').toLowerCase().trim()) ? 'selected' : '';
@@ -2487,30 +2487,30 @@ function openCreateTaskForContractModal(contractId) {
             </select>
           </div>
           <div>
-            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Регион</label>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Регион ${(typeof getHintIcon === 'function') ? getHintIcon('region') : ''}</label>
             <input type="text" id="ct_region" value="${escHtml(c.our_entity_region || '')}" placeholder="Регион проведения работ" style="width:100%">
           </div>
         </div>
 
         <div>
-          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Адрес объекта</label>
+          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Адрес объекта ${(typeof getHintIcon === 'function') ? getHintIcon('address') : ''}</label>
           <input type="text" id="ct_address" value="${escHtml(c.delivery_place || '')}" placeholder="Точный адрес объекта" style="width:100%">
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
           <div>
-            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Вид работ</label>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Вид работ ${(typeof getHintIcon === 'function') ? getHintIcon('workType') : ''}</label>
             <input type="text" id="ct_work_type" value="${escHtml(c.contract_type_summary || '')}" placeholder="СМР / СКС / Видеонаблюдение..." style="width:100%">
           </div>
           <div>
-            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Куратор / Менеджер заказчика</label>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Куратор / Менеджер заказчика ${(typeof getHintIcon === 'function') ? getHintIcon('manager') : ''}</label>
             <input type="text" id="ct_manager" value="${escHtml(c.manager_name ? (c.manager_name + (c.contacts_raw ? ' (' + c.contacts_raw + ')' : '')) : (c.contacts_raw || ''))}" placeholder="ФИО / Контакты куратора" style="width:100%">
           </div>
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px">
           <div>
-            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Сумма заявки (₽)</label>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Сумма заявки (₽) ${(typeof getHintIcon === 'function') ? getHintIcon('amount') : ''}</label>
             <input type="number" id="ct_amount" value="0" style="width:100%">
           </div>
           <div>
@@ -2518,18 +2518,18 @@ function openCreateTaskForContractModal(contractId) {
             <input type="date" id="ct_date_zayavki" value="${escHtml(todayStr)}" style="width:100%">
           </div>
           <div>
-            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Дедлайн (план)</label>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Дедлайн (план) ${(typeof getHintIcon === 'function') ? getHintIcon('deadline') : ''}</label>
             <input type="date" id="ct_deadline" value="${escHtml(deadlineStr)}" style="width:100%">
           </div>
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
           <div>
-            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Ссылка на облако / диск</label>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Ссылка на облако / диск ${(typeof getHintIcon === 'function') ? getHintIcon('materialsLink') : ''}</label>
             <input type="url" id="ct_tech_link" value="${escHtml(c.cloud_url || '')}" placeholder="https://..." style="width:100%">
           </div>
           <div>
-            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">В заказе (портов/ед.)</label>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">В заказе (портов/ед.) ${(typeof getHintIcon === 'function') ? getHintIcon('inOrder') : ''}</label>
             <input type="number" id="ct_in_order" value="0" style="width:100%">
           </div>
         </div>

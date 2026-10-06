@@ -253,6 +253,8 @@ function pageCard() {
   function field(lbl, key, type) {
     var isDirty = Object.prototype.hasOwnProperty.call(S.cardDraft, key);
     var val = isDirty ? S.cardDraft[key] : (t[key] || '');
+    var hintHtml = (typeof getHintIcon === 'function') ? getHintIcon(key) : '';
+    var ph = (typeof getFieldPlaceholder === 'function') ? getFieldPlaceholder(key) : '';
 
     var canEdit = canUserEditField(S.user, key);
     if (!canEdit) {
@@ -285,7 +287,7 @@ function pageCard() {
       }
 
       return '<div class="field-row">' +
-        '<div class="field-lbl">' + lbl + '</div>' +
+        '<div class="field-lbl">' + lbl + hintHtml + '</div>' +
         '<div class="field-val" style="display:flex;align-items:center;justify-content:space-between;color:var(--text);font-weight:500;padding:5px 0">' +
           '<span>' + displayVal + '</span>' +
           '<span class="t3" style="font-size:.72rem;opacity:.55;cursor:help" title="Поле защищено от изменений вашей ролью">🔒</span>' +
@@ -456,11 +458,11 @@ function pageCard() {
         quickContactActions +
       '</div>';
     }
-    else if (type === 'textarea') inp = '<textarea name="'+key+'" data-key="'+key+'" style="width:100%;font-size:.82rem;min-height:54px;transition:min-height .2s ease" onfocus="this.style.minHeight=\'110px\'" onblur="if(this.value.length < 120) this.style.minHeight=\'54px\'">'+val+'</textarea>';
+    else if (type === 'textarea') inp = '<textarea name="'+key+'" data-key="'+key+'"' + (ph ? (' placeholder="' + escHtml(ph) + '"') : '') + ' style="width:100%;font-size:.82rem;min-height:54px;transition:min-height .2s ease" onfocus="this.style.minHeight=\'110px\'" onblur="if(this.value.length < 120) this.style.minHeight=\'54px\'">'+val+'</textarea>';
     else if (type === 'checkbox') inp = '<input type="checkbox" name="'+key+'" data-key="'+key+'"'+(val ? ' checked' : '')+'>';
-    else inp = '<input type="'+(type||'text')+'" name="'+key+'" data-key="'+key+'" value="'+String(val).replace(/"/g,'&quot;')+'">';
+    else inp = '<input type="'+(type||'text')+'" name="'+key+'" data-key="'+key+'"' + (ph ? (' placeholder="' + escHtml(ph) + '"') : '') + ' value="'+String(val).replace(/"/g,'&quot;')+'">';
     var dirtyMark = isDirty ? ' <span class="badge b-orange" style="font-size:10px;padding:1px 5px">изменено</span>' : '';
-    return '<div class="field-row"><div class="field-lbl">'+lbl+dirtyMark+'</div><div class="field-val">'+inp+'</div></div>';
+    return '<div class="field-row"><div class="field-lbl">'+lbl+hintHtml+dirtyMark+'</div><div class="field-val">'+inp+'</div></div>';
   }
 
   // История изменений
@@ -746,7 +748,7 @@ function pageCard() {
     checklistHtml += '<div class="checklist-item"><span class="checklist-icon ok">✓</span><span>Условия этапа регламента соблюдены</span></div>';
   }
 
-  var smartActionBox = ''; // Убрано по плану Алексея
+  var smartActionBox = (typeof renderStageGuideBanner === 'function') ? renderStageGuideBanner(curStageNum) : '';
 
   var curTab = S.cardTab || 'main';
   var openRemCount = Number(t.openRemarksCount || 0);
