@@ -6,7 +6,7 @@ import { initSubcontractDms } from '../services/subcontractDmsService.js';
 
 const { Pool } = pg;
 
-const connectionString = process.env.DATABASE_URL || '';
+const connectionString = process.env.DATABASE_URL || 'postgres://postgres@localhost:5432/stockeasy_db';
 const isLocal = !connectionString || connectionString.includes('localhost') || connectionString.includes('127.0.0.1') || connectionString.includes('@db:') || connectionString.includes('stockeasy-db');
 
 export const pool = new Pool({
@@ -444,6 +444,7 @@ export async function initDB() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_rooms_task_id ON chat_rooms(task_id) WHERE task_id IS NOT NULL`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS chat_members (
@@ -465,6 +466,7 @@ export async function initDB() {
       created_at   TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_chat_messages_room_id ON chat_messages(room_id, created_at)`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS notifications (

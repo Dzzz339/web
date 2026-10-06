@@ -96,6 +96,41 @@ router.get('/tasks/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// Получение чата и сообщений по конкретной заявке
+router.get('/tasks/:id/chat', authenticateToken, async (req, res) => {
+  try {
+    const taskId = req.params.id;
+    let { rows: rooms } = await pool.query(
+      "SELECT * FROM chat_rooms WHERE task_id = $1 AND type = 'task' LIMIT 1",
+      [taskId]
+    );
+    let room = rooms[0];
+    if (!room) {
+      const { rows: taskExists } = await pool.query('SELECT id FROM tasks WHERE id = $1', [taskId]);
+      if (!taskExists.length) {
+        return res.status(404).json({ error: 'Заявка не найдена' });
+      }
+      const { rows: newRooms } = await pool.query(
+        "INSERT INTO chat_rooms (name, type, task_id) VALUES ($1, 'task', $2) RETURNING *",
+        [`Чат по заявке ${taskId}`, taskId]
+      );
+      room = newRooms[0];
+    }
+    const { rows: messages } = await pool.query(`
+      SELECT m.id, m.room_id, m.sender_id, m.message_text, m.attachments, m.created_at,
+             u.full_name, u.username, u.avatar_url, u.role
+      FROM chat_messages m
+      LEFT JOIN users u ON u.id = m.sender_id
+      WHERE m.room_id = $1
+      ORDER BY m.created_at ASC
+      LIMIT 250
+    `, [room.id]);
+    res.json({ room, messages });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Создание одиночной заявки вручную (или через ИИ)
 router.post('/tasks', authenticateToken, async (req, res) => {
   try {

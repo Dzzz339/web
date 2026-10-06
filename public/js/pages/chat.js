@@ -250,7 +250,13 @@ function pageAiChat() {
 // ─── ЛОГИКА МЕССЕНДЖЕРА ───────────────────────────────────────────────────────
 
 function initChatSocket() {
-  if (S.socket) return;
+  if (S.socket) {
+    if (S.user && S.user.id && !S.socket._userInited) {
+      S.socket.emit('init-user', S.user.id);
+      S.socket._userInited = true;
+    }
+    return;
+  }
   if (typeof io === 'undefined') return console.error('Socket.io client script not loaded');
 
   S.socket = io();
@@ -258,7 +264,18 @@ function initChatSocket() {
   // При входе регистрируем ID нашего пользователя на сервере
   if (S.user && S.user.id) {
     S.socket.emit('init-user', S.user.id);
+    S.socket._userInited = true;
   }
+
+  S.socket.on('connect', function() {
+    if (S.user && S.user.id) {
+      S.socket.emit('init-user', S.user.id);
+      S.socket._userInited = true;
+    }
+    if (S.taskChatRoom && S.taskChatRoom.id) {
+      S.socket.emit('join-room', S.taskChatRoom.id);
+    }
+  });
 
   S.socket.on('new-message', function(msg) {
     if (String(msg.room_id) === String(S.activeRoomId)) {
@@ -268,6 +285,18 @@ function initChatSocket() {
         S.chatMessages.push(msg);
         renderChatMessages();
         scrollChatToBottom();
+      }
+    }
+    if (S.taskChatRoom && String(msg.room_id) === String(S.taskChatRoom.id)) {
+      S.taskChatMessages = S.taskChatMessages || [];
+      if (!S.taskChatMessages.some(function(m) { return m.id === msg.id; })) {
+        S.taskChatMessages.push(msg);
+        if (window.renderTaskChatMessages) {
+          window.renderTaskChatMessages(S.taskChatRoom.task_id);
+        }
+        if (window.scrollTaskChatToBottom) {
+          window.scrollTaskChatToBottom();
+        }
       }
     }
   });

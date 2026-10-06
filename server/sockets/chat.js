@@ -38,16 +38,18 @@ export function setupChatSocket(io) {
 
     // Отправка сообщения
     socket.on('send-message', async (data) => {
-      if (!data.text || !data.roomId || !data.senderId) return;
+      if ((!data.text || !data.text.trim()) && (!data.attachments || !data.attachments.length)) return;
+      if (!data.roomId || !data.senderId) return;
 
       try {
+        const attachments = Array.isArray(data.attachments) ? data.attachments : [];
         // 1. Сохраняем сообщение в базу
         const { rows } = await pool.query(
-          'INSERT INTO chat_messages (room_id, sender_id, message_text) VALUES ($1, $2, $3) RETURNING *',
-          [data.roomId, data.senderId, data.text]
+          'INSERT INTO chat_messages (room_id, sender_id, message_text, attachments) VALUES ($1, $2, $3, $4) RETURNING *',
+          [data.roomId, data.senderId, data.text || '', JSON.stringify(attachments)]
         );
         
-        const { rows: userRows } = await pool.query('SELECT full_name, username, avatar_url FROM users WHERE id = $1', [data.senderId]);
+        const { rows: userRows } = await pool.query('SELECT full_name, username, avatar_url, role FROM users WHERE id = $1', [data.senderId]);
         const sender = userRows[0] || {};
         const senderName = sender.full_name || sender.username || 'Пользователь';
 
@@ -55,14 +57,15 @@ export function setupChatSocket(io) {
           ...rows[0],
           full_name: senderName,
           username: sender.username || '',
-          avatar_url: sender.avatar_url || null
+          avatar_url: sender.avatar_url || null,
+          role: sender.role || 'user'
         };
 
         // 2. Отправляем сообщение в комнату чата по WebSockets
         io.to(`room_${data.roomId}`).emit('new-message', msg);
 
-        // 3. Если это личный диалог (1-на-1) — отправляем получателю Email и Колокольчик
-        const { rows: roomRows } = await pool.query('SELECT type FROM chat_rooms WHERE id = $1', [data.roomId]);
+        // 3. Уведомления
+        const { rows: roomRows } = await pool.query('SELECT type, task_id FROM chat_rooms WHERE id = $1', [data.roomId]);
         
         if (roomRows.length > 0 && roomRows[0].type === 'direct') {
           // Находим получателя (того, кто НЕ является отправителем)
@@ -78,7 +81,7 @@ export function setupChatSocket(io) {
             createNotification(
               recipient.id,
               `💬 Сообщение от ${senderName}`,
-              data.text.slice(0, 90),
+              (data.text || 'Вложение').slice(0, 90),
               'chat'
             );
 
@@ -91,7 +94,7 @@ export function setupChatSocket(io) {
                   <div style="font-family: 'Golos Text', sans-serif, Arial; max-width: 500px; padding: 24px; background: #FFF4EE; border-radius: 12px; border: 1px solid #FFEDD5;">
                     <h3 style="color: #FF6200; margin-top: 0;">Новое сообщение от ${senderName}</h3>
                     <div style="font-size: 14px; color: #333; background: #ffffff; padding: 14px; border-radius: 8px; border: 1px solid #E4E4E7; margin: 12px 0;">
-                      "${data.text}"
+                      "${data.text || 'Вложение'}"
                     </div>
                     <br>
                     <a href="https://app.stockeasy.ru" style="display: inline-block; background: #FF6200; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px;">Ответить в Stockeasy</a>
@@ -99,6 +102,30 @@ export function setupChatSocket(io) {
                 `
               });
             }
+          });
+        } else if (roomRows.length > 0 && roomRows[0].type === 'task' && roomRows[0].task_id) {
+          const taskId = roomRows[0].task_id;
+          const { rows: taskRows } = await pool.query(
+            'SELECT manager, assignee FROM tasks WHERE id = $1',
+            [taskId]
+          );
+          const t = taskRows[0] || {};
+          const participantNames = [t.manager, t.assignee].filter(Boolean);
+
+          const { rows: notifyUsers } = await pool.query(`
+            SELECT id FROM users
+            WHERE (full_name = ANY($1) OR role IN ('admin', 'director'))
+              AND id != $2
+            LIMIT 10
+          `, [participantNames, data.senderId]);
+
+          notifyUsers.forEach(u => {
+            createNotification(
+              u.id,
+              `💬 Заявка ${taskId}: ${senderName}`,
+              (data.text || 'Вложение').slice(0, 90),
+              taskId
+            );
           });
         }
       } catch(e) { console.error('Socket message error:', e.message); }

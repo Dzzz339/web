@@ -142,6 +142,9 @@ function setCardTab(tabName) {
       if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(S.cardId);
     }
   }
+  if (tabName === 'chat' && S.cardId) {
+    loadTaskChat(S.cardId);
+  }
 }
 window.setCardTab = setCardTab;
 
@@ -155,6 +158,11 @@ function openCard(id) {
   if (!S.cardTab) S.cardTab = 'main';
   S.cardDraft = {};
   S.cardConfirmOpen = false;
+  if (S.taskChatRoom && String(S.taskChatRoom.task_id) !== String(id)) {
+    S.taskChatRoom = null;
+    S.taskChatMessages = [];
+    S.taskChatPendingAttachments = [];
+  }
   S.page = 'card';
   renderNav();
   renderApp();
@@ -165,6 +173,9 @@ function openCard(id) {
   refreshTaskItemsList(id);
   loadCardMaterials(id);
   if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(id);
+  if (S.cardTab === 'chat' || S.taskChatDrawerOpen) {
+    loadTaskChat(id);
+  }
 }
 
 function returnFromCard() {
@@ -628,6 +639,7 @@ function pageCard() {
       macroStatusHtml +
     '</div>' +
     '<div style="display:flex;align-items:center;gap:6px">' +
+      '<button class="btn btn-sm btn-ghost" onclick="toggleTaskChatDrawer(\'' + eid + '\')" title="Открыть чат по заявке сбоку" style="font-size:.78rem;font-weight:600">💬 Чат</button>' +
       (isManagerOrAdmin ? '<button class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.25)" onclick="deleteTaskPrompt(\'' + eid + '\')" title="Удалить заявку из базы">🗑️ Удалить</button>' : '') +
       '<button class="btn btn-sm btn-ghost" onclick="window.print()" title="Распечатать карточку объекта / сохранить в PDF" style="font-size:.78rem">🖨️ Печать</button>' +
     '</div>' +
@@ -765,6 +777,9 @@ function pageCard() {
     (isWorker ? '' : '<button type="button" class="card-tab-btn ' + (curTab === 'finance' ? 'active' : '') + '" data-tab="finance" onclick="setCardTab(\'finance\')" style="padding:6px 14px;font-size:.82rem">' +
       '💰 Экономика' +
     '</button>') +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'chat' ? 'active' : '') + '" data-tab="chat" onclick="setCardTab(\'chat\')" style="padding:6px 14px;font-size:.82rem">' +
+      '💬 Чат' +
+    '</button>' +
     '<button type="button" class="card-tab-btn ' + (curTab === 'history' ? 'active' : '') + '" data-tab="history" onclick="setCardTab(\'history\')" style="padding:6px 14px;font-size:.82rem">' +
       '🕒 История' +
     '</button>' +
@@ -1330,6 +1345,14 @@ function pageCard() {
     '</div>' +
   '</div>';
 
+  var paneChat = '<div id="cardTabPane-chat" class="card-tab-pane" style="display:' + (curTab === 'chat' ? 'block' : 'none') + '">' +
+    renderTaskChatComponent(eid, false) +
+  '</div>';
+
+  var taskChatDrawerHtml = '<div id="taskChatDrawer" class="task-chat-drawer' + (S.taskChatDrawerOpen ? ' open' : '') + '">' +
+    renderTaskChatComponent(eid, true) +
+  '</div>';
+
   var hasDraft = Object.keys(S.cardDraft).length > 0;
   var unsavedBar = hasDraft
     ? '<div class="unsaved-bar">' +
@@ -1379,10 +1402,12 @@ function pageCard() {
       paneFiles +
       paneFinance +
       paneHistory +
+      paneChat +
     '</form>' +
     mobileActionBar +
     unsavedBar +
-    confirmModal;
+    confirmModal +
+    taskChatDrawerHtml;
 }
 
 function refreshTaskItemsList(taskId) {
@@ -3119,3 +3144,349 @@ window.removeSubPayment = function(taskId, idx) {
   t.rawData.subPayments = t._payments;
   renderApp();
 };
+
+// ─── ВСТРОЕННЫЙ ЧАТ ЗАЯВКИ (ТАБ + ВЫДВИЖНАЯ ШТОРКА) ──────────────────────────
+
+function renderTaskChatComponent(taskId, isDrawer) {
+  var id = escHtml(String(taskId));
+  var source = isDrawer ? 'drawer' : 'tab';
+  var title = isDrawer ? ('Чат заявки #' + id) : ('Обсуждение заявки #' + id);
+
+  var topBar = isDrawer
+    ? '<div class="task-chat-header">' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="font-size:1.15rem">💬</span>' +
+          '<div>' +
+            '<div style="font-weight:700;font-size:.88rem;color:var(--text)">' + title + '</div>' +
+            '<div style="font-size:.72rem;color:var(--text-3)">Онлайн чат участников</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="setCardTab(\'chat\');toggleTaskChatDrawer(null,false)" title="Развернуть во всю вкладку" style="font-size:.74rem">Вкладка ↗</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="toggleTaskChatDrawer(null,false)" title="Закрыть шторку" style="font-size:1rem;line-height:1;padding:2px 7px">✕</button>' +
+        '</div>' +
+      '</div>'
+    : '<div class="task-chat-header">' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="font-size:1.15rem">💬</span>' +
+          '<div>' +
+            '<div style="font-weight:700;font-size:.92rem;color:var(--text)">' + title + '</div>' +
+            '<div style="font-size:.74rem;color:var(--text-3)">Сообщения и файлы доступны ответственным и руководству</div>' +
+          '</div>' +
+        '</div>' +
+        '<button type="button" class="btn btn-xs btn-ghost" onclick="toggleTaskChatDrawer(\'' + id + '\',true)" title="Открыть в боковой шторке" style="font-size:.76rem">Открыть сбоку ◨</button>' +
+      '</div>';
+
+  return '<div class="task-chat-container">' +
+    topBar +
+    '<div id="taskChatMessages_' + source + '" class="task-chat-messages">' +
+      '<div style="text-align:center;color:var(--text-3);margin:auto;padding:2rem 1rem">' +
+        '<div style="font-size:1.8rem;margin-bottom:6px">💬</div>' +
+        '<div>Загрузка сообщений...</div>' +
+      '</div>' +
+    '</div>' +
+    '<div id="taskChatPendingAttachments_' + source + '" class="task-chat-pending-bar" style="display:none"></div>' +
+    '<div class="task-chat-input-bar">' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="triggerTaskChatUpload(\'' + source + '\')" title="Прикрепить файл или фото" style="padding:6px 10px;font-size:1rem">📎</button>' +
+      '<input type="file" id="taskChatFileInput_' + source + '" style="display:none" onchange="handleTaskChatFileUpload(event, \'' + id + '\', \'' + source + '\')">' +
+      '<input type="text" id="taskChatInput_' + source + '" class="input" placeholder="Напишите сообщение... (Enter для отправки)" onkeydown="if(event.key===\'Enter\') sendTaskChatMessage(\'' + id + '\', \'' + source + '\')" style="flex:1;font-size:.85rem;padding:7px 10px">' +
+      '<button type="button" class="btn btn-sm btn-primary" onclick="sendTaskChatMessage(\'' + id + '\', \'' + source + '\')" style="padding:6px 12px;font-weight:600">Отправить ➔</button>' +
+    '</div>' +
+  '</div>';
+}
+window.renderTaskChatComponent = renderTaskChatComponent;
+
+function renderTaskChatMessages(taskId) {
+  var msgs = S.taskChatMessages || [];
+  var currentUserId = S.user ? S.user.id : null;
+  var currentUsername = S.user ? S.user.username : null;
+
+  var html = '';
+  if (!msgs.length) {
+    html = '<div style="text-align:center;color:var(--text-3);margin:auto;padding:2rem 1rem">' +
+      '<div style="font-size:2rem;margin-bottom:8px">💬</div>' +
+      '<div style="font-weight:600;color:var(--text-2);margin-bottom:4px">В этой заявке пока нет сообщений</div>' +
+      '<div style="font-size:.78rem">Задайте вопрос коллегам, согласуйте материалы или прикрепите фото с объекта!</div>' +
+    '</div>';
+  } else {
+    html = msgs.map(function(m) {
+      var isMe = (m.sender_id === currentUserId) || (currentUsername && m.username === currentUsername);
+      var time = m.created_at ? new Date(m.created_at).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) : '';
+      var senderName = escHtml(m.full_name || m.username || 'Пользователь');
+
+      var roleBadge = '';
+      var r = (m.role || '').toLowerCase();
+      if (r === 'admin') roleBadge = '<span class="badge b-red" style="font-size:.62rem;padding:0 5px">Админ</span>';
+      else if (r === 'director') roleBadge = '<span class="badge b-purple" style="font-size:.62rem;padding:0 5px">Директор</span>';
+      else if (r === 'manager') roleBadge = '<span class="badge b-blue" style="font-size:.62rem;padding:0 5px">Менеджер</span>';
+      else if (r === 'worker' || r === 'installer') roleBadge = '<span class="badge b-orange" style="font-size:.62rem;padding:0 5px">Исполнитель</span>';
+      else if (r === 'contractor') roleBadge = '<span class="badge b-yellow" style="font-size:.62rem;padding:0 5px">Подрядчик</span>';
+      else if (r === 'designer') roleBadge = '<span class="badge b-cyan" style="font-size:.62rem;padding:0 5px">Проектировщик</span>';
+
+      var avatarHtml = '';
+      if (m.avatar_url) {
+        avatarHtml = '<img src="' + escHtml(m.avatar_url) + '" style="width:28px;height:28px;border-radius:50%;object-fit:cover;border:1px solid var(--border);flex-shrink:0" alt="' + senderName + '">';
+      } else {
+        var initial = (m.full_name ? m.full_name.charAt(0) : (m.username ? m.username.charAt(0) : '?')).toUpperCase();
+        var bgCol = isMe ? 'var(--orange)' : 'var(--blue)';
+        avatarHtml = '<div style="width:28px;height:28px;border-radius:50%;background:' + bgCol + ';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.75rem;flex-shrink:0">' + escHtml(initial) + '</div>';
+      }
+
+      var attachments = [];
+      if (m.attachments) {
+        if (Array.isArray(m.attachments)) attachments = m.attachments;
+        else if (typeof m.attachments === 'string') {
+          try { attachments = JSON.parse(m.attachments); } catch(e){}
+        }
+      }
+
+      var attHtml = '';
+      if (attachments && attachments.length) {
+        attHtml = '<div style="margin-top:6px;display:flex;flex-direction:column;gap:5px">' +
+          attachments.map(function(att) {
+            var isImg = att.type && att.type.indexOf('image/') === 0;
+            if (!isImg && att.url) {
+              var lowUrl = att.url.toLowerCase();
+              if (lowUrl.match(/\.(png|jpe?g|gif|webp|bmp|svg)$/)) isImg = true;
+            }
+            if (isImg) {
+              return '<a href="' + escHtml(att.url) + '" target="_blank" rel="noopener">' +
+                '<img src="' + escHtml(att.url) + '" style="max-width:240px;max-height:180px;border-radius:8px;display:block;border:1px solid var(--border);object-fit:cover" alt="Изображение">' +
+              '</a>';
+            } else {
+              return '<a href="' + escHtml(att.url) + '" target="_blank" download="' + escHtml(att.name || 'файл') + '" class="task-chat-file-chip">' +
+                '📄 <span style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(att.name || 'Вложение') + '</span>' +
+              '</a>';
+            }
+          }).join('') +
+        '</div>';
+      }
+
+      var textHtml = m.message_text ? ('<div style="white-space:pre-wrap">' + escHtml(m.message_text) + '</div>') : '';
+
+      return '<div class="task-chat-msg-row ' + (isMe ? 'mine' : 'theirs') + '">' +
+        avatarHtml +
+        '<div class="task-chat-bubble ' + (isMe ? 'mine' : 'theirs') + '">' +
+          '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">' +
+            '<span style="font-weight:700;font-size:.74rem;color:' + (isMe ? 'var(--orange-dark)' : 'var(--blue)') + '">' + (isMe ? 'Вы' : senderName) + '</span>' +
+            roleBadge +
+          '</div>' +
+          textHtml +
+          attHtml +
+          '<div style="font-size:.64rem;color:var(--text-3);text-align:right;margin-top:3px">' + time + '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  var elTab = document.getElementById('taskChatMessages_tab');
+  if (elTab) elTab.innerHTML = html;
+  var elDrawer = document.getElementById('taskChatMessages_drawer');
+  if (elDrawer) elDrawer.innerHTML = html;
+}
+window.renderTaskChatMessages = renderTaskChatMessages;
+
+function renderTaskChatPendingAttachments(target) {
+  var sources = target ? [target] : ['tab', 'drawer'];
+  var pending = S.taskChatPendingAttachments || [];
+
+  sources.forEach(function(src) {
+    var bar = document.getElementById('taskChatPendingAttachments_' + src);
+    if (!bar) return;
+    if (!pending.length) {
+      bar.innerHTML = '';
+      bar.style.display = 'none';
+      return;
+    }
+    bar.style.display = 'flex';
+    bar.innerHTML = pending.map(function(att, idx) {
+      return '<div class="task-chat-pending-item">' +
+        '<span>📎 ' + escHtml(att.name || 'Файл') + '</span>' +
+        '<button type="button" onclick="removeTaskChatPendingAttachment(' + idx + ')" style="background:none;border:none;cursor:pointer;color:var(--red);font-weight:bold;padding:0 3px">✕</button>' +
+      '</div>';
+    }).join('');
+  });
+}
+window.renderTaskChatPendingAttachments = renderTaskChatPendingAttachments;
+
+function loadTaskChat(taskId) {
+  if (!taskId) return;
+  if (S.taskChatRoom && String(S.taskChatRoom.task_id) === String(taskId)) {
+    renderTaskChatMessages(taskId);
+    scrollTaskChatToBottom();
+  }
+  S.taskChatLoading = true;
+  api('/chats/task/' + encodeURIComponent(taskId))
+    .then(function(res) {
+      S.taskChatLoading = false;
+      if (!res || !res.room) return;
+      S.taskChatRoom = res.room;
+      S.taskChatMessages = res.messages || [];
+
+      if (S.socket && res.room.id) {
+        S.socket.emit('join-room', res.room.id);
+      }
+
+      renderTaskChatMessages(taskId);
+      scrollTaskChatToBottom();
+    })
+    .catch(function(err) {
+      S.taskChatLoading = false;
+      console.error('Ошибка загрузки чата заявки:', err);
+    });
+}
+window.loadTaskChat = loadTaskChat;
+
+function toggleTaskChatDrawer(taskId, forceState) {
+  var id = taskId || S.cardId;
+  if (forceState !== undefined) {
+    S.taskChatDrawerOpen = !!forceState;
+  } else {
+    S.taskChatDrawerOpen = !S.taskChatDrawerOpen;
+  }
+
+  var drawer = document.getElementById('taskChatDrawer');
+  if (drawer) {
+    if (S.taskChatDrawerOpen) {
+      drawer.classList.add('open');
+      if (id) loadTaskChat(id);
+    } else {
+      drawer.classList.remove('open');
+    }
+  } else if (S.taskChatDrawerOpen && id) {
+    renderApp();
+    loadTaskChat(id);
+  }
+}
+window.toggleTaskChatDrawer = toggleTaskChatDrawer;
+
+function sendTaskChatMessage(taskId, source) {
+  var id = taskId || S.cardId;
+  var inputId = 'taskChatInput_' + (source || 'tab');
+  var input = document.getElementById(inputId);
+  var otherInputId = 'taskChatInput_' + (source === 'tab' ? 'drawer' : 'tab');
+  var otherInput = document.getElementById(otherInputId);
+
+  var text = (input ? input.value : '').trim();
+  var pendingAttachments = (S.taskChatPendingAttachments || []).slice();
+
+  if (!text && !pendingAttachments.length) return;
+  if (!S.taskChatRoom || !S.taskChatRoom.id) {
+    loadTaskChat(id);
+    return;
+  }
+
+  var currentUserId = S.user ? (S.user.id || S.user.username) : null;
+  var payload = {
+    roomId: S.taskChatRoom.id,
+    senderId: currentUserId,
+    text: text,
+    attachments: pendingAttachments
+  };
+
+  if (input) input.value = '';
+  if (otherInput) otherInput.value = '';
+  S.taskChatPendingAttachments = [];
+  renderTaskChatPendingAttachments('tab');
+  renderTaskChatPendingAttachments('drawer');
+
+  if (S.socket && S.socket.connected) {
+    S.socket.emit('send-message', payload);
+  } else {
+    api('/chats/' + encodeURIComponent(S.taskChatRoom.id) + '/messages', {
+      method: 'POST',
+      body: JSON.stringify({ text: text, attachments: pendingAttachments })
+    }).then(function(msg) {
+      if (msg && !S.taskChatMessages.some(function(m){ return m.id === msg.id; })) {
+        S.taskChatMessages.push(msg);
+        renderTaskChatMessages(id);
+        scrollTaskChatToBottom();
+      }
+    }).catch(function(e) {
+      alert('Ошибка отправки: ' + e.message);
+    });
+  }
+}
+window.sendTaskChatMessage = sendTaskChatMessage;
+
+function triggerTaskChatUpload(source) {
+  var fi = document.getElementById('taskChatFileInput_' + source);
+  if (fi) fi.click();
+}
+window.triggerTaskChatUpload = triggerTaskChatUpload;
+
+function handleTaskChatFileUpload(event, taskId, source) {
+  var file = event.target.files && event.target.files[0];
+  if (!file) return;
+  if (!S.taskChatRoom || !S.taskChatRoom.id) {
+    alert('Чат еще загружается, попробуйте через секунду');
+    return;
+  }
+
+  var formData = new FormData();
+  formData.append('file', file);
+
+  var uploadBtn = event.target.previousElementSibling;
+  var origHtml = uploadBtn ? uploadBtn.innerHTML : '📎';
+  if (uploadBtn) {
+    uploadBtn.innerHTML = '⏳';
+    uploadBtn.disabled = true;
+  }
+
+  fetch('/api/chats/' + encodeURIComponent(S.taskChatRoom.id) + '/upload', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + (S.token || '')
+    },
+    body: formData
+  })
+  .then(function(r) {
+    if (!r.ok) throw new Error('Ошибка сервера при загрузке: ' + r.status);
+    return r.json();
+  })
+  .then(function(res) {
+    if (uploadBtn) {
+      uploadBtn.innerHTML = origHtml;
+      uploadBtn.disabled = false;
+    }
+    event.target.value = '';
+
+    S.taskChatPendingAttachments = S.taskChatPendingAttachments || [];
+    S.taskChatPendingAttachments.push({
+      url: res.url,
+      name: res.name || file.name,
+      size: res.size || file.size,
+      type: res.type || file.type
+    });
+
+    renderTaskChatPendingAttachments('tab');
+    renderTaskChatPendingAttachments('drawer');
+  })
+  .catch(function(err) {
+    if (uploadBtn) {
+      uploadBtn.innerHTML = origHtml;
+      uploadBtn.disabled = false;
+    }
+    alert('Не удалось прикрепить файл: ' + err.message);
+  });
+}
+window.handleTaskChatFileUpload = handleTaskChatFileUpload;
+
+function removeTaskChatPendingAttachment(idx) {
+  if (!S.taskChatPendingAttachments) return;
+  S.taskChatPendingAttachments.splice(idx, 1);
+  renderTaskChatPendingAttachments('tab');
+  renderTaskChatPendingAttachments('drawer');
+}
+window.removeTaskChatPendingAttachment = removeTaskChatPendingAttachment;
+
+function scrollTaskChatToBottom() {
+  setTimeout(function() {
+    var bTab = document.getElementById('taskChatMessages_tab');
+    if (bTab) bTab.scrollTop = bTab.scrollHeight;
+    var bDrawer = document.getElementById('taskChatMessages_drawer');
+    if (bDrawer) bDrawer.scrollTop = bDrawer.scrollHeight;
+  }, 40);
+}
+window.scrollTaskChatToBottom = scrollTaskChatToBottom;
+
