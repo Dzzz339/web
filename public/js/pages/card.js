@@ -628,6 +628,7 @@ function pageCard() {
       macroStatusHtml +
     '</div>' +
     '<div style="display:flex;align-items:center;gap:6px">' +
+      (isManagerOrAdmin ? '<button class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.25)" onclick="deleteTaskPrompt(\'' + eid + '\')" title="Удалить заявку из базы">🗑️ Удалить</button>' : '') +
       '<button class="btn btn-sm btn-ghost" onclick="window.print()" title="Распечатать карточку объекта / сохранить в PDF" style="font-size:.78rem">🖨️ Печать</button>' +
     '</div>' +
   '</div>';
@@ -1794,6 +1795,25 @@ function cancelTaskPrompt(taskId) {
     alert('Ошибка отмены заявки: ' + (err.message || err));
   });
 }
+
+function deleteTaskPrompt(taskId) {
+  if (!confirm('Вы действительно хотите БЕЗВОЗВРАТНО УДАЛИТЬ заявку ' + taskId + ' из базы?\nЭто действие удалит саму заявку и все прикрепленные к ней данные.')) return;
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'DELETE'
+  })
+  .then(function(res) {
+    if (res && res.error) return alert('Ошибка удаления: ' + res.error);
+    S.tasks = (S.tasks || []).filter(function(x){ return String(x.id) !== String(taskId); });
+    if (typeof showToast === 'function') {
+      showToast('🗑️ Заявка ' + taskId + ' успешно удалена', 'info');
+    }
+    returnFromCard();
+  })
+  .catch(function(err) {
+    alert('Ошибка удаления заявки: ' + (err.message || err));
+  });
+}
+window.deleteTaskPrompt = deleteTaskPrompt;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // МОДАЛЬНОЕ ОКНО ФОРМИРОВАНИЯ ПИСЬМА НА ДОПУСК (Word .docx)

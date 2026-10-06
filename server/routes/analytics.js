@@ -9,9 +9,30 @@ const router = express.Router();
 
 router.get('/stats', authenticateToken, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM tasks WHERE archived = false');
-    if (!rows.length) return res.json({ tasks:{total:0,done:0,pending:0,cancelled:0}, orders:{total:0,pending:0}, supply:{steps:6,completed:0,overdue:0}, revenue:{total:0,month:0} });
-    res.json(computeStats(rows.map(rowToTask)));
+    const { rows } = await pool.query(`
+      SELECT 
+        COUNT(*)::int AS total,
+        COUNT(CASE WHEN status = 'done' THEN 1 END)::int AS done,
+        COUNT(CASE WHEN status = 'cancelled' THEN 1 END)::int AS cancelled,
+        COUNT(CASE WHEN overdue_days > 0 THEN 1 END)::int AS overdue,
+        COALESCE(SUM(amount), 0)::numeric AS revenue
+      FROM tasks 
+      WHERE archived = false
+    `);
+    const r = rows[0] || {};
+    const total = Number(r.total) || 0;
+    const done = Number(r.done) || 0;
+    const cancelled = Number(r.cancelled) || 0;
+    const overdue = Number(r.overdue) || 0;
+    const revenue = Number(r.revenue) || 0;
+    const pending = total - done - cancelled;
+
+    res.json({
+      tasks:   { total, done, pending, cancelled },
+      orders:  { total, pending, done },
+      supply:  { steps: 6, completed: done, overdue },
+      revenue: { total: revenue, month: revenue }
+    });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -92,8 +113,39 @@ router.get('/stats/overview', authenticateToken, async (req, res) => {
 
 router.get('/chains', authenticateToken, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM tasks WHERE archived = false');
-    res.json(buildChainsFromRows(rows.map(rowToTask)));
+    const { rows } = await pool.query(`
+      SELECT 
+        COALESCE(NULLIF(TRIM(region), ''), 'Прочее') AS region,
+        COUNT(*)::int AS total_tasks,
+        COUNT(CASE WHEN status = 'done' THEN 1 END)::int AS done_tasks,
+        COUNT(CASE WHEN status = 'cancelled' THEN 1 END)::int AS cancelled_tasks,
+        COALESCE(SUM(amount), 0)::numeric AS total_amount
+      FROM tasks 
+      WHERE archived = false
+      GROUP BY COALESCE(NULLIF(TRIM(region), ''), 'Прочее')
+      ORDER BY total_tasks DESC
+    `);
+    const steps = ['Заявка','Обследование','Монтаж','Контроль','Приёмка','Оплата'];
+    const chains = rows.map(r => {
+      const total = Number(r.total_tasks) || 0;
+      const done = Number(r.done_tasks) || 0;
+      const cancelled = Number(r.cancelled_tasks) || 0;
+      const ratio = total > 0 ? done / total : 0;
+      const currentStep = Math.min(Math.floor(ratio * steps.length), steps.length - 1);
+      return {
+        id: r.region,
+        name: `${r.region} (${total} заявок)`,
+        status: done === total ? 'completed' : 'in_progress',
+        steps,
+        currentStep,
+        totalTasks: total,
+        doneTasks: done,
+        cancelledTasks: cancelled,
+        inProgressTasks: total - done - cancelled,
+        totalAmount: Number(r.total_amount) || 0
+      };
+    });
+    res.json(chains);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 

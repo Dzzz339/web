@@ -45,8 +45,14 @@ router.get('/tasks', authenticateToken, async (req, res) => {
   try {
     let query = `
       SELECT t.*,
-        (SELECT COUNT(*) FROM remarks rm WHERE rm.task_id = t.id AND rm.resolved_at IS NULL)::integer AS open_remarks_count
+        COALESCE(rm.cnt, 0)::integer AS open_remarks_count
       FROM tasks t
+      LEFT JOIN (
+        SELECT task_id, COUNT(*) AS cnt
+        FROM remarks
+        WHERE resolved_at IS NULL
+        GROUP BY task_id
+      ) rm ON rm.task_id = t.id
     `;
     let params = [];
 

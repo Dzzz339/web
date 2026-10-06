@@ -44,8 +44,9 @@ function api(url, opts) {
     return r.json().then(function(data) {
       if (method === 'GET' && r.ok) {
         var cleanKey = url.replace(/^\//, '').split('?')[0];
-        if (['tasks', 'stats', 'chains', 'import-info', 'marches', 'users', 'contractors'].indexOf(cleanKey) !== -1) {
-          idbSet(cleanKey, data);
+        if (['tasks', 'stats', 'chains', 'import-info', 'marches', 'users', 'contractors', 'contracts'].indexOf(cleanKey) !== -1) {
+          var toStore = cleanKey === 'contracts' && data && data.contracts ? data.contracts : data;
+          idbSet(cleanKey, toStore);
         }
       }
       return data;

@@ -10,6 +10,8 @@ import { ROOT, UPLOADS_DIR } from './middleware/upload.js';
 import { runBackgroundGeocoding } from './services/geoWorker.js';
 import { ensureGeneralChat, setupChatSocket } from './sockets/chat.js';
 
+import compression from 'compression';
+
 import authRoutes from './routes/auth.js';
 import usersRoutes from './routes/users.js';
 import contractorsRoutes from './routes/contractors.js';
@@ -39,13 +41,25 @@ app.set('io', io);
 const PORT = process.env.PORT || 3001;
 
 app.use(cors());
+// GZIP-сжатие всех ответов сервера (уменьшает передаваемый JSON с 26 МБ до 2.7 МБ)
+app.use(compression({
+  threshold: 1024,
+  filter: (req, res) => {
+    // Никогда не сжимаем SSE-стримы ИИ-чата и логов, чтобы текст шел по буквам в реальном времени
+    if (req.headers['accept'] && req.headers['accept'].includes('text/event-stream')) return false;
+    if (req.path && (req.path.includes('/stream') || req.path.includes('/parse'))) return false;
+    return compression.filter(req, res);
+  }
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Статика с защитой от устаревания кэша скриптов в браузере
+// Статика: тяжелые неизменяемые библиотеки кэшируем, скрипты приложения держим свежими
 const staticOptions = {
   setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.js') || filePath.endsWith('.css') || filePath.endsWith('.html')) {
+    if (filePath.endsWith('xlsx.full.min.js') || filePath.match(/\.(png|jpg|jpeg|gif|ico|svg|woff2?|ttf|eot)$/i)) {
+      res.setHeader('Cache-Control', 'public, max-age=2592000, immutable');
+    } else if (filePath.endsWith('.js') || filePath.endsWith('.css') || filePath.endsWith('.html')) {
       res.setHeader('Cache-Control', 'no-cache, must-revalidate');
     }
   }

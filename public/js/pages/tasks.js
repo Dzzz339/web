@@ -636,7 +636,7 @@ function pageTasks() {
       '</button>' +
     '</td>';
 
-    // 8 & 9. Почём и За сколько
+    // 8 & 9. Цена и Стоимость
     var colPrice = '';
     var colTotal = '';
 
@@ -723,8 +723,8 @@ function pageTasks() {
         '<th style="width:85px">Сколько</th>' +
         '<th style="width:125px">Подрядчик</th>' +
         (function() {
-          if (appMode === 'customer') return '<th style="width:90px">Почём (Вход)</th><th style="width:125px">За сколько</th>';
-          if (appMode === 'contractor') return '<th style="width:90px">Почём (Подряд)</th><th style="width:130px">За сколько</th>';
+          if (appMode === 'customer') return '<th style="width:90px">Цена (Вход)</th><th style="width:125px">Стоимость</th>';
+          if (appMode === 'contractor') return '<th style="width:90px">Цена (Подряд)</th><th style="width:130px">Стоимость</th>';
           if (appMode === 'supply') return '<th style="width:90px">Статус ТМЦ</th><th style="width:130px">Склад / Трек</th>';
           if (appMode === 'docs') return '<th style="width:90px">Статус ИД</th><th style="width:130px">Портал</th>';
           if (appMode === 'finance') return '<th style="width:90px">Счета / Акты</th><th style="width:130px">Фин. итог (Маржа)</th>';

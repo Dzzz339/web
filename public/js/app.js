@@ -35,6 +35,28 @@ function init() {
     var cachedContractors = Array.isArray(cached[6]) ? cached[6] : [];
     var cachedContracts = Array.isArray(cached[7]) ? cached[7] : [];
 
+    // МГНОВЕННЫЙ СТАРТ: если данные уже есть в локальном кэше (IndexedDB),
+    // сразу показываем интерфейс пользователю за 50 мс, не заставляя ждать 30 секунд спиннера!
+    var hasLocalCache = cachedTasks.length > 0 || cachedContracts.length > 0;
+    if (hasLocalCache) {
+      S.stats = cachedStats;
+      S.tasks = cachedTasks;
+      S.chains = cachedChains;
+      S.importInfo = cachedImportInfo;
+      S.marches = cachedMarches;
+      S.contracts = cachedContracts;
+      S.contractors = cachedContractors;
+      S.users = cachedUsers;
+
+      if (Array.isArray(S.chains) && S.chains.length) {
+        var firstReal = S.chains.find(function(c){ return c.id && c.id !== '(без региона)'; });
+        S.selChain = (firstReal || S.chains[0]).id;
+      }
+
+      refreshOutboxCount();
+      renderApp();
+    }
+
     var isWorkerRole = S.user && (S.user.role === 'worker' || S.user.role === 'installer');
     var requests = [
       api('/stats').catch(function(){ return {}; }),
@@ -73,6 +95,14 @@ function init() {
       S.users = netUsers;
       S.ownCompanies = netOwnCompanies;
 
+      // Обновляем локальный кэш свежими данными с сервера
+      if (Array.isArray(netTasks) && netTasks.length) idbSet('tasks', netTasks);
+      if (Array.isArray(contractsData) && contractsData.length) idbSet('contracts', contractsData);
+      if (Array.isArray(netContractors) && netContractors.length) idbSet('contractors', netContractors);
+      if (Array.isArray(netUsers) && netUsers.length) idbSet('users', netUsers);
+      if (Array.isArray(netMarches) && netMarches.length) idbSet('marches', netMarches);
+      if (netStats && Object.keys(netStats).length) idbSet('stats', netStats);
+
       if (Array.isArray(S.chains) && S.chains.length) {
         var firstReal = S.chains.find(function(c){ return c.id && c.id !== '(без региона)'; });
         S.selChain = (firstReal || S.chains[0]).id;
@@ -94,6 +124,7 @@ function init() {
       S.marches = cachedMarches;
       S.users = cachedUsers;
       S.contractors = cachedContractors;
+      S.contracts = cachedContracts;
 
       if (Array.isArray(S.chains) && S.chains.length) {
         var firstReal = S.chains.find(function(c){ return c.id && c.id !== '(без региона)'; });
