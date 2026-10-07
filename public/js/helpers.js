@@ -19,6 +19,53 @@ function showToast(msg, type) {
   }, 3500);
 }
 
+function openMaxMessenger(phone, directUrl) {
+  if (directUrl && String(directUrl).trim()) {
+    var url = String(directUrl).trim();
+    var fullUrl = (url.indexOf('://') !== -1) ? url : ('https://' + url);
+    window.open(fullUrl, '_blank', 'noopener,noreferrer');
+    return;
+  }
+  if (!phone) return;
+  var digits = String(phone).replace(/\D/g, '');
+  var formatted = String(phone).trim();
+  if (digits.length === 11 && (digits.charAt(0) === '7' || digits.charAt(0) === '8')) {
+    formatted = '+7 ' + digits.slice(1, 4) + ' ' + digits.slice(4, 7) + '-' + digits.slice(7, 9) + '-' + digits.slice(9, 11);
+  } else if (digits.length === 10) {
+    formatted = '+7 ' + digits.slice(0, 3) + ' ' + digits.slice(3, 6) + '-' + digits.slice(6, 8) + '-' + digits.slice(8, 10);
+  }
+
+  var textToCopy = formatted || phone;
+  var copied = false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(textToCopy);
+      copied = true;
+    }
+  } catch (e) {}
+
+  if (!copied) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = textToCopy;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      ta.style.top = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (e) {}
+  }
+
+  if (typeof showToast === 'function') {
+    showToast('Номер ' + textToCopy + ' скопирован для поиска в МАКС', 'info');
+  }
+
+  window.open('https://web.max.ru', '_blank', 'noopener,noreferrer');
+}
+window.openMaxMessenger = openMaxMessenger;
 
 function levenshtein(a, b) {
   var tmp;

@@ -442,15 +442,19 @@ function pageCard() {
       var phoneMatch = rawContact.match(/(?:\+7|8)[\s\-(]?\d{3}[\s\-)]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}/);
       var cleanPhone = phoneMatch ? phoneMatch[0].replace(/[^\d+]/g, '') : null;
       var emailMatch = rawContact.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
+      var maxLinkMatch = rawContact.match(/(?:https?:\/\/)?(?:web\.)?max\.ru\/[^\s,;]+/i);
 
       var quickContactActions = '';
-      if (cleanPhone || emailMatch) {
+      if (cleanPhone || emailMatch || maxLinkMatch) {
         var callBtn = cleanPhone ? '<a href="tel:' + cleanPhone + '" class="btn btn-sm btn-ghost" style="color:var(--green);font-size:.75rem;padding:2px 8px;border:1px solid var(--border)" title="Позвонить">📞 ' + escHtml(phoneMatch[0]) + '</a>' : '';
         var waBtn = cleanPhone ? '<a href="https://wa.me/' + cleanPhone.replace('+','') + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="color:#16a34a;font-size:.75rem;padding:2px 8px;border:1px solid var(--border)" title="Написать в WhatsApp">💬 WhatsApp</a>' : '';
         var tgBtn = cleanPhone ? '<a href="https://t.me/+' + cleanPhone.replace('+','') + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="color:#0284c7;font-size:.75rem;padding:2px 8px;border:1px solid var(--border)" title="Написать в Telegram">✈️ Telegram</a>' : '';
+        var maxPhone = cleanPhone ? escHtml(cleanPhone) : '';
+        var maxDirect = maxLinkMatch ? escHtml(maxLinkMatch[0]) : '';
+        var maxBtn = (cleanPhone || maxLinkMatch) ? '<button type="button" onclick="openMaxMessenger(\'' + maxPhone + '\',\'' + maxDirect + '\')" class="btn btn-sm btn-ghost" style="color:#2563eb;font-size:.75rem;padding:2px 8px;border:1px solid var(--border);cursor:pointer;background:transparent" title="Открыть в мессенджере МАКС (номер скопируется в буфер для поиска)">💬 МАКС</button>' : '';
         var mailBtn = emailMatch ? '<a href="mailto:' + emailMatch[0] + '" class="btn btn-sm btn-ghost" style="color:var(--blue);font-size:.75rem;padding:2px 8px;border:1px solid var(--border)" title="Отправить E-mail">✉️ ' + escHtml(emailMatch[0]) + '</a>' : '';
 
-        quickContactActions = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:5px">' + callBtn + waBtn + tgBtn + mailBtn + '</div>';
+        quickContactActions = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:5px">' + callBtn + waBtn + tgBtn + maxBtn + mailBtn + '</div>';
       }
 
       inp = '<div style="width:100%">' +
@@ -842,13 +846,14 @@ function pageCard() {
   var ourEntityName = (curContract && curContract.our_entity_name) ? curContract.our_entity_name : 'ООО "Кабельные Системы"';
   var ourEntityHtml = isWorker ? '' : ('<div class="field-row"><div class="field-lbl">Генподрядчик (Мы)</div><div class="field-val" style="display:flex;align-items:center;padding:5px 0;font-weight:600;color:var(--text)">🏢 ' + escHtml(ourEntityName) + '</div></div>');
 
-  var assignedContrObj = (S.contractors || []).find(function(c){ return c.name_short === String(t.contractor || '').trim(); });
+  var contrCleanPhone = (assignedContrObj && assignedContrObj.phone) ? assignedContrObj.phone.replace(/[^\d+]/g, '') : '';
   var contrPhoneHtml = (assignedContrObj && assignedContrObj.phone) ? (
     '<div class="field-row">' +
       '<div class="field-lbl">Телефон субподрядчика</div>' +
-      '<div class="field-val" style="display:flex;align-items:center;gap:8px">' +
-        '<a href="tel:' + assignedContrObj.phone.replace(/[^\d+]/g, '') + '" style="font-weight:600;color:var(--green)">📞 ' + escHtml(assignedContrObj.phone) + '</a>' +
-        '<a href="https://wa.me/' + assignedContrObj.phone.replace(/[^\d]/g, '') + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="padding:1px 6px;font-size:.74rem;color:#16a34a">💬 WhatsApp</a>' +
+      '<div class="field-val" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+        '<a href="tel:' + contrCleanPhone + '" style="font-weight:600;color:var(--green)">📞 ' + escHtml(assignedContrObj.phone) + '</a>' +
+        '<a href="https://wa.me/' + contrCleanPhone.replace('+','') + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="padding:1px 6px;font-size:.74rem;color:#16a34a" title="Написать в WhatsApp">💬 WhatsApp</a>' +
+        '<button type="button" onclick="openMaxMessenger(\'' + escHtml(contrCleanPhone) + '\')" class="btn btn-sm btn-ghost" style="padding:1px 6px;font-size:.74rem;color:#2563eb;cursor:pointer;background:transparent" title="Открыть в мессенджере МАКС (номер скопируется в буфер для поиска)">💬 МАКС</button>' +
       '</div>' +
     '</div>'
   ) : '';
