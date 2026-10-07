@@ -190,7 +190,12 @@ router.put('/subcontracts/:id', authenticateToken, requireRole('admin', 'directo
       tmc_issued,
       report_photos,
       cable_journal,
-      comment
+      comment,
+      calculation_details,
+      own_company_id,
+      contractor_contract_id,
+      ports_count,
+      distance_km
     } = req.body;
 
     price_agreed = price_agreed !== undefined && price_agreed !== null ? Math.max(0, Number(price_agreed) || 0) : null;
@@ -229,6 +234,11 @@ router.put('/subcontracts/:id', authenticateToken, requireRole('admin', 'directo
         report_photos = COALESCE($13, report_photos),
         cable_journal = COALESCE($14, cable_journal),
         comment = COALESCE($15, comment),
+        calculation_details = CASE WHEN $17::boolean THEN $18::jsonb ELSE calculation_details END,
+        own_company_id = COALESCE($19::integer, own_company_id),
+        contractor_contract_id = COALESCE($20::integer, contractor_contract_id),
+        ports_count = COALESCE($21::integer, ports_count),
+        distance_km = COALESCE($22::numeric, distance_km),
         updated_at = NOW()
       WHERE id = $16
       RETURNING *
@@ -248,7 +258,13 @@ router.put('/subcontracts/:id', authenticateToken, requireRole('admin', 'directo
       report_photos ? JSON.stringify(report_photos) : null,
       cable_journal,
       comment,
-      id
+      id,
+      (calculation_details !== undefined),
+      calculation_details ? JSON.stringify(calculation_details) : null,
+      own_company_id ? Number(own_company_id) : null,
+      contractor_contract_id ? Number(contractor_contract_id) : null,
+      ports_count !== undefined && ports_count !== null ? Number(ports_count) : null,
+      distance_km !== undefined && distance_km !== null ? Number(distance_km) : null
     ]);
 
     if (result.rows.length === 0) {

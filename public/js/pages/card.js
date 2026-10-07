@@ -27,6 +27,138 @@ window.toggleCardContractPicker = function(force) {
   }
 };
 
+window.setCardContractFilterMode = function(mode) {
+  S._cardContractFilterMode = mode;
+  renderApp();
+};
+
+window.onCardOwnCompanyChange = function(val) {
+  var numVal = Number(val);
+  S.cardDraft.own_company_id = numVal;
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(S.cardId); });
+  if (t) t.own_company_id = numVal;
+};
+
+window.toggleTaskEditLock = function() {
+  S._taskEditUnlocked = !S._taskEditUnlocked;
+  renderApp();
+};
+
+window.approveTaskEntry = function(taskId) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+
+  var assigneeVal = (S.cardDraft && S.cardDraft.assignee !== undefined) ? S.cardDraft.assignee : (t.assignee || '');
+  if (!assigneeVal) {
+    assigneeVal = (S.user && S.user.full_name) ? S.user.full_name : '';
+    if (!assigneeVal && S.users && S.users.length) {
+      var pm = S.users.find(function(u){ return u.role === 'manager'; }) || S.users[0];
+      if (pm) assigneeVal = pm.full_name;
+    }
+  }
+
+  var isSber = !(t.customer) || String(t.customer).toLowerCase().includes('сбер');
+  var defaultCtrl = isSber ? 'Городович И.О.' : 'Овсянников Д.В.';
+  var controllerVal = (S.cardDraft && S.cardDraft.controller !== undefined) ? S.cardDraft.controller : (t.controller || defaultCtrl);
+
+  var payload = {
+    assignee: assigneeVal,
+    controller: controllerVal,
+    assignmentStatus: 'accepted'
+  };
+
+  if (S.cardDraft && S.cardDraft.own_company_id) {
+    payload.own_company_id = S.cardDraft.own_company_id;
+  } else if (!t.own_company_id) {
+    payload.own_company_id = isSber ? 2 : 1;
+  }
+
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  .then(function() {
+    return api('/tasks/' + encodeURIComponent(taskId) + '/accept', { method: 'POST' }).catch(function(){ return {}; });
+  })
+  .then(function() {
+    t.assignee = assigneeVal;
+    t.controller = controllerVal;
+    t.assignmentStatus = 'accepted';
+    t.assignment_status = 'accepted';
+    if (payload.own_company_id) t.own_company_id = payload.own_company_id;
+    S.cardDraft = {};
+    S._taskEditUnlocked = false;
+    showToast('✅ Заявка принята в работу! Режим защиты включен.', 'success');
+    renderApp();
+  })
+  .catch(function(err) {
+    alert('Ошибка подтверждения заявки: ' + err.message);
+  });
+};
+
+window.openDeclineTaskModal = function(taskId) {
+  var old = document.getElementById('_decline_task_modal');
+  if (old) old.remove();
+
+  var modal = document.createElement('div');
+  modal.id = '_decline_task_modal';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = '<div class="modal-box" style="max-width:500px;width:92%">' +
+    '<h3 style="margin-top:0;color:#dc2626;display:flex;align-items:center;gap:6px">' +
+      '<span>❌ Отклонить заявку (Входной контроль)</span>' +
+    '</h3>' +
+    '<p style="font-size:.82rem;color:var(--text-2);margin-bottom:12px">' +
+      'Укажите причину отклонения заявки <b>' + escHtml(taskId) + '</b>. Заявка будет переведена в статус «Отменена».' +
+    '</p>' +
+    '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_decline_reason_inp\').value=this.textContent" style="font-size:.72rem">Отсутствует ТЗ / материалы</button>' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_decline_reason_inp\').value=this.textContent" style="font-size:.72rem">Не наш регион обслуживания</button>' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_decline_reason_inp\').value=this.textContent" style="font-size:.72rem">Сроки не согласованы</button>' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_decline_reason_inp\').value=this.textContent" style="font-size:.72rem">Отозвана Заказчиком</button>' +
+    '</div>' +
+    '<textarea id="_decline_reason_inp" placeholder="Введите причину отклонения..." style="width:100%;height:80px;padding:8px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;box-sizing:border-box"></textarea>' +
+    '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">' +
+      '<button type="button" class="btn btn-ghost" onclick="document.getElementById(\'_decline_task_modal\').remove()">Отмена</button>' +
+      '<button type="button" class="btn btn-primary" style="background:#dc2626;border-color:#dc2626" onclick="submitDeclineTaskEntry(\'' + escHtml(taskId) + '\')">Подтвердить отказ</button>' +
+    '</div>' +
+  '</div>';
+  document.body.appendChild(modal);
+};
+
+window.submitDeclineTaskEntry = function(taskId) {
+  var inp = document.getElementById('_decline_reason_inp');
+  var reason = inp ? inp.value.trim() : '';
+  if (!reason) {
+    alert('Пожалуйста, укажите причину отклонения заявки');
+    return;
+  }
+  api('/tasks/' + encodeURIComponent(taskId) + '/decline', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: reason })
+  })
+  .then(function() {
+    var m = document.getElementById('_decline_task_modal');
+    if (m) m.remove();
+    var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+    if (t) {
+      t.assignmentStatus = 'declined';
+      t.assignment_status = 'declined';
+      t.status = 'cancelled';
+      t.overdueReason = reason;
+    }
+    showToast('Заявка отклонена', 'warning');
+    renderApp();
+  })
+  .catch(function(err) {
+    alert('Ошибка отклонения заявки: ' + err.message);
+  });
+};
+
+window.acceptTask = function(taskId) { window.approveTaskEntry(taskId); };
+window.declineTask = function(taskId) { window.openDeclineTaskModal(taskId); };
+
 window.filterCardContractsList = function(q) {
   var qy = String(q || '').toLowerCase().trim();
   var inp = document.getElementById('card_contract_search_inp');
@@ -55,6 +187,16 @@ window.selectCardContract = function(cId) {
   if (t) {
     t.contract_id = numVal;
     t.contractId = numVal;
+  }
+  if (numVal) {
+    var matchedC = (S.contracts || []).find(function(x){ return Number(x.id) === numVal; });
+    if (matchedC && matchedC.our_entity_name) {
+      var foundOwn = (S.ownCompanies || []).find(function(oc){ return oc.name_short === matchedC.our_entity_name; });
+      if (foundOwn) {
+        S.cardDraft.own_company_id = foundOwn.id;
+        if (t) t.own_company_id = foundOwn.id;
+      }
+    }
   }
   S._cardContractPickerOpen = false;
   renderApp();
@@ -208,6 +350,28 @@ function pageCard() {
     return '<option value="' + u.full_name + '"' + (curAssignee === u.full_name ? ' selected' : '') + '>#' + u.id + ' — ' + u.full_name + '</option>';
   }).join('');
 
+  var taskCustomer = String(t.customer || '').trim();
+  var isSber = !taskCustomer || taskCustomer.toLowerCase().includes('сбер');
+
+  var controllerOpts = (function() {
+    var curCtrl = Object.prototype.hasOwnProperty.call(S.cardDraft, 'controller') ? S.cardDraft.controller : (t.controller || (isSber ? 'Городович И.О.' : 'Овсянников Д.В.'));
+    var presets = [
+      { v: 'Городович И.О.', l: 'Городович И.О. (Ген. директор ООО «К10»)' },
+      { v: 'Овсянников Д.В.', l: 'Овсянников Д.В. (Ген. директор ООО «Кабельные Системы»)' }
+    ];
+    (S.users || []).filter(function(u){ return u.role === 'director' || u.role === 'admin'; }).forEach(function(u){
+      if (!presets.some(function(p){ return p.v === u.full_name; })) {
+        presets.push({ v: u.full_name, l: u.full_name + ' (' + (u.role === 'director' ? 'Директор' : 'Руководство') + ')' });
+      }
+    });
+    if (curCtrl && !presets.some(function(p){ return p.v === curCtrl; })) {
+      presets.unshift({ v: curCtrl, l: curCtrl });
+    }
+    return presets.map(function(p) {
+      return '<option value="' + escHtml(p.v) + '"' + (curCtrl === p.v ? ' selected' : '') + '>' + escHtml(p.l) + '</option>';
+    }).join('');
+  })();
+
   var contractorOpts = '<option value="">— (Своими силами / Не назначен) —</option>' + (S.contractors || [])
     .filter(function(c) { return c.type !== 'customer'; })
     .map(function(c) {
@@ -239,8 +403,24 @@ function pageCard() {
     }
   }
 
-  var sortedContracts = (S.contracts || []).slice().sort(function(a, b) {
+  var allContracts = (S.contracts || []).slice().sort(function(a, b) {
     return getContractSortKey(b) - getContractSortKey(a);
+  });
+
+  var filterMode = S._cardContractFilterMode || (isSber ? 'sber' : 'all');
+  var sberContractsCount = allContracts.filter(function(c) {
+    var cCust = (c.customer_name || '').toLowerCase();
+    var cEnt = (c.our_entity_name || '').toLowerCase();
+    return cCust.includes('сбер') || cEnt.includes('к10');
+  }).length;
+
+  var sortedContracts = allContracts.filter(function(c) {
+    if (filterMode === 'sber') {
+      var cCust = (c.customer_name || '').toLowerCase();
+      var cEnt = (c.our_entity_name || '').toLowerCase();
+      return cCust.includes('сбер') || cEnt.includes('к10') || String(c.id) === String(curContractId);
+    }
+    return true;
   });
 
   var contractOpts = '<option value="">— (Не привязан к договору) —</option>' + sortedContracts.map(function(c) {
@@ -256,8 +436,9 @@ function pageCard() {
     var hintHtml = (typeof getHintIcon === 'function') ? getHintIcon(key) : '';
     var ph = (typeof getFieldPlaceholder === 'function') ? getFieldPlaceholder(key) : '';
 
+    var isViewLocked = (t.assignmentStatus === 'accepted' && !S._taskEditUnlocked);
     var canEdit = canUserEditField(S.user, key);
-    if (!canEdit) {
+    if (!canEdit || (isViewLocked && !['status', 'fact', 'dataVyhoda', 'obsledovanie', 'dostup', 'priemka'].includes(key))) {
       var displayVal = val;
       if (type === 'checkbox') {
         displayVal = val ? '✅ Да' : '❌ Нет';
@@ -290,7 +471,7 @@ function pageCard() {
         '<div class="field-lbl">' + lbl + hintHtml + '</div>' +
         '<div class="field-val" style="display:flex;align-items:center;justify-content:space-between;color:var(--text);font-weight:500;padding:5px 0">' +
           '<span>' + displayVal + '</span>' +
-          '<span class="t3" style="font-size:.72rem;opacity:.55;cursor:help" title="Поле защищено от изменений вашей ролью">🔒</span>' +
+          '<span class="t3" style="font-size:.72rem;opacity:.55;cursor:help" title="' + (isViewLocked ? 'Поле защищено от изменений после входного контроля' : 'Поле защищено вашей ролью') + '">🔒</span>' +
         '</div>' +
       '</div>';
     }
@@ -315,7 +496,7 @@ function pageCard() {
               '</div>' +
               '<div style="font-size:.76rem;color:var(--text-2);margin-top:2px">' +
                 (curC.contract_type_summary ? ('<b>' + escHtml(curC.contract_type_summary) + '</b> · ') : '') +
-                '🏢 ' + escHtml(curC.our_entity_name || 'ООО "Кабельные Системы"') +
+                '🏢 ' + escHtml(curC.our_entity_name || (isSber ? 'ООО «К10»' : 'ООО "Кабельные Системы"')) +
               '</div>' +
             '</div>' +
             '<div style="display:flex;gap:4px;flex-shrink:0">' +
@@ -328,11 +509,15 @@ function pageCard() {
 
       var pickerDisplay = showPicker ? 'block' : 'none';
 
-      var quickFiltersHtml = '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">' +
-        '<button type="button" class="btn btn-sm btn-ghost" onclick="filterCardContractsList(\'\')" style="padding:1px 6px;font-size:.72rem">Все</button>' +
-        '<button type="button" class="btn btn-sm btn-ghost" onclick="filterCardContractsList(\'0926\')" style="padding:1px 6px;font-size:.72rem;background:#fef3c7;color:#92400e;border-color:#fde68a">0926 (Сент 26)</button>' +
-        '<button type="button" class="btn btn-sm btn-ghost" onclick="filterCardContractsList(\'0826\')" style="padding:1px 6px;font-size:.72rem;background:#f1f5f9;color:#334155;border-color:#cbd5e1">0826 (Авг 26)</button>' +
-        '<button type="button" class="btn btn-sm btn-ghost" onclick="filterCardContractsList(\'0726\')" style="padding:1px 6px;font-size:.72rem;background:#f1f5f9;color:#334155;border-color:#cbd5e1">0726 (Июль 26)</button>' +
+      var quickFiltersHtml = '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;align-items:center">' +
+        '<button type="button" class="btn btn-sm ' + (filterMode === 'sber' ? 'btn-primary' : 'btn-ghost') + '" onclick="setCardContractFilterMode(\'sber\')" style="padding:2px 8px;font-size:.72rem">✓ Только Сбербанк (' + sberContractsCount + ')</button>' +
+        '<button type="button" class="btn btn-sm ' + (filterMode === 'all' ? 'btn-primary' : 'btn-ghost') + '" onclick="setCardContractFilterMode(\'all\')" style="padding:2px 8px;font-size:.72rem">Все заказчики (' + allContracts.length + ')</button>' +
+        '<div style="width:1px;height:14px;background:#cbd5e1;margin:0 2px"></div>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="filterCardContractsList(\'0526\')" style="padding:1px 6px;font-size:.72rem;background:#fef3c7;color:#92400e;border-color:#fde68a">0526 (Май 26)</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="filterCardContractsList(\'0326\')" style="padding:1px 6px;font-size:.72rem;background:#f1f5f9;color:#334155;border-color:#cbd5e1">0326 (Март 26)</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="filterCardContractsList(\'0126\')" style="padding:1px 6px;font-size:.72rem;background:#f1f5f9;color:#334155;border-color:#cbd5e1">0126</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="filterCardContractsList(\'0925\')" style="padding:1px 6px;font-size:.72rem;background:#f1f5f9;color:#334155;border-color:#cbd5e1">0925</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="filterCardContractsList(\'0725\')" style="padding:1px 6px;font-size:.72rem;background:#f1f5f9;color:#334155;border-color:#cbd5e1">0725</button>' +
       '</div>';
 
       var contractsItemsHtml = sortedContracts.slice(0, 100).map(function(c) {
@@ -393,6 +578,9 @@ function pageCard() {
     }
     else if (key === 'priority') inp = '<select name="'+key+'" data-key="'+key+'">'+prioOpts+'</select>';
     else if (key === 'assignee' && ['admin', 'director', 'manager'].includes(String(S.user ? S.user.role : '').toLowerCase())) inp = '<select name="'+key+'" data-key="'+key+'">' + assigneeOpts + '</select>';
+    else if (key === 'controller' && ['admin', 'director', 'manager', 'to_engineer'].includes(String(S.user ? S.user.role : '').toLowerCase())) {
+      inp = '<select name="'+key+'" data-key="'+key+'" style="width:100%">' + controllerOpts + '</select>';
+    }
     else if (key === 'contractor' && ['admin', 'director', 'manager'].includes(String(S.user ? S.user.role : '').toLowerCase())) {
       var curContrName = String(val || '').trim();
       var contrObj = (S.contractors || []).find(function(c){ return c.name_short === curContrName; });
@@ -826,9 +1014,10 @@ function pageCard() {
       return '<div class="field-row"><div class="field-lbl" style="color:var(--text-3)">'+pair[0]+'</div>' +
         '<div class="field-val">'+fmtRaw(pair[1])+'</div></div>';
     }).join('');
-    return '<div class="divider"></div>' +
-      '<div class="sec-title" style="margin-bottom:.5rem">Дополнительно из Excel</div>' +
-      rows;
+    return '<details style="margin-top:10px;border:1.5px solid var(--border);border-radius:6px;padding:6px 10px;background:#f8fafc">' +
+      '<summary style="font-weight:600;font-size:.78rem;cursor:pointer;color:var(--text-2);user-select:none">📋 Дополнительно из Excel (' + extra.length + ' колонок)</summary>' +
+      '<div style="margin-top:8px">' + rows + '</div>' +
+    '</details>';
   })();
 
   var phoneMatch = (t.contact || '').match(/(?:\+7|8)[\s\-(]?\d{3}[\s\-)]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}/);
@@ -843,8 +1032,32 @@ function pageCard() {
     var cid = (t.contract_id != null ? t.contract_id : t.contractId) || curContractId;
     return String(x.id) === String(cid); 
   });
-  var ourEntityName = (curContract && curContract.our_entity_name) ? curContract.our_entity_name : 'ООО "Кабельные Системы"';
-  var ourEntityHtml = isWorker ? '' : ('<div class="field-row"><div class="field-lbl">Генподрядчик (Мы)</div><div class="field-val" style="display:flex;align-items:center;padding:5px 0;font-weight:600;color:var(--text)">🏢 ' + escHtml(ourEntityName) + '</div></div>');
+  var defaultOurEntity = (curContract && curContract.our_entity_name) 
+    ? curContract.our_entity_name 
+    : (isSber ? 'ООО «К10»' : 'ООО "Кабельные Системы"');
+  var curOwnCompanyId = t.own_company_id || (defaultOurEntity.includes('К10') ? 2 : (defaultOurEntity.includes('Ультима') ? 3 : 1));
+
+  var ownOpts = (S.ownCompanies || [
+    { id: 2, name_short: 'ООО «К10»', director: 'Городович И.О.' },
+    { id: 1, name_short: 'ООО "Кабельные Системы"', director: 'Овсянников Д.В.' },
+    { id: 3, name_short: 'ООО "Ультима"', director: 'Городович И.О.' }
+  ]).map(function(oc) {
+    var isSel = (Number(curOwnCompanyId) === Number(oc.id) || oc.name_short === defaultOurEntity) ? ' selected' : '';
+    return '<option value="' + oc.id + '"' + isSel + '>' + escHtml(oc.name_short) + ' (Директор: ' + escHtml(oc.director || '') + ')</option>';
+  }).join('');
+
+  var isViewLocked = (t.assignmentStatus === 'accepted' && !S._taskEditUnlocked);
+
+  var ourEntityHtml = isWorker ? '' : (
+    '<div class="field-row">' +
+      '<div class="field-lbl">Генподрядчик (Мы)</div>' +
+      '<div class="field-val" style="display:flex;align-items:center;padding:3px 0">' +
+        (isViewLocked
+          ? ('<span style="font-weight:700;color:var(--text);font-size:.88rem">🏢 ' + escHtml(defaultOurEntity) + '</span>')
+          : ('<select name="own_company_id" data-key="own_company_id" id="card_own_company_select" onchange="onCardOwnCompanyChange(this.value)" style="width:100%;padding:5px 8px;font-size:.82rem;font-weight:600;border:1.5px solid var(--border);border-radius:6px">' + ownOpts + '</select>')) +
+      '</div>' +
+    '</div>'
+  );
 
   var assignedContrObj = (S.contractors || []).find(function(c){ return c.name_short === String(t.contractor || '').trim(); });
   var contrCleanPhone = (assignedContrObj && assignedContrObj.phone) ? assignedContrObj.phone.replace(/[^\d+]/g, '') : '';
@@ -869,54 +1082,104 @@ function pageCard() {
     '</div>' +
   '</div>';
 
-  var paneMain = '<div id="cardTabPane-main" class="card-tab-pane" style="display:' + (curTab === 'main' ? 'block' : 'none') + '">' +
-    '<div style="display:grid;grid-template-columns:1.1fr 0.9fr;gap:1rem;align-items:start">' +
-      '<div class="card p">' +
-        '<div class="sec-title" style="margin-bottom:.5rem">Объект и стороны</div>' +
-        field('Заказчик', 'customer') +
-        (isWorker ? '' : field('Генеральный контракт', 'contract_id', 'select')) +
-        ourEntityHtml +
-        field('Регион', 'region') +
-        field('Адрес объекта', 'address') +
-        (isWorker ? '' : field('Тип объекта', 'tipObj')) +
-        field('Тип работ', 'workType') +
-        (isWorker ? '' : field('№ ГОСБ', 'gosb') +
-        field('№ ВСП', 'vsp')) +
-        '<div class="divider"></div>' +
-        '<div class="sec-title" style="margin-bottom:.5rem">Команда и контакты</div>' +
-        field('Статус заявки', 'status') +
-        field('Приоритет', 'priority') +
-        (isWorker ? '' : field('Ответственное лицо (Заказчик)', 'manager')) +
-        field('Субподрядчик (наш)', 'contractor') +
-        contrPhoneHtml +
-        field('Проект-менеджер (наш)', 'assignee') +
-        (t.assignee && t.assignmentStatus ? '<div class="field-row"><div class="field-lbl">Статус назначения</div><div class="field-val">' +
-          (t.assignmentStatus === 'accepted' ? '<span class="badge b-green">Принял</span>' :
-          t.assignmentStatus === 'declined' ? '<span class="badge b-red">Отказался</span>' :
-          '<span class="badge b-gray">Ожидает подтверждения</span>') +
-        '</div></div>' : '') +
-        (t.assignee === (S.user.fullName || '') && t.assignmentStatus === 'pending'
-          ? '<div class="field-row"><div class="field-lbl"></div><div class="field-val" style="display:flex;gap:.5rem">' +
-              '<button class="btn btn-sm" onclick="acceptTask(\'' + t.id.replace(/'/g,"\\'") + '\')">✅ Принять заявку</button>' +
-              '<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="declineTask(\'' + t.id.replace(/'/g,"\\'") + '\')">❌ Отказаться</button>' +
-            '</div></div>'
-          : '') +
-        field('Контролёр (Держатель контракта)', 'controller') +
-        field('Контакт на объекте', 'contact', 'textarea') +
-        '<div class="divider"></div>' +
-        '<div class="sec-title" style="margin-bottom:.5rem">Заметки и комментарии</div>' +
-        (isWorker ? '' : field('Внутренний комментарий', 'comment', 'textarea') +
-        field('Комментарий из Excel', 'excelComment', 'textarea')) +
-        (isWorker ? '' : rawExtraRows) +
+  var entryControlBanner = (function() {
+    if (isWorker) return '';
+    var isAccepted = (t.assignmentStatus === 'accepted');
+    if (!isAccepted) {
+      return '<div class="card p" style="background:#fffbeb;border:2px solid #f59e0b;border-radius:8px;margin-bottom:1rem;padding:12px 16px;box-shadow:0 1px 3px rgba(0,0,0,0.05)">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">' +
+          '<div>' +
+            '<div style="display:flex;align-items:center;gap:8px">' +
+              '<span style="font-size:1.15rem">⚠️</span>' +
+              '<span style="font-weight:700;font-size:1rem;color:#b45309">Входной контроль заявки (Ожидает подтверждения)</span>' +
+              '<span class="badge b-orange" style="font-size:.72rem">Этап 1: Проверка</span>' +
+            '</div>' +
+            '<div style="font-size:.8rem;color:#92400e;margin-top:4px">' +
+              'Проверьте входящие параметры от Заказчика, назначьте Проект-менеджера (ПМ) и Держателя контракта, затем примите заявку в работу.' +
+            '</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+            '<button type="button" class="btn btn-sm btn-primary" onclick="approveTaskEntry(\'' + eid + '\')" style="background:#16a34a;border-color:#16a34a;font-weight:700;padding:6px 14px;box-shadow:0 1px 2px rgba(0,0,0,0.1)">✓ Принять заявку в работу</button>' +
+            '<button type="button" class="btn btn-sm btn-ghost" onclick="openDeclineTaskModal(\'' + eid + '\')" style="color:#dc2626;border:1px solid #fca5a5;background:#fff;font-weight:600;padding:6px 12px">✕ Отклонить заявку</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }
+
+    return '<div class="card p" style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px;margin-bottom:1rem;padding:10px 14px;box-shadow:0 1px 3px rgba(0,0,0,0.03)">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="color:#16a34a;font-weight:700;font-size:1.15rem">✅</span>' +
+          '<div>' +
+            '<div style="font-weight:700;font-size:.88rem;color:#166534">Заявка принята в работу (Входной контроль пройден)</div>' +
+            '<div style="font-size:.76rem;color:#15803d;margin-top:2px">' +
+              'ПМ: <b>' + escHtml(t.assignee || 'Не назначен') + '</b> · Держатель контракта: <b>' + escHtml(t.controller || 'Городович И.О.') + '</b>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span class="badge b-green" style="font-size:.74rem">🔒 Поля защищены</span>' +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="toggleTaskEditLock()" style="padding:3px 10px;font-size:.74rem;border:1px solid #bbf7d0;background:#fff;color:#15803d;font-weight:600">' +
+            (S._taskEditUnlocked ? '🔒 Заблокировать поля' : '✏️ Разблокировать поля для правки') +
+          '</button>' +
+        '</div>' +
       '</div>' +
+    '</div>';
+  })();
+
+  var customerInflowCard = '<div class="card p" style="border:1.5px solid var(--border);background:#fff">' +
+    '<div class="sec-title" style="margin-bottom:.65rem;display:flex;align-items:center;gap:6px">' +
+      '<span>💰 Параметры заказа по договору (Вход)</span>' +
+      '<span class="badge b-blue" style="font-size:.72rem">Из договора / Excel</span>' +
+    '</div>' +
+    field('Сумма договора / заявки', 'amount', 'number') +
+    field('В заказе (портов)', 'inOrder', 'number') +
+    field('Факт выходов / портов', 'fact', 'number') +
+    field('Стоимость за единицу', 'pricePerUnit', 'number') +
+    field('Удаленность объекта (км)', 'distanceKm', 'number') +
+    (isWorker ? '' : field('№ документа в ЭДО', 'edoNumber') +
+    field('№ счёта / сумма', 'invoiceInfo') +
+    field('Ссылка на тех.инфо', 'techLink', 'url')) +
+  '</div>';
+
+  var paneMain = '<div id="cardTabPane-main" class="card-tab-pane" style="display:' + (curTab === 'main' ? 'block' : 'none') + '">' +
+    entryControlBanner +
+    '<div style="display:grid;grid-template-columns:1.05fr 0.95fr;gap:1rem;align-items:start">' +
       '<div style="display:flex;flex-direction:column;gap:1rem">' +
-        quickDocsCard +
         '<div class="card p">' +
-          '<div class="sec-title" style="margin-bottom:.5rem">Карта объекта</div>' +
-          mapHtml +
+          '<div class="sec-title" style="margin-bottom:.5rem">🏛️ Объект и стороны</div>' +
+          field('Заказчик', 'customer') +
+          (isWorker ? '' : field('Генеральный контракт', 'contract_id', 'select')) +
+          ourEntityHtml +
+          field('Регион', 'region') +
+          field('Адрес объекта', 'address') +
+          (isWorker ? '' : field('Тип объекта', 'tipObj')) +
+          field('Тип работ', 'workType') +
+          (isWorker ? '' : field('№ ГОСБ', 'gosb') +
+          field('№ ВСП', 'vsp')) +
         '</div>' +
         '<div class="card p">' +
-          '<div class="sec-title" style="margin-bottom:.5rem">Сроки и обследование</div>' +
+          '<div class="sec-title" style="margin-bottom:.5rem">👥 Команда и контакты</div>' +
+          field('Статус заявки', 'status') +
+          field('Приоритет', 'priority') +
+          field('Проект-менеджер (ПМ)', 'assignee') +
+          (isWorker ? '' : field('Держатель контракта (Контролёр)', 'controller')) +
+          (isWorker ? '' : field('Ответственное лицо (Заказчик)', 'manager')) +
+          field('Субподрядчик (наш)', 'contractor') +
+          contrPhoneHtml +
+          field('Контакт на объекте', 'contact', 'textarea') +
+        '</div>' +
+        '<div class="card p">' +
+          '<div class="sec-title" style="margin-bottom:.5rem">💬 Заметки и комментарии</div>' +
+          (isWorker ? '' : field('Внутренний комментарий', 'comment', 'textarea') +
+          field('Комментарий из Excel', 'excelComment', 'textarea')) +
+          (isWorker ? '' : rawExtraRows) +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;flex-direction:column;gap:1rem">' +
+        customerInflowCard +
+        '<div class="card p">' +
+          '<div class="sec-title" style="margin-bottom:.5rem">📅 Сроки и обследование</div>' +
           (isWorker ? '' : field('Дата заявки', 'dateZayavki', 'date')) +
           field('Дата окончания (план)', 'deadline', 'date') +
           field('Дата выхода (факт)', 'dataVyhoda', 'date') +
@@ -932,6 +1195,11 @@ function pageCard() {
                     '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.3);font-size:.78rem" onclick="cancelTaskPrompt(\'' + eid + '\')" title="Отменить заявку с указанием причины">🚫 Отменить заявку</button>' +
                   '</div>'
                 : '')) +
+        '</div>' +
+        quickDocsCard +
+        '<div class="card p">' +
+          '<div class="sec-title" style="margin-bottom:.5rem">🗺️ Карта объекта</div>' +
+          mapHtml +
         '</div>' +
         (isWorker ? '' : '<div class="card p" style="background:#f8fafc;border:1.5px solid var(--border)">' +
           '<div class="sec-title" style="margin-bottom:.4rem;display:flex;align-items:center;gap:6px">📌 Происхождение заявки (Data Lineage)</div>' +
@@ -1034,10 +1302,10 @@ function pageCard() {
 
   var paneItems = '<div id="cardTabPane-items" class="card-tab-pane" style="display:' + (curTab === 'items' ? 'block' : 'none') + '">' +
     '<div id="cardSmrCalculatorBlock" style="margin-bottom:1rem"></div>' +
-    subcontractsBlock +
+    '<div id="cardSubcontractsContainer" style="display:none"></div>' +
     '<div class="card p mb" id="attachmentsBlock">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
-        '<div class="sec-title" style="margin:0">Файлы и фотоотчёты к заявке</div>' +
+        '<div class="sec-title" style="margin:0;font-size:1rem;display:flex;align-items:center;gap:6px">📷 Файлы и фотоотчёты к заявке (ТЗ, схемы, чек-листы)</div>' +
       '</div>' +
       '<div id="attachmentsList" class="t3">Загрузка…</div>' +
       '<div style="display:flex;gap:.4rem;margin-top:.8rem;flex-wrap:wrap">' +

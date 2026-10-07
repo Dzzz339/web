@@ -102,7 +102,9 @@
     };
   }
 
-  // 2. Рендеринг интерактивного калькулятора прямо на карточке заявки (вкладка «Исполнение / СМР»)
+  // 2. Рендеринг единой спецификации и расчета стоимости СМР на карточке заявки
+  window._taskSmrSpec = window._taskSmrSpec || {};
+
   window.renderCardSmrCalculator = function(taskId) {
     var cont = document.getElementById('cardSmrCalculatorBlock');
     if (!cont) return;
@@ -110,148 +112,341 @@
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); });
     if (!t) return;
 
-    var portsVal = parseInt(t.fact || t.in_order || 0, 10);
-    var kmVal = parseFloat(t.distance_km || 0);
+    var curSub = (window._curCardSubcontracts || [])[0] || null;
+    var contrName = (curSub && curSub.contractor_name) || t.contractor || '';
+    var contrObj = contrName ? (S.contractors || []).find(function(c){ return c.name_short === contrName; }) : null;
 
-    // Определяем привязанное собственное юрлицо
+    // Инициализация спецификации (одна работа = одна строка)
+    if (!window._taskSmrSpec[taskId]) {
+      if (curSub && curSub.calculation_details && Array.isArray(curSub.calculation_details.lines) && curSub.calculation_details.lines.length) {
+        window._taskSmrSpec[taskId] = JSON.parse(JSON.stringify(curSub.calculation_details.lines));
+      } else {
+        var defaultPorts = parseInt(t.fact || t.in_order || 1, 10) || 1;
+        var pPrice = defaultPorts > 3 ? 2500 : 3000;
+        var specLines = [
+          {
+            name: 'Базовая стоимость работ 1 порт СКС 5е' + (defaultPorts > 3 ? ' (шкала >3 шт)' : ' (шкала 1-3 шт)'),
+            qty: defaultPorts,
+            unit: 'порт',
+            price: pPrice,
+            sum: defaultPorts * pPrice
+          }
+        ];
+        var km = parseFloat(t.distance_km || 0);
+        if (km > 10) {
+          var billableKm = Math.round(km - 10);
+          specLines.push({
+            name: 'Транспортные расходы (компенсация проезда свыше 10 км)',
+            qty: billableKm,
+            unit: 'км',
+            price: 12,
+            sum: billableKm * 12
+          });
+        }
+        window._taskSmrSpec[taskId] = specLines;
+      }
+    }
+
+    // Определяем привязанное собственное юрлицо (Генподрядчик)
     var curOwnId = t.own_company_id || (t.customer && t.customer.toLowerCase().includes('сбер') ? 2 : 1);
     var ownList = S.ownCompanies || [];
+
+    // Данные по договору субподряда
+    var contractTitle = curSub && curSub.contract_number 
+      ? ('№ ' + escHtml(curSub.contract_number) + (curSub.contract_date ? (' от ' + escHtml(String(curSub.contract_date).slice(0,10).split('-').reverse().join('.'))) : ''))
+      : (contrName && contrName.includes('Елагин') ? '№ СКС СЗ 090626 от 09.06.2026' : (contrName && contrName.includes('Хомич') ? '№ СКС Сб от 08.04.2026' : 'Не привязан к договору'));
+
+    // Адрес и маршрут на Яндекс.Картах
+    var taskAddr = String(t.address || '').trim();
+    var taskReg = String(t.region || '').trim();
+    var baseCity = taskReg ? ('г. ' + taskReg.replace(/область|обл\.|край|респ\.|республика/gi, '').trim()) : 'База';
+    var yandexRouteUrl = 'https://yandex.ru/maps/?rtext=' + encodeURIComponent(baseCity) + '~' + encodeURIComponent(taskAddr || taskReg) + '&rtt=auto';
+
+    var contrHeaderHtml = contrName ? (
+      '<div style="background:#f8fafc;border:1.5px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">' +
+          '<div>' +
+            '<div style="font-size:.72rem;color:var(--text-3);text-transform:uppercase;font-weight:700">Исполнитель СМР на объекте</div>' +
+            '<div style="font-size:1.1rem;font-weight:700;color:var(--text);margin-top:2px">🏢 ' + escHtml(contrName) + '</div>' +
+            '<div style="font-size:.78rem;color:var(--text-2);margin-top:2px;display:flex;gap:12px;flex-wrap:wrap">' +
+              (contrObj && contrObj.inn ? ('<span>ИНН: <b>' + escHtml(contrObj.inn) + '</b></span>') : '') +
+              (contrObj && contrObj.phone ? ('<span>Тел: <a href="tel:' + escHtml(contrObj.phone.replace(/[^\d+]/g,'')) + '" style="color:var(--green);font-weight:600">' + escHtml(contrObj.phone) + '</a></span>') : '') +
+              '<span>Договор: <b style="color:var(--blue)">' + contractTitle + '</b></span>' +
+              '<span>Прайс: <b>Приложение №1 (Сбер)</b></span>' +
+            '</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">' +
+            '<button type="button" class="btn btn-sm btn-ghost" onclick="openContractorPicker(\'' + escHtml(taskId) + '\')" style="font-size:.75rem">🔍 Сменить исполнителя</button>' +
+            '<button type="button" class="btn btn-sm btn-primary" onclick="openSubcontractWizardModal(\'' + escHtml(taskId) + '\')" style="font-size:.75rem">🪄 Мастер поручения</button>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid #e2e8f0">' +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="exportDoc(\'app2\',\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')" style="font-size:.75rem" title="Сформировать Заказ-наряд (Приложение №2)">📄 Заказ-наряд</button>' +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="exportDoc(\'act\',\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')" style="font-size:.75rem" title="Сформировать Акт сдачи-приемки КС-2">✅ Акт КС-2</button>' +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="exportDoc(\'invoice\',\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')" style="font-size:.75rem" title="Сформировать Счет на оплату">💰 Счет на оплату</button>' +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\'' + escHtml(taskId) + '\')" style="font-size:.75rem" title="Сформировать официальное письмо на допуск">🪪 Письмо на допуск</button>' +
+        '</div>' +
+      '</div>'
+    ) : (
+      '<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:8px;padding:12px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">' +
+        '<div>' +
+          '<div style="font-weight:700;color:#92400e;font-size:.9rem">Исполнитель СМР еще не назначен</div>' +
+          '<div style="font-size:.78rem;color:#b45309;margin-top:2px">Назначьте субподрядчика для расчета сметы и формирования заказ-наряда</div>' +
+        '</div>' +
+        '<button type="button" class="btn btn-sm btn-primary" onclick="openSubcontractWizardModal(\'' + escHtml(taskId) + '\')">+ Назначить исполнителя</button>' +
+      '</div>'
+    );
 
     var html = '<div class="card p" style="margin-bottom:1rem;border:1.5px solid var(--border);background:#fff">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:.85rem">' +
         '<div>' +
           '<div class="sec-title" style="margin:0;font-size:1.05rem;display:flex;align-items:center;gap:6px">' +
-            '<span>📊 Спецификация и расчет стоимости СМР</span>' +
-            '<span class="badge b-blue" style="font-size:.72rem">Прямо в заявке</span>' +
+            '<span>🛠️ Спецификация и расчет стоимости СМР</span>' +
+            '<span class="badge b-blue" style="font-size:.72rem">Прайс-лист</span>' +
           '</div>' +
-          '<div style="font-size:.78rem;color:var(--text-3);margin-top:2px">Единая шкала объемов (1-3 ед. / >3 ед.), выезд свыше 10 км и собственное юрлицо группы</div>' +
+          '<div style="font-size:.78rem;color:var(--text-3);margin-top:2px">Единый расчет: одна работа = одна строка, компенсация проезда и сопоставление с договором Заказчика</div>' +
         '</div>' +
-        '<div style="display:flex;align-items:center;gap:8px">' +
-          '<button type="button" class="btn btn-sm btn-primary" onclick="window.openSubcontractWizardModal(\'' + escHtml(taskId) + '\')" style="gap:5px;box-shadow:0 1px 3px rgba(0,0,0,0.1)">' +
-            '⚡ Мастер назначения (Конструктор)' +
-          '</button>' +
+        '<div style="display:flex;gap:6px;align-items:center">' +
+          (taskAddr ? ('<a href="' + escHtml(yandexRouteUrl) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="color:#2563eb;font-weight:600;font-size:.76rem" title="Построить маршрут и замерить километраж в Яндекс.Картах">📍 Маршрут (Яндекс.Карты)</a>') : '') +
         '</div>' +
       '</div>' +
 
-      // Интерактивная панель быстрого ввода
-      '<div style="background:#f8fafc;border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px">' +
-        '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));gap:10px;align-items:flex-end">' +
-          '<div>' +
-            '<label style="display:block;font-size:.74rem;font-weight:700;color:var(--text-2);margin-bottom:3px">Кол-во портов</label>' +
-            '<input type="number" id="inline_calc_ports" min="0" value="' + portsVal + '" style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;font-weight:700" oninput="window._updateInlineSmrCalc(\'' + escHtml(taskId) + '\')">' +
-          '</div>' +
-          '<div>' +
-            '<label style="display:block;font-size:.74rem;font-weight:700;color:var(--text-2);margin-bottom:3px">Категория СКС</label>' +
-            '<select id="inline_calc_port_type" style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:.82rem" onchange="window._updateInlineSmrCalc(\'' + escHtml(taskId) + '\')">' +
-              '<option value="port_5e" selected>СКС Cat.5e (2500/3000 ₽)</option>' +
-              '<option value="port_6">СКС Cat.6 (3000/3500 ₽)</option>' +
-              '<option value="port_6a">СКС Cat.6A (3000/3500 ₽)</option>' +
-              '<option value="port_optics">Оптика OS2/OM3 (3000/3500 ₽)</option>' +
-              '<option value="port_reinstall">Демонтаж/Монтаж (1000/1200 ₽)</option>' +
-              '<option value="port_move">Перемещение портов (1500/1700 ₽)</option>' +
-            '</select>' +
-          '</div>' +
-          '<div>' +
-            '<label style="display:block;font-size:.74rem;font-weight:700;color:var(--text-2);margin-bottom:3px">Шкаф ТКШ</label>' +
-            '<select id="inline_calc_cab" style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:.82rem" onchange="window._updateInlineSmrCalc(\'' + escHtml(taskId) + '\')">' +
-              '<option value="">(Без шкафа)</option>' +
-              '<option value="tksh_42u">Монтаж напольного 42-48U (+10 000 ₽)</option>' +
-              '<option value="tksh_32u">Монтаж напольного 32U (+8 000 ₽)</option>' +
-              '<option value="tksh_18u">Монтаж навесного 18-22U (+6 500 ₽)</option>' +
-              '<option value="tksh_swap">Замена ТКШ с перемонтажом (+10 000 ₽)</option>' +
-              '<option value="tksh_demount_42u">Демонтаж напольного 42U (+7 000 ₽)</option>' +
-              '<option value="tksh_demount_18u">Демонтаж навесного 18-22U (+5 000 ₽)</option>' +
-              '<option value="tksh_mod_600">Модернизация шкафа 600мм (+3 000 ₽)</option>' +
-            '</select>' +
-          '</div>' +
-          '<div>' +
-            '<label style="display:block;font-size:.74rem;font-weight:700;color:var(--text-2);margin-bottom:3px">Удаленность (км)</label>' +
-            '<input type="number" id="inline_calc_km" min="0" value="' + kmVal + '" style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem" oninput="window._updateInlineSmrCalc(\'' + escHtml(taskId) + '\')">' +
-          '</div>' +
-          '<div>' +
-            '<label style="display:block;font-size:.74rem;font-weight:700;color:var(--text-2);margin-bottom:3px">Собственное юрлицо</label>' +
-            '<select id="inline_calc_own_company" style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:.82rem;font-weight:600" onchange="window._updateInlineSmrCalc(\'' + escHtml(taskId) + '\')">' +
-              ownList.map(function(oc) {
-                var isSel = (oc.id === curOwnId || oc.code === 'K10') ? ' selected' : '';
-                var vatLabel = oc.vat_mode === 'with_vat' ? '(с НДС)' : '(без НДС / УСН)';
-                return '<option value="' + oc.id + '"' + isSel + '>' + escHtml(oc.name_short) + ' ' + vatLabel + '</option>';
-              }).join('') +
-            '</select>' +
-          '</div>' +
-        '</div>' +
-      '</div>' +
+      contrHeaderHtml +
 
-      // Контейнер с таблицей разблюдовки расчёта
-      '<div id="inline_calc_results_table"></div>' +
+      // Контейнер с таблицей спецификации
+      '<div id="card_smr_spec_table_box"></div>' +
     '</div>';
 
     cont.innerHTML = html;
-    window._updateInlineSmrCalc(taskId);
+    window._renderCardSmrTable(taskId);
   };
 
-  // 3. Динамическое обновление строк таблицы расчёта
-  window._updateInlineSmrCalc = function(taskId) {
-    var tableEl = document.getElementById('inline_calc_results_table');
-    if (!tableEl) return;
-
-    var ports = document.getElementById('inline_calc_ports') ? document.getElementById('inline_calc_ports').value : 0;
-    var portType = document.getElementById('inline_calc_port_type') ? document.getElementById('inline_calc_port_type').value : 'port_5e';
-    var cab = document.getElementById('inline_calc_cab') ? document.getElementById('inline_calc_cab').value : '';
-    var km = document.getElementById('inline_calc_km') ? document.getElementById('inline_calc_km').value : 0;
-    var ownId = document.getElementById('inline_calc_own_company') ? document.getElementById('inline_calc_own_company').value : 1;
-
-    var res = calcSmrLocal({
-      ports: ports,
-      portType: portType,
-      cabinetType: cab,
-      distanceKm: km
-    });
+  // 3. Рендеринг таблицы спецификации СМР
+  window._renderCardSmrTable = function(taskId) {
+    var box = document.getElementById('card_smr_spec_table_box');
+    if (!box) return;
 
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
-    var custAmount = Number(t.amount || 0);
-    var margin = custAmount > 0 ? (custAmount - res.totalAmount) : 0;
-    var marginPct = custAmount > 0 ? Math.round((margin / custAmount) * 100) : 0;
+    var spec = window._taskSmrSpec && window._taskSmrSpec[taskId] ? window._taskSmrSpec[taskId] : [];
 
-    var rowsHtml = res.lines.map(function(l, idx) {
+    var curOwnId = t.own_company_id || (t.customer && t.customer.toLowerCase().includes('сбер') ? 2 : 1);
+    var ownList = S.ownCompanies || [];
+
+    var totalSubAmount = 0;
+    var rowsHtml = spec.map(function(l, idx) {
+      var rowSum = Math.round((Number(l.qty) || 0) * (Number(l.price) || 0));
+      totalSubAmount += rowSum;
       return '<tr style="border-bottom:1px solid var(--border);font-size:.82rem">' +
-        '<td style="padding:6px 8px;font-weight:600;color:var(--text-3)">' + (idx + 1) + '</td>' +
+        '<td style="padding:6px 8px;font-weight:600;color:var(--text-3);text-align:center">' + (idx + 1) + '</td>' +
         '<td style="padding:6px 8px;font-weight:600;color:var(--text)">' + escHtml(l.name) + '</td>' +
-        '<td style="padding:6px 8px;text-align:center;font-weight:600">' + l.qty + ' ' + escHtml(l.unit) + '</td>' +
-        '<td style="padding:6px 8px;text-align:right">' + fmtMoney(l.price) + '</td>' +
-        '<td style="padding:6px 8px;text-align:right;font-weight:700;color:var(--text)">' + fmtMoney(l.sum) + '</td>' +
+        '<td style="padding:6px 8px;text-align:center;color:var(--text-2)">' + escHtml(l.unit || 'шт') + '</td>' +
+        '<td style="padding:6px 8px;text-align:center">' +
+          '<input type="number" min="0" step="any" value="' + l.qty + '" style="width:65px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:center;font-weight:700" oninput="window._updateCardSmrLine(\'' + escHtml(taskId) + '\', ' + idx + ', \'qty\', this.value)">' +
+        '</td>' +
+        '<td style="padding:6px 8px;text-align:right">' +
+          '<input type="number" min="0" step="any" value="' + l.price + '" style="width:85px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:right;font-weight:600" oninput="window._updateCardSmrLine(\'' + escHtml(taskId) + '\', ' + idx + ', \'price\', this.value)">' +
+        '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-weight:700;color:var(--text)">' + fmtMoney(rowSum) + '</td>' +
+        '<td style="padding:6px 8px;text-align:center">' +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="window._removeCardSmrLine(\'' + escHtml(taskId) + '\', ' + idx + ')" style="padding:1px 6px;color:var(--red);font-size:.8rem" title="Удалить позицию">✕</button>' +
+        '</td>' +
       '</tr>';
     }).join('');
 
-    if (!res.lines.length) {
-      rowsHtml = '<tr><td colspan="5" style="padding:12px;text-align:center;color:var(--text-3);font-size:.82rem">Укажите количество портов, шкаф или километраж для предварительного расчета</td></tr>';
+    if (!spec.length) {
+      rowsHtml = '<tr><td colspan="7" style="padding:14px;text-align:center;color:var(--text-3);font-size:.82rem">Спецификация пуста. Нажмите «+ Добавить позицию из прайса» ниже.</td></tr>';
     }
 
-    var ownObj = (S.ownCompanies || []).find(function(oc){ return String(oc.id) === String(ownId); });
-    var ownLabel = ownObj ? (escHtml(ownObj.name_short) + ' (Директор: ' + escHtml(ownObj.director) + ')') : 'ООО "Кабельные Системы"';
+    var custAmount = Number(t.amount || 0);
+    var margin = custAmount > 0 ? (custAmount - totalSubAmount) : 0;
+    var marginPct = custAmount > 0 ? Math.round((margin / custAmount) * 100) : 0;
 
-    tableEl.innerHTML = '<div style="overflow-x:auto;border:1px solid var(--border);border-radius:6px;margin-bottom:8px">' +
+    var ownSelectHtml = '<select id="smr_spec_own_company" onchange="window._onSmrOwnCompanyChange(\'' + escHtml(taskId) + '\', this.value)" style="padding:4px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:.8rem;font-weight:600">' +
+      ownList.map(function(oc) {
+        var isSel = (oc.id === curOwnId || oc.code === 'K10') ? ' selected' : '';
+        return '<option value="' + oc.id + '"' + isSel + '>' + escHtml(oc.name_short) + ' (Директор: ' + escHtml(oc.director || '') + ')</option>';
+      }).join('') +
+    '</select>';
+
+    var priceListPickerHtml = '<div style="position:relative;display:inline-block">' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="window._toggleSmrAddMenu(\'' + escHtml(taskId) + '\')" style="color:var(--primary);font-weight:600;border:1.5px solid var(--border);padding:4px 10px;font-size:.78rem">' +
+        '+ Добавить позицию из прайса ▾' +
+      '</button>' +
+      '<div id="smr_add_menu_' + escHtml(taskId) + '" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#fff;border:1.5px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.15);min-width:320px;max-height:300px;overflow-y:auto;padding:6px">' +
+        '<div style="font-size:.72rem;font-weight:700;color:var(--text-3);padding:4px 8px;text-transform:uppercase">Шкафы ТКШ</div>' +
+        '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'tksh_42u\')">Монтаж напольного ТКШ 42-48U (10 000 ₽)</div>' +
+        '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'tksh_32u\')">Монтаж напольного ТКШ 32U (8 000 ₽)</div>' +
+        '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'tksh_18u\')">Монтаж навесного ТКШ 18-22U (6 500 ₽)</div>' +
+        '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'tksh_swap\')">Замена ТКШ с переносом (10 000 ₽)</div>' +
+        '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'tksh_demount_42u\')">Демонтаж напольного ТКШ 42U (7 000 ₽)</div>' +
+        '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'tksh_demount_18u\')">Демонтаж навесного ТКШ 18-22U (5 000 ₽)</div>' +
+        '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'tksh_mod_600\')">Модернизация шкафа (3 000 ₽)</div>' +
+        '<div style="font-size:.72rem;font-weight:700;color:var(--text-3);padding:4px 8px;text-transform:uppercase;border-top:1px solid #f1f5f9;margin-top:4px">СКС и Оптика</div>' +
+        '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'port_optics\')">Оптический порт (дуплекс) OS2/OM3 (3 000 ₽)</div>' +
+        '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'port_reinstall\')">Демонтаж с монтажом за порт (1 000 ₽)</div>' +
+        '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'port_move\')">Перемещение портов (1 500 ₽)</div>' +
+        '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'tksh_reterminate\')">Перешивка портов при замене ТКШ (500 ₽/порт)</div>' +
+        '<div style="font-size:.72rem;font-weight:700;color:var(--text-3);padding:4px 8px;text-transform:uppercase;border-top:1px solid #f1f5f9;margin-top:4px">Прочее</div>' +
+        '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'repeat_visit\')">Повторный выезд на объект (3 000 ₽)</div>' +
+        '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'custom\')">Произвольная доп. работа (+5 000 ₽)</div>' +
+      '</div>' +
+    '</div>';
+
+    box.innerHTML = '<div style="overflow-x:auto;border:1.5px solid var(--border);border-radius:6px;margin-bottom:10px">' +
       '<table style="width:100%;border-collapse:collapse;text-align:left">' +
-        '<thead><tr style="background:var(--bg);font-size:.75rem;color:var(--text-3);border-bottom:1px solid var(--border)">' +
-          '<th style="padding:6px 8px;width:30px">№</th>' +
-          '<th style="padding:6px 8px">Наименование позиции прайс-листа</th>' +
-          '<th style="padding:6px 8px;text-align:center;width:90px">Кол-во</th>' +
-          '<th style="padding:6px 8px;text-align:right;width:110px">Тариф (₽)</th>' +
-          '<th style="padding:6px 8px;text-align:right;width:120px">Сумма (₽)</th>' +
+        '<thead><tr style="background:var(--bg);font-size:.76rem;color:var(--text-3);border-bottom:1px solid var(--border)">' +
+          '<th style="padding:6px 8px;width:35px;text-align:center">№</th>' +
+          '<th style="padding:6px 8px">Наименование работы / позиции прайс-листа</th>' +
+          '<th style="padding:6px 8px;text-align:center;width:60px">Ед.</th>' +
+          '<th style="padding:6px 8px;text-align:center;width:80px">Кол-во</th>' +
+          '<th style="padding:6px 8px;text-align:right;width:100px">Тариф (₽)</th>' +
+          '<th style="padding:6px 8px;text-align:right;width:110px">Сумма (₽)</th>' +
+          '<th style="padding:6px 8px;text-align:center;width:40px"></th>' +
         '</tr></thead>' +
         '<tbody>' + rowsHtml + '</tbody>' +
       '</table>' +
     '</div>' +
 
-    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;padding:6px 4px;font-size:.84rem">' +
-      '<div style="color:var(--text-2);font-size:.78rem">' +
-        'Генподрядчик по заявке: <b style="color:var(--text)">🏢 ' + ownLabel + '</b>' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">' +
+      '<div>' + priceListPickerHtml + '</div>' +
+      '<div style="display:flex;align-items:center;gap:8px">' +
+        '<span style="font-size:.78rem;color:var(--text-2)">Генподрядчик группы:</span>' +
+        ownSelectHtml +
       '</div>' +
-      '<div style="display:flex;align-items:center;gap:14px">' +
-        (custAmount > 0 ? ('<div style="font-size:.82rem">Вход от Заказчика: <b>' + fmtMoney(custAmount) + '</b></div>') : '') +
-        '<div style="font-size:.9rem;font-weight:700">Итого Субподрядчику: <span style="color:var(--blue)">' + fmtMoney(res.totalAmount) + '</span></div>' +
-        (custAmount > 0 ? ('<div style="font-size:.82rem;font-weight:700;color:' + (margin >= 0 ? 'var(--green)' : 'var(--red)') + '">Маржа: ' + fmtMoney(margin) + ' (' + marginPct + '%)</div>') : '') +
+    '</div>' +
+
+    // Финансовая сводка
+    '<div style="background:#f1f5f9;border:1.5px solid var(--border);border-radius:8px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">' +
+      '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">' +
+        (custAmount > 0 ? ('<div style="font-size:.82rem">Вход от Заказчика: <b style="color:var(--text)">' + fmtMoney(custAmount) + '</b></div>') : '') +
+        '<div style="font-size:.9rem;font-weight:700">Итого Субподрядчику: <span style="color:var(--blue)">' + fmtMoney(totalSubAmount) + '</span></div>' +
+        (custAmount > 0 ? ('<div style="font-size:.84rem;font-weight:700;color:' + (margin >= 0 ? '#16a34a' : '#dc2626') + '">Плановая маржа: ' + fmtMoney(margin) + ' (' + marginPct + '%)</div>') : '') +
+      '</div>' +
+      '<div>' +
+        '<button type="button" class="btn btn-sm btn-primary" id="save_smr_spec_btn" onclick="window._saveCardSmrSpec(\'' + escHtml(taskId) + '\')" style="padding:6px 14px;font-weight:700">' +
+          '💾 Сохранить спецификацию и смету' +
+        '</button>' +
       '</div>' +
     '</div>';
+  };
+
+  window._toggleSmrAddMenu = function(taskId) {
+    var m = document.getElementById('smr_add_menu_' + taskId);
+    if (m) m.style.display = (m.style.display === 'none' ? 'block' : 'none');
+  };
+
+  window._updateCardSmrLine = function(taskId, idx, field, val) {
+    var spec = window._taskSmrSpec && window._taskSmrSpec[taskId];
+    if (!spec || !spec[idx]) return;
+    if (field === 'qty') {
+      spec[idx].qty = Math.max(0, parseFloat(val) || 0);
+    } else if (field === 'price') {
+      spec[idx].price = Math.max(0, parseFloat(val) || 0);
+    }
+    spec[idx].sum = Math.round(spec[idx].qty * spec[idx].price);
+    window._renderCardSmrTable(taskId);
+  };
+
+  window._removeCardSmrLine = function(taskId, idx) {
+    var spec = window._taskSmrSpec && window._taskSmrSpec[taskId];
+    if (!spec) return;
+    spec.splice(idx, 1);
+    window._renderCardSmrTable(taskId);
+  };
+
+  window._addCardSmrLine = function(taskId, itemKey) {
+    window._taskSmrSpec = window._taskSmrSpec || {};
+    if (!window._taskSmrSpec[taskId]) window._taskSmrSpec[taskId] = [];
+    var spec = window._taskSmrSpec[taskId];
+
+    var catalog = {
+      tksh_42u: { name: 'Монтаж напольного ТКШ 42-48U', qty: 1, unit: 'шт', price: 10000 },
+      tksh_32u: { name: 'Монтаж напольного ТКШ 32U', qty: 1, unit: 'шт', price: 8000 },
+      tksh_18u: { name: 'Монтаж навесного ТКШ 18-22U', qty: 1, unit: 'шт', price: 6500 },
+      tksh_swap: { name: 'Замена ТКШ с перемонтажом оборудования', qty: 1, unit: 'шт', price: 10000 },
+      tksh_reterminate: { name: 'Перешивка портов при замене ТКШ (за порт)', qty: 10, unit: 'порт', price: 500 },
+      tksh_demount_42u: { name: 'Демонтаж напольного ТКШ 42U', qty: 1, unit: 'шт', price: 7000 },
+      tksh_demount_18u: { name: 'Демонтаж навесного ТКШ до 22U', qty: 1, unit: 'шт', price: 5000 },
+      tksh_mod_600: { name: 'Модернизация шкафа 600мм', qty: 1, unit: 'шт', price: 3000 },
+      port_optics: { name: 'Монтаж оптического порта (дуплекс) OS2/OM3', qty: 2, unit: 'порт', price: 3000 },
+      port_reinstall: { name: 'Демонтаж с последующим монтажом за порт', qty: 1, unit: 'порт', price: 1000 },
+      port_move: { name: 'Перемещение/восстановление портов', qty: 1, unit: 'порт', price: 1500 },
+      repeat_visit: { name: 'Повторный выезд на объект', qty: 1, unit: 'выезд', price: 3000 },
+      custom: { name: 'Дополнительные работы по согласованию', qty: 1, unit: 'усл', price: 5000 }
+    };
+
+    var item = catalog[itemKey] || catalog.custom;
+    spec.push({
+      name: item.name,
+      qty: item.qty,
+      unit: item.unit,
+      price: item.price,
+      sum: item.qty * item.price
+    });
+    var menu = document.getElementById('smr_add_menu_' + taskId);
+    if (menu) menu.style.display = 'none';
+    window._renderCardSmrTable(taskId);
+  };
+
+  window._onSmrOwnCompanyChange = function(taskId, ownCompanyId) {
+    var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); });
+    if (t) t.own_company_id = Number(ownCompanyId);
+  };
+
+  window._saveCardSmrSpec = function(taskId) {
+    var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); });
+    if (!t) return;
+    var spec = window._taskSmrSpec && window._taskSmrSpec[taskId] ? window._taskSmrSpec[taskId] : [];
+    var totalAmount = spec.reduce(function(acc, l){ return acc + (Number(l.sum) || 0); }, 0);
+
+    var curSub = (window._curCardSubcontracts || [])[0] || null;
+    var cName = (curSub && curSub.contractor_name) || t.contractor || '';
+    if (!cName) {
+      alert('Пожалуйста, сначала назначьте исполнителя СМР (подрядчика)!');
+      return;
+    }
+
+    var cObj = (S.contractors || []).find(function(c){ return c.name_short === cName; });
+    var ownId = t.own_company_id || (t.customer && t.customer.toLowerCase().includes('сбер') ? 2 : 1);
+    var ports = 0;
+    spec.forEach(function(l){
+      if (l.name && l.name.toLowerCase().includes('порт')) ports += (Number(l.qty) || 0);
+    });
+
+    var payload = {
+      contractor_id: (curSub && curSub.contractor_id) || (cObj ? cObj.id : null),
+      contractor_name: cName,
+      own_company_id: ownId,
+      contractor_contract_id: (curSub && curSub.contractor_contract_id) || null,
+      price_list_id: (curSub && curSub.price_list_id) || null,
+      work_type: t.work_type || 'Монтаж СКС',
+      price_agreed: totalAmount,
+      deadline: t.deadline || null,
+      calculation_details: { lines: spec },
+      ports_count: ports || parseInt(t.fact || t.in_order || 0, 10),
+      distance_km: parseFloat(t.distance_km || 0)
+    };
+
+    var btn = document.getElementById('save_smr_spec_btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Сохранение…'; }
+
+    api('/tasks/' + encodeURIComponent(taskId) + '/subcontract-wizard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    .then(function(res) {
+      showToast('✅ Спецификация и расчет СМР сохранены!', 'success');
+      if (typeof window.loadCardSubcontracts === 'function') {
+        window.loadCardSubcontracts(taskId);
+      }
+    })
+    .catch(function(err) {
+      alert('Ошибка сохранения: ' + err.message);
+    })
+    .finally(function() {
+      if (btn) { btn.disabled = false; btn.textContent = '💾 Сохранить спецификацию и смету'; }
+    });
   };
 
   // 4. КОНСТРУКТОР-WIZARD НАЗНАЧЕНИЯ ПОДРЯДЧИКА

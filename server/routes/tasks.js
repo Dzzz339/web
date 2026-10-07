@@ -279,7 +279,7 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
         if (workerRows[0]) d.contractor = workerRows[0].name_short;
       } catch(e) { console.error('Auto-contractor lookup error:', e.message); }
     }
-    if (d.assignee !== undefined && d.assignee) {
+    if (d.assignee !== undefined && d.assignee && !d.assignmentStatus && !d.assignment_status) {
       d.assignmentStatus = 'pending';
     }
 
@@ -329,6 +329,7 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
         contract_id           = CASE WHEN $46::boolean THEN $43::integer ELSE contract_id END,
         contract_lot          = COALESCE($44::integer, contract_lot),
         raw_data              = COALESCE($45::jsonb, raw_data),
+        own_company_id        = CASE WHEN $47::boolean THEN $48::integer ELSE own_company_id END,
         version               = version + 1,
         updated_at    = NOW()
       WHERE id = $1
@@ -378,7 +379,9 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       (d.contract_id || d.contractId) ? Number(d.contract_id || d.contractId) : null,
       (d.contract_lot || d.contractLot) ? Number(d.contract_lot || d.contractLot) : null,
       (d.rawData || d.raw_data) ? JSON.stringify(d.rawData || d.raw_data) : null,
-      (d.contract_id !== undefined || d.contractId !== undefined)
+      (d.contract_id !== undefined || d.contractId !== undefined),
+      (d.own_company_id !== undefined || d.ownCompanyId !== undefined),
+      (d.own_company_id || d.ownCompanyId) ? Number(d.own_company_id || d.ownCompanyId) : null
     ]);
 
     // --- УВЕДОМЛЕНИЯ И EMAIL ДЛЯ ИСПОЛНИТЕЛЯ ---
@@ -428,13 +431,16 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
   } catch(e) { console.error('PUT task error:', e.message); res.status(500).json({ error: e.message }) }
 });
 
-// ─── ПРИНЯЛ / ОТКАЗАЛСЯ ───────────────────────────────────────────────────────
+// ─── ПРИНЯЛ / ОТКАЗАЛСЯ (ВХОДНОЙ КОНТРОЛЬ) ───────────────────────────────────
 router.post('/tasks/:id/accept', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT assignee, assignment_status FROM tasks WHERE id=$1', [req.params.id]);
     const task = rows[0];
     if (!task) return res.status(404).json({ error: 'Заявка не найдена' });
-    if (task.assignee !== req.user.fullName) return res.status(403).json({ error: 'Эта заявка назначена не вам' });
+    const isManager = ['admin', 'director', 'manager', 'to_engineer'].includes(req.user.role);
+    if (!isManager && task.assignee && task.assignee !== req.user.fullName) {
+      return res.status(403).json({ error: 'Эта заявка назначена не вам' });
+    }
 
     await pool.query(`UPDATE tasks SET assignment_status='accepted' WHERE id=$1`, [req.params.id]);
 
@@ -451,15 +457,20 @@ router.post('/tasks/:id/decline', authenticateToken, async (req, res) => {
     const { rows } = await pool.query('SELECT assignee FROM tasks WHERE id=$1', [req.params.id]);
     const task = rows[0];
     if (!task) return res.status(404).json({ error: 'Заявка не найдена' });
-    if (task.assignee !== req.user.fullName) return res.status(403).json({ error: 'Эта заявка назначена не вам' });
+    const isManager = ['admin', 'director', 'manager', 'to_engineer'].includes(req.user.role);
+    if (!isManager && task.assignee && task.assignee !== req.user.fullName) {
+      return res.status(403).json({ error: 'Эта заявка назначена не вам' });
+    }
+
+    const reason = req.body && req.body.reason ? String(req.body.reason).trim() : '';
 
     await pool.query(
-      `UPDATE tasks SET assignment_status='declined', assignee='', contractor=NULL WHERE id=$1`,
-      [req.params.id]
+      `UPDATE tasks SET assignment_status='declined', overdue_reason = COALESCE(NULLIF($2, ''), overdue_reason), status = 'cancelled' WHERE id=$1`,
+      [req.params.id, reason]
     );
 
     pool.query('SELECT id FROM users WHERE role=$1', ['admin']).then(({ rows: admins }) => {
-      admins.forEach(a => createNotification(a.id, `❌ Заявка отклонена: ${req.params.id}`, `${req.user.fullName} отказался от заявки — нужно назначить другого исполнителя`, req.params.id));
+      admins.forEach(a => createNotification(a.id, `❌ Заявка отклонена: ${req.params.id}`, `${req.user.fullName} отклонил заявку${reason ? ': ' + reason : ''}`, req.params.id));
     }).catch(err => console.error('Admin notify error:', err.message));
 
     res.json({ success: true });
