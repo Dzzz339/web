@@ -375,6 +375,10 @@ var searchTimeout = null;
 function renderApp() {
   if (!S.token) {
     setApp(pageLogin());
+    setTimeout(function() {
+      var uEl = document.getElementById('luser');
+      if (uEl) uEl.focus();
+    }, 50);
     return;
   }
   if (document.body) {
@@ -589,16 +593,76 @@ document.addEventListener('click', function(e) {
 
 function pageLogin() {
   return `
-    <div style="display:flex;align-items:center;justify-content:center;min-height:80vh">
-      <div class="card p" style="width:100%;max-width:320px;text-align:center">
-        <h1 class="page-title">Вход в Stockeasy</h1>
-        <div id="lerr" style="color:var(--red);font-size:.8rem;margin-bottom:1rem"></div>
-        <input id="luser" type="text" placeholder="Логин" style="width:100%;margin-bottom:.75rem">
-        <input id="lpass" type="password" placeholder="Пароль" style="width:100%;margin-bottom:1.25rem">
-        <button class="btn" style="width:100%" onclick="doLogin()">Войти</button>
+    <div class="login-screen">
+      <div class="login-card">
+        <div class="login-header">
+          <div class="login-logo-badge">
+            <img src="images/logo.ico" alt="Stockeasy" onerror="this.style.display='none'">
+          </div>
+          <h1 class="login-title">Вход в Stockeasy</h1>
+          <p class="login-subtitle">Единая система управления проектами и заявками</p>
+        </div>
+
+        <div id="lerr" class="login-error-alert" role="alert">
+          <span style="font-size:1.15rem;line-height:1">⚠️</span>
+          <span id="lerr-text"></span>
+        </div>
+
+        <form id="login-form" onsubmit="event.preventDefault(); doLogin();" autocomplete="on">
+          <div class="login-group">
+            <label class="login-label" for="luser">Логин или имя пользователя</label>
+            <div class="login-input-wrap">
+              <input id="luser" name="username" class="login-input" type="text" placeholder="Введите ваш логин" autocomplete="username" autofocus required>
+            </div>
+          </div>
+
+          <div class="login-group">
+            <label class="login-label" for="lpass">Пароль</label>
+            <div class="login-input-wrap">
+              <input id="lpass" name="password" class="login-input login-input-pass" type="password" placeholder="Введите пароль" autocomplete="current-password" required>
+              <button type="button" class="login-eye-btn" onclick="toggleLoginPassword()" title="Показать или скрыть пароль" aria-label="Показать пароль">
+                <svg id="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <button id="lbtn" type="submit" class="login-submit-btn">
+            <span id="lbtn-text">Войти в систему</span>
+          </button>
+        </form>
+
+        <div class="login-footer-info">
+          Корпоративный доступ &bull; Stockeasy &copy; ${new Date().getFullYear()}
+        </div>
       </div>
     </div>
   `;
+}
+
+function toggleLoginPassword() {
+  var pInput = document.getElementById('lpass');
+  var eyeIcon = document.getElementById('eye-icon');
+  if (!pInput) return;
+  if (pInput.type === 'password') {
+    pInput.type = 'text';
+    if (eyeIcon) {
+      eyeIcon.innerHTML = `
+        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+        <line x1="1" y1="1" x2="23" y2="23"></line>
+      `;
+    }
+  } else {
+    pInput.type = 'password';
+    if (eyeIcon) {
+      eyeIcon.innerHTML = `
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+        <circle cx="12" cy="12" r="3"></circle>
+      `;
+    }
+  }
 }
 
 
@@ -732,26 +796,70 @@ function bindEvents() {
 // ─── Парсинг Excel на стороне браузера ───────────────────────────────────────
 
 function doLogin() {
-  var u = document.getElementById('luser').value;
-  var p = document.getElementById('lpass').value;
-  if(!u || !p) return;
+  var uInput = document.getElementById('luser');
+  var pInput = document.getElementById('lpass');
+  var errBox = document.getElementById('lerr');
+  var errText = document.getElementById('lerr-text');
+  var btn = document.getElementById('lbtn');
+  var btnText = document.getElementById('lbtn-text');
+
+  if (!uInput || !pInput) return;
+
+  var u = uInput.value.trim();
+  var p = pInput.value;
+
+  if (errBox) errBox.style.display = 'none';
+
+  if (!u || !p) {
+    if (errBox && errText) {
+      errText.textContent = 'Пожалуйста, введите логин и пароль';
+      errBox.style.display = 'flex';
+    }
+    if (!u) uInput.focus();
+    else pInput.focus();
+    return;
+  }
+
+  // Индикация процесса входа
+  if (btn) {
+    btn.disabled = true;
+    if (btnText) btnText.textContent = 'Входим в систему...';
+  }
 
   fetch('/api/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: u, password: p })
   })
-  .then(r => r.json().then(data => ({ status: r.status, data })))
-  .then(res => {
+  .then(function(r) { return r.json().then(function(data) { return { status: r.status, data: data }; }); })
+  .then(function(res) {
     if (res.status !== 200) {
-      document.getElementById('lerr').textContent = res.data.error;
+      if (errBox && errText) {
+        errText.textContent = (res.data && res.data.error) ? res.data.error : 'Неверный логин или пароль';
+        errBox.style.display = 'flex';
+      }
+      if (btn) {
+        btn.disabled = false;
+        if (btnText) btnText.textContent = 'Войти в систему';
+      }
+      pInput.focus();
+      pInput.select();
     } else {
       S.token = res.data.token;
       S.user = res.data.user;
       localStorage.setItem('token', S.token);
       localStorage.setItem('user', JSON.stringify(S.user));
       location.reload();
-       // Перезагружаем данные уже с токеном
+    }
+  })
+  .catch(function(err) {
+    if (errBox && errText) {
+      errText.textContent = 'Ошибка связи с сервером. Попробуйте еще раз.';
+      errBox.style.display = 'flex';
+    }
+    if (btn) {
+      btn.disabled = false;
+      if (btnText) btnText.textContent = 'Войти в систему';
     }
   });
 }
