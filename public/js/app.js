@@ -111,6 +111,22 @@ function init() {
       refreshOutboxCount();
       renderApp();
 
+      // Фоновая актуализация профиля текущего пользователя
+      if (S.token) {
+        api('/profile').then(function(p) {
+          if (p && p.id && S.user) {
+            var updatedUser = Object.assign({}, S.user, {
+              fullName: p.fullName || p.full_name || S.user.fullName,
+              email: p.email !== undefined ? p.email : S.user.email,
+              avatarUrl: p.avatarUrl || null
+            });
+            S.user = updatedUser;
+            try { localStorage.setItem('user', JSON.stringify(updatedUser)); } catch(e){}
+            renderNav();
+          }
+        }).catch(function(){});
+      }
+
       if (S.isOnline) {
         syncOutbox();
       }
@@ -344,7 +360,7 @@ function renderNav() {
     var initial = (userName.trim()[0] || 'U').toUpperCase();
     var isProfileActive = S.page === 'profile';
     var avatarInner = (S.user && S.user.avatarUrl) 
-      ? '<img src="' + escHtml(S.user.avatarUrl) + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;" onerror="this.parentElement.innerHTML=\'' + initial + '\'">'
+      ? '<img src="' + escHtml(S.user.avatarUrl) + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;" onerror="this.parentElement.innerHTML=\'' + initial + '\';if(S.user){S.user.avatarUrl=null;try{localStorage.setItem(\'user\',JSON.stringify(S.user))}catch(e){}}">'
       : initial;
 
     footerEl.innerHTML = 

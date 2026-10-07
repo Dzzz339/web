@@ -30,6 +30,24 @@ function getClientIp(req) {
 // Предотвращение timing-attack при переборе логинов
 const DUMMY_HASH = '$2a$10$wN9a8N4oB2M0W1j7yM7w1.eGkKkG4B0M0W1j7yM7w1eGkKkG4B0M0';
 
+/**
+ * Проверка физического присутствия файла аватарки на сервере.
+ * Если ссылка в БД указывает на файл, которого нет на диске (например, удален при пересборке контейнера),
+ * функция возвращает null, предотвращая отдачу битых URL и 404-ошибок клиенту.
+ */
+export function getValidAvatarUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  if (url.startsWith('/uploads/')) {
+    const filename = url.replace('/uploads/', '');
+    const safeFilename = path.basename(filename);
+    const fullPath = path.join(UPLOADS_DIR, safeFilename);
+    if (!fs.existsSync(fullPath)) {
+      return null;
+    }
+  }
+  return url;
+}
+
 const router = express.Router();
 
 router.post('/login', async (req, res) => {
@@ -90,6 +108,11 @@ router.post('/login', async (req, res) => {
       { expiresIn: '24h', algorithm: 'HS256' }
     );
 
+    let avatarUrl = getValidAvatarUrl(user.avatar_url);
+    if (user.avatar_url && !avatarUrl) {
+      pool.query('UPDATE users SET avatar_url = NULL WHERE id = $1', [user.id]).catch(() => {});
+    }
+
     res.json({
       token,
       user: {
@@ -98,7 +121,7 @@ router.post('/login', async (req, res) => {
         role: user.role,
         fullName: user.full_name,
         email: user.email,
-        avatarUrl: user.avatar_url,
+        avatarUrl: avatarUrl,
         assignedRegions: user.assigned_regions
       }
     });
@@ -118,13 +141,19 @@ router.get('/profile', authenticateToken, async (req, res) => {
     `, [req.user.id]);
     const user = rows[0];
     if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+
+    let avatarUrl = getValidAvatarUrl(user.avatar_url);
+    if (user.avatar_url && !avatarUrl) {
+      pool.query('UPDATE users SET avatar_url = NULL WHERE id = $1', [user.id]).catch(() => {});
+    }
+
     res.json({
       id: user.id,
       username: user.username,
       role: user.role,
       fullName: user.full_name,
       email: user.email,
-      avatarUrl: user.avatar_url,
+      avatarUrl: avatarUrl,
       assignedRegions: user.assigned_regions,
       contractorId: user.contractor_id,
       contractorName: user.contractor_name,
@@ -180,7 +209,7 @@ router.put('/profile', authenticateToken, async (req, res) => {
         role: updated.role,
         fullName: updated.full_name,
         email: updated.email,
-        avatarUrl: updated.avatar_url
+        avatarUrl: getValidAvatarUrl(updated.avatar_url)
       }
     });
   } catch (e) { res.status(500).json({ error: e.message }); }

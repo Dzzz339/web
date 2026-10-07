@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { pool } from '../config/db.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { ROLES, ROLE_LIST, isValidRole, normalizeRole } from '../config/roles.js';
+import { getValidAvatarUrl } from './auth.js';
 
 const router = express.Router();
 
@@ -28,7 +29,11 @@ router.get('/', authenticateToken, async (req, res) => {
       LEFT JOIN contractors c ON c.id = u.contractor_id
       ORDER BY u.created_at DESC
     `);
-    res.json(rows);
+    const sanitized = rows.map(u => ({
+      ...u,
+      avatar_url: getValidAvatarUrl(u.avatar_url)
+    }));
+    res.json(sanitized);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
