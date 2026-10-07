@@ -50,18 +50,18 @@ function pageData() {
       // ЛЕВАЯ КОЛОНКА: СЦЕНАРИИ 1 И 2
       '<div style="display:flex; flex-direction:column; gap:1.5rem">' +
 
-        // СЦЕНАРИЙ 1: МАССОВАЯ ЗАГРУЗКА EXCEL
+        // СЦЕНАРИЙ 1: УНИВЕРСАЛЬНАЯ ЗАГРУЗКА РЕЕСТРОВ И ТАБЛИЦ
         '<div class="card p">' +
           '<div class="fw7 mb" style="font-size:1.05rem; display:flex; align-items:center; justify-content:space-between">' +
-            '<span>📊 Сценарий 1: Массовая загрузка (Excel)</span>' +
-            '<span class="badge b-blue" style="font-size:.7rem">.xlsx / .xls</span>' +
+            '<span>📊 Сценарий 1: Загрузка реестров и таблиц</span>' +
+            '<span class="badge b-blue" style="font-size:.7rem">.xlsx / .xls / .docx</span>' +
           '</div>' +
-          '<p class="t2 mb" style="font-size:.82rem">Сводные таблицы Заказчиков с листами «Заявки 2023-2026». При загрузке строки обновляются без потери комментариев и вложений.</p>' +
-          '<div class="upload-zone" id="uzone" onclick="document.getElementById(\'ufile\').click()">' +
-            '<input type="file" id="ufile" accept=".xlsx,.xls">' +
+          '<p class="t2 mb" style="font-size:.82rem">Универсальный импорт: сводные таблицы заявок Заказчиков, списки специалистов (монтажники с паспортами) и реестры доверенностей.</p>' +
+          '<div class="upload-zone" id="uzone" onclick="document.getElementById(\'ufile\').click()" style="cursor:pointer">' +
+            '<input type="file" id="ufile" accept=".xlsx,.xls,.docx">' +
             '<div style="font-size:2.2rem;margin-bottom:.4rem">📂</div>' +
-            '<div class="fw6">Нажмите или перетащите файл реестра .xlsx</div>' +
-            '<div class="t3" style="font-size:.75rem;margin-top:4px">Поддерживаются стандартные таблицы реестров Заказчиков</div>' +
+            '<div class="fw6">Нажмите или перетащите файл реестра</div>' +
+            '<div class="t3" style="font-size:.75rem;margin-top:4px">Сводные таблицы .xlsx, специалисты .docx / .xlsx, доверенности .xlsx</div>' +
           '</div>' +
           '<div id="ustatus" style="margin-top:1rem"></div>' +
         '</div>' +
@@ -80,29 +80,6 @@ function pageData() {
           '<div style="display:flex; justify-content:space-between; align-items:center; font-size:.8rem">' +
             '<span class="t3">Статус службы интеграции: <b style="color:var(--green)">Активен</b></span>' +
             '<button class="btn btn-sm btn-ghost" onclick="alert(\'API ключ: ' + (S.token ? S.token.slice(0,18)+'...' : 'Не авторизован') + '\')">Ключ доступа</button>' +
-          '</div>' +
-        '</div>' +
-
-        // СЦЕНАРИЙ 4: СПРАВОЧНИКИ ПЕРСОНАЛА И ДОВЕРЕННОСТЕЙ
-        '<div class="card p">' +
-          '<div class="fw7 mb" style="font-size:1.05rem; display:flex; align-items:center; justify-content:space-between">' +
-            '<span>👷 Справочники: Специалисты и Доверенности</span>' +
-            '<span class="badge b-purple" style="font-size:.7rem">.docx / .xlsx</span>' +
-          '</div>' +
-          '<p class="t2 mb" style="font-size:.82rem">Загрузка списков полевых специалистов с паспортами и реестра доверенностей.</p>' +
-          '<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">' +
-            '<button type="button" class="btn btn-outline" style="border:1.5px dashed var(--border); padding:.75rem; border-radius:8px; text-align:center; cursor:pointer" onclick="document.getElementById(\'d_upload_spec\').click()">' +
-              '<input type="file" id="d_upload_spec" accept=".docx,.xlsx,.xls" style="display:none" onchange="uploadSpecialistsFile(this)">' +
-              '<div style="font-size:1.4rem">👷</div>' +
-              '<div class="fw6" style="font-size:.82rem; margin-top:4px">Специалисты</div>' +
-              '<div class="t3" style="font-size:.7rem">Word (.docx) / Excel</div>' +
-            '</button>' +
-            '<button type="button" class="btn btn-outline" style="border:1.5px dashed var(--border); padding:.75rem; border-radius:8px; text-align:center; cursor:pointer" onclick="document.getElementById(\'d_upload_poa\').click()">' +
-              '<input type="file" id="d_upload_poa" accept=".xlsx,.xls" style="display:none" onchange="uploadPoaFile(this)">' +
-              '<div style="font-size:1.4rem">📜</div>' +
-              '<div class="fw6" style="font-size:.82rem; margin-top:4px">Доверенности</div>' +
-              '<div class="t3" style="font-size:.7rem">Excel (.xlsx)</div>' +
-            '</button>' +
           '</div>' +
         '</div>' +
 
@@ -547,38 +524,222 @@ function parseDate(v) {
   }
 
 
-function doUpload(file) {
-  if (!file.name.match(/\.(xlsx|xls)$/i)) { alert('Только .xlsx / .xls'); return; }
-  
+var _pendingUniversalUpload = {
+  file: null,
+  wb: null,
+  selectedType: 'svodnye',
+  detectedType: 'svodnye'
+};
+
+function formatFileSize(bytes) {
+  if (!bytes || bytes <= 0) return '0 Б';
+  var k = 1024;
+  var sizes = ['Б', 'КБ', 'МБ', 'ГБ'];
+  var i = Math.floor(Math.log(bytes) / Math.log(k));
+  if (i >= sizes.length) i = sizes.length - 1;
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function closeUniversalUploadModal() {
+  var m = document.getElementById('universal_upload_modal');
+  if (m) m.remove();
+  var ufile = document.getElementById('ufile');
+  if (ufile) ufile.value = '';
+}
+
+function selectUploadType(type) {
+  if (!_pendingUniversalUpload) return;
+  _pendingUniversalUpload.selectedType = type;
+  var types = ['svodnye', 'specialists', 'poa'];
+  types.forEach(function(t) {
+    var card = document.getElementById('upload_opt_' + t);
+    var radio = document.getElementById('upload_radio_' + t);
+    if (!card || !radio) return;
+    var isSel = (t === type);
+    card.style.border = isSel ? '2px solid var(--accent, #ea580c)' : '1.5px solid var(--border, #e2e8f0)';
+    card.style.background = isSel ? 'rgba(234, 88, 12, 0.04)' : '#fff';
+    radio.style.borderColor = isSel ? 'var(--accent, #ea580c)' : '#cbd5e1';
+    radio.style.background = isSel ? 'var(--accent, #ea580c)' : '#fff';
+    radio.innerHTML = isSel ? '<span style="display:block;width:6px;height:6px;border-radius:50%;background:#fff;margin:auto"></span>' : '';
+  });
+}
+
+function executeUniversalUpload() {
+  if (!_pendingUniversalUpload || !_pendingUniversalUpload.file) return;
+  var info = _pendingUniversalUpload;
+  var file = info.file;
+  var selectedType = info.selectedType;
+  var wb = info.wb;
+
+  closeUniversalUploadModal();
+
+  if (selectedType === 'svodnye') {
+    runSvodnyeImport(file, wb);
+  } else if (selectedType === 'specialists') {
+    runSpecialistsImport(file);
+  } else if (selectedType === 'poa') {
+    runPoaImport(file);
+  }
+}
+
+function openUploadTypeModal(file, detectedType, wb) {
+  _pendingUniversalUpload = {
+    file: file,
+    wb: wb,
+    selectedType: detectedType,
+    detectedType: detectedType
+  };
+
+  var old = document.getElementById('universal_upload_modal');
+  if (old) old.remove();
+
+  var isDocx = /\.docx$/i.test(file.name || '');
+  var ext = (file.name || '').split('.').pop().toUpperCase();
+
+  var modal = document.createElement('div');
+  modal.id = 'universal_upload_modal';
+  modal.className = 'modal-overlay';
+  modal.style.zIndex = '1200';
+
+  function buildCard(type, icon, title, formats, desc) {
+    var isSelected = (type === detectedType);
+    var isDetected = (type === detectedType);
+    var isDisabled = isDocx && (type === 'svodnye' || type === 'poa');
+
+    var borderStyle = isSelected ? '2px solid var(--accent, #ea580c)' : '1.5px solid var(--border, #e2e8f0)';
+    var bgStyle = isSelected ? 'rgba(234, 88, 12, 0.04)' : '#fff';
+    var clickAttr = isDisabled ? '' : 'onclick="selectUploadType(\'' + type + '\')"';
+    var cursorStyle = isDisabled ? 'cursor:not-allowed; opacity:.55; background:#f8fafc;' : 'cursor:pointer;';
+
+    return '<div id="upload_opt_' + type + '" class="upload-type-card" ' + clickAttr + ' ' +
+      'style="border-radius:10px; border:' + borderStyle + '; background:' + bgStyle + '; padding:12px 14px; transition:all .15s ease; ' + cursorStyle + '">' +
+        '<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px">' +
+          '<div style="display:flex; align-items:flex-start; gap:12px">' +
+            '<div style="font-size:1.6rem; line-height:1; padding-top:2px">' + icon + '</div>' +
+            '<div>' +
+              '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">' +
+                '<span class="fw7" style="font-size:.92rem; color:var(--text)">' + title + '</span>' +
+                '<span class="badge b-blue" style="font-size:.65rem; padding:1px 6px">' + formats + '</span>' +
+              '</div>' +
+              '<div class="t3" style="font-size:.76rem; margin-top:3px; line-height:1.35">' + desc + '</div>' +
+              (isDisabled ? '<div style="font-size:.72rem; color:#dc2626; margin-top:4px; font-weight:600">⚠️ Формат .docx поддерживается только для специалистов</div>' : '') +
+            '</div>' +
+          '</div>' +
+          '<div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px; flex-shrink:0">' +
+            (isDetected ? '<span class="badge b-green" style="font-size:.68rem; font-weight:700">✓ Распознано</span>' : '') +
+            '<div id="upload_radio_' + type + '" style="width:18px; height:18px; border-radius:50%; border:2px solid ' + (isSelected ? 'var(--accent, #ea580c)' : '#cbd5e1') + '; background:' + (isSelected ? 'var(--accent, #ea580c)' : '#fff') + '; display:flex; align-items:center; justify-content:center; margin-top:2px">' +
+              (isSelected ? '<span style="display:block;width:6px;height:6px;border-radius:50%;background:#fff;margin:auto"></span>' : '') +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  modal.innerHTML = '<div class="modal-box" style="max-width:580px; width:95%; border-radius:12px; box-shadow:0 20px 25px -5px rgba(0,0,0,0.2), 0 10px 10px -5px rgba(0,0,0,0.1); padding:1.4rem 1.5rem; background:var(--surface,#fff);">' +
+    '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.9rem; border-bottom:1px solid var(--border); padding-bottom:.75rem">' +
+      '<div style="display:flex; align-items:center; gap:8px">' +
+        '<span style="font-size:1.35rem">📥</span>' +
+        '<h3 style="margin:0; font-size:1.08rem; font-weight:700">Подтверждение импорта файла</h3>' +
+      '</div>' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="closeUniversalUploadModal()" style="font-size:1.1rem; line-height:1; padding:4px 8px">✕</button>' +
+    '</div>' +
+
+    '<div style="background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin-bottom:1.1rem; display:flex; align-items:center; justify-content:space-between; gap:12px">' +
+      '<div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:400px">' +
+        '<div class="fw6" style="font-size:.88rem; color:var(--text); overflow:hidden; text-overflow:ellipsis" title="' + escHtml(file.name) + '">📄 ' + escHtml(file.name) + '</div>' +
+        '<div class="t3" style="font-size:.75rem; margin-top:2px">Размер: ' + formatFileSize(file.size) + '</div>' +
+      '</div>' +
+      '<span class="badge b-blue" style="font-size:.72rem; font-weight:700">' + ext + '</span>' +
+    '</div>' +
+
+    '<div class="t2" style="font-size:.82rem; font-weight:600; margin-bottom:.6rem">' +
+      'Система проанализировала файл. Подтвердите или выберите нужный тип данных:' +
+    '</div>' +
+
+    '<div style="display:flex; flex-direction:column; gap:.6rem; margin-bottom:1.4rem">' +
+      buildCard('svodnye', '📊', 'Сводная таблица заявок', '.xlsx / .xls', 'Импорт и обновление заявок заказчиков (листы «Заявки 20XX»). Пакетная выгрузка по 200 строк с сохранением истории и чатов.') +
+      buildCard('specialists', '👷', 'Справочник специалистов', '.docx / .xlsx', 'База полевых монтажников и инженеров с паспортами и телефонами для формирования писем на допуск.') +
+      buildCard('poa', '📜', 'Реестр доверенностей', '.xlsx / .xls', 'Реестр доверенностей с номерами, сроками действия и авто-сопоставлением контрагентов.') +
+    '</div>' +
+
+    '<div style="display:flex; justify-content:flex-end; gap:.6rem; border-top:1px solid var(--border); padding-top:1rem">' +
+      '<button type="button" class="btn btn-ghost" onclick="closeUniversalUploadModal()">Отмена</button>' +
+      '<button type="button" class="btn btn-primary" onclick="executeUniversalUpload()" style="font-weight:600; padding:.5rem 1.4rem">' +
+        'Запустить импорт →' +
+      '</button>' +
+    '</div>' +
+  '</div>';
+
+  modal.addEventListener('click', function(e) {
+    if (e.target === modal) closeUniversalUploadModal();
+  });
+
+  document.body.appendChild(modal);
+}
+
+// ─── ИМПОРТ: СВОДНЫЕ ТАБЛИЦЫ (НЕИЗМЕННЫЙ АЛГОРИТМ ПАРСИНГА) ───────────────────
+function runSvodnyeImport(file, wb) {
   var st = document.getElementById('ustatus');
   function setStatus(html) { if (st) st.innerHTML = html; }
   function showErr(msg) {
     setStatus('<div class="banner" style="background:#FEE2E2;border:1px solid #FECACA"><div><div class="banner-title" style="color:#B91C1C">❌ Ошибка</div><div class="banner-body">' + msg + '</div></div></div>');
   }
 
-  setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Читаем файл…</p></div>');
-  
-  var reader = new FileReader();
-  reader.onload = function(e) {
+  function proceedWithWorkbook(workbook) {
+    var hasSheets = workbook.SheetNames.some(function(n){ return n.startsWith('Заявки'); });
+    if (!hasSheets) {
+      setStatus('<div class="banner banner-warn"><div><div class="banner-title">⚠️ Файл не распознан как сводная таблица</div><div class="banner-body">В файле нет листов «Заявки 20XX». Убедитесь, что выбран корректный файл реестра заявок. Данные не изменены.</div></div></div>');
+      return;
+    }
+
+    setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Парсинг сводной таблицы заявок…</p></div>');
+
     setTimeout(function() {
       try {
-        setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Парсинг таблицы…</p></div>');
-        var data = new Uint8Array(e.target.result);
-        var wb = XLSX.read(data, {type:'array', cellDates:true, cellFormula:false, cellText:false});
-        var hasSheets = wb.SheetNames.some(function(n){ return n.startsWith('Заявки'); });
+        var rows = clientParseSvodnye(workbook);
+        var total = rows.length;
+        var sent = 0;
+        var BATCH = 200; // Стабильный размер пачки для Railway
         
-        if (!hasSheets) {
-          setStatus('<div class="banner banner-warn"><div><div class="banner-title">⚠️ Файл не распознан</div><div class="banner-body">Нет листов «Заявки 20XX». Данные не изменены.</div></div></div>');
-          return;
-        }
+        var p = Math.round((sent / total) * 100);
+        setStatus(
+          '<div style="margin-top:1rem">' +
+            '<div style="display:flex; justify-content:space-between; font-size:.8rem; font-weight:600; margin-bottom:6px">' +
+              '<span>Импорт в базу...</span><span>' + p + '% (' + sent + ' / ' + total + ')</span>' +
+            '</div>' +
+            '<div class="prog"><div class="prog-fill" style="width:' + p + '%"></div></div>' +
+          '</div>'
+        );
 
-        setTimeout(function() {
-          try {
-            var rows = clientParseSvodnye(wb);
-            var total = rows.length;
-            var sent = 0;
-            var BATCH = 200; // Стабильный размер пачки для Railway
-            
+        var currentBatchId = null;
+        function sendBatch(isFirst) {
+          var batch = rows.slice(sent, sent + BATCH);
+          if (!batch.length) {
+            // Финальная загрузка статистики и данных после успеха
+            return Promise.all([api('/stats'), api('/tasks'), api('/chains'), api('/import-info')])
+              .then(function(res){
+                S.stats=res[0]; S.tasks=res[1]; S.chains=res[2]; S.importInfo=res[3];
+                setStatus('<div class="banner banner-ok"><div><div class="banner-title">✅ Импорт успешен!</div><div class="banner-body">Загружено <strong>' + fmtN(total) + ' заявок</strong></div></div><div class="row" style="gap:.5rem"><button class="btn btn-sm" onclick="go(\'tasks\')">К заявкам</button></div></div>');
+                renderApp();
+              });
+          }
+
+          return fetch('/api/excel/import-rows', {
+            method: 'POST', 
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + (S.token || localStorage.getItem('token') || '')
+            },
+            body: JSON.stringify({rows: batch, name: file.name, isFirst: isFirst, totalRows: total, isLast: (sent + batch.length >= total), batchId: currentBatchId})
+          })
+          .then(function(r) {
+            if (!r.ok) throw new Error('Ошибка сервера: ' + r.status);
+            return r.json();
+          })
+          .then(function(result) {
+            if (result.error) throw new Error(result.error);
+            if (result.batchId) currentBatchId = result.batchId;
+            sent += batch.length;
             var p = Math.round((sent / total) * 100);
             setStatus(
               '<div style="margin-top:1rem">' +
@@ -588,54 +749,191 @@ function doUpload(file) {
                 '<div class="prog"><div class="prog-fill" style="width:' + p + '%"></div></div>' +
               '</div>'
             );
+            return sendBatch(false);
+          });
+        }
 
-            var currentBatchId = null;
-            function sendBatch(isFirst) {
-              var batch = rows.slice(sent, sent + BATCH);
-              if (!batch.length) {
-                // Финальная загрузка статистики и данных после успеха
-                return Promise.all([api('/stats'), api('/tasks'), api('/chains'), api('/import-info')])
-                  .then(function(res){
-                    S.stats=res[0]; S.tasks=res[1]; S.chains=res[2]; S.importInfo=res[3];
-                    setStatus('<div class="banner banner-ok"><div><div class="banner-title">✅ Импорт успешен!</div><div class="banner-body">Загружено <strong>' + fmtN(total) + ' заявок</strong></div></div><div class="row" style="gap:.5rem"><button class="btn btn-sm" onclick="go(\'tasks\')">К заявкам</button></div></div>');
-                    renderApp();
-                  });
-              }
-
-              return fetch('/api/excel/import-rows', {
-                method: 'POST', 
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': 'Bearer ' + S.token // ДОБАВИЛИ ТОКЕН
-                },
-                body: JSON.stringify({rows: batch, name: file.name, isFirst: isFirst, totalRows: total, isLast: (sent + batch.length >= total), batchId: currentBatchId})
-              })
-              .then(function(r) {
-                if (!r.ok) throw new Error('Ошибка сервера: ' + r.status); // ПРОВЕРКА ОШИБКИ (чтобы не было <)
-                return r.json();
-              })
-              .then(function(result) {
-                if (result.error) throw new Error(result.error);
-                if (result.batchId) currentBatchId = result.batchId;
-                sent += batch.length;
-                var p = Math.round((sent / total) * 100);
-                setStatus(
-                  '<div style="margin-top:1rem">' +
-                    '<div style="display:flex; justify-content:space-between; font-size:.8rem; font-weight:600; margin-bottom:6px">' +
-                      '<span>Импорт в базу...</span><span>' + p + '% (' + sent + ' / ' + total + ')</span>' +
-                    '</div>' +
-                    '<div class="prog"><div class="prog-fill" style="width:' + p + '%"></div></div>' +
-                  '</div>'
-                );
-                return sendBatch(false);
-              });
-            }
-
-            sendBatch(true).catch(function(e){ showErr(e.message); });
-          } catch(e) { showErr('Ошибка парсинга: ' + e.message); }
-        }, 50);
-      } catch(e) { showErr('Ошибка чтения файла: ' + e.message); }
+        sendBatch(true).catch(function(e){ showErr(e.message); });
+      } catch(e) { showErr('Ошибка парсинга: ' + e.message); }
     }, 50);
+  }
+
+  if (wb) {
+    proceedWithWorkbook(wb);
+  } else {
+    setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Читаем файл…</p></div>');
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        var data = new Uint8Array(e.target.result);
+        var parsedWb = XLSX.read(data, {type:'array', cellDates:true, cellFormula:false, cellText:false});
+        proceedWithWorkbook(parsedWb);
+      } catch(err) {
+        showErr('Ошибка чтения файла: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+}
+
+// ─── ИМПОРТ: СПЕЦИАЛИСТЫ (.DOCX / .XLSX) ───────────────────────────────────────
+function runSpecialistsImport(file) {
+  var st = document.getElementById('ustatus');
+  function setStatus(html) { if (st) st.innerHTML = html; }
+  function showErr(msg) {
+    setStatus('<div class="banner" style="background:#FEE2E2;border:1px solid #FECACA"><div><div class="banner-title" style="color:#B91C1C">❌ Ошибка</div><div class="banner-body">' + msg + '</div></div></div>');
+  }
+
+  setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Загрузка и обработка файла специалистов…</p></div>');
+
+  var fd = new FormData();
+  fd.append('file', file);
+
+  fetch('/api/directories/upload-specialists', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + (S.token || localStorage.getItem('token') || '')
+    },
+    body: fd
+  })
+  .then(function(r) {
+    if (!r.ok) return r.json().then(function(j) { throw new Error(j.error || ('Ошибка сервера: ' + r.status)); });
+    return r.json();
+  })
+  .then(function(res) {
+    if (res.error) throw new Error(res.error);
+    if (typeof api === 'function') {
+      api('/specialists').then(function(specs) { S.specialists = specs; }).catch(function(){});
+    }
+    var msg = 'Добавлено новых специалистов: <strong>' + (res.inserted || 0) + '</strong>, обновлено существующих: <strong>' + (res.updated || 0) + '</strong> (всего обработано: ' + (res.total || 0) + ').';
+    setStatus(
+      '<div class="banner banner-ok"><div>' +
+        '<div class="banner-title">✅ Специалисты успешно импортированы!</div>' +
+        '<div class="banner-body">' + msg + '</div>' +
+      '</div></div>' +
+      '<div class="row" style="gap:.5rem; margin-top:.5rem">' +
+        '<button class="btn btn-sm" onclick="go(\'users\')">Открыть специалистов</button>' +
+      '</div>'
+    );
+  })
+  .catch(function(e) {
+    showErr(e.message);
+  });
+}
+
+// ─── ИМПОРТ: ДОВЕРЕННОСТИ (.XLSX) ─────────────────────────────────────────────
+function runPoaImport(file) {
+  var st = document.getElementById('ustatus');
+  function setStatus(html) { if (st) st.innerHTML = html; }
+  function showErr(msg) {
+    setStatus('<div class="banner" style="background:#FEE2E2;border:1px solid #FECACA"><div><div class="banner-title" style="color:#B91C1C">❌ Ошибка</div><div class="banner-body">' + msg + '</div></div></div>');
+  }
+
+  setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Загрузка реестра доверенностей и сопоставление контрагентов…</p></div>');
+
+  var fd = new FormData();
+  fd.append('file', file);
+
+  fetch('/api/directories/upload-poa', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + (S.token || localStorage.getItem('token') || '')
+    },
+    body: fd
+  })
+  .then(function(r) {
+    if (!r.ok) return r.json().then(function(j) { throw new Error(j.error || ('Ошибка сервера: ' + r.status)); });
+    return r.json();
+  })
+  .then(function(res) {
+    if (res.error) throw new Error(res.error);
+    var p = res.poa || {};
+    var c = res.contractors || {};
+    if (typeof api === 'function') {
+      api('/contractors').then(function(conts) { S.contractors = conts; }).catch(function(){});
+      api('/powers-of-attorney').then(function(poas) { S.powersOfAttorney = poas; }).catch(function(){});
+    }
+    var msg = 'Доверенностей добавлено: <strong>' + (p.inserted || 0) + '</strong>, обновлено: <strong>' + (p.updated || 0) + '</strong>.<br>' +
+              'Контрагентов связано и актуализировано: <strong>' + ((c.added || 0) + (c.updated || 0)) + '</strong>.';
+    setStatus(
+      '<div class="banner banner-ok"><div>' +
+        '<div class="banner-title">✅ Реестр доверенностей успешно импортирован!</div>' +
+        '<div class="banner-body">' + msg + '</div>' +
+      '</div></div>' +
+      '<div class="row" style="gap:.5rem; margin-top:.5rem">' +
+        '<button class="btn btn-sm" onclick="go(\'contractors\')">К контрагентам</button>' +
+        '<button class="btn btn-sm btn-ghost" onclick="go(\'users\')">К доверенностям</button>' +
+      '</div>'
+    );
+  })
+  .catch(function(e) {
+    showErr(e.message);
+  });
+}
+
+// ─── ТОЧКА ВХОДА ДЛЯ ЗАГРУЗКИ ФАЙЛА В СЦЕНАРИИ 1 ──────────────────────────────
+function doUpload(file) {
+  if (!file) return;
+  var name = file.name || '';
+  var isDocx = /\.docx$/i.test(name);
+  var isXls = /\.(xlsx|xls)$/i.test(name);
+
+  if (!isDocx && !isXls) {
+    alert('Неподдерживаемый формат файла. Пожалуйста, выберите файл .xlsx, .xls или .docx');
+    return;
+  }
+
+  var st = document.getElementById('ustatus');
+  function setStatus(html) { if (st) st.innerHTML = html; }
+
+  // 1. Файл Word (.docx) — гарантированно справочник специалистов
+  if (isDocx) {
+    openUploadTypeModal(file, 'specialists', null);
+    return;
+  }
+
+  // 2. Файлы Excel (.xlsx / .xls) — анализируем листы и структуру
+  setStatus('<div class="spin-wrap"><div class="spin"></div><p style="margin-top:.6rem">Анализируем структуру файла…</p></div>');
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var data = new Uint8Array(e.target.result);
+      var wb = XLSX.read(data, {type:'array', cellDates:true, cellFormula:false, cellText:false});
+      var sheetNames = wb.SheetNames || [];
+
+      var hasSvodnyeSheets = sheetNames.some(function(n){ return /^Заявки/i.test(n) || n.indexOf('Заявки') !== -1; });
+      var hasPoaSheets = sheetNames.some(function(n){ return /довер/i.test(n); });
+      var hasSpecSheets = sheetNames.some(function(n){ return /специалист|монтажн|паспорт|сотрудник/i.test(n); });
+
+      var detected = 'svodnye';
+      if (hasSvodnyeSheets) {
+        detected = 'svodnye';
+      } else if (hasPoaSheets) {
+        detected = 'poa';
+      } else if (hasSpecSheets) {
+        detected = 'specialists';
+      } else {
+        // Дополнительная проверка шапки первого листа
+        try {
+          var firstSheet = wb.Sheets[sheetNames[0]];
+          if (firstSheet) {
+            var rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, range: 0, defval: '' });
+            var flatStr = (rows.slice(0, 5).flat() || []).join(' ').toLowerCase();
+            if (/довер/i.test(flatStr)) detected = 'poa';
+            else if (/монтажн|паспорт|специалист/i.test(flatStr)) detected = 'specialists';
+            else detected = 'svodnye';
+          }
+        } catch(_) {
+          detected = 'svodnye';
+        }
+      }
+
+      setStatus('');
+      openUploadTypeModal(file, detected, wb);
+    } catch(err) {
+      setStatus('<div class="banner" style="background:#FEE2E2;border:1px solid #FECACA"><div><div class="banner-title" style="color:#B91C1C">❌ Ошибка чтения файла</div><div class="banner-body">' + err.message + '</div></div></div>');
+    }
   };
   reader.readAsArrayBuffer(file);
 }
