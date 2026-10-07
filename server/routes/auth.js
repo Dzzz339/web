@@ -30,6 +30,8 @@ function getClientIp(req) {
 // Предотвращение timing-attack при переборе логинов
 const DUMMY_HASH = '$2a$10$wN9a8N4oB2M0W1j7yM7w1.eGkKkG4B0M0W1j7yM7w1eGkKkG4B0M0';
 
+const router = express.Router();
+
 router.post('/login', async (req, res) => {
   const ip = getClientIp(req);
   const now = Date.now();
