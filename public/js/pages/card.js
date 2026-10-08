@@ -472,7 +472,7 @@ function pageCard() {
     return '<option value="' + c.id + '"' + (isSel ? ' selected' : '') + '>' + escHtml(label) + '</option>';
   }).join('');
 
-  function field(lbl, key, type) {
+  function field(lbl, key, type, compact) {
     var isDirty = Object.prototype.hasOwnProperty.call(S.cardDraft, key);
     var val = isDirty ? S.cardDraft[key] : (t[key] || '');
     var hintHtml = (typeof getHintIcon === 'function') ? getHintIcon(key) : '';
@@ -509,11 +509,25 @@ function pageCard() {
         displayVal = escHtml(String(displayVal));
       }
 
+      var lockTitle = isViewLocked ? 'Поле защищено от изменений после входного контроля' : 'Поле защищено вашей ролью';
+      if (compact) {
+        var nowrapStyle = (key === 'address' || key === 'contact' || type === 'textarea') ? '' : 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+        return '<div class="field-compact">' +
+          '<div class="field-lbl">' + lbl + hintHtml + '</div>' +
+          '<div class="field-val">' +
+            '<div class="field-val-locked" title="' + lockTitle + '">' +
+              '<div style="flex:1;min-width:0;line-height:1.25;' + nowrapStyle + '">' + displayVal + '</div>' +
+              '<span class="t3" style="font-size:.7rem;opacity:.55;flex-shrink:0;cursor:help;margin-left:4px">🔒</span>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }
+
       return '<div class="field-row">' +
         '<div class="field-lbl">' + lbl + hintHtml + '</div>' +
         '<div class="field-val" style="display:flex;align-items:center;justify-content:space-between;color:var(--text);font-weight:500;padding:5px 0">' +
           '<span>' + displayVal + '</span>' +
-          '<span class="t3" style="font-size:.72rem;opacity:.55;cursor:help" title="' + (isViewLocked ? 'Поле защищено от изменений после входного контроля' : 'Поле защищено вашей ролью') + '">🔒</span>' +
+          '<span class="t3" style="font-size:.72rem;opacity:.55;cursor:help" title="' + lockTitle + '">🔒</span>' +
         '</div>' +
       '</div>';
     }
@@ -718,6 +732,12 @@ function pageCard() {
     else if (type === 'checkbox') inp = '<input type="checkbox" name="'+key+'" data-key="'+key+'"'+(val ? ' checked' : '')+'>';
     else inp = '<input type="'+(type||'text')+'" name="'+key+'" data-key="'+key+'"' + (ph ? (' placeholder="' + escHtml(ph) + '"') : '') + ' value="'+String(val).replace(/"/g,'&quot;')+'">';
     var dirtyMark = isDirty ? ' <span class="badge b-orange" style="font-size:10px;padding:1px 5px">изменено</span>' : '';
+    if (compact) {
+      return '<div class="field-compact">' +
+        '<div class="field-lbl">' + lbl + hintHtml + dirtyMark + '</div>' +
+        '<div class="field-val">' + inp + '</div>' +
+      '</div>';
+    }
     return '<div class="field-row"><div class="field-lbl">'+lbl+hintHtml+dirtyMark+'</div><div class="field-val">'+inp+'</div></div>';
   }
 
@@ -1075,12 +1095,12 @@ function pageCard() {
       return s;
     }
     var rows = extra.map(function(pair) {
-      return '<div class="field-row"><div class="field-lbl" style="color:var(--text-3)">'+pair[0]+'</div>' +
-        '<div class="field-val">'+fmtRaw(pair[1])+'</div></div>';
+      return '<div class="field-compact"><div class="field-lbl" style="color:var(--text-3)">'+escHtml(pair[0])+'</div>' +
+        '<div class="field-val" style="font-size:.82rem">'+fmtRaw(pair[1])+'</div></div>';
     }).join('');
     return '<details style="margin-top:10px;border:1.5px solid var(--border);border-radius:6px;padding:6px 10px;background:#f8fafc">' +
       '<summary style="font-weight:600;font-size:.78rem;cursor:pointer;color:var(--text-2);user-select:none">📋 Дополнительно из Excel (' + extra.length + ' колонок)</summary>' +
-      '<div style="margin-top:8px">' + rows + '</div>' +
+      '<div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px">' + rows + '</div>' +
     '</details>';
   })();
 
@@ -1112,31 +1132,51 @@ function pageCard() {
 
   var isViewLocked = (t.assignmentStatus === 'accepted' && !S._taskEditUnlocked);
 
-  var ourEntityHtml = isWorker ? '' : (
-    '<div class="field-row">' +
+  function renderOurEntityHtml(compact) {
+    if (isWorker) return '';
+    var content = isViewLocked
+      ? ('<div class="field-val-locked" title="Поле защищено"><span>🏢 ' + escHtml(defaultOurEntity) + '</span><span class="t3" style="font-size:.7rem;opacity:.55">🔒</span></div>')
+      : ('<select name="own_company_id" data-key="own_company_id" id="card_own_company_select" onchange="onCardOwnCompanyChange(this.value)" style="width:100%;padding:4px 8px;font-size:.82rem;font-weight:600;border:1.5px solid var(--border);border-radius:6px;height:32px">' + ownOpts + '</select>');
+    if (compact) {
+      return '<div class="field-compact">' +
+        '<div class="field-lbl">Генподрядчик («Мы»)</div>' +
+        '<div class="field-val">' + content + '</div>' +
+      '</div>';
+    }
+    return '<div class="field-row">' +
       '<div class="field-lbl">Генподрядчик (Мы)</div>' +
       '<div class="field-val" style="display:flex;align-items:center;padding:3px 0">' +
         (isViewLocked
           ? ('<span style="font-weight:700;color:var(--text);font-size:.88rem">🏢 ' + escHtml(defaultOurEntity) + '</span>')
           : ('<select name="own_company_id" data-key="own_company_id" id="card_own_company_select" onchange="onCardOwnCompanyChange(this.value)" style="width:100%;padding:5px 8px;font-size:.82rem;font-weight:600;border:1.5px solid var(--border);border-radius:6px">' + ownOpts + '</select>')) +
       '</div>' +
-    '</div>'
-  );
+    '</div>';
+  }
+  var ourEntityHtml = renderOurEntityHtml(false);
 
   var assignedContrObj = (S.contractors || []).find(function(c){ return c.name_short === String(t.contractor || '').trim(); });
   var contrCleanPhone = (assignedContrObj && assignedContrObj.phone) ? assignedContrObj.phone.replace(/[^\d+]/g, '') : '';
-  var contrPhoneHtml = (assignedContrObj && assignedContrObj.phone) ? (
-    '<div class="field-row">' +
+  function renderContrPhoneHtml(compact) {
+    if (!assignedContrObj || !assignedContrObj.phone) return '';
+    var content = '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+      '<a href="tel:' + contrCleanPhone + '" style="font-weight:600;color:var(--green);font-size:.82rem">📞 ' + escHtml(assignedContrObj.phone) + '</a>' +
+      '<a href="https://wa.me/' + contrCleanPhone.replace('+','') + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="padding:1px 6px;font-size:.72rem;color:#16a34a" title="Написать в WhatsApp">💬 WA</a>' +
+      '<button type="button" onclick="openMaxMessenger(\'' + escHtml(contrCleanPhone) + '\')" class="btn btn-sm btn-ghost" style="padding:1px 6px;font-size:.72rem;color:#2563eb;cursor:pointer;background:transparent" title="Открыть в мессенджере МАКС">💬 МАКС</button>' +
+    '</div>';
+    if (compact) {
+      return '<div class="field-compact" style="margin-top:4px">' +
+        '<div class="field-lbl">Телефон субподрядчика</div>' +
+        '<div class="field-val" style="padding-top:2px">' + content + '</div>' +
+      '</div>';
+    }
+    return '<div class="field-row">' +
       '<div class="field-lbl">Телефон субподрядчика</div>' +
-      '<div class="field-val" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
-        '<a href="tel:' + contrCleanPhone + '" style="font-weight:600;color:var(--green)">📞 ' + escHtml(assignedContrObj.phone) + '</a>' +
-        '<a href="https://wa.me/' + contrCleanPhone.replace('+','') + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="padding:1px 6px;font-size:.74rem;color:#16a34a" title="Написать в WhatsApp">💬 WhatsApp</a>' +
-        '<button type="button" onclick="openMaxMessenger(\'' + escHtml(contrCleanPhone) + '\')" class="btn btn-sm btn-ghost" style="padding:1px 6px;font-size:.74rem;color:#2563eb;cursor:pointer;background:transparent" title="Открыть в мессенджере МАКС (номер скопируется в буфер для поиска)">💬 МАКС</button>' +
-      '</div>' +
-    '</div>'
-  ) : '';
+      '<div class="field-val" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' + content + '</div>' +
+    '</div>';
+  }
+  var contrPhoneHtml = renderContrPhoneHtml(false);
 
-  var quickDocsCard = '<div class="card p" style="margin-bottom:1rem">' +
+  var quickDocsCard = '<div class="card p">' +
     '<div class="sec-title" style="margin-bottom:.5rem;display:flex;align-items:center;gap:6px">📄 Документы объекта</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">' +
       '<button type="button" class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\'' + eid + '\')" title="Сформировать официальное письмо на допуск в Word (с паспортами монтажников)">🪪 Письмо на допуск</button>' +
@@ -1222,78 +1262,125 @@ function pageCard() {
       '<span style="display:flex;align-items:center;gap:6px">💰 Параметры заказа по договору (Вход)</span>' +
       '<span class="badge b-blue" style="font-size:.72rem">Из договора / Excel</span>' +
     '</div>' +
-    field('Сумма договора / заявки', 'amount', 'number') +
-    field('В заказе (портов)', 'inOrder', 'number') +
-    field('Факт выходов / портов', 'fact', 'number') +
-    field('Стоимость за единицу', 'pricePerUnit', 'number') +
-    field('Удаленность объекта (км)', 'distanceKm', 'number') +
-    (isWorker ? '' : field('№ документа в ЭДО', 'edoNumber') +
-    field('№ счёта / сумма', 'invoiceInfo')) +
-    '<div style="margin-top:12px;padding-top:10px;border-top:1px solid #e2e8f0;text-align:right">' +
-      '<button type="button" class="btn btn-sm btn-primary" onclick="setCardTab(\'items\')" style="font-size:.8rem;padding:5px 12px;font-weight:600">👷 Перейти к расчету СМР и подрядчику →</button>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+      field('Сумма договора / заявки', 'amount', 'number', true) +
+      field('Удаленность объекта (км)', 'distanceKm', 'number', true) +
+      field('В заказе (портов)', 'inOrder', 'number', true) +
+      field('Факт выходов / портов', 'fact', 'number', true) +
+      field('Стоимость за единицу', 'pricePerUnit', 'number', true) +
+      (isWorker ? '' : field('№ документа в ЭДО', 'edoNumber', 'text', true)) +
+    '</div>' +
+    (isWorker ? '' : '<div style="margin-top:8px">' + field('№ счёта / сумма', 'invoiceInfo', 'text', true) + '</div>') +
+    '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end">' +
+      '<button type="button" class="btn btn-sm btn-primary" onclick="setCardTab(\'items\')" style="font-size:.8rem;padding:4px 12px;font-weight:600">👷 Перейти к расчету СМР и подрядчику →</button>' +
     '</div>' +
   '</div>';
 
   var paneMain = '<div id="cardTabPane-main" class="card-tab-pane" style="display:' + (curTab === 'main' ? 'block' : 'none') + '">' +
     techLinkBanner +
     entryControlBanner +
-    '<div style="display:grid;grid-template-columns:1.05fr 0.95fr;gap:1rem;align-items:start">' +
+    '<div class="card-info-dashboard">' +
+      '<!-- ЛЕВАЯ КОЛОНКА -->' +
       '<div style="display:flex;flex-direction:column;gap:1rem">' +
+        '<!-- 1. Объект и Генеральный контракт -->' +
         '<div class="card p">' +
-          '<div class="sec-title" style="margin-bottom:.5rem">🏛️ Объект и стороны</div>' +
-          field('Заказчик', 'customer') +
-          (isWorker ? '' : field('Генеральный контракт', 'contract_id', 'select')) +
-          ourEntityHtml +
-          field('Регион', 'region') +
-          field('Адрес объекта', 'address') +
-          (isWorker ? '' : field('Тип объекта', 'tipObj')) +
-          field('Тип работ', 'workType') +
-          (isWorker ? '' : field('№ ГОСБ', 'gosb') +
-          field('№ ВСП', 'vsp')) +
+          '<div class="sec-title" style="margin-bottom:.65rem;display:flex;justify-content:space-between;align-items:center">' +
+            '<span>🏛️ Объект, Договор и Стороны</span>' +
+            '<span class="badge b-gray" style="font-size:.72rem">Карточка объекта</span>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
+            field('Заказчик', 'customer', null, true) +
+            renderOurEntityHtml(true) +
+          '</div>' +
+          (isWorker ? '' : '<div style="margin-bottom:8px">' + field('Генеральный контракт', 'contract_id', 'select', true) + '</div>') +
+          '<div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-bottom:8px">' +
+            field('Регион', 'region', 'text', true) +
+            field('Адрес объекта', 'address', 'text', true) +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:' + (isWorker ? '1fr' : 'repeat(4, 1fr)') + ';gap:8px;margin-bottom:8px">' +
+            (isWorker ? '' : field('№ ГОСБ', 'gosb', 'text', true)) +
+            (isWorker ? '' : field('№ ВСП', 'vsp', 'text', true)) +
+            (isWorker ? '' : field('Тип объекта', 'tipObj', 'text', true)) +
+            field('Тип работ', 'workType', 'text', true) +
+          '</div>' +
+          '<div>' +
+            field('Контакт на объекте', 'contact', 'textarea', true) +
+          '</div>' +
         '</div>' +
+
+        '<!-- 2. Заметки и комментарии -->' +
         '<div class="card p">' +
-          '<div class="sec-title" style="margin-bottom:.5rem">👥 Команда и контакты</div>' +
-          field('Статус заявки', 'status') +
-          field('Приоритет', 'priority') +
-          field('Проект-менеджер (ПМ)', 'assignee') +
-          (isWorker ? '' : field('Держатель контракта (Контролёр)', 'controller')) +
-          (isWorker ? '' : field('Ответственное лицо (Заказчик)', 'manager')) +
-          field('Субподрядчик (наш)', 'contractor') +
-          contrPhoneHtml +
-          field('Контакт на объекте', 'contact', 'textarea') +
+          '<div class="sec-title" style="margin-bottom:.65rem">💬 Заметки и комментарии</div>' +
+          (isWorker ? '' : 
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+              field('Внутренний комментарий', 'comment', 'textarea', true) +
+              field('Комментарий из Excel', 'excelComment', 'textarea', true) +
+            '</div>' +
+            rawExtraRows
+          ) +
         '</div>' +
+
+        '<!-- 3. Карта объекта -->' +
         '<div class="card p">' +
-          '<div class="sec-title" style="margin-bottom:.5rem">💬 Заметки и комментарии</div>' +
-          (isWorker ? '' : field('Внутренний комментарий', 'comment', 'textarea') +
-          field('Комментарий из Excel', 'excelComment', 'textarea')) +
-          (isWorker ? '' : rawExtraRows) +
+          '<div class="sec-title" style="margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center">' +
+            '<span>🗺️ Карта объекта</span>' +
+            '<span style="font-size:.74rem;color:var(--text-3)">Геолокация по адресу</span>' +
+          '</div>' +
+          mapHtml +
         '</div>' +
       '</div>' +
+
+      '<!-- ПРАВАЯ КОЛОНКА -->' +
       '<div style="display:flex;flex-direction:column;gap:1rem">' +
-        customerInflowCard +
+        '<!-- 1. Команда, Сроки и Регламент -->' +
         '<div class="card p">' +
-          '<div class="sec-title" style="margin-bottom:.5rem">📅 Сроки и обследование</div>' +
-          (isWorker ? '' : field('Дата заявки', 'dateZayavki', 'date')) +
-          field('Дата окончания (план)', 'deadline', 'date') +
-          field('Дата выхода (факт)', 'dataVyhoda', 'date') +
-          field('Дата распределения', 'distributedAt', 'date') +
-          field('Обследование', 'obsledovanie') +
-          field('Доступ', 'dostup') +
-          field('Приёмка (фото)', 'priemka') +
+          '<div class="sec-title" style="margin-bottom:.65rem;display:flex;justify-content:space-between;align-items:center">' +
+            '<span>👥 Команда, Сроки и Регламент</span>' +
+            '<span class="badge b-blue" style="font-size:.72rem">Контроль процесса</span>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
+            field('Статус заявки', 'status', null, true) +
+            field('Приоритет', 'priority', 'select', true) +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
+            field('Проект-менеджер (ПМ)', 'assignee', 'select', true) +
+            (isWorker ? '' : field('Держатель контракта (Контролёр)', 'controller', 'select', true)) +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:' + (isWorker ? '1fr' : '1fr 1fr') + ';gap:8px;margin-bottom:8px">' +
+            (isWorker ? '' : field('Ответственное лицо (Заказчик)', 'manager', 'text', true)) +
+            '<div>' +
+              field('Субподрядчик (наш)', 'contractor', 'text', true) +
+              renderContrPhoneHtml(true) +
+            '</div>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
+            field('Дедлайн (план)', 'deadline', 'date', true) +
+            field('Дата выхода (факт)', 'dataVyhoda', 'date', true) +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
+            (isWorker ? '' : field('Дата заявки', 'dateZayavki', 'date', true)) +
+            field('Дата распределения', 'distributedAt', 'date', true) +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:8px;margin-bottom:4px">' +
+            field('Обследование', 'obsledovanie', 'text', true) +
+            field('Доступ', 'dostup', 'text', true) +
+            field('Приёмка (фото)', 'priemka', 'text', true) +
+          '</div>' +
           (t.status === 'cancelled'
-            ? '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)"><span class="badge b-red" style="padding:6px 12px;font-weight:700">🚫 Заявка отменена' + (t.overdueReason ? ': ' + escHtml(t.overdueReason) : '') + '</span></div>'
+            ? '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)"><span class="badge b-red" style="padding:5px 10px;font-weight:700">🚫 Заявка отменена' + (t.overdueReason ? ': ' + escHtml(t.overdueReason) : '') + '</span></div>'
             : (!isLocked
-                ? '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">' +
+                ? '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">' +
                     '<span style="font-size:.74rem;color:var(--text-3)">Если работы невозможны:</span>' +
-                    '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.3);font-size:.78rem" onclick="cancelTaskPrompt(\'' + eid + '\')" title="Отменить заявку с указанием причины">🚫 Отменить заявку</button>' +
+                    '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.3);font-size:.76rem;padding:2px 8px" onclick="cancelTaskPrompt(\'' + eid + '\')" title="Отменить заявку с указанием причины">🚫 Отменить заявку</button>' +
                   '</div>'
                 : '')) +
         '</div>' +
+
+        '<!-- 2. Параметры заказа по договору (Вход) -->' +
+        customerInflowCard +
+
+        '<!-- 3. Документы объекта и Data Lineage -->' +
         quickDocsCard +
-        '<div class="card p">' +
-          '<div class="sec-title" style="margin-bottom:.5rem">🗺️ Карта объекта</div>' +
-          mapHtml +
-        '</div>' +
         (isWorker ? '' : '<div class="card p" style="background:#f8fafc;border:1.5px solid var(--border)">' +
           '<div class="sec-title" style="margin-bottom:.4rem;display:flex;align-items:center;gap:6px">📌 Происхождение заявки (Data Lineage)</div>' +
           '<div style="display:flex;flex-direction:column;gap:6px;font-size:.78rem">' +

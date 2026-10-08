@@ -622,6 +622,13 @@
     .field-val { font-size:.875rem;color:var(--text); }
     .field-val input,.field-val select,.field-val textarea { width:100%;padding:5px 9px;font-size:.875rem; }
     .field-val textarea { resize:vertical;min-height:80px; }
+    .card-info-dashboard { display:grid;grid-template-columns:1.08fr 0.92fr;gap:1rem;align-items:start; }
+    .field-compact { display:flex;flex-direction:column;gap:3px;min-width:0; }
+    .field-compact .field-lbl { font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-3);padding:0;line-height:1.2;display:flex;align-items:center;gap:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .field-compact .field-val { font-size:.84rem;color:var(--text);min-width:0; }
+    .field-compact .field-val input,.field-compact .field-val select { width:100%;padding:4px 8px;font-size:.82rem;height:32px;border-radius:6px;box-sizing:border-box; }
+    .field-compact .field-val textarea { width:100%;padding:5px 8px;font-size:.82rem;border-radius:6px;box-sizing:border-box;resize:vertical; }
+    .field-compact .field-val-locked { display:flex;align-items:center;justify-content:space-between;gap:6px;min-height:32px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:.82rem;font-weight:500;box-sizing:border-box; }
     .card-hdr { display:flex;align-items:center;gap:.75rem;margin-bottom:1.25rem;flex-wrap:wrap; }
     .card-hdr h1 { margin:0;flex:1;font-size:1.1rem; }
     .hist-item { font-size:.78rem;color:var(--text-2);padding:.35rem 0;border-bottom:1px solid var(--border); }
@@ -989,6 +996,7 @@
       .g4 { grid-template-columns: repeat(2,1fr); }
       .main { padding: 1rem; }
       .hdr { padding: 0 1rem; }
+      .card-info-dashboard { grid-template-columns: 1fr; }
     }
 
     /* === МОБИЛЬНЫЙ === */
