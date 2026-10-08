@@ -347,6 +347,36 @@ export async function initDB() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contract_attachments_contract_id ON contract_attachments(contract_id)`);
 
+  // Дополнительные региональные соглашения к генеральным контрактам (ДС / Лоты / Регионы)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS contract_agreements (
+      id                 SERIAL PRIMARY KEY,
+      contract_id        INTEGER NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+      agreement_number   INTEGER NOT NULL DEFAULT 1,
+      agreement_code     TEXT,
+      external_number    TEXT,
+      region             TEXT NOT NULL,
+      city               TEXT,
+      price_unit         NUMERIC DEFAULT 0,
+      price_list         JSONB DEFAULT '[]',
+      amount             NUMERIC DEFAULT 0,
+      status             TEXT DEFAULT 'active',
+      comment            TEXT,
+      geo_lat            NUMERIC(10, 6),
+      geo_lon            NUMERIC(10, 6),
+      created_at         TIMESTAMPTZ DEFAULT NOW(),
+      updated_at         TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contract_agreements_contract_id ON contract_agreements(contract_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contract_agreements_region ON contract_agreements(region)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contract_agreements_ext_num ON contract_agreements(external_number)`);
+  await pool.query(`ALTER TABLE contract_agreements ADD COLUMN IF NOT EXISTS geo_lat NUMERIC(10, 6)`);
+  await pool.query(`ALTER TABLE contract_agreements ADD COLUMN IF NOT EXISTS geo_lon NUMERIC(10, 6)`);
+
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS contract_agreement_id INTEGER REFERENCES contract_agreements(id) ON DELETE SET NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_contract_agreement_id ON tasks(contract_agreement_id)`);
+
   // Автоматический перерасчет deadline_date для существующих договоров, где он еще не заполнен
   try {
     const uncomputed = await pool.query(`SELECT id, deadline_raw, contract_date FROM contracts WHERE deadline_date IS NULL AND deadline_raw IS NOT NULL`);

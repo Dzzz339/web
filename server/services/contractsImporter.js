@@ -1,6 +1,7 @@
 import xlsx from 'xlsx';
 import path from 'path';
 import fs from 'fs';
+import { resolveCityCoordinates } from './cityCoordinates.js';
 
 /**
  * Преобразование даты Excel (число или строка) в формат YYYY-MM-DD
@@ -102,6 +103,74 @@ export function parseLots(placesRaw, numbersRaw) {
     });
   });
   return lots;
+}
+
+/**
+ * Парсер дополнительных соглашений (ДС) по регионам
+ */
+export function parseAgreementsFromData(placesRaw, numbersRaw, lotsList) {
+  const linesPlace = placesRaw ? String(placesRaw).split(/\r?\n/).map(s => s.trim()).filter(Boolean) : [];
+  const linesNum = numbersRaw ? String(numbersRaw).split(/\r?\n/).map(s => s.trim()).filter(Boolean) : [];
+
+  const isMultiRegion = linesPlace.length > 1 && linesPlace.some(l => /^(?:лот\s*)?\d+[\s\-:.]+/i.test(l));
+  const isMultiNum = linesNum.length > 1 && linesNum.some(l => /^(?:лот\s*)?\d+[\s\-:.]+/i.test(l));
+  const hasLots = Array.isArray(lotsList) && lotsList.length > 0;
+
+  if (!isMultiRegion && !isMultiNum && !hasLots) {
+    return [];
+  }
+
+  const map = new Map();
+
+  linesPlace.forEach((lp, idx) => {
+    const m = lp.match(/^(?:лот\s*)?(\d+)[\s\-:.]+(.*)/i);
+    const num = m ? parseInt(m[1], 10) : idx + 1;
+    const reg = m && m[2] ? m[2].trim() : lp;
+    if (!map.has(num)) {
+      map.set(num, { num, region: reg, extNum: '' });
+    } else {
+      map.get(num).region = reg;
+    }
+  });
+
+  linesNum.forEach((ln, idx) => {
+    const m = ln.match(/^(?:лот\s*)?(\d+)[\s\-:.]+(.*)/i);
+    const num = m ? parseInt(m[1], 10) : idx + 1;
+    let ext = m && m[2] ? m[2].trim() : ln;
+    ext = ext.replace(/^[№N#\s]+/, '').trim();
+    if (!map.has(num)) {
+      map.set(num, { num, region: '', extNum: ext });
+    } else {
+      map.get(num).extNum = ext;
+    }
+  });
+
+  if (hasLots) {
+    lotsList.forEach((lot, idx) => {
+      const num = parseInt(lot.lot_number || idx + 1, 10);
+      const reg = lot.place || '';
+      const ext = String(lot.contract_number || '').replace(/^[№N#\s]+/, '').trim();
+      if (!map.has(num)) {
+        map.set(num, { num, region: reg, extNum: ext });
+      } else {
+        const cur = map.get(num);
+        if (!cur.region && reg) cur.region = reg;
+        if (!cur.extNum && ext) cur.extNum = ext;
+      }
+    });
+  }
+
+  const sortedKeys = Array.from(map.keys()).sort((a, b) => a - b);
+  return sortedKeys.map(k => {
+    const item = map.get(k);
+    return {
+      agreement_number: item.num,
+      agreement_code: `ДС-${item.num}`,
+      region: item.region || `Регион ${item.num}`,
+      city: item.region || '',
+      external_number: item.extNum || ''
+    };
+  });
 }
 
 const RU_MONTHS = {
@@ -262,11 +331,12 @@ export function parseContractRow(r) {
   }
 
   // 5: Место поставки
-  const deliveryPlace = r[5] ? String(r[5]).trim() : '';
+  let deliveryPlace = r[5] ? String(r[5]).trim() : '';
 
   // 8: Номер контракта & 9: Дата контракта
   const isMultiLot = (r[5] && String(r[5]).toLowerCase().includes('лот')) || (r[8] && String(r[8]).toLowerCase().includes('лот'));
   const lots = isMultiLot ? parseLots(r[5], r[8]) : [];
+  const agreements = parseAgreementsFromData(r[5], r[8], lots);
 
   let contractNumber = r[8] ? String(r[8]).trim() : '';
   let contractDate = null;
@@ -284,6 +354,23 @@ export function parseContractRow(r) {
     // Если в 8-й колонке номера не было, но во 2-й строке даты он есть
     if (!contractNumber && dateLines.length > 1) {
       contractNumber = dateLines[1].replace(/^[№N\s]+/, '').trim();
+    }
+  }
+
+  // Очистка полей для многолотовых договоров / нескольких ДС
+  if (agreements.length > 0) {
+    const linesP = r[5] ? String(r[5]).split(/\r?\n/).map(s => s.trim()).filter(Boolean) : [];
+    if (linesP.length > 1) {
+      const cities = agreements.map(a => a.region).filter(Boolean);
+      if (cities.length <= 4) {
+        deliveryPlace = cities.join(', ');
+      } else {
+        deliveryPlace = `${cities.slice(0, 3).join(', ')} и ещё ${cities.length - 3} рег.`;
+      }
+    }
+    const linesN = r[8] ? String(r[8]).split(/\r?\n/).map(s => s.trim()).filter(Boolean) : [];
+    if (linesN.length > 1) {
+      contractNumber = `Многолотовый (${agreements.length} ДС)`;
     }
   }
 
@@ -381,6 +468,7 @@ export function parseContractRow(r) {
     contacts_raw: contactsRaw,
     status: status,
     lots: lots,
+    agreements: agreements,
     raw_data: {
       original_internal: r[0],
       original_region: r[1],
@@ -433,7 +521,7 @@ export async function importContractsFromExcel(filePath, pool) {
     if (!item || !item.internal_number) continue;
 
     totalParsed++;
-    if (item.lots && item.lots.length > 0) multiLotCount++;
+    if ((item.lots && item.lots.length > 0) || (item.agreements && item.agreements.length > 0)) multiLotCount++;
 
     // Привязываем заказчика или создаем нового
     let customerId = null;
@@ -464,7 +552,10 @@ export async function importContractsFromExcel(filePath, pool) {
         SELECT id FROM contracts WHERE internal_number = $1 LIMIT 1
       `, [item.internal_number]);
 
+      let contractId = null;
+
       if (existing.rows.length > 0) {
+        contractId = existing.rows[0].id;
         await pool.query(`
           UPDATE contracts SET
             contract_number = COALESCE(NULLIF($1, ''), contract_number),
@@ -502,7 +593,7 @@ export async function importContractsFromExcel(filePath, pool) {
         ]);
         updatedCount++;
       } else {
-        await pool.query(`
+        const ins = await pool.query(`
           INSERT INTO contracts (
             internal_number, contract_number, contract_date, contract_type_summary,
             customer_name, customer_id, our_entity_region, our_entity_name,
@@ -513,7 +604,7 @@ export async function importContractsFromExcel(filePath, pool) {
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '', $11,
             $12, $13, $14, $15, $16, $17, $18, $19, '', $20, $21, $22, $23
-          )
+          ) RETURNING id
         `, [
           item.internal_number, item.contract_number, item.contract_date, item.contract_type_summary,
           item.customer_name, customerId, item.our_entity_region, item.our_entity_name,
@@ -522,7 +613,42 @@ export async function importContractsFromExcel(filePath, pool) {
           item.security_amount, item.security_condition, item.discount_percent, item.amount,
           item.platform, item.contacts_raw, item.status, JSON.stringify(item.lots), JSON.stringify(item.raw_data)
         ]);
+        contractId = ins.rows[0].id;
         importedCount++;
+      }
+
+      // Сохраняем дополнительные соглашения по регионам
+      if (contractId && item.agreements && item.agreements.length > 0) {
+        for (const ag of item.agreements) {
+          const exAg = await pool.query(
+            'SELECT id FROM contract_agreements WHERE contract_id = $1 AND agreement_number = $2 LIMIT 1',
+            [contractId, ag.agreement_number]
+          );
+          const coords = resolveCityCoordinates(ag.city || ag.region) || resolveCityCoordinates(ag.region);
+          const geoLat = coords ? coords.lat : null;
+          const geoLon = coords ? coords.lon : null;
+
+          if (exAg.rows.length === 0) {
+            await pool.query(`
+              INSERT INTO contract_agreements (
+                contract_id, agreement_number, agreement_code, external_number,
+                region, city, geo_lat, geo_lon, status, created_at, updated_at
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', NOW(), NOW())
+            `, [contractId, ag.agreement_number, ag.agreement_code, ag.external_number, ag.region, ag.city, geoLat, geoLon]);
+          } else {
+            await pool.query(`
+              UPDATE contract_agreements SET
+                agreement_code = $1,
+                external_number = COALESCE(NULLIF($2, ''), external_number),
+                region = COALESCE(NULLIF($3, ''), region),
+                city = COALESCE(NULLIF($4, ''), city),
+                geo_lat = COALESCE(geo_lat, $5),
+                geo_lon = COALESCE(geo_lon, $6),
+                updated_at = NOW()
+              WHERE id = $7
+            `, [ag.agreement_code, ag.external_number, ag.region, ag.city, geoLat, geoLon, exAg.rows[0].id]);
+          }
+        }
       }
     } catch (err) {
       console.error(`Error saving contract ${item.internal_number}:`, err.message);

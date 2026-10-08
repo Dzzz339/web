@@ -5,6 +5,7 @@ import { pool } from '../config/db.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { uploadAttachment, UPLOADS_DIR, fixUtf8Filename } from '../middleware/upload.js';
 import { importContractsFromExcel, computeDeadlineDate } from '../services/contractsImporter.js';
+import { resolveCityCoordinates } from '../services/cityCoordinates.js';
 
 const router = express.Router();
 
@@ -111,9 +112,32 @@ router.get('/contracts', authenticateToken, async (req, res) => {
       SELECT 
         c.*,
         COALESCE(c.manager_name, u.full_name, u.username) AS manager_display_name,
-        (SELECT COUNT(*) FROM tasks t WHERE t.contract_id = c.id) AS linked_tasks_count
+        (SELECT COUNT(*) FROM tasks t WHERE t.contract_id = c.id) AS linked_tasks_count,
+        COALESCE(aggr.agreements, '[]'::jsonb) AS agreements
       FROM contracts c
       LEFT JOIN users u ON u.id = c.manager_id
+      LEFT JOIN LATERAL (
+        SELECT jsonb_agg(
+          jsonb_build_object(
+            'id', ca.id,
+            'agreement_number', ca.agreement_number,
+            'agreement_code', ca.agreement_code,
+            'external_number', ca.external_number,
+            'region', ca.region,
+            'city', ca.city,
+            'price_unit', ca.price_unit,
+            'price_list', ca.price_list,
+            'amount', ca.amount,
+            'status', ca.status,
+            'comment', ca.comment,
+            'geo_lat', ca.geo_lat,
+            'geo_lon', ca.geo_lon,
+            'linked_tasks_count', (SELECT COUNT(*) FROM tasks t WHERE t.contract_agreement_id = ca.id)
+          ) ORDER BY ca.agreement_number ASC NULLS LAST, ca.id ASC
+        ) AS agreements
+        FROM contract_agreements ca
+        WHERE ca.contract_id = c.id
+      ) aggr ON true
       ${whereClause}
       ORDER BY c.contract_date DESC NULLS LAST, c.id DESC
     `;
@@ -187,12 +211,26 @@ router.get('/contracts/:id', authenticateToken, async (req, res) => {
 
     const contract = contractRows[0];
 
+    // Загружаем связанные дополнительные соглашения (ДС)
+    const { rows: agreements } = await pool.query(`
+      SELECT 
+        ca.*,
+        (SELECT COUNT(*) FROM tasks t WHERE t.contract_agreement_id = ca.id) AS linked_tasks_count
+      FROM contract_agreements ca
+      WHERE ca.contract_id = $1
+      ORDER BY ca.agreement_number ASC NULLS LAST, ca.id ASC
+    `, [id]);
+    contract.agreements = agreements || [];
+
     // Загружаем связанные заявки/объекты
     const { rows: tasks } = await pool.query(`
       SELECT 
         t.id, t.region, t.address, t.work_type, t.status, t.stage, t.amount,
-        t.date_zayavki, t.deadline, t.assignee, t.macro_status, t.contract_lot
+        t.date_zayavki, t.deadline, t.assignee, t.macro_status, t.contract_lot,
+        t.contract_agreement_id,
+        ca.agreement_code, ca.external_number AS agreement_ext_num
       FROM tasks t
+      LEFT JOIN contract_agreements ca ON ca.id = t.contract_agreement_id
       WHERE t.contract_id = $1
       ORDER BY t.date_zayavki DESC NULLS LAST, t.id DESC
       LIMIT 100
@@ -725,7 +763,7 @@ router.post('/contracts/:id/link-task', authenticateToken, async (req, res) => {
 
   try {
     const contractId = parseInt(req.params.id, 10);
-    const { taskId } = req.body;
+    const { taskId, agreementId } = req.body;
     if (!taskId) {
       return res.status(400).json({ error: 'Не указан taskId заявки' });
     }
@@ -740,15 +778,18 @@ router.post('/contracts/:id/link-task', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Заявка не найдена' });
     }
 
+    const parsedAgreementId = agreementId ? parseInt(agreementId, 10) : null;
+
     await pool.query(`
       UPDATE tasks 
       SET 
         contract_id = $1,
+        contract_agreement_id = $2,
         updated_at = NOW()
-      WHERE id = $2
-    `, [contractId, taskId]);
+      WHERE id = $3
+    `, [contractId, parsedAgreementId, taskId]);
 
-    res.json({ success: true, taskId, contractId });
+    res.json({ success: true, taskId, contractId, agreementId: parsedAgreementId });
   } catch (err) {
     console.error('Error linking task to contract:', err);
     res.status(500).json({ error: err.message });
@@ -775,6 +816,7 @@ router.post('/contracts/:id/unlink-task', authenticateToken, async (req, res) =>
       UPDATE tasks 
       SET 
         contract_id = NULL,
+        contract_agreement_id = NULL,
         updated_at = NOW()
       WHERE id = $1 AND contract_id = $2
     `, [taskId, contractId]);
@@ -782,6 +824,151 @@ router.post('/contracts/:id/unlink-task', authenticateToken, async (req, res) =>
     res.json({ success: true, taskId });
   } catch (err) {
     console.error('Error unlinking task from contract:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Создать новое дополнительное соглашение (ДС) к договору
+ */
+router.post('/contracts/:id/agreements', authenticateToken, async (req, res) => {
+  const role = String(req.user.role || '').toLowerCase();
+  if (!['admin', 'director', 'manager', 'accountant'].includes(role)) {
+    return res.status(403).json({ error: 'Недостаточно прав для добавления допсоглашения' });
+  }
+
+  try {
+    const contractId = parseInt(req.params.id, 10);
+    const { region, city, external_number, price_unit, amount, comment, status } = req.body;
+
+    if (!region || !region.trim()) {
+      return res.status(400).json({ error: 'Укажите регион или город для допсоглашения' });
+    }
+
+    // Вычисляем следующий номер соглашения
+    const { rows: maxRows } = await pool.query(
+      'SELECT COALESCE(MAX(agreement_number), 0) + 1 AS next_num FROM contract_agreements WHERE contract_id = $1',
+      [contractId]
+    );
+    const nextNum = parseInt(maxRows[0].next_num, 10) || 1;
+    const agCode = `ДС-${nextNum}`;
+
+    const targetLoc = (city || region).trim();
+    const coords = resolveCityCoordinates(targetLoc) || resolveCityCoordinates(region.trim());
+    const geoLat = coords ? coords.lat : null;
+    const geoLon = coords ? coords.lon : null;
+
+    const { rows: newRows } = await pool.query(`
+      INSERT INTO contract_agreements (
+        contract_id, agreement_number, agreement_code, external_number,
+        region, city, price_unit, amount, comment, status, geo_lat, geo_lon, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+      RETURNING *, 0 AS linked_tasks_count
+    `, [
+      contractId,
+      nextNum,
+      agCode,
+      (external_number || '').trim(),
+      region.trim(),
+      targetLoc,
+      price_unit ? parseFloat(price_unit) : 0,
+      amount ? parseFloat(amount) : 0,
+      comment || '',
+      status || 'active',
+      geoLat,
+      geoLon
+    ]);
+
+    res.json(newRows[0]);
+  } catch (err) {
+    console.error('Error adding contract agreement:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Обновить параметры дополнительного соглашения (в т.ч. региональную цену, лимит, комментарий)
+ */
+router.patch('/contracts/agreements/:id', authenticateToken, async (req, res) => {
+  const role = String(req.user.role || '').toLowerCase();
+  if (!['admin', 'director', 'manager', 'accountant'].includes(role)) {
+    return res.status(403).json({ error: 'Недостаточно прав для редактирования допсоглашения' });
+  }
+
+  try {
+    const agreementId = parseInt(req.params.id, 10);
+    const { price_unit, price_list, amount, comment, status, external_number, region, city } = req.body;
+
+    const { rows: curRows } = await pool.query('SELECT * FROM contract_agreements WHERE id = $1', [agreementId]);
+    if (!curRows.length) {
+      return res.status(404).json({ error: 'Дополнительное соглашение не найдено' });
+    }
+
+    const cur = curRows[0];
+    const newPriceUnit = price_unit !== undefined ? (price_unit === '' || price_unit === null ? 0 : parseFloat(price_unit)) : cur.price_unit;
+    const newAmount = amount !== undefined ? (amount === '' || amount === null ? 0 : parseFloat(amount)) : cur.amount;
+    const newPriceList = price_list !== undefined ? JSON.stringify(price_list) : JSON.stringify(cur.price_list || []);
+    const newComment = comment !== undefined ? comment : cur.comment;
+    const newStatus = status !== undefined ? status : cur.status;
+    const newExtNum = external_number !== undefined ? external_number.trim() : cur.external_number;
+    const newRegion = region !== undefined ? region.trim() : cur.region;
+    const newCity = city !== undefined ? city.trim() : cur.city;
+
+    let geoLat = cur.geo_lat;
+    let geoLon = cur.geo_lon;
+    if (newRegion !== cur.region || newCity !== cur.city || (!geoLat && (newCity || newRegion))) {
+      const coords = resolveCityCoordinates(newCity || newRegion) || resolveCityCoordinates(newRegion);
+      if (coords) {
+        geoLat = coords.lat;
+        geoLon = coords.lon;
+      }
+    }
+
+    const { rows: updatedRows } = await pool.query(`
+      UPDATE contract_agreements SET
+        price_unit = $1,
+        amount = $2,
+        price_list = $3,
+        comment = $4,
+        status = $5,
+        external_number = $6,
+        region = $7,
+        city = $8,
+        geo_lat = $9,
+        geo_lon = $10,
+        updated_at = NOW()
+      WHERE id = $11
+      RETURNING *,
+        (SELECT COUNT(*) FROM tasks t WHERE t.contract_agreement_id = contract_agreements.id) AS linked_tasks_count
+    `, [newPriceUnit, newAmount, newPriceList, newComment, newStatus, newExtNum, newRegion, newCity, geoLat, geoLon, agreementId]);
+
+    res.json(updatedRows[0]);
+  } catch (err) {
+    console.error('Error updating contract agreement:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Удалить дополнительное соглашение
+ */
+router.delete('/contracts/agreements/:id', authenticateToken, async (req, res) => {
+  const role = String(req.user.role || '').toLowerCase();
+  if (!['admin', 'director'].includes(role)) {
+    return res.status(403).json({ error: 'Удаление допсоглашения доступно только Администратору или Руководителю' });
+  }
+
+  try {
+    const agreementId = parseInt(req.params.id, 10);
+    // Отвязываем связанные задачи
+    await pool.query('UPDATE tasks SET contract_agreement_id = NULL WHERE contract_agreement_id = $1', [agreementId]);
+    const { rowCount } = await pool.query('DELETE FROM contract_agreements WHERE id = $1', [agreementId]);
+    if (!rowCount) {
+      return res.status(404).json({ error: 'Дополнительное соглашение не найдено' });
+    }
+    res.json({ success: true, message: 'Дополнительное соглашение удалено' });
+  } catch (err) {
+    console.error('Error deleting contract agreement:', err);
     res.status(500).json({ error: err.message });
   }
 });

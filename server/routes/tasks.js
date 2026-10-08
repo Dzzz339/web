@@ -212,13 +212,14 @@ router.post('/tasks', authenticateToken, requireRole('admin', 'director', 'manag
       if (!ownCompanyId) ownCompanyId = 2; // ООО «К10»
     }
     const contractLot = (t.contractLot || t.contract_lot) ? Number(t.contractLot || t.contract_lot) : null;
+    const contractAgreementId = (t.contractAgreementId || t.contract_agreement_id) ? Number(t.contractAgreementId || t.contract_agreement_id) : null;
 
     await pool.query(`
       INSERT INTO tasks (
         id, vsp, manager, contact, region, address, work_type, amount, price_per_unit,
         in_order, fact, date_zayavki, deadline, tech_link, invoice_info, comment,
-        status, priority, archived, stage, customer, contract_id, contract_lot, own_company_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', 'medium', false, 'request', $17, $18, $19, $20)
+        status, priority, archived, stage, customer, contract_id, contract_lot, own_company_id, contract_agreement_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', 'medium', false, 'request', $17, $18, $19, $20, $21)
     `, [
       cleanId, 
       t.vsp || null, 
@@ -238,7 +239,9 @@ router.post('/tasks', authenticateToken, requireRole('admin', 'director', 'manag
       t.comment || null,
       t.customer || 'ПАО Сбербанк',
       contractId,
-      contractLot
+      contractLot,
+      ownCompanyId,
+      contractAgreementId
     ]);
 
     // Сразу после создания пробуем найти координаты в фоне
@@ -360,6 +363,7 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
         contract_lot          = COALESCE($44::integer, contract_lot),
         raw_data              = COALESCE($45::jsonb, raw_data),
         own_company_id        = CASE WHEN $47::boolean THEN $48::integer ELSE own_company_id END,
+        contract_agreement_id = CASE WHEN $49::boolean THEN $50::integer ELSE contract_agreement_id END,
         version               = version + 1,
         updated_at    = NOW()
       WHERE id = $1
@@ -411,7 +415,9 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       (d.rawData || d.raw_data) ? JSON.stringify(d.rawData || d.raw_data) : null,
       (d.contract_id !== undefined || d.contractId !== undefined),
       (d.own_company_id !== undefined || d.ownCompanyId !== undefined),
-      (d.own_company_id || d.ownCompanyId) ? Number(d.own_company_id || d.ownCompanyId) : null
+      (d.own_company_id || d.ownCompanyId) ? Number(d.own_company_id || d.ownCompanyId) : null,
+      (d.contract_agreement_id !== undefined || d.contractAgreementId !== undefined),
+      (d.contract_agreement_id || d.contractAgreementId) ? Number(d.contract_agreement_id || d.contractAgreementId) : null
     ]);
 
     // --- УВЕДОМЛЕНИЯ И EMAIL ДЛЯ ИСПОЛНИТЕЛЯ ---

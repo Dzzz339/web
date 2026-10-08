@@ -237,6 +237,11 @@ function pageContracts() {
       <div id="contract_materials_modal" class="card" style="width:100%; max-width:640px; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); overflow:hidden"></div>
     </div>
 
+    <!-- МОДАЛЬНОЕ ОКНО РЕДАКТИРОВАНИЯ/ДОБАВЛЕНИЯ ДОПСОГЛАШЕНИЙ (ДС) -->
+    <div id="contract_agreement_modal_backdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:10003; align-items:center; justify-content:center; padding:16px" onclick="if(event.target===this) closeAgreementModal()">
+      <div id="contract_agreement_modal" class="card" style="width:100%; max-width:540px; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); overflow:hidden"></div>
+    </div>
+
     <!-- СКРЫТЫЙ ИНПУТ ДЛЯ ЗАГРУЗКИ EXCEL -->
     <input type="file" id="contract_excel_input" accept=".xlsx,.xls" style="display:none" onchange="handleContractExcelUpload(event)">
   `;
@@ -548,12 +553,14 @@ function renderContractsTable() {
     else if (type.includes('ТО')) typeBadgeClass = 'b-teal';
     else if (type.includes('Логистика')) typeBadgeClass = 'b-orange';
 
-    // Проверяем многолотовость
+    // Проверяем многолотовость и ДС
     var lots = [];
     try {
       lots = typeof c.lots === 'string' ? JSON.parse(c.lots) : (c.lots || []);
     } catch(e) {}
     var hasLots = Array.isArray(lots) && lots.length > 0;
+    var hasAgreements = Array.isArray(c.agreements) && c.agreements.length > 0;
+    var isOpen = Boolean(window._openContractAgreements && window._openContractAgreements.has(c.id));
 
     // Статус бейдж
     var stClass = 'b-green';
@@ -643,11 +650,19 @@ function renderContractsTable() {
         <button class="btn btn-sm btn-ghost" onclick="openContractModal(${c.id})" style="padding:2px 8px; font-size:.75rem; border:1px solid var(--border); border-radius:6px; display:inline-flex; align-items:center; gap:4px; align-self:flex-start; margin-top:2px; font-weight:600; color:var(--text)" title="Открыть подробности договора">
           🔍 Подробности
         </button>
-        ${hasLots ? `
+        ${hasAgreements ? `
+          <div style="margin-top:3px">
+            <button id="btn_toggle_ag_${c.id}" class="btn btn-sm btn-ghost" onclick="toggleContractAgreements(${c.id})" 
+                    style="padding:2px 8px; font-size:.73rem; border:1px solid #fed7aa; background:#fffbf7; color:#c2410c; border-radius:6px; display:inline-flex; align-items:center; gap:5px; font-weight:700; cursor:pointer" 
+                    title="Показать / скрыть список дополнительных соглашений по регионам">
+              <span>📑</span> <span>${c.agreements.length} ДС</span> <span id="icon_toggle_ag_${c.id}">${isOpen ? '▲' : '▼'}</span>
+            </button>
+          </div>
+        ` : (hasLots ? `
           <div style="margin-top:2px">
             <span class="badge b-orange" style="font-size:.65rem; padding:1px 5px">🎯 ${lots.length} лотов</span>
           </div>
-        ` : ''}
+        ` : '')}
       </div>
     `;
 
@@ -741,6 +756,13 @@ function renderContractsTable() {
           ` : ''}
         </td>
       </tr>
+      ${hasAgreements ? `
+        <tr id="contract_agreements_row_${c.id}" class="contract-agreements-subrow" style="display:${isOpen ? 'table-row' : 'none'}; background:#f8fafc; border-bottom:2px solid #cbd5e1">
+          <td colspan="9" style="padding:12px 16px 16px 20px">
+            ${renderContractAgreementsSubTable(c)}
+          </td>
+        </tr>
+      ` : ''}
     `;
   }).join('');
 
@@ -794,6 +816,7 @@ function openContractModal(id, activeTab) {
       lots = typeof c.lots === 'string' ? JSON.parse(c.lots) : (c.lots || []);
     } catch(e) {}
     var hasLots = Array.isArray(lots) && lots.length > 0;
+    var hasAgreements = Array.isArray(c.agreements) && c.agreements.length > 0;
 
     var tasks = c.linked_tasks || [];
 
@@ -807,7 +830,7 @@ function openContractModal(id, activeTab) {
         <div>
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
             <span class="badge b-orange" style="font-size:.85rem; font-weight:800; font-family:monospace">Вн. № ${escHtml(c.internal_number || '—')}</span>
-            ${c.contract_number ? `<span class="badge b-gray" style="font-size:.85rem; font-weight:700">№ ${escHtml(cleanContractNumber(c.contract_number))}</span>` : ''}
+            ${hasAgreements ? `<span class="badge b-yellow" style="font-size:.82rem; font-weight:700">📑 ${c.agreements.length} допсоглашений</span>` : (c.contract_number ? `<span class="badge b-gray" style="font-size:.85rem; font-weight:700">№ ${escHtml(cleanContractNumber(c.contract_number))}</span>` : '')}
             <span class="badge b-blue">${escHtml(c.contract_type_summary || 'Договор')}</span>
 
             <div style="display:inline-flex; align-items:center; gap:6px; background:#f8fafc; padding:3px 8px; border-radius:8px; border:1px solid var(--border)">
@@ -836,7 +859,7 @@ function openContractModal(id, activeTab) {
       <div style="display:flex; gap:6px; padding:10px 24px; border-bottom:1px solid var(--border); background:#fafafa; overflow-x:auto">
         <button class="btn btn-sm ${activeTab === 'main' ? '' : 'btn-ghost'}" onclick="openContractModal(${c.id}, 'main')">Параметры и стороны</button>
         <button class="btn btn-sm ${activeTab === 'terms' ? '' : 'btn-ghost'}" onclick="openContractModal(${c.id}, 'terms')">Условия и оплата</button>
-        ${hasLots ? `<button class="btn btn-sm ${activeTab === 'lots' ? '' : 'btn-ghost'}" onclick="openContractModal(${c.id}, 'lots')">Таблица лотов (${lots.length})</button>` : ''}
+        ${hasAgreements ? `<button class="btn btn-sm ${activeTab === 'agreements' ? '' : 'btn-ghost'}" onclick="openContractModal(${c.id}, 'agreements')">Дополнительные соглашения (${c.agreements.length})</button>` : (hasLots ? `<button class="btn btn-sm ${activeTab === 'lots' ? '' : 'btn-ghost'}" onclick="openContractModal(${c.id}, 'lots')">Таблица лотов (${lots.length})</button>` : '')}
         <button class="btn btn-sm ${activeTab === 'tasks' ? '' : 'btn-ghost'}" onclick="openContractModal(${c.id}, 'tasks')">Объекты / Заявки (${tasks.length})</button>
       </div>
 
@@ -844,6 +867,7 @@ function openContractModal(id, activeTab) {
       <div style="padding:24px">
         ${activeTab === 'main' ? renderContractTabMain(c, dDate, dEnd) : ''}
         ${activeTab === 'terms' ? renderContractTabTerms(c) : ''}
+        ${activeTab === 'agreements' ? renderContractTabAgreements(c, c.agreements) : ''}
         ${activeTab === 'lots' ? renderContractTabLots(c, lots) : ''}
         ${activeTab === 'tasks' ? renderContractTabTasks(c, tasks) : ''}
       </div>
@@ -853,13 +877,24 @@ function openContractModal(id, activeTab) {
       setTimeout(function() {
         initContractMap(c);
       }, 60);
+    } else if (activeTab === 'agreements') {
+      setTimeout(function() {
+        initContractAgreementsMap(c);
+      }, 60);
     }
   });
 }
 
 function renderContractTabMain(c, dDate, dEnd) {
-  var dgisUrl  = 'https://2gis.ru/search/' + encodeURIComponent('Россия, ' + (c.delivery_place || c.our_entity_region || ''));
-  var yandexUrl = 'https://yandex.ru/maps/?text=' + encodeURIComponent('Россия, ' + (c.delivery_place || c.our_entity_region || ''));
+  var placeForMap = (c.delivery_place || c.our_entity_region || '');
+  if (c.agreements && c.agreements.length > 0) {
+    var primaryAgr = c.agreements.find(function(a) { return a.city || a.region; }) || c.agreements[0];
+    if (primaryAgr && (primaryAgr.city || primaryAgr.region)) {
+      placeForMap = (primaryAgr.city ? primaryAgr.city + (primaryAgr.region ? ', ' + primaryAgr.region : '') : primaryAgr.region);
+    }
+  }
+  var dgisUrl  = 'https://2gis.ru/search/' + encodeURIComponent('Россия, ' + placeForMap);
+  var yandexUrl = 'https://yandex.ru/maps/?text=' + encodeURIComponent('Россия, ' + placeForMap);
 
   var managerBadge = c.manager_name ? `
     <div class="card p" style="display:flex; justify-content:space-between; align-items:center; background:#f0fdf4; border:1.5px solid #bbf7d0; border-radius:8px; padding:10px 14px">
@@ -953,9 +988,13 @@ function renderContractTabMain(c, dDate, dEnd) {
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
           <div style="font-weight:700; font-size:.85rem; display:flex; align-items:center; gap:6px">
             <span>🗺️ Фрагмент карты</span>
+            ${(c.agreements && c.agreements.length > 0) ? `<span class="badge b-yellow" style="font-size:.7rem" id="contract_main_map_badge_${c.id}">${c.agreements.filter(function(a){ return a.geo_lat; }).length} рег. на карте</span>` : ''}
           </div>
-          <div style="font-size:.72rem; color:var(--text-3); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" title="${escHtml(c.delivery_place || '')}">
-            ${escHtml(c.delivery_place || 'По региону')}
+          <div style="display:flex; align-items:center; gap:6px">
+            ${(c.agreements && c.agreements.length > 0) ? `<button type="button" class="btn btn-xs btn-outline" onclick="resetContractMainMap(${c.id})" style="font-size:.7rem; padding:2px 6px" title="Показать все точки">Все точки</button>` : ''}
+            <div style="font-size:.72rem; color:var(--text-3); max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" title="${escHtml(c.delivery_place || '')}">
+              ${escHtml(c.delivery_place || 'По региону')}
+            </div>
           </div>
         </div>
 
@@ -1091,6 +1130,486 @@ function renderContractTabLots(c, lots) {
       </table>
     </div>
   `;
+}
+
+function renderContractTabAgreements(c, agreements) {
+  agreements = agreements || [];
+  if (!agreements.length) {
+    return `
+      <div class="card p" style="text-align:center; padding:3rem; color:var(--text-3)">
+        <div style="font-size:2.5rem; margin-bottom:10px">📑</div>
+        <div style="font-weight:700; font-size:1.05rem; color:var(--text)">Нет дополнительных соглашений</div>
+        <div style="margin-top:12px">
+          <button class="btn btn-sm btn-outline" onclick="openAddAgreementModal(${c.id})">+ Добавить соглашение</button>
+        </div>
+      </div>
+    `;
+  }
+
+  var rows = agreements.map(function(ag) {
+    var agCode = ag.agreement_code || ('ДС-' + ag.agreement_number);
+    var regCity = ag.city || ag.region || '—';
+    var extNum = ag.external_number ? ('№ ' + escHtml(ag.external_number)) : '<span style="color:var(--text-3)">—</span>';
+    var priceDisplay = (ag.price_unit && Number(ag.price_unit) > 0)
+      ? `<span style="font-weight:700; color:var(--green)">${fmtMoney(ag.price_unit)}</span>` 
+      : '<span style="color:var(--text-3); font-size:.78rem">Не задана</span>';
+    var amountDisplay = (ag.amount && Number(ag.amount) > 0) ? fmtMoney(ag.amount) : '<span style="color:var(--text-3)">—</span>';
+    var tasksCount = ag.linked_tasks_count || 0;
+
+    return `
+      <tr id="agr_row_${c.id}_${ag.id}" style="border-bottom:1px solid var(--border); transition:background .2s" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+        <td style="padding:10px 12px; font-weight:700; font-family:monospace; color:var(--blue)">${escHtml(agCode)}</td>
+        <td style="padding:10px 12px; font-weight:600">
+          <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap">
+            <span>📍 ${escHtml(regCity)}</span>
+            ${(ag.geo_lat && ag.geo_lon) ? `
+              <button type="button" class="btn btn-xs btn-ghost" 
+                      onclick="focusAgreementOnMap(${c.id}, ${ag.id})" 
+                      style="padding:1px 6px; font-size:.72rem; color:#2563eb; background:#eff6ff; border:1px solid #bfdbfe; border-radius:4px; cursor:pointer" 
+                      title="Показать и приблизить на карте">📍 На карте</button>
+            ` : ''}
+          </div>
+        </td>
+        <td style="padding:10px 12px; font-family:monospace; color:var(--text-2); font-weight:600">${extNum}</td>
+        <td style="padding:10px 12px">
+          <div style="display:flex; align-items:center; gap:6px">
+            ${priceDisplay}
+            <button class="btn btn-xs btn-ghost" onclick="openEditAgreementModal(${c.id}, ${ag.id})" style="padding:1px 5px; font-size:.7rem; border:1px solid var(--border)" title="Изменить региональную цену / тариф">✏️</button>
+          </div>
+        </td>
+        <td style="padding:10px 12px">${amountDisplay}</td>
+        <td style="padding:10px 12px; text-align:center">
+          ${tasksCount > 0 ? `<button class="badge b-blue" onclick="openContractModal(${c.id}, 'tasks')" style="border:none; cursor:pointer; font-size:.75rem">📋 ${tasksCount}</button>` : '<span style="color:var(--text-3); font-size:.75rem">0</span>'}
+        </td>
+        <td style="padding:10px 12px; text-align:right">
+          <div style="display:inline-flex; gap:6px">
+            <button class="btn btn-sm btn-ghost" onclick="openEditAgreementModal(${c.id}, ${ag.id})" style="font-size:.75rem; border:1px solid var(--border)">✏️ Настроить</button>
+            <button class="btn btn-sm" onclick="closeContractModal(); openCreateTaskForContractModal(${c.id}, ${ag.id})" style="font-size:.75rem; background:#2563eb; color:#fff; font-weight:600">➕ Заявка</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  var geoCount = agreements.filter(function(a){ return a.geo_lat && a.geo_lon; }).length;
+
+  return `
+    <div class="card p mb" style="background:#fffbf7; border:1px solid #fed7aa; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px">
+      <div>
+        <div style="font-weight:700; font-size:.95rem">Дополнительные соглашения к договору (${agreements.length} регионов)</div>
+        <div style="font-size:.8rem; color:var(--text-3); margin-top:2px">
+          Каждое ДС закрепляет отдельный филиал/город, индивидуальный номер Сбербанка и региональную стоимость работ
+        </div>
+      </div>
+      <div>
+        <button class="btn btn-sm btn-outline" onclick="openAddAgreementModal(${c.id})">+ Добавить соглашение</button>
+      </div>
+    </div>
+
+    <!-- ИНТЕРАКТИВНАЯ КАРТА ВСЕХ РЕГИОНОВ И ТОЧЕК ИЗ ДС -->
+    <div id="contract_agreements_map_container_${c.id}" class="card p mb" style="background:#f8fafc; border:1px solid var(--border); border-radius:10px; padding:14px 16px">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px">
+        <div style="display:flex; align-items:center; gap:8px">
+          <span style="font-weight:700; font-size:.92rem; color:var(--text)">🗺️ География соглашений и филиалов</span>
+          <span class="badge b-yellow" id="contract_agreements_map_badge_${c.id}" style="font-size:.74rem; font-weight:700">${geoCount} регионов на карте</span>
+        </div>
+        <div style="display:flex; gap:6px; align-items:center">
+          <button type="button" class="btn btn-xs btn-outline" onclick="resetContractAgreementsMap(${c.id})" style="font-size:.75rem; padding:3px 8px" title="Охватить все регионы на карте">🌐 Все регионы</button>
+          <button type="button" class="btn btn-xs btn-ghost" onclick="toggleContractAgreementsMap(${c.id})" id="btn_toggle_agreements_map_${c.id}" style="font-size:.75rem; border:1px solid var(--border); padding:3px 8px">Свернуть карту</button>
+        </div>
+      </div>
+      <div id="contract_agreements_leafmap_${c.id}" style="height:320px; border-radius:8px; overflow:hidden; border:1px solid #cbd5e1; background:#f1f5f9; display:flex; align-items:center; justify-content:center; color:#64748b; font-size:.85rem">
+        Загрузка карты соглашений…
+      </div>
+    </div>
+
+    <div class="card tbl-wrap">
+      <table>
+        <thead>
+          <tr style="background:var(--bg)">
+            <th style="width:90px">№ ДС</th>
+            <th>Регион / Город</th>
+            <th>Номер Сбербанка</th>
+            <th>Региональная цена</th>
+            <th>Лимит по ДС</th>
+            <th style="text-align:center; width:90px">Заявок</th>
+            <th style="text-align:right; width:170px">Действия</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+window._openContractAgreements = window._openContractAgreements || new Set();
+
+function toggleContractAgreements(contractId) {
+  var row = document.getElementById('contract_agreements_row_' + contractId);
+  var icon = document.getElementById('icon_toggle_ag_' + contractId);
+  if (!row) return;
+
+  if (window._openContractAgreements.has(contractId)) {
+    window._openContractAgreements.delete(contractId);
+    row.style.display = 'none';
+    if (icon) icon.textContent = '▼';
+  } else {
+    window._openContractAgreements.add(contractId);
+    row.style.display = 'table-row';
+    if (icon) icon.textContent = '▲';
+  }
+}
+
+function filterContractAgreementsSubrow(contractId, query) {
+  var tbody = document.getElementById('contract_agreements_tbody_' + contractId);
+  if (!tbody) return;
+  var q = (query || '').trim().toLowerCase();
+  var items = tbody.querySelectorAll('.ag-subrow-item');
+  items.forEach(function(el) {
+    var search = el.getAttribute('data-search') || '';
+    if (!q || search.includes(q)) {
+      el.style.display = '';
+    } else {
+      el.style.display = 'none';
+    }
+  });
+}
+
+function renderContractAgreementsSubTable(c) {
+  var agreements = c.agreements || [];
+  if (!agreements.length) {
+    return `<div style="padding:12px; color:var(--text-3); font-size:.82rem">Нет дополнительных соглашений</div>`;
+  }
+
+  var rows = agreements.map(function(ag) {
+    var agCode = ag.agreement_code || ('ДС-' + ag.agreement_number);
+    var regCity = ag.city || ag.region || '—';
+    var extNum = ag.external_number ? ('№ ' + escHtml(ag.external_number)) : '<span style="color:var(--text-3)">—</span>';
+    var priceDisplay = (ag.price_unit && Number(ag.price_unit) > 0)
+      ? `<span style="font-weight:700; color:var(--green)">${fmtMoney(ag.price_unit)}</span>` 
+      : `<span style="color:var(--text-3); font-size:.75rem">Не задана</span>`;
+    var amountDisplay = (ag.amount && Number(ag.amount) > 0) ? fmtMoney(ag.amount) : '<span style="color:var(--text-3)">—</span>';
+    var tasksCount = ag.linked_tasks_count || 0;
+    var tasksBadge = tasksCount > 0 
+      ? `<button class="badge b-blue" onclick="openContractModal(${c.id}, 'tasks')" style="border:none; cursor:pointer; font-size:.72rem" title="Просмотреть заявки договора">📋 ${tasksCount}</button>`
+      : `<span style="color:var(--text-3); font-size:.75rem">0</span>`;
+
+    var searchData = ((agCode + ' ' + regCity + ' ' + (ag.external_number || '') + ' ' + (ag.comment || '')).toLowerCase());
+
+    return `
+      <tr class="ag-subrow-item" data-search="${escHtml(searchData)}" style="border-bottom:1px solid #e2e8f0; transition:background .1s" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='transparent'">
+        <td style="padding:8px 10px; font-weight:700; font-family:monospace; color:var(--blue); font-size:.82rem; white-space:nowrap">${escHtml(agCode)}</td>
+        <td style="padding:8px 10px; font-size:.84rem; font-weight:600; color:var(--text)">📍 ${escHtml(regCity)}</td>
+        <td style="padding:8px 10px; font-size:.78rem; font-family:monospace; color:var(--text-2); font-weight:600; white-space:nowrap">${extNum}</td>
+        <td style="padding:8px 10px; font-size:.82rem; white-space:nowrap">
+          <div style="display:flex; align-items:center; gap:6px">
+            ${priceDisplay}
+            <button class="btn btn-xs btn-ghost" onclick="openEditAgreementModal(${c.id}, ${ag.id})" style="padding:1px 5px; font-size:.7rem; border:1px solid var(--border)" title="Изменить региональную цену / тариф">✏️</button>
+          </div>
+        </td>
+        <td style="padding:8px 10px; font-size:.80rem; white-space:nowrap">${amountDisplay}</td>
+        <td style="padding:8px 10px; text-align:center">${tasksBadge}</td>
+        <td style="padding:8px 10px; text-align:center">
+          <span class="badge b-green" style="font-size:.68rem">В работе</span>
+        </td>
+        <td style="padding:8px 10px; text-align:right; white-space:nowrap">
+          <div style="display:inline-flex; gap:5px; align-items:center">
+            <button class="btn btn-xs btn-ghost" onclick="openEditAgreementModal(${c.id}, ${ag.id})" style="font-size:.72rem; padding:2px 7px; border:1px solid var(--border)">
+              ✏️ Настроить
+            </button>
+            <button class="btn btn-xs" onclick="openCreateTaskForContractModal(${c.id}, ${ag.id})" style="font-size:.72rem; padding:2px 7px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; font-weight:600">
+              ➕ Заявка
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div style="background:#fff; border:1.5px solid #cbd5e1; border-radius:10px; padding:12px 16px; box-shadow:0 2px 6px rgba(0,0,0,0.04)">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid #f1f5f9">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+          <span style="font-size:.9rem; font-weight:800; color:var(--text)">📑 Дополнительные соглашения к договору Вн. № ${escHtml(c.internal_number || '—')}</span>
+          <span class="badge b-orange" style="font-size:.72rem; font-weight:700">${agreements.length} регионов</span>
+          ${c.contract_number ? `<span style="font-size:.75rem; color:var(--text-3)">(${escHtml(c.contract_number)})</span>` : ''}
+        </div>
+        <div style="display:flex; align-items:center; gap:8px">
+          <input type="text" placeholder="🔍 Фильтр по региону / номеру..." 
+                 oninput="filterContractAgreementsSubrow(${c.id}, this.value)" 
+                 style="padding:4px 8px; font-size:.78rem; border:1px solid var(--border); border-radius:6px; width:220px; background:#f8fafc">
+          <button class="btn btn-xs btn-ghost" onclick="openAddAgreementModal(${c.id})" style="border:1px dashed var(--border); font-size:.75rem; font-weight:600">
+            + Добавить ДС
+          </button>
+        </div>
+      </div>
+
+      <div style="overflow-x:auto">
+        <table style="width:100%; border-collapse:collapse">
+          <thead>
+            <tr style="background:#f8fafc; border-bottom:1.5px solid #e2e8f0; text-align:left; font-size:.72rem; text-transform:uppercase; color:var(--text-3); letter-spacing:.5px">
+              <th style="padding:6px 10px; width:80px">№ ДС</th>
+              <th style="padding:6px 10px; min-width:140px">Регион / Город</th>
+              <th style="padding:6px 10px; width:150px">Номер Сбербанка</th>
+              <th style="padding:6px 10px; width:140px">Региональная цена</th>
+              <th style="padding:6px 10px; width:120px">Лимит по ДС</th>
+              <th style="padding:6px 10px; width:90px; text-align:center">Заявки</th>
+              <th style="padding:6px 10px; width:90px; text-align:center">Статус</th>
+              <th style="padding:6px 10px; width:140px; text-align:right">Действия</th>
+            </tr>
+          </thead>
+          <tbody id="contract_agreements_tbody_${c.id}">
+            ${rows}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function openEditAgreementModal(contractId, agreementId) {
+  var c = (S.contracts || []).find(function(x) { return String(x.id) === String(contractId); }) || window._activeContract;
+  if (!c || !c.agreements) return;
+  var ag = c.agreements.find(function(x) { return String(x.id) === String(agreementId); });
+  if (!ag) return;
+
+  var backdrop = document.getElementById('contract_agreement_modal_backdrop');
+  var modal = document.getElementById('contract_agreement_modal');
+  if (!backdrop || !modal) return;
+
+  modal.innerHTML = `
+    <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:#fafafa">
+      <div>
+        <div style="font-size:.72rem; text-transform:uppercase; font-weight:700; color:var(--text-3)">Редактирование дополнительного соглашения</div>
+        <h3 style="margin:2px 0 0; font-size:1.1rem; font-weight:700">${escHtml(ag.agreement_code || 'ДС')} — ${escHtml(ag.city || ag.region)}</h3>
+      </div>
+      <button class="btn btn-sm btn-ghost" onclick="closeAgreementModal()" style="font-size:1.2rem; line-height:1">&times;</button>
+    </div>
+
+    <form id="edit_agreement_form" onsubmit="event.preventDefault(); submitEditAgreement(${contractId}, ${agreementId})" style="padding:20px">
+      <div style="display:flex; flex-direction:column; gap:12px">
+        <div style="display:grid; grid-template-columns:1fr 2fr; gap:12px">
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Код ДС</label>
+            <input type="text" id="ag_field_code" value="${escHtml(ag.agreement_code || '')}" style="width:100%" required>
+          </div>
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Регион / Город</label>
+            <input type="text" id="ag_field_region" value="${escHtml(ag.city || ag.region || '')}" style="width:100%" required>
+          </div>
+        </div>
+
+        <div>
+          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Номер Сбербанка (внешний № контракта)</label>
+          <input type="text" id="ag_field_ext_num" value="${escHtml(ag.external_number || '')}" placeholder="Например: 50005595376" style="width:100%; font-family:monospace">
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Региональная цена / тариф (₽)</label>
+            <input type="number" id="ag_field_price_unit" step="0.01" value="${ag.price_unit || ''}" placeholder="0.00" style="width:100%; font-weight:700; color:var(--green)">
+          </div>
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Лимит по ДС (₽)</label>
+            <input type="number" id="ag_field_amount" step="0.01" value="${ag.amount || ''}" placeholder="0.00" style="width:100%">
+          </div>
+        </div>
+
+        <div>
+          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Примечание по региону</label>
+          <textarea id="ag_field_comment" rows="2" style="width:100%">${escHtml(ag.comment || '')}</textarea>
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px; padding-top:12px; border-top:1px solid var(--border)">
+        ${(S.user && (S.user.role === 'admin' || S.user.role === 'director')) ? `
+          <button type="button" class="btn btn-sm btn-ghost" onclick="deleteAgreement(${contractId}, ${agreementId})" style="color:var(--red)">
+            🗑️ Удалить ДС
+          </button>
+        ` : '<div></div>'}
+        <div style="display:flex; gap:8px">
+          <button type="button" class="btn btn-sm btn-ghost" onclick="closeAgreementModal()">Отмена</button>
+          <button type="submit" class="btn btn-sm btn-primary">Сохранить</button>
+        </div>
+      </div>
+    </form>
+  `;
+
+  backdrop.style.display = 'flex';
+}
+
+function submitEditAgreement(contractId, agreementId) {
+  var code = (document.getElementById('ag_field_code').value || '').trim();
+  var region = (document.getElementById('ag_field_region').value || '').trim();
+  var extNum = (document.getElementById('ag_field_ext_num').value || '').trim();
+  var priceUnit = document.getElementById('ag_field_price_unit').value;
+  var amount = document.getElementById('ag_field_amount').value;
+  var comment = (document.getElementById('ag_field_comment').value || '').trim();
+
+  api('/contracts/agreements/' + agreementId, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      agreement_code: code,
+      region: region,
+      city: region,
+      external_number: extNum,
+      price_unit: priceUnit,
+      amount: amount,
+      comment: comment
+    })
+  }).then(function(updatedAg) {
+    closeAgreementModal();
+    var c = (S.contracts || []).find(function(x) { return String(x.id) === String(contractId); });
+    if (c && c.agreements) {
+      var idx = c.agreements.findIndex(function(x) { return String(x.id) === String(agreementId); });
+      if (idx !== -1) {
+        c.agreements[idx] = updatedAg;
+      }
+    }
+    if (window._activeContract && String(window._activeContract.id) === String(contractId)) {
+      var idx2 = (window._activeContract.agreements || []).findIndex(function(x) { return String(x.id) === String(agreementId); });
+      if (idx2 !== -1) {
+        window._activeContract.agreements[idx2] = updatedAg;
+      }
+    }
+    renderContractsTable();
+    if (window._activeContract && document.getElementById('contract_detail_modal_backdrop') && document.getElementById('contract_detail_modal_backdrop').style.display === 'flex') {
+      openContractModal(contractId, 'agreements');
+    }
+    if (typeof showToast === 'function') showToast('✅ Данные ДС сохранены', 'success');
+  }).catch(function(err) {
+    alert('Ошибка сохранения ДС: ' + err.message);
+  });
+}
+
+function closeAgreementModal() {
+  var backdrop = document.getElementById('contract_agreement_modal_backdrop');
+  if (backdrop) backdrop.style.display = 'none';
+}
+
+function openAddAgreementModal(contractId) {
+  var c = (S.contracts || []).find(function(x) { return String(x.id) === String(contractId); }) || window._activeContract;
+  if (!c) return;
+
+  var backdrop = document.getElementById('contract_agreement_modal_backdrop');
+  var modal = document.getElementById('contract_agreement_modal');
+  if (!backdrop || !modal) return;
+
+  modal.innerHTML = `
+    <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:#fafafa">
+      <div>
+        <div style="font-size:.72rem; text-transform:uppercase; font-weight:700; color:var(--text-3)">Добавление допсоглашения</div>
+        <h3 style="margin:2px 0 0; font-size:1.1rem; font-weight:700">Новое ДС к договору Вн. № ${escHtml(c.internal_number || '—')}</h3>
+      </div>
+      <button class="btn btn-sm btn-ghost" onclick="closeAgreementModal()" style="font-size:1.2rem; line-height:1">&times;</button>
+    </div>
+
+    <form id="add_agreement_form" onsubmit="event.preventDefault(); submitAddAgreement(${contractId})" style="padding:20px">
+      <div style="display:flex; flex-direction:column; gap:12px">
+        <div>
+          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Регион / Город *</label>
+          <input type="text" id="add_ag_region" placeholder="Например: Иркутск" style="width:100%" required>
+        </div>
+
+        <div>
+          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Номер Сбербанка (внешний № контракта)</label>
+          <input type="text" id="add_ag_ext_num" placeholder="Например: 50005595399" style="width:100%; font-family:monospace">
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Региональная цена (₽)</label>
+            <input type="number" id="add_ag_price_unit" step="0.01" placeholder="0.00" style="width:100%; font-weight:700; color:var(--green)">
+          </div>
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Лимит по ДС (₽)</label>
+            <input type="number" id="add_ag_amount" step="0.01" placeholder="0.00" style="width:100%">
+          </div>
+        </div>
+
+        <div>
+          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Примечание</label>
+          <textarea id="add_ag_comment" rows="2" style="width:100%"></textarea>
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:20px; padding-top:12px; border-top:1px solid var(--border)">
+        <button type="button" class="btn btn-sm btn-ghost" onclick="closeAgreementModal()">Отмена</button>
+        <button type="submit" class="btn btn-sm btn-primary">Добавить ДС</button>
+      </div>
+    </form>
+  `;
+
+  backdrop.style.display = 'flex';
+}
+
+function submitAddAgreement(contractId) {
+  var region = (document.getElementById('add_ag_region').value || '').trim();
+  var extNum = (document.getElementById('add_ag_ext_num').value || '').trim();
+  var priceUnit = document.getElementById('add_ag_price_unit').value;
+  var amount = document.getElementById('add_ag_amount').value;
+  var comment = (document.getElementById('add_ag_comment').value || '').trim();
+
+  api('/contracts/' + contractId + '/agreements', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      region: region,
+      city: region,
+      external_number: extNum,
+      price_unit: priceUnit,
+      amount: amount,
+      comment: comment
+    })
+  }).then(function(newAg) {
+    closeAgreementModal();
+    window._openContractAgreements = window._openContractAgreements || new Set();
+    window._openContractAgreements.add(contractId);
+
+    var c = (S.contracts || []).find(function(x) { return String(x.id) === String(contractId); });
+    if (c) {
+      c.agreements = c.agreements || [];
+      c.agreements.push(newAg);
+    }
+    if (window._activeContract && String(window._activeContract.id) === String(contractId)) {
+      window._activeContract.agreements = window._activeContract.agreements || [];
+      window._activeContract.agreements.push(newAg);
+    }
+    renderContractsTable();
+    if (window._activeContract && document.getElementById('contract_detail_modal_backdrop') && document.getElementById('contract_detail_modal_backdrop').style.display === 'flex') {
+      openContractModal(contractId, 'agreements');
+    }
+    if (typeof showToast === 'function') showToast('✅ Дополнительное соглашение добавлено', 'success');
+  }).catch(function(err) {
+    alert('Ошибка добавления ДС: ' + err.message);
+  });
+}
+
+function deleteAgreement(contractId, agreementId) {
+  if (!confirm('Вы уверены, что хотите удалить это дополнительное соглашение? Связанные заявки будут отвязаны от ДС.')) return;
+
+  api('/contracts/agreements/' + agreementId, {
+    method: 'DELETE'
+  }).then(function() {
+    closeAgreementModal();
+    var c = (S.contracts || []).find(function(x) { return String(x.id) === String(contractId); });
+    if (c && c.agreements) {
+      c.agreements = c.agreements.filter(function(x) { return String(x.id) !== String(agreementId); });
+    }
+    if (window._activeContract && window._activeContract.agreements) {
+      window._activeContract.agreements = window._activeContract.agreements.filter(function(x) { return String(x.id) !== String(agreementId); });
+    }
+    renderContractsTable();
+    if (window._activeContract && document.getElementById('contract_detail_modal_backdrop') && document.getElementById('contract_detail_modal_backdrop').style.display === 'flex') {
+      openContractModal(contractId, 'agreements');
+    }
+    if (typeof showToast === 'function') showToast('Дополнительное соглашение удалено', 'info');
+  }).catch(function(err) {
+    alert('Ошибка удаления ДС: ' + err.message);
+  });
 }
 
 function renderContractTabTasks(c, tasks) {
@@ -1758,11 +2277,106 @@ function formatFileSize(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
+function loadLeafletLib(cb) {
+  if (window.L) {
+    cb();
+    return;
+  }
+  var css = document.createElement('link');
+  css.rel = 'stylesheet';
+  css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  document.head.appendChild(css);
+
+  var s = document.createElement('script');
+  s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  s.onload = cb;
+  document.head.appendChild(s);
+}
+
+function buildAgreementPopupHtml(c, ag) {
+  var agCode = ag.agreement_code || ('ДС-' + ag.agreement_number);
+  var cityLabel = ag.city || ag.region || 'Регион';
+  var priceText = (ag.price_unit && Number(ag.price_unit) > 0) ? fmtMoney(ag.price_unit) : 'не задана';
+  var tasksCount = ag.linked_tasks_count || 0;
+  var statusBadge = escHtml(ag.status || 'active');
+
+  return `
+    <div style="font-family:sans-serif; min-width:190px; padding:2px">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; gap:8px">
+        <span style="font-weight:800; color:#1d4ed8; font-size:.9rem">${escHtml(agCode)}</span>
+        <span style="font-size:.7rem; background:#f1f5f9; padding:2px 6px; border-radius:4px; font-weight:600; text-transform:uppercase">${statusBadge}</span>
+      </div>
+      <div style="font-weight:700; font-size:.88rem; color:#0f172a; margin-bottom:4px">
+        📍 ${escHtml(cityLabel)}
+      </div>
+      ${ag.external_number ? `<div style="font-size:.74rem; color:#64748b; margin-bottom:4px">Сбербанк: <b>${escHtml(ag.external_number)}</b></div>` : ''}
+      <div style="font-size:.8rem; margin-bottom:3px">
+        💰 Тариф: <b>${priceText}</b>
+      </div>
+      ${ag.amount && Number(ag.amount) > 0 ? `<div style="font-size:.78rem; color:#475569; margin-bottom:3px">Лимит: <b>${fmtMoney(ag.amount)}</b></div>` : ''}
+      <div style="font-size:.78rem; color:#475569; margin-bottom:8px">
+        📋 Заявок: <b>${tasksCount}</b>
+      </div>
+      <div style="display:flex; gap:6px; border-top:1px solid #e2e8f0; padding-top:6px">
+        <button type="button" class="btn btn-xs" style="background:#2563eb; color:#fff; font-size:.72rem; padding:3px 8px; border:none; border-radius:4px; cursor:pointer; font-weight:600" 
+                onclick="closeContractModal(); openCreateTaskForContractModal(${c.id}, ${ag.id})">+ Заявка</button>
+        <button type="button" class="btn btn-xs" style="background:#f8fafc; color:#1e293b; font-size:.72rem; padding:3px 8px; border:1px solid #cbd5e1; border-radius:4px; cursor:pointer" 
+                onclick="openEditAgreementModal(${c.id}, ${ag.id})">✏️ Изменить</button>
+      </div>
+    </div>
+  `;
+}
+
 function initContractMap(c) {
   var mapElId = 'contract_leafmap_' + c.id;
   var el = document.getElementById(mapElId);
   if (!el) return;
 
+  var validAgreements = (c.agreements || []).filter(function(ag) {
+    return ag.geo_lat && ag.geo_lon && !isNaN(Number(ag.geo_lat)) && !isNaN(Number(ag.geo_lon));
+  });
+
+  // Если есть соглашения с координатами - строим карту со всеми точками
+  if (validAgreements.length > 0) {
+    loadLeafletLib(function() {
+      el.innerHTML = '';
+      if (window._activeContractMap) {
+        try { window._activeContractMap.remove(); } catch(_) {}
+      }
+
+      var map = L.map(el);
+      window._activeContractMap = map;
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map);
+
+      window._contractMainMarkersMap = window._contractMainMarkersMap || {};
+      window._contractMainMarkersMap[c.id] = {};
+
+      var bounds = [];
+      validAgreements.forEach(function(ag) {
+        var lat = parseFloat(ag.geo_lat);
+        var lng = parseFloat(ag.geo_lon);
+        bounds.push([lat, lng]);
+
+        var marker = L.marker([lat, lng]).addTo(map);
+        marker.bindPopup(buildAgreementPopupHtml(c, ag));
+        window._contractMainMarkersMap[c.id][ag.id] = marker;
+      });
+
+      window._contractMainBounds = window._contractMainBounds || {};
+      window._contractMainBounds[c.id] = bounds;
+
+      if (bounds.length === 1) {
+        map.setView(bounds[0], 12);
+      } else if (bounds.length > 1) {
+        map.fitBounds(bounds, { padding: [25, 25] });
+      }
+
+      setTimeout(function() { map.invalidateSize(); }, 200);
+    });
+    return;
+  }
+
+  // Если допсоглашений нет - работаем по одиночному адресу/городу
   var mapAddr = (c.delivery_place || c.our_entity_region || '').trim();
   if (!mapAddr) {
     el.innerHTML = '<div style="text-align:center;padding:1.5rem;color:#888">Место работ не указано в договоре</div>';
@@ -1777,10 +2391,17 @@ function initContractMap(c) {
       .trim();
   }
 
-  var queries = [
-    'Россия, ' + (c.our_entity_region ? c.our_entity_region + ', ' : '') + cleanAddr(mapAddr),
-    'Россия, ' + cleanAddr(mapAddr)
-  ];
+  var firstCityCandidate = '';
+  if (mapAddr.includes(',') || mapAddr.includes(';')) {
+    firstCityCandidate = mapAddr.split(/[,;\n]/)[0].replace(/и ещё.*/i, '').trim();
+  }
+
+  var queries = [];
+  if (firstCityCandidate && firstCityCandidate !== mapAddr) {
+    queries.push('Россия, ' + cleanAddr(firstCityCandidate));
+  }
+  queries.push('Россия, ' + (c.our_entity_region ? c.our_entity_region + ', ' : '') + cleanAddr(mapAddr));
+  queries.push('Россия, ' + cleanAddr(mapAddr));
   if (c.our_entity_region) queries.push('Россия, ' + c.our_entity_region);
 
   function tryGeocode(qs, cb) {
@@ -1819,18 +2440,122 @@ function initContractMap(c) {
     });
   }
 
-  if (window.L) {
-    renderLeaflet();
-  } else {
-    var css = document.createElement('link');
-    css.rel = 'stylesheet';
-    css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-    document.head.appendChild(css);
+  loadLeafletLib(renderLeaflet);
+}
 
-    var s = document.createElement('script');
-    s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    s.onload = renderLeaflet;
-    document.head.appendChild(s);
+function initContractAgreementsMap(c) {
+  var mapElId = 'contract_agreements_leafmap_' + c.id;
+  var el = document.getElementById(mapElId);
+  if (!el) return;
+
+  var validAgreements = (c.agreements || []).filter(function(ag) {
+    return ag.geo_lat && ag.geo_lon && !isNaN(Number(ag.geo_lat)) && !isNaN(Number(ag.geo_lon));
+  });
+
+  if (!validAgreements.length) {
+    el.innerHTML = '<div style="text-align:center;padding:1.5rem;color:#888">Координаты для соглашений не найдены</div>';
+    return;
+  }
+
+  loadLeafletLib(function() {
+    el.innerHTML = '';
+    if (window._activeAgreementsMap) {
+      try { window._activeAgreementsMap.remove(); } catch(_) {}
+    }
+
+    var map = L.map(el);
+    window._activeAgreementsMap = map;
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map);
+
+    window._contractAgreementsMarkersMap = window._contractAgreementsMarkersMap || {};
+    window._contractAgreementsMarkersMap[c.id] = {};
+
+    var bounds = [];
+    validAgreements.forEach(function(ag) {
+      var lat = parseFloat(ag.geo_lat);
+      var lng = parseFloat(ag.geo_lon);
+      bounds.push([lat, lng]);
+
+      var marker = L.marker([lat, lng]).addTo(map);
+      marker.bindPopup(buildAgreementPopupHtml(c, ag));
+      window._contractAgreementsMarkersMap[c.id][ag.id] = marker;
+    });
+
+    window._contractAgreementsBounds = window._contractAgreementsBounds || {};
+    window._contractAgreementsBounds[c.id] = bounds;
+
+    if (bounds.length === 1) {
+      map.setView(bounds[0], 12);
+    } else if (bounds.length > 1) {
+      map.fitBounds(bounds, { padding: [30, 30] });
+    }
+
+    setTimeout(function() { map.invalidateSize(); }, 200);
+  });
+}
+
+function focusAgreementOnMap(contractId, agreementId) {
+  var mapWrap = document.getElementById('contract_agreements_leafmap_' + contractId);
+  if (mapWrap && mapWrap.style.display === 'none') {
+    toggleContractAgreementsMap(contractId);
+  }
+
+  var map = window._activeAgreementsMap || window._activeContractMap;
+  var markersMap = (window._contractAgreementsMarkersMap && window._contractAgreementsMarkersMap[contractId]) || 
+                   (window._contractMainMarkersMap && window._contractMainMarkersMap[contractId]);
+
+  if (!map || !markersMap || !markersMap[agreementId]) {
+    showToast('Координаты для этого соглашения пока не заданы', 'info');
+    return;
+  }
+
+  var marker = markersMap[agreementId];
+  var latLng = marker.getLatLng();
+
+  map.flyTo(latLng, 11, { duration: 0.8 });
+  marker.openPopup();
+
+  // Подсвечиваем строку соглашения в таблице
+  var row = document.getElementById('agr_row_' + contractId + '_' + agreementId);
+  if (row) {
+    row.style.background = '#fef3c7';
+    setTimeout(function() {
+      row.style.background = '';
+    }, 2000);
+  }
+}
+
+function resetContractAgreementsMap(contractId) {
+  var map = window._activeAgreementsMap;
+  var bounds = window._contractAgreementsBounds && window._contractAgreementsBounds[contractId];
+  if (map && bounds && bounds.length) {
+    if (bounds.length === 1) map.setView(bounds[0], 12);
+    else map.fitBounds(bounds, { padding: [30, 30] });
+  }
+}
+
+function toggleContractAgreementsMap(contractId) {
+  var el = document.getElementById('contract_agreements_leafmap_' + contractId);
+  var btn = document.getElementById('btn_toggle_agreements_map_' + contractId);
+  if (!el) return;
+  if (el.style.display === 'none') {
+    el.style.display = 'block';
+    if (btn) btn.textContent = 'Свернуть карту';
+    if (window._activeAgreementsMap) {
+      setTimeout(function() { window._activeAgreementsMap.invalidateSize(); }, 100);
+    }
+  } else {
+    el.style.display = 'none';
+    if (btn) btn.textContent = 'Развернуть карту';
+  }
+}
+
+function resetContractMainMap(contractId) {
+  var map = window._activeContractMap;
+  var bounds = window._contractMainBounds && window._contractMainBounds[contractId];
+  if (map && bounds && bounds.length) {
+    if (bounds.length === 1) map.setView(bounds[0], 12);
+    else map.fitBounds(bounds, { padding: [25, 25] });
   }
 }
 
@@ -2400,7 +3125,7 @@ function ensureCreateTaskModalInDOM() {
 /**
  * Открытие модалки создания новой заявки по договору (с предзаполнением)
  */
-function openCreateTaskForContractModal(contractId) {
+function openCreateTaskForContractModal(contractId, agreementId) {
   ensureCreateTaskModalInDOM();
   var backdrop = document.getElementById('contract_create_task_modal_backdrop');
   var modal = document.getElementById('contract_create_task_modal');
@@ -2414,12 +3139,17 @@ function openCreateTaskForContractModal(contractId) {
     api('/contracts/' + contractId).then(function(res) {
       if (res && !res.error) {
         window._activeContract = res;
-        openCreateTaskForContractModal(contractId);
+        openCreateTaskForContractModal(contractId, agreementId);
       } else {
         alert('Не удалось загрузить данные договора');
       }
     });
     return;
+  }
+
+  var selectedAg = null;
+  if (agreementId && c.agreements) {
+    selectedAg = c.agreements.find(function(a) { return String(a.id) === String(agreementId); });
   }
 
   var existingCount = (c.linked_tasks && c.linked_tasks.length) ? c.linked_tasks.length : 0;
@@ -2429,6 +3159,10 @@ function openCreateTaskForContractModal(contractId) {
 
   var todayStr = new Date().toISOString().slice(0, 10);
   var deadlineStr = c.deadline_date ? String(c.deadline_date).slice(0, 10) : '';
+
+  var defaultRegion = selectedAg ? (selectedAg.city || selectedAg.region) : (c.our_entity_region || '');
+  var defaultAddress = selectedAg ? (selectedAg.city || selectedAg.region) : (c.delivery_place || '');
+  var defaultAmount = selectedAg && Number(selectedAg.price_unit) > 0 ? Number(selectedAg.price_unit) : 0;
 
   // Опции заказчиков
   var custOptions = ['ПАО Сбербанк'];
@@ -2444,10 +3178,11 @@ function openCreateTaskForContractModal(contractId) {
   modal.innerHTML = `
     <div style="padding:18px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:#fafafa; border-radius:12px 12px 0 0">
       <div>
-        <div style="display:flex; align-items:center; gap:8px">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
           <span class="badge b-blue" style="font-size:.78rem">Связка с договором</span>
           <span class="badge b-orange" style="font-size:.78rem; font-family:monospace; font-weight:700">Вн. № ${escHtml(c.internal_number || '—')}</span>
           ${c.contract_number ? `<span class="badge b-gray" style="font-size:.78rem">№ ${escHtml(cleanContractNumber(c.contract_number))}</span>` : ''}
+          ${selectedAg ? `<span class="badge b-purple" style="font-size:.78rem">📍 ${escHtml(selectedAg.agreement_code || ('ДС-' + selectedAg.agreement_number))} (${escHtml(selectedAg.city || selectedAg.region)})</span>` : ''}
         </div>
         <h3 style="margin:6px 0 0; font-size:1.15rem; font-weight:700">➕ Создание новой заявки / объекта</h3>
       </div>
@@ -2455,6 +3190,7 @@ function openCreateTaskForContractModal(contractId) {
     </div>
 
     <form id="create_contract_task_form" onsubmit="event.preventDefault(); submitCreateTaskForContract(${c.id})" style="padding:20px 24px">
+      <input type="hidden" id="ct_agreement_id" value="${selectedAg ? selectedAg.id : ''}">
       <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:10px 14px; margin-bottom:16px; font-size:.82rem; color:#166534; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px">
         <div>
           <span>✨ <b>Реквизиты предзаполнены из договора:</b> заказчик, регион, адрес объекта, вид работ и куратор.</span>
@@ -2488,13 +3224,13 @@ function openCreateTaskForContractModal(contractId) {
           </div>
           <div>
             <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Регион ${(typeof getHintIcon === 'function') ? getHintIcon('region') : ''}</label>
-            <input type="text" id="ct_region" value="${escHtml(c.our_entity_region || '')}" placeholder="Регион проведения работ" style="width:100%">
+            <input type="text" id="ct_region" value="${escHtml(defaultRegion)}" placeholder="Регион проведения работ" style="width:100%">
           </div>
         </div>
 
         <div>
           <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Адрес объекта ${(typeof getHintIcon === 'function') ? getHintIcon('address') : ''}</label>
-          <input type="text" id="ct_address" value="${escHtml(c.delivery_place || '')}" placeholder="Точный адрес объекта" style="width:100%">
+          <input type="text" id="ct_address" value="${escHtml(defaultAddress)}" placeholder="Точный адрес объекта" style="width:100%">
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
@@ -2511,7 +3247,7 @@ function openCreateTaskForContractModal(contractId) {
         <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px">
           <div>
             <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Сумма заявки (₽) ${(typeof getHintIcon === 'function') ? getHintIcon('amount') : ''}</label>
-            <input type="number" id="ct_amount" value="0" style="width:100%">
+            <input type="number" id="ct_amount" value="${defaultAmount || 0}" style="width:100%">
           </div>
           <div>
             <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Дата заявки</label>
@@ -2568,22 +3304,27 @@ function submitCreateTaskForContract(contractId) {
   var origText = btn ? btn.innerHTML : '';
   if (btn) { btn.innerHTML = 'Создание...'; btn.disabled = true; }
 
+  var agIdEl = document.getElementById('ct_agreement_id');
+  var agId = (agIdEl && agIdEl.value) ? parseInt(agIdEl.value, 10) : null;
+
   var data = {
-    id:           idEl.value.trim(),
-    contractId:   contractId,
-    contract_id:  contractId,
-    vsp:          document.getElementById('ct_vsp').value.trim(),
-    customer:     document.getElementById('ct_customer').value,
-    region:       document.getElementById('ct_region').value.trim(),
-    address:      document.getElementById('ct_address').value.trim(),
-    workType:     document.getElementById('ct_work_type').value.trim(),
-    manager:      document.getElementById('ct_manager').value.trim(),
-    amount:       document.getElementById('ct_amount').value,
-    dateZayavki:  document.getElementById('ct_date_zayavki').value,
-    deadline:     document.getElementById('ct_deadline').value,
-    techLink:     document.getElementById('ct_tech_link').value.trim(),
-    inOrder:      document.getElementById('ct_in_order').value,
-    comment:      document.getElementById('ct_comment').value.trim()
+    id:                   idEl.value.trim(),
+    contractId:           contractId,
+    contract_id:          contractId,
+    contractAgreementId:  agId,
+    contract_agreement_id: agId,
+    vsp:                  document.getElementById('ct_vsp').value.trim(),
+    customer:             document.getElementById('ct_customer').value,
+    region:               document.getElementById('ct_region').value.trim(),
+    address:              document.getElementById('ct_address').value.trim(),
+    workType:             document.getElementById('ct_work_type').value.trim(),
+    manager:              document.getElementById('ct_manager').value.trim(),
+    amount:               document.getElementById('ct_amount').value,
+    dateZayavki:          document.getElementById('ct_date_zayavki').value,
+    deadline:             document.getElementById('ct_deadline').value,
+    techLink:             document.getElementById('ct_tech_link').value.trim(),
+    inOrder:              document.getElementById('ct_in_order').value,
+    comment:              document.getElementById('ct_comment').value.trim()
   };
 
   api('/tasks', {
@@ -2959,4 +3700,10 @@ window.linkTaskToContract = linkTaskToContract;
 window.unlinkTaskFromContractPrompt = unlinkTaskFromContractPrompt;
 window.openCreateTaskForContractModal = openCreateTaskForContractModal;
 window.closeCreateTaskForContractModal = closeCreateTaskForContractModal;
+window.initContractAgreementsMap = initContractAgreementsMap;
+window.focusAgreementOnMap = focusAgreementOnMap;
+window.resetContractAgreementsMap = resetContractAgreementsMap;
+window.toggleContractAgreementsMap = toggleContractAgreementsMap;
+window.resetContractMainMap = resetContractMainMap;
+
 
