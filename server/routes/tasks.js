@@ -172,14 +172,44 @@ router.post('/tasks', authenticateToken, requireRole('admin', 'director', 'manag
     }
 
     let contractId = (t.contractId || t.contract_id) ? Number(t.contractId || t.contract_id) : null;
-    if (!contractId && cleanId) {
+    let ownCompanyId = (t.ownCompanyId || t.own_company_id) ? Number(t.ownCompanyId || t.own_company_id) : null;
+    let customerName = t.customer || null;
+
+    if (!contractId) {
       const mPrefix = String(cleanId).match(/^(\d{4}-\d{2})/);
       if (mPrefix) {
-        const { rows: matchedC } = await pool.query('SELECT id FROM contracts WHERE internal_number = $1 LIMIT 1', [mPrefix[1]]);
+        const { rows: matchedC } = await pool.query('SELECT id, our_entity_name, customer_name FROM contracts WHERE internal_number = $1 LIMIT 1', [mPrefix[1]]);
         if (matchedC.length > 0) {
           contractId = matchedC[0].id;
+          if (!customerName) customerName = matchedC[0].customer_name;
+          if (!ownCompanyId) {
+            const ent = String(matchedC[0].our_entity_name || '').toLowerCase();
+            ownCompanyId = ent.includes('к10') ? 2 : (ent.includes('кабельн') ? 1 : 3);
+          }
         }
       }
+      if (!contractId && t.region) {
+        const mNum = String(t.region).match(/\b(5000\d{7}|\d{7,12})\b/);
+        if (mNum) {
+          const { rows: matchedNum } = await pool.query(`
+            SELECT id, our_entity_name, customer_name FROM contracts 
+            WHERE contract_number ILIKE $1 OR lots::text ILIKE $1 OR raw_data::text ILIKE $1
+            LIMIT 1
+          `, [`%${mNum[1]}%`]);
+          if (matchedNum.length > 0) {
+            contractId = matchedNum[0].id;
+            if (!customerName) customerName = matchedNum[0].customer_name;
+            if (!ownCompanyId) {
+              const ent = String(matchedNum[0].our_entity_name || '').toLowerCase();
+              ownCompanyId = ent.includes('к10') ? 2 : (ent.includes('кабельн') ? 1 : 3);
+            }
+          }
+        }
+      }
+    }
+    if (!customerName && (cleanId.startsWith('СЗБ-') || cleanId.startsWith('ВВБ-') || cleanId.startsWith('СИБ-') || String(t.sheet || '').includes('Сбер'))) {
+      customerName = 'ПАО Сбербанк';
+      if (!ownCompanyId) ownCompanyId = 2; // ООО «К10»
     }
     const contractLot = (t.contractLot || t.contract_lot) ? Number(t.contractLot || t.contract_lot) : null;
 
@@ -187,8 +217,8 @@ router.post('/tasks', authenticateToken, requireRole('admin', 'director', 'manag
       INSERT INTO tasks (
         id, vsp, manager, contact, region, address, work_type, amount, price_per_unit,
         in_order, fact, date_zayavki, deadline, tech_link, invoice_info, comment,
-        status, priority, archived, stage, customer, contract_id, contract_lot
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', 'medium', false, 'request', $17, $18, $19)
+        status, priority, archived, stage, customer, contract_id, contract_lot, own_company_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', 'medium', false, 'request', $17, $18, $19, $20)
     `, [
       cleanId, 
       t.vsp || null, 
@@ -442,7 +472,27 @@ router.post('/tasks/:id/accept', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Эта заявка назначена не вам' });
     }
 
-    await pool.query(`UPDATE tasks SET assignment_status='accepted' WHERE id=$1`, [req.params.id]);
+    const { assignee, controller, own_company_id, tech_link } = req.body || {};
+
+    await pool.query(`
+      UPDATE tasks 
+      SET 
+        assignment_status = 'accepted',
+        assignee          = COALESCE(NULLIF($2, ''), assignee),
+        controller        = COALESCE(NULLIF($3, ''), controller),
+        own_company_id    = COALESCE($4::integer, own_company_id),
+        tech_link         = COALESCE(NULLIF($5, ''), tech_link),
+        status            = CASE WHEN status IN ('new', 'pending', 'cancelled') THEN 'progress' ELSE status END,
+        stage_num         = CASE WHEN stage_num = 0 THEN 1 ELSE stage_num END,
+        updated_at        = NOW()
+      WHERE id = $1
+    `, [
+      req.params.id,
+      assignee,
+      controller,
+      own_company_id ? Number(own_company_id) : null,
+      tech_link
+    ]);
 
     pool.query('SELECT id FROM users WHERE role=$1', ['admin']).then(({ rows: admins }) => {
       admins.forEach(a => createNotification(a.id, `✅ Заявка принята: ${req.params.id}`, `${req.user.fullName} принял заявку в работу`, req.params.id));

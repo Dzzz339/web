@@ -321,6 +321,21 @@ async function seedInitialData(pool) {
     validTo: '2026-12-31'
   });
 
+  // Г) Елагин ↔ КС (Кабельные Системы - Росприроднадзор / СФР / Коммерческие)
+  const elKsContract = await ensureContract({
+    pool,
+    contractorId: elaginId,
+    ownCompanyId: ownMap['KS'],
+    contractNumber: 'СКС-КС-090626',
+    contractDate: '2026-06-09',
+    title: 'Договор субподряда КС - СЗ Елагин (Разовые / Росприроднадзор / СФР)',
+    customerTag: 'Росприроднадзор, ОСФР, коммерческие',
+    subject: 'Монтаж и пусконаладочные работы СКС и систем связи',
+    territory: 'г. Архангельск, Архангельская область, СЗФО',
+    validFrom: '2026-06-09',
+    validTo: '2027-12-31'
+  });
+
   // 4. Посев прайс-листов из протоколов ТЗ (Приложение №1)
   const standardPriceItems = [
     { work_code: 'port_5e', work_name: 'Базовая стоимость работ 1(один) порт СКС 5е', unit: 'шт', tier1: 3000, tier2: 2500, threshold: 3, sort: 1 },
@@ -351,6 +366,9 @@ async function seedInitialData(pool) {
   }
   if (elK10Contract) {
     await seedPriceList(pool, elK10Contract.id, 'Приложение №1 (Протокол согласования цены для Сбера)', 'ПАО Сбербанк', standardPriceItems);
+  }
+  if (elKsContract) {
+    await seedPriceList(pool, elKsContract.id, 'Приложение №1 (Протокол согласования цены - КС / Общий)', 'Росприроднадзор / СФР / Коммерческие', standardPriceItems);
   }
 }
 

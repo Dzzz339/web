@@ -211,6 +211,47 @@ router.post('/excel/import-rows', authenticateToken, requireRole('admin', 'direc
 
       // Upsert каждой заявки из батча
       for (const t of newBatch) {
+        let resolvedCustomer = t.customer || null;
+        let resolvedContractId = (t.contractId || t.contract_id) ? Number(t.contractId || t.contract_id) : null;
+        let resolvedOwnCompanyId = (t.ownCompanyId || t.own_company_id) ? Number(t.ownCompanyId || t.own_company_id) : null;
+
+        if (!resolvedContractId) {
+          const mPrefix = String(t.id).match(/^(\d{4}-\d{2})/);
+          if (mPrefix) {
+            const { rows: matchedC } = await client.query('SELECT id, our_entity_name, customer_name FROM contracts WHERE internal_number = $1 LIMIT 1', [mPrefix[1]]);
+            if (matchedC.length > 0) {
+              resolvedContractId = matchedC[0].id;
+              if (!resolvedCustomer) resolvedCustomer = matchedC[0].customer_name;
+              if (!resolvedOwnCompanyId) {
+                const ent = String(matchedC[0].our_entity_name || '').toLowerCase();
+                resolvedOwnCompanyId = ent.includes('к10') ? 2 : (ent.includes('кабельн') ? 1 : 3);
+              }
+            }
+          }
+          if (!resolvedContractId && t.region) {
+            const mNum = String(t.region).match(/\b(5000\d{7}|\d{7,12})\b/);
+            if (mNum) {
+              const { rows: matchedNum } = await client.query(`
+                SELECT id, our_entity_name, customer_name FROM contracts 
+                WHERE contract_number ILIKE $1 OR lots::text ILIKE $1 OR raw_data::text ILIKE $1
+                LIMIT 1
+              `, [`%${mNum[1]}%`]);
+              if (matchedNum.length > 0) {
+                resolvedContractId = matchedNum[0].id;
+                if (!resolvedCustomer) resolvedCustomer = matchedNum[0].customer_name;
+                if (!resolvedOwnCompanyId) {
+                  const ent = String(matchedNum[0].our_entity_name || '').toLowerCase();
+                  resolvedOwnCompanyId = ent.includes('к10') ? 2 : (ent.includes('кабельн') ? 1 : 3);
+                }
+              }
+            }
+          }
+        }
+        if (!resolvedCustomer && (String(t.id).startsWith('СЗБ-') || String(t.id).startsWith('ВВБ-') || String(t.id).startsWith('СИБ-') || String(t.sheet || '').includes('Сбер'))) {
+          resolvedCustomer = 'ПАО Сбербанк';
+          if (!resolvedOwnCompanyId) resolvedOwnCompanyId = 2; // ООО «К10»
+        }
+
         await client.query(`
           INSERT INTO tasks (
             id, sheet, region, address, work_type, tip_obj, gosb, vsp,
@@ -219,7 +260,8 @@ router.post('/excel/import-rows', authenticateToken, requireRole('admin', 'direc
             id_status, amount, distance_km, price_per_unit,
             tech_link, edo_number, invoice_info, vedo_status, excel_comment,
             status, priority, overdue_days, stage, archived, raw_data,
-            import_source, first_imported_at, last_imported_at, import_batch_id
+            import_source, first_imported_at, last_imported_at, import_batch_id,
+            customer, contract_id, own_company_id
           ) VALUES (
             $1,$2,$3,$4,$5,$6,$7,$8,
             $9,$10,$11,$12,$13,$14,
@@ -227,7 +269,8 @@ router.post('/excel/import-rows', authenticateToken, requireRole('admin', 'direc
             $22,$23,$24,$25,
             $26,$27,$28,$29,$30,
             $31,$32,$33,$34,false,$35,
-            $36, NOW(), NOW(), $37
+            $36, NOW(), NOW(), $37,
+            $38, $39, $40
           )
           ON CONFLICT (id) DO UPDATE SET
             import_source = COALESCE(tasks.import_source, EXCLUDED.import_source),
@@ -268,6 +311,9 @@ router.post('/excel/import-rows', authenticateToken, requireRole('admin', 'direc
             archived      = false,
             updated_at    = NOW(),
             raw_data      = EXCLUDED.raw_data,
+            customer      = COALESCE(tasks.customer, EXCLUDED.customer),
+            contract_id   = COALESCE(tasks.contract_id, EXCLUDED.contract_id),
+            own_company_id = COALESCE(tasks.own_company_id, EXCLUDED.own_company_id),
             contact       = COALESCE(NULLIF(tasks.contact, ''),    EXCLUDED.contact),
             contractor    = COALESCE(NULLIF(tasks.contractor, ''), EXCLUDED.contractor),
             stage         = COALESCE(tasks.stage,                  EXCLUDED.stage),
@@ -287,7 +333,10 @@ router.post('/excel/import-rows', authenticateToken, requireRole('admin', 'direc
           t.stage || getInitialStage(t.status, t),
           JSON.stringify(t.rawData || {}),
           name || 'Реестр.xlsx',
-          currentBatchId
+          currentBatchId,
+          resolvedCustomer,
+          resolvedContractId,
+          resolvedOwnCompanyId
         ]);
 
         if (Array.isArray(t.items) && t.items.length > 0) {

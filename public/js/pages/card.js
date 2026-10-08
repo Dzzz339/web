@@ -79,13 +79,24 @@ window.approveTaskEntry = function(taskId) {
     body: JSON.stringify(payload)
   })
   .then(function() {
-    return api('/tasks/' + encodeURIComponent(taskId) + '/accept', { method: 'POST' }).catch(function(){ return {}; });
+    return api('/tasks/' + encodeURIComponent(taskId) + '/accept', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        assignee: assigneeVal,
+        controller: controllerVal,
+        own_company_id: payload.own_company_id,
+        tech_link: t.tech_link || t.techLink || null
+      })
+    }).catch(function(){ return {}; });
   })
   .then(function() {
     t.assignee = assigneeVal;
     t.controller = controllerVal;
     t.assignmentStatus = 'accepted';
     t.assignment_status = 'accepted';
+    t.status = 'progress';
+    t.stage_num = 1;
     if (payload.own_company_id) t.own_company_id = payload.own_company_id;
     S.cardDraft = {};
     S._taskEditUnlocked = false;
@@ -95,6 +106,37 @@ window.approveTaskEntry = function(taskId) {
   .catch(function(err) {
     alert('Ошибка подтверждения заявки: ' + err.message);
   });
+};
+
+window.editCardTechLink = function(taskId) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+  var curLink = t.tech_link || t.techLink || '';
+  var newLink = prompt('Укажите или вставьте ссылку на Яндекс.Диск / папку с ТЗ Заказчика:', curLink);
+  if (newLink === null) return;
+  newLink = newLink.trim();
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tech_link: newLink, techLink: newLink })
+  }).then(function() {
+    t.tech_link = newLink;
+    t.techLink = newLink;
+    showToast('Ссылка на тех. документацию обновлена', 'success');
+    renderApp();
+  }).catch(function(err) {
+    alert('Ошибка обновления ссылки: ' + err.message);
+  });
+};
+
+window.shareTechLinkWithContractor = function(taskId) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+  var link = t.tech_link || t.techLink || '';
+  if (!link) {
+    return alert('Ссылка на техническую информацию еще не заполнена. Сначала укажите ссылку на папку объекта.');
+  }
+  showToast('✓ Входящие материалы Заказчика прикреплены к заданию подрядчику', 'success');
 };
 
 window.openDeclineTaskModal = function(taskId) {
@@ -479,6 +521,28 @@ function pageCard() {
     var inp = '';
     if (key === 'contract_id') {
       var curC = (S.contracts || []).find(function(x){ return String(x.id) === String(val || curContractId); });
+      if (!curC && t.region) {
+        var mNum = String(t.region).match(/\b(5000\d{7}|\d{7,12})\b/);
+        if (mNum) {
+          curC = (S.contracts || []).find(function(c) {
+            return String(c.contract_number || '').includes(mNum[1]) ||
+                   JSON.stringify(c.lots || []).includes(mNum[1]) ||
+                   JSON.stringify(c.raw_data || {}).includes(mNum[1]);
+          });
+        }
+      }
+      if (!curC && t.id) {
+        var mPref = String(t.id).match(/^(\d{4}-\d{2})/);
+        if (mPref) {
+          curC = (S.contracts || []).find(function(c) {
+            return c.internal_number === mPref[1];
+          });
+        }
+      }
+      if (curC && !curContractId) {
+        curContractId = curC.id;
+        t.contract_id = curC.id;
+      }
       var cleanNum = curC ? cleanContractNumber(curC.contract_number) : '';
       var showPicker = S._cardContractPickerOpen || !curC;
 
@@ -1082,9 +1146,35 @@ function pageCard() {
     '</div>' +
   '</div>';
 
+  var isAccepted = (t.assignmentStatus === 'accepted' || t.assignment_status === 'accepted') ||
+                   (Number(t.stage_num || t.stageNum || 0) > 0) ||
+                   (t.status && !['new', 'pending', 'cancelled'].includes(t.status)) ||
+                   (Boolean(t.contractor && t.contractor.trim()));
+
+  var techLinkVal = String(t.tech_link || t.techLink || t.materials_link || t.materialsLink || '').trim();
+  var techLinkBanner = '<div class="card p" style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:8px;margin-bottom:1rem;padding:10px 14px;box-shadow:0 1px 3px rgba(37,99,235,0.06)">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">' +
+      '<div style="display:flex;align-items:center;gap:10px">' +
+        '<div style="font-size:1.4rem;line-height:1">📁</div>' +
+        '<div>' +
+          '<div style="font-weight:700;font-size:.88rem;color:#1e40af;display:flex;align-items:center;gap:6px">' +
+            '<span>Шаг 1 проверки: Техническая документация объекта (ТЗ, схемы, фото)</span>' +
+            '<span class="badge b-blue" style="font-size:.7rem">Первый шаг</span>' +
+          '</div>' +
+          '<div style="font-size:.76rem;color:#3b82f6;margin-top:2px">' +
+            (techLinkVal ? ('Ссылка на диск Заказчика: <a href="' + escHtml(techLinkVal) + '" target="_blank" rel="noopener noreferrer" style="font-family:monospace;text-decoration:underline;color:#1d4ed8;font-weight:600">' + escHtml(techLinkVal.length > 55 ? techLinkVal.slice(0, 55) + '…' : techLinkVal) + '</a>') : 'Папка объекта еще не прикреплена — вставьте ссылку на Яндекс.Диск с ТЗ') +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:6px;align-items:center">' +
+        (techLinkVal ? ('<a href="' + escHtml(techLinkVal) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-primary" style="background:#2563eb;font-weight:700;padding:6px 14px;font-size:.82rem" title="Открыть облачную папку в новой вкладке">↗ Открыть папку на Яндекс.Диске</a>') : '') +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="window.editCardTechLink(\'' + eid + '\')" style="font-size:.76rem;padding:5px 8px;border:1px solid #bfdbfe;background:#fff;color:#1d4ed8">' + (techLinkVal ? '✏️ Изменить ссылку' : '+ Добавить ссылку на диск') + '</button>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+
   var entryControlBanner = (function() {
     if (isWorker) return '';
-    var isAccepted = (t.assignmentStatus === 'accepted');
     if (!isAccepted) {
       return '<div class="card p" style="background:#fffbeb;border:2px solid #f59e0b;border-radius:8px;margin-bottom:1rem;padding:12px 16px;box-shadow:0 1px 3px rgba(0,0,0,0.05)">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">' +
@@ -1128,8 +1218,8 @@ function pageCard() {
   })();
 
   var customerInflowCard = '<div class="card p" style="border:1.5px solid var(--border);background:#fff">' +
-    '<div class="sec-title" style="margin-bottom:.65rem;display:flex;align-items:center;gap:6px">' +
-      '<span>💰 Параметры заказа по договору (Вход)</span>' +
+    '<div class="sec-title" style="margin-bottom:.65rem;display:flex;justify-content:space-between;align-items:center">' +
+      '<span style="display:flex;align-items:center;gap:6px">💰 Параметры заказа по договору (Вход)</span>' +
       '<span class="badge b-blue" style="font-size:.72rem">Из договора / Excel</span>' +
     '</div>' +
     field('Сумма договора / заявки', 'amount', 'number') +
@@ -1138,11 +1228,14 @@ function pageCard() {
     field('Стоимость за единицу', 'pricePerUnit', 'number') +
     field('Удаленность объекта (км)', 'distanceKm', 'number') +
     (isWorker ? '' : field('№ документа в ЭДО', 'edoNumber') +
-    field('№ счёта / сумма', 'invoiceInfo') +
-    field('Ссылка на тех.инфо', 'techLink', 'url')) +
+    field('№ счёта / сумма', 'invoiceInfo')) +
+    '<div style="margin-top:12px;padding-top:10px;border-top:1px solid #e2e8f0;text-align:right">' +
+      '<button type="button" class="btn btn-sm btn-primary" onclick="setCardTab(\'items\')" style="font-size:.8rem;padding:5px 12px;font-weight:600">👷 Перейти к расчету СМР и подрядчику →</button>' +
+    '</div>' +
   '</div>';
 
   var paneMain = '<div id="cardTabPane-main" class="card-tab-pane" style="display:' + (curTab === 'main' ? 'block' : 'none') + '">' +
+    techLinkBanner +
     entryControlBanner +
     '<div style="display:grid;grid-template-columns:1.05fr 0.95fr;gap:1rem;align-items:start">' +
       '<div style="display:flex;flex-direction:column;gap:1rem">' +
