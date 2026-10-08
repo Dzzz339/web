@@ -826,7 +826,7 @@ function openContractModal(id, activeTab) {
 
     // Отрисовываем содержимое карточки
     modalEl.innerHTML = `
-      <div class="modal-header" style="padding:20px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px">
+      <div class="modal-header" style="padding:20px 24px; padding-right:200px; border-bottom:1px solid var(--border); position:relative">
         <div>
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
             <span class="badge b-orange" style="font-size:.85rem; font-weight:800; font-family:monospace">Вн. № ${escHtml(c.internal_number || '—')}</span>
@@ -849,9 +849,15 @@ function openContractModal(id, activeTab) {
           <h2 style="margin:8px 0 2px; font-size:1.25rem">${escHtml(c.subject || 'Договор без названия')}</h2>
           <div style="font-size:.82rem; color:var(--text-3)">Заказчик: <b>${escHtml(c.customer_name || 'Не указан')}</b></div>
         </div>
-        <div style="display:flex; gap:8px; align-items:center">
-          <button class="btn btn-sm btn-ghost" onclick="openContractForm(${c.id})" title="Редактировать параметры договора">✏️ Изменить</button>
-          <button class="btn btn-sm btn-ghost" onclick="closeContractModal()" style="font-size:1.2rem; line-height:1">&times;</button>
+
+        <!-- КНОПКИ УПРАВЛЕНИЯ СТРОГО В ПРАВОМ ВЕРХНЕМ УГЛУ ОКНА -->
+        <div style="position:absolute; top:18px; right:20px; display:flex; align-items:center; gap:8px; z-index:10">
+          <button class="btn btn-sm btn-ghost" onclick="openContractForm(${c.id})" title="Редактировать параметры договора" style="font-size:.78rem; border:1px solid var(--border)">✏️ Изменить</button>
+          <div class="win-ctrls-wrap" style="display:inline-flex; align-items:center; gap:4px">
+            <button type="button" class="win-ctrl-btn" onclick="var m=document.getElementById('contract_detail_modal'); if(m&&m._minimizeToDock) m._minimizeToDock(); else closeContractModal();" title="Свернуть окно в панель задач (внизу)">—</button>
+            <button type="button" class="win-ctrl-btn" onclick="document.getElementById('contract_detail_modal').classList.toggle('modal-maximized')" title="Развернуть / Восстановить размер">▢</button>
+            <button type="button" class="win-ctrl-btn btn-close" onclick="closeContractModal()" title="Закрыть окно (Esc)">&times;</button>
+          </div>
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 import { pool } from '../config/db.js';
 import { resolveCityCoordinates } from '../services/cityCoordinates.js';
 
-async function populateAgreementCoordinates() {
+export async function populateAgreementCoordinates() {
   console.log('[Geo] Запуск наполнения координат для contract_agreements...');
 
   const { rows } = await pool.query(`
@@ -44,10 +44,15 @@ async function populateAgreementCoordinates() {
   `);
   console.log(`[Geo] Итого в базе: ${stats.rows[0].with_coords} из ${stats.rows[0].total} (${stats.rows[0].pct}%) имеют координаты`);
 
-  process.exit(0);
+  return { updatedCount, skippedCount };
 }
 
-populateAgreementCoordinates().catch(err => {
-  console.error('[Geo] Ошибка:', err);
-  process.exit(1);
-});
+// Запуск только при прямом вызове из командной строки
+if (process.argv[1] && process.argv[1].includes('populate_agreement_coords.js')) {
+  populateAgreementCoordinates().then(() => {
+    process.exit(0);
+  }).catch(err => {
+    console.error('[Geo] Ошибка:', err);
+    process.exit(1);
+  });
+}

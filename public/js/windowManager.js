@@ -222,6 +222,13 @@
       } else {
         handle.appendChild(wrap);
       }
+    } else if (btnContainer) {
+      var minB = btnContainer.querySelector('.win-ctrl-btn:not(.btn-close):not([title*="Развернуть"])');
+      if (minB) minB.onclick = function(e){ e.stopPropagation(); minimizeWindow(); };
+      var maxB = btnContainer.querySelector('.win-ctrl-btn[title*="Развернуть"], .win-ctrl-btn:nth-child(2)');
+      if (maxB) maxB.onclick = function(e){ e.stopPropagation(); toggleMaximize(); };
+      var clsB = btnContainer.querySelector('.btn-close') || btnContainer.lastElementChild;
+      if (clsB) clsB.onclick = function(e){ e.stopPropagation(); closeWindow(); };
     }
 
     // 4.3. Логика перетаскивания (Drag and Drop)

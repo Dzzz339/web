@@ -377,6 +377,21 @@ export async function initDB() {
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS contract_agreement_id INTEGER REFERENCES contract_agreements(id) ON DELETE SET NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_contract_agreement_id ON tasks(contract_agreement_id)`);
 
+  // Автоматическая самомиграция соглашений, если таблица еще пуста
+  try {
+    const agrCountRes = await pool.query('SELECT COUNT(*) FROM contract_agreements');
+    if (parseInt(agrCountRes.rows[0].count, 10) === 0) {
+      console.log('[DB] contract_agreements пуста, запуск автоматической миграции ДС...');
+      const { migrateContractAgreements } = await import('../scripts/migrate_contract_agreements.js');
+      await migrateContractAgreements();
+      const { populateAgreementCoordinates } = await import('../scripts/populate_agreement_coords.js');
+      await populateAgreementCoordinates();
+      console.log('[DB] Автоматическая миграция ДС успешно завершена!');
+    }
+  } catch (err) {
+    console.warn('[DB] Предупреждение при авто-миграции соглашений:', err.message);
+  }
+
   // Автоматический перерасчет deadline_date для существующих договоров, где он еще не заполнен
   try {
     const uncomputed = await pool.query(`SELECT id, deadline_raw, contract_date FROM contracts WHERE deadline_date IS NULL AND deadline_raw IS NOT NULL`);
