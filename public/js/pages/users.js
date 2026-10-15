@@ -181,6 +181,22 @@ function renderSpecialistRowHtml(s) {
     }
   }
 
+  var empBadge = '';
+  var empType = s.employment_type || 'subcontractor_worker';
+  if (empType === 'staff') {
+    empBadge = '<span class="badge b-green" style="font-size:.68rem">🏢 Штатный</span>';
+  } else if (empType === 'self_employed') {
+    empBadge = '<span class="badge b-blue" style="font-size:.68rem">💼 Самозанятый (СЗ)</span>';
+  } else if (empType === 'sole_proprietor') {
+    empBadge = '<span class="badge b-yellow" style="font-size:.68rem">🏛️ ИП</span>';
+  } else {
+    empBadge = '<span class="badge b-gray" style="font-size:.68rem">👷 Монтажник субподрядчика</span>';
+  }
+
+  var autoDisplay = s.auto_number 
+    ? `<div style="font-size:.73rem; color:var(--text-2); margin-top:3px" title="Автотранспорт для допуска">🚗 <b>${escHtml(s.auto_number)}</b></div>` 
+    : '';
+
   var passDisplay = '—';
   if (s.passport_raw) {
     passDisplay = `<div style="font-size:.8rem; line-height:1.25">${escHtml(s.passport_raw)}</div>`;
@@ -189,11 +205,22 @@ function renderSpecialistRowHtml(s) {
     if (s.passport_issued_by) passDisplay += `<div style="font-size:.72rem; color:var(--text-3)">${escHtml(s.passport_issued_by)}</div>`;
   }
 
+  var basisDisplay = s.acting_basis
+    ? `<div style="font-size:.7rem; color:var(--text-3); margin-top:2px">Осн: ${escHtml(s.acting_basis)}</div>`
+    : '';
+
   return `
     <tr id="spec_row_${s.id}" data-spec-id="${s.id}" style="border-bottom: 1px solid var(--border); transition: background .2s">
       <td style="padding: 10px 12px; font-weight:600">
-        <div>${escHtml(s.full_name)}</div>
-        <div style="font-size:.73rem; color:var(--text-3); font-weight:normal">${escHtml(s.position || 'Монтажник СКС')}</div>
+        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap">
+          <span>${escHtml(s.full_name)}</span>
+          ${empBadge}
+        </div>
+        <div style="font-size:.73rem; color:var(--text-3); font-weight:normal; margin-top:2px">
+          ${escHtml(s.position || 'Монтажник СКС')}
+        </div>
+        ${basisDisplay}
+        ${autoDisplay}
       </td>
       <td style="padding: 10px 12px">
         <div style="font-weight:600; font-size:.82rem">${escHtml(s.organization || 'ООО "Ультима"')}</div>
@@ -304,6 +331,9 @@ function openAddSpecialistModal() {
           if (inputs.organization && s.organization) inputs.organization.value = s.organization;
           if (inputs.phone && s.phone) inputs.phone.value = s.phone;
           if (inputs.contractorId && s.contractor_id != null) inputs.contractorId.value = String(s.contractor_id);
+          if (inputs.employmentType && s.employment_type) inputs.employmentType.value = s.employment_type;
+          if (inputs.autoNumber && s.auto_number) inputs.autoNumber.value = s.auto_number;
+          if (inputs.actingBasis && s.acting_basis) inputs.actingBasis.value = s.acting_basis;
           if (inputs.passportRaw && s.passport_raw) inputs.passportRaw.value = s.passport_raw;
           if (inputs.passportSeriesNumber && s.passport_series_number) inputs.passportSeriesNumber.value = s.passport_series_number;
         },
@@ -312,12 +342,21 @@ function openAddSpecialistModal() {
         }
       }
     },
+    { key: 'employmentType', label: 'Форма занятости / Статус', type: 'select', value: 'subcontractor_worker', options: [
+        { value: 'subcontractor_worker', label: '👷 Монтажник субподрядчика' },
+        { value: 'staff', label: '🏢 Штатный сотрудник' },
+        { value: 'self_employed', label: '💼 Самозанятый (СЗ)' },
+        { value: 'sole_proprietor', label: '🏛️ Индивидуальный предприниматель (ИП)' }
+      ]
+    },
     { key: 'position', label: 'Должность', value: 'Монтажник СКС' },
     { key: 'organization', label: 'Организация', value: 'ООО "Ультима"' },
     { key: 'phone', label: 'Номер телефона', placeholder: '+7 (999) 000-00-00' },
     { key: 'contractorId', label: 'Привязка к контрагенту (если субподряд)', type: 'select', value: '', options:
         [{ value: '', label: '— Собственный сотрудник (ООО Ультима) —' }].concat((S.contractors || []).map(function(c) { return { value: c.id, label: c.name_short }; }))
     },
+    { key: 'autoNumber', label: 'Автотранспорт для допуска (марка, гос. номер)', placeholder: 'например: Газель А123ВС77' },
+    { key: 'actingBasis', label: 'Основание полномочий (Устав / Доверенность)', placeholder: 'например: Устава / Доверенность №1 от 15.01.2025' },
     { key: 'passportRaw', label: 'Полные паспортные данные (для допуска в Word)', type: 'textarea', placeholder: 'Серия, номер, кем и когда выдан, код подразделения' },
     { key: 'passportSeriesNumber', label: 'Серия и Номер паспорта (кратко)', placeholder: '5014 252604' }
   ], function(d) {
@@ -331,6 +370,9 @@ function openAddSpecialistModal() {
         organization: d.organization,
         phone: d.phone,
         contractor_id: d.contractorId || null,
+        employment_type: d.employmentType,
+        auto_number: d.autoNumber,
+        acting_basis: d.actingBasis,
         passport_raw: d.passportRaw,
         passport_series_number: d.passportSeriesNumber
       })
@@ -351,12 +393,21 @@ function editSpecialist(id) {
 
   showModal('✏️ Редактировать специалиста #' + id, [
     { key: 'fullName', label: 'ФИО специалиста', value: s.full_name, required: true },
+    { key: 'employmentType', label: 'Форма занятости / Статус', type: 'select', value: s.employment_type || 'subcontractor_worker', options: [
+        { value: 'subcontractor_worker', label: '👷 Монтажник субподрядчика' },
+        { value: 'staff', label: '🏢 Штатный сотрудник' },
+        { value: 'self_employed', label: '💼 Самозанятый (СЗ)' },
+        { value: 'sole_proprietor', label: '🏛️ Индивидуальный предприниматель (ИП)' }
+      ]
+    },
     { key: 'position', label: 'Должность', value: s.position || 'Монтажник СКС' },
     { key: 'organization', label: 'Организация', value: s.organization || 'ООО "Ультима"' },
     { key: 'phone', label: 'Номер телефона', value: s.phone || '' },
     { key: 'contractorId', label: 'Привязка к контрагенту (если субподряд)', type: 'select', value: s.contractor_id || '', options:
         [{ value: '', label: '— Собственный сотрудник (ООО Ультима) —' }].concat((S.contractors || []).map(function(c) { return { value: c.id, label: c.name_short }; }))
     },
+    { key: 'autoNumber', label: 'Автотранспорт для допуска (марка, гос. номер)', value: s.auto_number || '', placeholder: 'например: Газель А123ВС77' },
+    { key: 'actingBasis', label: 'Основание полномочий (Устав / Доверенность)', value: s.acting_basis || '', placeholder: 'например: Устава / Доверенность №1 от 15.01.2025' },
     { key: 'passportRaw', label: 'Полные паспортные данные (для письма на допуск)', type: 'textarea', value: s.passport_raw || '' },
     { key: 'passportSeriesNumber', label: 'Серия и Номер паспорта', value: s.passport_series_number || '' }
   ], function(d) {
@@ -369,6 +420,9 @@ function editSpecialist(id) {
         organization: d.organization,
         phone: d.phone,
         contractor_id: d.contractorId || null,
+        employment_type: d.employmentType,
+        auto_number: d.autoNumber,
+        acting_basis: d.actingBasis,
         passport_raw: d.passportRaw,
         passport_series_number: d.passportSeriesNumber
       })

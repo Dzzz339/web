@@ -1,0 +1,1705 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StockEasy — Сквозная карта данных и архитектура документооборота</title>
+  
+  <style>
+    :root {
+      --bg-page: #0f172a;
+      --bg-card: #ffffff;
+      --text-main: #0f172a;
+      --text-muted: #475569;
+      --border-color: #cbd5e1;
+      --border-subtle: #e2e8f0;
+      
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --accent-light: #eff6ff;
+      --accent-border: #bfdbfe;
+
+      --emerald: #059669;
+      --emerald-light: #ecfdf5;
+      --amber: #d97706;
+      --amber-light: #fffbeb;
+      --purple: #7c3aed;
+      --purple-light: #f5f3ff;
+      
+      --table-header-bg: #1e293b;
+      --table-header-color: #f8fafc;
+      --table-zebra: #f8fafc;
+      
+      --code-bg: #f1f5f9;
+      --code-color: #0f172a;
+      --code-pill-bg: #e2e8f0;
+      --code-pill-color: #0f172a;
+      
+      --card-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.1), 0 8px 10px -6px rgba(15, 23, 42, 0.1);
+    }
+
+    [data-theme="dark"] {
+      --bg-page: #090d16;
+      --bg-card: #131c2e;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --border-color: #27354a;
+      --border-subtle: #1e293b;
+      
+      --accent: #38bdf8;
+      --accent-hover: #0ea5e9;
+      --accent-light: #0c2135;
+      --accent-border: #075985;
+
+      --emerald: #10b981;
+      --emerald-light: #062b1e;
+      --amber: #f59e0b;
+      --amber-light: #2c1a04;
+      --purple: #a855f7;
+      --purple-light: #22123d;
+      
+      --table-header-bg: #0b1120;
+      --table-header-color: #38bdf8;
+      --table-zebra: #182438;
+      
+      --code-bg: #0b1120;
+      --code-color: #38bdf8;
+      --code-pill-bg: #1e293b;
+      --code-pill-color: #38bdf8;
+      
+      --card-shadow: 0 15px 35px rgba(0, 0, 0, 0.6);
+    }
+
+    * { box-sizing: border-box; }
+    
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--bg-page);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 15px;
+      line-height: 1.75;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Верхняя панель */
+    .top-navbar {
+      background: #0b1120;
+      color: #fff;
+      padding: 0.75rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+    .top-navbar-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: #f8fafc;
+    }
+    .top-badge {
+      background: #2563eb;
+      color: #fff;
+      font-size: 0.7rem;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .top-navbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 7px 14px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .btn:hover { background: var(--accent-hover); }
+    .btn-ghost {
+      background: rgba(255, 255, 255, 0.12);
+      color: #f8fafc;
+    }
+    .btn-ghost:hover { background: rgba(255, 255, 255, 0.24); }
+
+    /* Контейнер страницы */
+    .page-wrapper {
+      max-width: 1200px;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+    }
+
+    .doc-card {
+      background: var(--bg-card);
+      padding: 3.5rem 4rem;
+      border-radius: 16px;
+      border: 1px solid var(--border-color);
+      box-shadow: var(--card-shadow);
+    }
+
+    /* Навигационные табы */
+    .nav-pills-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 2.5rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 2px solid var(--border-subtle);
+    }
+    .nav-pill {
+      background: var(--accent-light);
+      color: var(--accent);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      text-decoration: none;
+      border: 1px solid var(--accent-border);
+      transition: all 0.15s ease-in-out;
+    }
+    .nav-pill:hover {
+      background: var(--accent);
+      color: #ffffff;
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+
+    /* Типографика */
+    .doc-h1 {
+      font-size: 2.1rem;
+      font-weight: 800;
+      color: var(--text-main);
+      margin-top: 0;
+      margin-bottom: 1rem;
+      line-height: 1.25;
+      letter-spacing: -0.02em;
+    }
+    .doc-h2 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-top: 3.5rem;
+      margin-bottom: 1.2rem;
+      padding-bottom: 0.6rem;
+      border-bottom: 2px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .doc-h3 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-top: 2rem;
+      margin-bottom: 0.8rem;
+    }
+    .doc-p {
+      margin-top: 0;
+      margin-bottom: 1.25rem;
+      color: var(--text-main);
+    }
+
+    .divider {
+      border: none;
+      border-top: 2px solid var(--border-subtle);
+      margin: 3.5rem 0;
+    }
+
+    /* Таблицы */
+    .table-wrapper {
+      width: 100%;
+      overflow-x: auto;
+      margin: 1.5rem 0 2rem 0;
+      border-radius: 10px;
+      border: 1px solid var(--border-color);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      text-align: left;
+    }
+    .data-table th {
+      background: var(--table-header-bg);
+      color: var(--table-header-color);
+      padding: 12px 16px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      border-bottom: 2px solid var(--border-color);
+      white-space: nowrap;
+    }
+    .data-table td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-color);
+      vertical-align: top;
+      color: var(--text-main);
+    }
+    .data-table tbody tr:nth-child(even) {
+      background: var(--table-zebra);
+    }
+    .data-table tbody tr:hover {
+      background: var(--accent-light);
+    }
+
+    /* Списки */
+    ul, ol {
+      margin: 0.8rem 0 1.5rem 1.5rem;
+      padding: 0;
+    }
+    li {
+      margin-bottom: 0.5rem;
+      color: var(--text-main);
+    }
+
+    /* Коллауты */
+    .callout {
+      border-radius: 10px;
+      padding: 1.25rem 1.5rem;
+      margin: 1.5rem 0;
+      border-left: 5px solid;
+    }
+    .callout-default {
+      background: var(--accent-light);
+      border-color: var(--accent);
+    }
+    .callout-diamond {
+      background: var(--emerald-light);
+      border-color: var(--emerald);
+    }
+    .callout-amber {
+      background: var(--amber-light);
+      border-color: var(--amber);
+    }
+    .callout-blue {
+      background: var(--accent-light);
+      border-color: var(--accent);
+    }
+    .callout-body {
+      font-size: 0.95rem;
+      line-height: 1.7;
+      color: var(--text-main);
+    }
+
+    /* Код и плашки */
+    .code-pill {
+      background: var(--code-pill-bg);
+      color: var(--code-pill-color);
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+      font-size: 0.85em;
+      font-weight: 600;
+    }
+
+    .code-card {
+      background: var(--code-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      margin: 1.5rem 0;
+      overflow: hidden;
+    }
+    .code-header {
+      background: rgba(0, 0, 0, 0.05);
+      padding: 8px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .code-badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+    }
+    .copy-btn {
+      background: transparent;
+      border: 1px solid var(--border-color);
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--text-main);
+      transition: all 0.2s;
+    }
+    .copy-btn:hover {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .code-pre {
+      margin: 0;
+      padding: 1.25rem 1.5rem;
+      overflow-x: auto;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+      font-size: 0.85rem;
+      line-height: 1.6;
+      color: var(--code-color);
+    }
+
+    /* Контейнер схем */
+    .diagram-wrapper {
+      margin: 2.5rem 0;
+      border: 1.5px solid var(--border-color);
+      border-radius: 12px;
+      background: #ffffff;
+      overflow: hidden;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.06);
+    }
+    .diagram-toolbar {
+      background: #f8fafc;
+      padding: 10px 16px;
+      border-bottom: 1.5px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .diagram-toolbar-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.92rem;
+      color: #0f172a;
+    }
+    .diagram-toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .ctrl-btn {
+      background: #ffffff;
+      color: #334155;
+      border: 1px solid #cbd5e1;
+      padding: 5px 11px;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      transition: all 0.15s;
+    }
+    .ctrl-btn:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+      border-color: #94a3b8;
+    }
+    .ctrl-btn-accent {
+      background: #2563eb;
+      color: #ffffff;
+      border-color: #2563eb;
+    }
+    .ctrl-btn-accent:hover {
+      background: #1d4ed8;
+      color: #ffffff;
+    }
+    .ctrl-btn-link {
+      background: #f1f5f9;
+      color: #475569;
+    }
+
+    .diagram-viewport {
+      width: 100%;
+      overflow: auto;
+      padding: 1.5rem;
+      background: #ffffff;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 350px;
+    }
+    .diagram-scalable {
+      width: 100%;
+      max-width: 1040px;
+      margin: 0 auto;
+      transition: width 0.2s ease-out;
+      display: flex;
+      justify-content: center;
+    }
+    .diagram-scalable svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    /* Модальное окно полного экрана */
+    .fullscreen-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(15, 23, 42, 0.95);
+      z-index: 9999;
+      padding: 20px;
+      box-sizing: border-box;
+      flex-direction: column;
+    }
+    .fullscreen-modal.active {
+      display: flex;
+    }
+    .fullscreen-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: #fff;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .fullscreen-body {
+      flex: 1;
+      overflow: auto;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+    .fullscreen-body svg {
+      max-width: 95vw;
+      max-height: 85vh;
+      height: auto;
+    }
+
+    /* Печать */
+    @media print {
+      body { background: #fff; color: #000; }
+      .top-navbar, .nav-pills-bar, .diagram-toolbar, .copy-btn { display: none !important; }
+      .doc-card { border: none; box-shadow: none; padding: 0; }
+      .table-wrapper { box-shadow: none; border: 1px solid #ccc; }
+      .diagram-viewport { max-height: none; overflow: visible; padding: 0; }
+    }
+
+    @media (max-width: 768px) {
+      .doc-card { padding: 2rem 1.25rem; }
+      .top-navbar { padding: 0.75rem 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ВЕРХНЯЯ ШАПКА -->
+  <header class="top-navbar">
+    <div class="top-navbar-title">
+      <span>🚀 StockEasy</span>
+      <span class="top-badge">Архитектурный стандарт</span>
+    </div>
+    <div class="top-navbar-actions">
+      <button class="btn btn-ghost" onclick="toggleTheme()" title="Переключить тему">🌓 Тема</button>
+      <button class="btn btn-ghost" onclick="window.print()" title="Распечатать или сохранить в PDF">🖨️ В PDF</button>
+      <a href="DATA_FLOW_MAP.md" class="btn" target="_blank" title="Открыть исходный Markdown">📄 Исходник .md</a>
+    </div>
+  </header>
+
+  <!-- ОСНОВНОЙ КОНТЕНТ -->
+  <div class="page-wrapper">
+    <main class="doc-card">
+      
+      <!-- БЫСТРАЯ НАВИГАЦИЯ -->
+      <nav class="nav-pills-bar">
+        <a href="#1-юридическая-и-организационная-архитектура" class="nav-pill">🏢 1. Юрлица и контрагенты</a>
+        <a href="#2-сквозная-архитектурная-схема-движения-данных-end-to-end-pipeline" class="nav-pill">🗺️ 2. Схема движения данных</a>
+        <a href="#3-физическая-модель-данных-реляционная-схема-postgresql" class="nav-pill">🗄️ 3. Схема PostgreSQL</a>
+        <a href="#4-матрица-трассируемости-данных-data-traceability-matrix" class="nav-pill">📋 4. Матрица полей</a>
+        <a href="#5-алгоритмы-расчета-и-бизнес-формулы" class="nav-pill">🧮 5. Алгоритмы расчетов</a>
+        <a href="#6-движок-генерации-документов-server-services-docxgenerator-js" class="nav-pill">📄 6. Пакет документов DOCX</a>
+        <a href="#7-жизненный-цикл-заявки-и-матрица-параллельных-статусов" class="nav-pill">🚦 7. Параллельные статусы</a>
+        <a href="#8-итоги-и-эксплуатационные-гарантии" class="nav-pill">✅ 8. Эксплуатационные гарантии</a>
+      </nav>
+
+      <!-- ТЕЛО ДОКУМЕНТА (ПРЕДВАРИТЕЛЬНО ОТКОМПИЛИРОВАННОЕ) -->
+      <h1 id="stockeasy-комплексная-схема-потоков-данных-и-архитектура-документооборота" class="doc-h1">StockEasy: Комплексная схема потоков данных и архитектура документооборота</h1>
+<div class="callout callout-blue">
+  <div class="callout-body"><strong>Версия документа:</strong> 2.4 (Production / Ревизия март-октябрь 2026)<br><strong>Статус:</strong> Действующая архитектурная спецификация<br><strong>Область применения:</strong> Backend (Node.js/Express, PostgreSQL), Frontend (Vanilla JS SPA), Документооборот (DOCX/XLSX), Финансовый контур и Снабжение</div>
+</div>
+<hr class="divider" />
+<h2 id="1-юридическая-и-организационная-архитектура" class="doc-h2">1. Юридическая и организационная архитектура</h2>
+<p class="doc-p">Система <strong>StockEasy</strong> автоматизирует полный производственно-финансовый цикл группы компаний, выступающих Генеральным подрядчиком по договорам монтажа и обслуживания структурированных кабельных сетей (СКС), локально-вычислительных сетей (ЛВС) и систем безопасности для государственных и корпоративных заказчиков.</p>
+<h3 id="1-1-структура-собственных-юридических-лиц-мы-генподрядчик" class="doc-h3">1.1. Структура собственных юридических лиц («Мы» / Генподрядчик)</h3>
+<p class="doc-p">В базе данных ведется реестр собственных компаний группы (<code class="code-pill">own_companies</code>), под реквизитами которых заключаются генеральные контракты с Заказчиками и рамочные договоры с Субподрядчиками:</p>
+<ol>
+  <li><strong>ООО «Кабельные Системы» (<code class="code-pill">code: 'KS'</code>, <code class="code-pill">id: 1</code>)</strong><br>&nbsp;&nbsp;&nbsp;&nbsp;• <strong>ИНН/КПП:</strong> <code class="code-pill">5406774300</code> / <code class="code-pill">540601001</code>, <strong>ОГРН:</strong> <code class="code-pill">1135476082260</code><br>&nbsp;&nbsp;&nbsp;&nbsp;• <strong>Руководитель:</strong> Генеральный директор Городович Милана Владимировна<br>&nbsp;&nbsp;&nbsp;&nbsp;• <strong>Юр. адрес:</strong> 630099, г. Новосибирск, ул. Орджоникидзе, 40, оф. 3517<br>&nbsp;&nbsp;&nbsp;&nbsp;• <strong>Банк:</strong> Филиал «Новосибирский» АО «АЛЬФА-БАНК», БИК <code class="code-pill">045004774</code>, р/с <code class="code-pill">40702810223130000540</code><br>&nbsp;&nbsp;&nbsp;&nbsp;• <strong>Налоговый режим:</strong> С НДС (<code class="code-pill">with_vat</code>). Основной профиль: ОСФР, Росприроднадзор, крупные коммерческие и государственные тендеры.</li>
+  <li><strong>ООО «К10» (<code class="code-pill">code: 'K10'</code>, <code class="code-pill">id: 2</code>)</strong><br>&nbsp;&nbsp;&nbsp;&nbsp;• <strong>ИНН/КПП:</strong> <code class="code-pill">5401995659</code> / <code class="code-pill">547301001</code>, <strong>ОГРН:</strong> <code class="code-pill">1195476081234</code><br>&nbsp;&nbsp;&nbsp;&nbsp;• <strong>Руководитель:</strong> Генеральный директор Городович Илья Олегович<br>&nbsp;&nbsp;&nbsp;&nbsp;• <strong>Юр. адрес:</strong> 630090, г. Новосибирск, пр-кт Академика Лаврентьева, д. 2/2, оф. 126<br>&nbsp;&nbsp;&nbsp;&nbsp;• <strong>Банк:</strong> ПАО Сбербанк России «Сибирский банк», БИК <code class="code-pill">045004641</code>, р/с <code class="code-pill">40702810244050054706</code><br>&nbsp;&nbsp;&nbsp;&nbsp;• <strong>Налоговый режим:</strong> УСН / Без НДС (<code class="code-pill">without_vat</code>). Основной профиль: ПАО Сбербанк (программа модернизации и текущего обслуживания отделений).</li>
+  <li><strong>ООО «Ультима» (<code class="code-pill">code: 'ULTIMA'</code>, <code class="code-pill">id: 3</code>)</strong><br>&nbsp;&nbsp;&nbsp;&nbsp;• <strong>ИНН/КПП:</strong> <code class="code-pill">7810754890</code> / <code class="code-pill">781001001</code>, <strong>ОГРН:</strong> <code class="code-pill">1197847089123</code><br>&nbsp;&nbsp;&nbsp;&nbsp;• <strong>Руководитель:</strong> Генеральный директор Чайка Алексей Владимирович<br>&nbsp;&nbsp;&nbsp;&nbsp;• <strong>Юр. адрес:</strong> 196084, г. Санкт-Петербург, Московский пр-кт, д. 100, лит. А<br>&nbsp;&nbsp;&nbsp;&nbsp;• <strong>Банк:</strong> ПАО СБЕРБАНК г. Москва, БИК <code class="code-pill">044525225</code>, р/с <code class="code-pill">40702810938000012345</code><br>&nbsp;&nbsp;&nbsp;&nbsp;• <strong>Налоговый режим:</strong> С НДС (<code class="code-pill">with_vat</code>). Профиль: Северо-Западный регион, специальные инженерные проекты.</li>
+</ol>
+<h3 id="1-2-классификация-внешних-контрагентов-contractors-type" class="doc-h3">1.2. Классификация внешних контрагентов (<code class="code-pill">contractors.type</code>)</h3>
+<p class="doc-p">Все внешние контрагенты разделены на 4 функциональных типа:</p>
+<ul>
+  <li><strong><code class="code-pill">customer</code> (Заказчики):</strong> ПАО Сбербанк (ИНН <code class="code-pill">7707083893</code>), ОСФР по Архангельской обл. (ИНН <code class="code-pill">2901004169</code>), Росприроднадзор и др.</li>
+  <li><strong><code class="code-pill">subcontractor</code> (Подрядчики и самозанятые):</strong> Непосредственные исполнители строительно-монтажных работ (СЗ Хомич А.И., СЗ Елагин В.И., ИП и монтажные бригады в регионах).</li>
+  <li><strong><code class="code-pill">supplier</code> (Поставщики ТМЦ):</strong> ТД «Телеком-Снаб», ЭТМ, Русский Свет, ЛКС Кабель-Системы, СпецЭлектроКомплект.</li>
+  <li><strong><code class="code-pill">logistics</code> (Транспортные компании):</strong> Деловые Линии, СДЭК, ПЭК, ЖелДорЭкспедиция, Витэка.</li>
+</ul>
+<hr class="divider" />
+<h2 id="2-сквозная-архитектурная-схема-движения-данных-end-to-end-pipeline" class="doc-h2">2. Сквозная архитектурная схема движения данных (End-to-End Pipeline)</h2>
+
+      <div class="diagram-wrapper">
+        <div class="diagram-toolbar">
+          <div class="diagram-toolbar-title">
+            <span class="diagram-icon">🗺️</span>
+            <strong>Сквозная архитектурная схема движения данных</strong>
+          </div>
+          <div class="diagram-toolbar-actions">
+            <button type="button" class="ctrl-btn" onclick="zoomDiagram('diagram_box_1', 0.25)">🔍 Увеличить (+)</button>
+            <button type="button" class="ctrl-btn" onclick="zoomDiagram('diagram_box_1', -0.25)">🔍 Уменьшить (−)</button>
+            <button type="button" class="ctrl-btn" onclick="resetZoom('diagram_box_1')">100%</button>
+            <button type="button" class="ctrl-btn ctrl-btn-accent" onclick="openFullscreen('diagram_box_1')">⛶ Во весь экран</button>
+            <a href="images/data_flow_pipeline.svg" target="_blank" class="ctrl-btn ctrl-btn-link">↗ Открыть файл</a>
+          </div>
+        </div>
+        <div class="diagram-viewport" id="diagram_box_1">
+          <div class="diagram-scalable">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 1280" width="1040" height="1280" style="background:#ffffff; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;">
+  <defs>
+    <filter id="shadow" x="-4%" y="-2%" width="108%" height="106%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.06"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#3b82f6"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#10b981"/>
+    </marker>
+  </defs>
+
+  <!-- Заголовок схемы -->
+  <rect x="20" y="20" width="1000" height="70" rx="12" fill="#0f172a" filter="url(#shadow)"/>
+  <text x="50" y="52" fill="#ffffff" font-size="20" font-weight="800">StockEasy — Сквозная архитектурная схема движения данных</text>
+  <text x="50" y="74" fill="#94a3b8" font-size="13" font-weight="500">От входящих Excel-реестров Заказчика до генерации документов .docx и финансового баланса</text>
+
+  <!-- ========================================== -->
+  <!-- БЛОК 1: ВХОДЯЩИЕ ИСТОЧНИКИ ДАННЫХ -->
+  <!-- ========================================== -->
+  <g transform="translate(20, 110)">
+    <rect x="0" y="0" width="1000" height="150" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5" filter="url(#shadow)"/>
+    <rect x="16" y="-12" width="280" height="26" rx="6" fill="#2563eb"/>
+    <text x="26" y="5" fill="#ffffff" font-size="12" font-weight="700">1. ВХОДЯЩИЕ ПОТОКИ (ИСТОЧНИКИ)</text>
+
+    <!-- Карточка 1.1 -->
+    <rect x="20" y="24" width="300" height="106" rx="8" fill="#ffffff" stroke="#93c5fd" stroke-width="1.5"/>
+    <text x="35" y="48" fill="#1e3a8a" font-size="13" font-weight="700">📊 Excel-реестры Заказчика</text>
+    <text x="35" y="68" fill="#334155" font-size="12">• ПАО Сбербанк, ОСФР, РПН</text>
+    <text x="35" y="86" fill="#334155" font-size="12">• Загрузка: /api/excel/import-rows</text>
+    <text x="35" y="104" fill="#0369a1" font-size="11" font-weight="600">➔ cleanData() &amp; safeDate()</text>
+
+    <!-- Карточка 1.2 -->
+    <rect x="350" y="24" width="300" height="106" rx="8" fill="#ffffff" stroke="#93c5fd" stroke-width="1.5"/>
+    <text x="365" y="48" fill="#1e3a8a" font-size="13" font-weight="700">📍 DaData &amp; Геокодинг</text>
+    <text x="365" y="68" fill="#334155" font-size="12">• Нормализация адреса по ФИАС</text>
+    <text x="365" y="86" fill="#334155" font-size="12">• Координаты: geo_lat, geo_lon</text>
+    <text x="365" y="104" fill="#0369a1" font-size="11" font-weight="600">➔ Расчёт distance_km от базы</text>
+
+    <!-- Карточка 1.3 -->
+    <rect x="680" y="24" width="300" height="106" rx="8" fill="#ffffff" stroke="#93c5fd" stroke-width="1.5"/>
+    <text x="695" y="48" fill="#1e3a8a" font-size="13" font-weight="700">📑 Реестр контрактов и ДС</text>
+    <text x="695" y="68" fill="#334155" font-size="12">• Справочник contracts &amp; ДС</text>
+    <text x="695" y="86" fill="#334155" font-size="12">• Авто-привязка по префиксу '0926-02'</text>
+    <text x="695" y="104" fill="#0369a1" font-size="11" font-weight="600">➔ contract_id, own_company_id</text>
+  </g>
+
+  <!-- Стрелка 1 -> 2 -->
+  <line x1="520" y1="260" x2="520" y2="285" stroke="#3b82f6" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <!-- ========================================== -->
+  <!-- БЛОК 2: ЦЕНТРАЛЬНАЯ БАЗА ДАННЫХ -->
+  <!-- ========================================== -->
+  <g transform="translate(20, 290)">
+    <rect x="0" y="0" width="1000" height="150" rx="12" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1.5" filter="url(#shadow)"/>
+    <rect x="16" y="-12" width="280" height="26" rx="6" fill="#7c3aed"/>
+    <text x="26" y="5" fill="#ffffff" font-size="12" font-weight="700">2. ЦЕНТРАЛЬНАЯ БАЗА POSTGRESQL</text>
+
+    <!-- Таблица tasks -->
+    <rect x="20" y="24" width="300" height="106" rx="8" fill="#ffffff" stroke="#8b5cf6" stroke-width="1.5"/>
+    <text x="35" y="48" fill="#4c1d95" font-size="13" font-weight="700">🗄️ Таблица tasks (Ядро)</text>
+    <text x="35" y="68" fill="#334155" font-size="12">• id, address, vsp, gosb, deadline</text>
+    <text x="35" y="86" fill="#334155" font-size="12">• amount (выручка Заказчика)</text>
+    <text x="35" y="104" fill="#6d28d9" font-size="11" font-weight="600">• in_order, fact, distance_km</text>
+
+    <!-- Таблица task_subcontracts -->
+    <rect x="350" y="24" width="300" height="106" rx="8" fill="#ffffff" stroke="#8b5cf6" stroke-width="1.5"/>
+    <text x="365" y="48" fill="#4c1d95" font-size="13" font-weight="700">🤝 task_subcontracts</text>
+    <text x="365" y="68" fill="#334155" font-size="12">• contractor_id, specialist_id</text>
+    <text x="365" y="86" fill="#334155" font-size="12">• price_agreed (к выплате монтажнику)</text>
+    <text x="365" y="104" fill="#6d28d9" font-size="11" font-weight="600">• calculation_details (JSON сметы)</text>
+
+    <!-- Таблица task_documents -->
+    <rect x="680" y="24" width="300" height="106" rx="8" fill="#ffffff" stroke="#8b5cf6" stroke-width="1.5"/>
+    <text x="695" y="48" fill="#4c1d95" font-size="13" font-weight="700">📂 task_documents</text>
+    <text x="695" y="68" fill="#334155" font-size="12">• doc_type, doc_number, doc_date</text>
+    <text x="695" y="86" fill="#334155" font-size="12">• file_url (/uploads/documents/*.docx)</text>
+    <text x="695" y="104" fill="#6d28d9" font-size="11" font-weight="600">• meta (снимок параметров для аудита)</text>
+  </g>
+
+  <!-- Стрелка 2 -> 3 -->
+  <line x1="520" y1="440" x2="520" y2="465" stroke="#3b82f6" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <!-- ========================================== -->
+  <!-- БЛОК 3: ВХОДНОЙ КОНТРОЛЬ И РАСЧЕТ СМЕТЫ -->
+  <!-- ========================================== -->
+  <g transform="translate(20, 470)">
+    <rect x="0" y="0" width="1000" height="160" rx="12" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5" filter="url(#shadow)"/>
+    <rect x="16" y="-12" width="310" height="26" rx="6" fill="#d97706"/>
+    <text x="26" y="5" fill="#ffffff" font-size="12" font-weight="700">3. ВХОДНОЙ КОНТРОЛЬ И СМЕТА СМР (PM)</text>
+
+    <!-- Контроль ПМ -->
+    <rect x="20" y="24" width="460" height="116" rx="8" fill="#ffffff" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="35" y="48" fill="#92400e" font-size="13" font-weight="700">🚦 Gate 1: Проверка и утверждение ПМ</text>
+    <text x="35" y="70" fill="#334155" font-size="12">• Проверка наличия ссылки на Яндекс.Диск с ТЗ (tech_link)</text>
+    <text x="35" y="90" fill="#334155" font-size="12">• Сверка адреса, номеров ВСП/ГОСБ и объема портов</text>
+    <text x="35" y="112" fill="#b45309" font-size="12" font-weight="700">➔ assignment_status = 'accepted' (разблокирует назначение)</text>
+
+    <!-- Калькулятор СМР -->
+    <rect x="500" y="24" width="480" height="116" rx="8" fill="#ffffff" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="515" y="48" fill="#92400e" font-size="13" font-weight="700">🧮 Алгоритм расчёта стоимости СМР (Wizard)</text>
+    <text x="515" y="68" fill="#334155" font-size="12">• Порты: до 3 портов = 3000 ₽/порт, свыше 3 = 2500 ₽/порт</text>
+    <text x="515" y="86" fill="#334155" font-size="12">• Шкафы ТКШ: 18U (6.5к) | 32U (8к) | 42U (10к) | Замена (10к)</text>
+    <text x="515" y="104" fill="#334155" font-size="12">• Выезд свыше 10 км: (км − 10) × 12 ₽/км</text>
+    <text x="515" y="122" fill="#b45309" font-size="11" font-weight="700">• Доп. расходы: бурение (22к), гостиница, спецтехника</text>
+  </g>
+
+  <!-- Стрелка 3 -> 4 -->
+  <line x1="520" y1="630" x2="520" y2="655" stroke="#3b82f6" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <!-- ========================================== -->
+  <!-- БЛОК 4: ПРОИЗВОДСТВЕННЫЙ КОНТУР -->
+  <!-- ========================================== -->
+  <g transform="translate(20, 660)">
+    <rect x="0" y="0" width="1000" height="140" rx="12" fill="#ecfdf5" stroke="#a7f3d0" stroke-width="1.5" filter="url(#shadow)"/>
+    <rect x="16" y="-12" width="340" height="26" rx="6" fill="#059669"/>
+    <text x="26" y="5" fill="#ffffff" font-size="12" font-weight="700">4. ПРОИЗВОДСТВО (ПАРАЛЛЕЛЬНЫЕ ТРЕКИ)</text>
+
+    <!-- Трек СМР -->
+    <rect x="20" y="24" width="300" height="96" rx="8" fill="#ffffff" stroke="#10b981" stroke-width="1.5"/>
+    <text x="35" y="48" fill="#065f46" font-size="13" font-weight="700">🛠️ Трек СМР на объекте</text>
+    <text x="35" y="68" fill="#334155" font-size="12">• Выезд монтажников по пропуску</text>
+    <text x="35" y="86" fill="#334155" font-size="12">• Фотоотчет узлов и скрытых работ</text>
+    <text x="35" y="104" fill="#047857" font-size="11" font-weight="600">➔ Заполнение кабельного журнала</text>
+
+    <!-- Трек Снабжения -->
+    <rect x="350" y="24" width="300" height="96" rx="8" fill="#ffffff" stroke="#10b981" stroke-width="1.5"/>
+    <text x="365" y="48" fill="#065f46" font-size="13" font-weight="700">📦 Трек Снабжения (ТМЦ)</text>
+    <text x="365" y="68" fill="#334155" font-size="12">• Квантование бухт кабеля (305м)</text>
+    <text x="365" y="86" fill="#334155" font-size="12">• Доверенность М-2 монтажнику</text>
+    <text x="365" y="104" fill="#047857" font-size="11" font-weight="600">➔ Накладная М-15 на выдачу со склада</text>
+
+    <!-- Трек ИД -->
+    <rect x="680" y="24" width="300" height="96" rx="8" fill="#ffffff" stroke="#10b981" stroke-width="1.5"/>
+    <text x="695" y="48" fill="#065f46" font-size="13" font-weight="700">📐 Трек Контроля ИД</text>
+    <text x="695" y="68" fill="#334155" font-size="12">• 10 этапов жизненного цикла</text>
+    <text x="695" y="86" fill="#334155" font-size="12">• Схемы DWG/PDF, Fluke Cat.5e</text>
+    <text x="695" y="104" fill="#047857" font-size="11" font-weight="600">➔ Сдача комплекта куратору Сбера</text>
+  </g>
+
+  <!-- Стрелка 4 -> 5 -->
+  <line x1="520" y1="800" x2="520" y2="825" stroke="#3b82f6" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <!-- ========================================== -->
+  <!-- БЛОК 5: ВЫХОДНЫЕ ДОКУМЕНТЫ (.DOCX) -->
+  <!-- ========================================== -->
+  <g transform="translate(20, 830)">
+    <rect x="0" y="0" width="1000" height="175" rx="12" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1.5" filter="url(#shadow)"/>
+    <rect x="16" y="-12" width="330" height="26" rx="6" fill="#4f46e5"/>
+    <text x="26" y="5" fill="#ffffff" font-size="12" font-weight="700">5. ДОКУМЕНТООБОРОТ (docxGenerator.js)</text>
+
+    <!-- Документ 1 -->
+    <rect x="20" y="24" width="225" height="60" rx="6" fill="#ffffff" stroke="#818cf8"/>
+    <text x="32" y="45" fill="#1e1b4b" font-size="11" font-weight="700">📄 Приложение №2</text>
+    <text x="32" y="62" fill="#475569" font-size="10">Заказ-наряд на СМР</text>
+
+    <!-- Документ 2 -->
+    <rect x="265" y="24" width="225" height="60" rx="6" fill="#ffffff" stroke="#818cf8"/>
+    <text x="277" y="45" fill="#1e1b4b" font-size="11" font-weight="700">📑 Договор подряда</text>
+    <text x="277" y="62" fill="#475569" font-size="10">Рамочный договор с монтажником</text>
+
+    <!-- Документ 3 -->
+    <rect x="510" y="24" width="225" height="60" rx="6" fill="#ffffff" stroke="#818cf8"/>
+    <text x="522" y="45" fill="#1e1b4b" font-size="11" font-weight="700">✅ Акт сдачи (КС-2)</text>
+    <text x="522" y="62" fill="#475569" font-size="10">Сдача-приемка работ</text>
+
+    <!-- Документ 4 -->
+    <rect x="755" y="24" width="225" height="60" rx="6" fill="#ffffff" stroke="#818cf8"/>
+    <text x="767" y="45" fill="#1e1b4b" font-size="11" font-weight="700">💰 Счет на оплату</text>
+    <text x="767" y="62" fill="#475569" font-size="10">Реквизиты исполнителя</text>
+
+    <!-- Документ 5 -->
+    <rect x="20" y="96" width="225" height="60" rx="6" fill="#ffffff" stroke="#818cf8"/>
+    <text x="32" y="117" fill="#1e1b4b" font-size="11" font-weight="700">🪪 Письмо на допуск</text>
+    <text x="32" y="134" fill="#475569" font-size="10">Пропуск СБ Сбербанка</text>
+
+    <!-- Документ 6 -->
+    <rect x="265" y="96" width="225" height="60" rx="6" fill="#ffffff" stroke="#818cf8"/>
+    <text x="277" y="117" fill="#1e1b4b" font-size="11" font-weight="700">📜 Доверенность М-2</text>
+    <text x="277" y="134" fill="#475569" font-size="10">Получение ТМЦ у поставщика</text>
+
+    <!-- Документ 7 -->
+    <rect x="510" y="96" width="225" height="60" rx="6" fill="#ffffff" stroke="#818cf8"/>
+    <text x="522" y="117" fill="#1e1b4b" font-size="11" font-weight="700">📋 Реестр ИД</text>
+    <text x="522" y="134" fill="#475569" font-size="10">Передача схем и протоколов</text>
+
+    <!-- Документ 8 -->
+    <rect x="755" y="96" width="225" height="60" rx="6" fill="#ffffff" stroke="#818cf8"/>
+    <text x="767" y="117" fill="#1e1b4b" font-size="11" font-weight="700">📦 Накладная М-15</text>
+    <text x="767" y="134" fill="#475569" font-size="10">Выдача материалов монтажнику</text>
+  </g>
+
+  <!-- Стрелка 5 -> 6 -->
+  <line x1="520" y1="1005" x2="520" y2="1030" stroke="#10b981" stroke-width="3" marker-end="url(#arrow-green)"/>
+
+  <!-- ========================================== -->
+  <!-- БЛОК 6: ФИНАНСОВЫЙ БАЛАНС ОБЪЕКТА -->
+  <!-- ========================================== -->
+  <g transform="translate(20, 1035)">
+    <rect x="0" y="0" width="1000" height="175" rx="12" fill="#f0fdf4" stroke="#86efac" stroke-width="2" filter="url(#shadow)"/>
+    <rect x="16" y="-12" width="310" height="26" rx="6" fill="#16a34a"/>
+    <text x="26" y="5" fill="#ffffff" font-size="12" font-weight="700">6. СКВОЗНОЙ ФИНАНСОВЫЙ БАЛАНС</text>
+
+    <!-- Входящая выручка -->
+    <rect x="20" y="24" width="240" height="125" rx="8" fill="#ffffff" stroke="#22c55e" stroke-width="1.5"/>
+    <text x="35" y="52" fill="#15803d" font-size="14" font-weight="800">➕ ВХОДЯЩИЙ ДОХОД</text>
+    <text x="35" y="74" fill="#0f172a" font-size="13" font-weight="700">tasks.amount</text>
+    <text x="35" y="94" fill="#475569" font-size="11">Выручка по договору</text>
+    <text x="35" y="110" fill="#475569" font-size="11">Заказчика (Сбер / ОСФР)</text>
+    <text x="35" y="130" fill="#15803d" font-size="11" font-weight="700">Пример: 50 000 ₽</text>
+
+    <!-- Минус Расходы -->
+    <text x="278" y="90" fill="#dc2626" font-size="28" font-weight="900">➖</text>
+
+    <rect x="315" y="24" width="380" height="125" rx="8" fill="#ffffff" stroke="#f87171" stroke-width="1.5"/>
+    <text x="330" y="52" fill="#b91c1c" font-size="14" font-weight="800">ПРЯМЫЕ ЗАТРАТЫ ОБЪЕКТА</text>
+    <text x="330" y="74" fill="#334155" font-size="12">1. СМР Подрядчика: порты + шкафы + км (в смете)</text>
+    <text x="330" y="94" fill="#334155" font-size="12">2. Доп. расходы: бурение (22к), вышка (15к), ГСМ</text>
+    <text x="330" y="114" fill="#334155" font-size="12">3. Себестоимость ТМЦ: кабель, розетки (tasks.tmc)</text>
+    <text x="330" y="134" fill="#b91c1c" font-size="11" font-weight="700">Пример затрат: 18 540 ₽ + 15 000 ₽ = 33 540 ₽</text>
+
+    <!-- Равно Маржа -->
+    <text x="713" y="90" fill="#16a34a" font-size="28" font-weight="900">🟰</text>
+
+    <rect x="750" y="24" width="230" height="125" rx="8" fill="#16a34a" stroke="#15803d" stroke-width="2"/>
+    <text x="765" y="52" fill="#ffffff" font-size="14" font-weight="800">💎 ОПЕРАЦИОННАЯ МАРЖА</text>
+    <text x="765" y="78" fill="#ffffff" font-size="15" font-weight="800">Остаток Генподрядчика</text>
+    <text x="765" y="102" fill="#bbf7d0" font-size="12">Пример: 16 460 ₽ (33%)</text>
+    <text x="765" y="128" fill="#ffffff" font-size="11" font-weight="600">Маржа = Доход − Затраты</text>
+  </g>
+</svg>
+
+          </div>
+        </div>
+      </div>
+      
+<hr class="divider" />
+<h2 id="3-физическая-модель-данных-реляционная-схема-postgresql" class="doc-h2">3. Физическая модель данных (Реляционная схема PostgreSQL)</h2>
+<h3 id="3-1-ядро-заявок-и-объектов-таблица-tasks" class="doc-h3">3.1. Ядро заявок и объектов: Таблица <code class="code-pill">tasks</code></h3>
+<p class="doc-p">Центральная сущность производственного учета. Хранит как исходные данные заявки Заказчика, так и агрегированные показатели выполнения.</p>
+<div class="table-wrapper">
+<table class="data-table">
+  <thead><tr>
+    <th>Колонка</th>
+    <th>Тип данных</th>
+    <th>Описание и бизнес-роль</th>
+  </tr></thead>
+  <tbody>
+    <tr>
+      <td><code class="code-pill">id</code></td>
+      <td><code class="code-pill">TEXT PRIMARY KEY</code></td>
+      <td>Уникальный номер заявки (например, <code class="code-pill">0926-02-001</code>, <code class="code-pill">СЗБ-26-0491</code>)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">sheet</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Наименование листа исходного Excel-файла (например, <code class="code-pill">Сбербанк 2026</code>)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">region</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Регион производства работ (например, <code class="code-pill">Архангельская область</code>, <code class="code-pill">Тюменская область</code>)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">address</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Полный фактический адрес объекта Заказчика</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">clean_address</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Нормализованный адрес после геокодинга в DaData</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">geo_lat</code>, <code class="code-pill">geo_lon</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Географические координаты объекта (широта, долгота)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">distance_km</code></td>
+      <td><code class="code-pill">NUMERIC DEFAULT 0</code></td>
+      <td>Удаленность от базового города/склада (км)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">work_type</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Наименование работ по заданию Заказчика</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">tip_obj</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Тип объекта (ВСП, ГОСБ, Офис, Архив, ЦОД)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">gosb</code>, <code class="code-pill">vsp</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Номер отделения ГОСБ и номер офиса ВСП</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">date_zayavki</code></td>
+      <td><code class="code-pill">DATE</code></td>
+      <td>Дата поступления заявки от Заказчика</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">deadline</code></td>
+      <td><code class="code-pill">DATE</code></td>
+      <td>Предельный нормативный срок выполнения работ</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">data_vyhoda</code></td>
+      <td><code class="code-pill">DATE</code></td>
+      <td>Согласованная дата фактического выхода монтажников на объект</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">manager</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>ФИО ответственного куратора от Заказчика</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">contractor</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Краткое наименование назначенного исполнителя (синхронизируется с <code class="code-pill">task_subcontracts</code>)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">in_order</code></td>
+      <td><code class="code-pill">INTEGER DEFAULT 0</code></td>
+      <td>Заявленное количество портов/точек СКС по ТЗ Заказчика</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">fact</code></td>
+      <td><code class="code-pill">INTEGER DEFAULT 0</code></td>
+      <td>Фактически смонтированное количество портов (по акту)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">amount</code></td>
+      <td><code class="code-pill">NUMERIC DEFAULT 0</code></td>
+      <td><strong>Входящая выручка:</strong> сумма, которую Заказчик платит Генподрядчику за объект</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">price_per_unit</code></td>
+      <td><code class="code-pill">NUMERIC DEFAULT 0</code></td>
+      <td>Тариф за единицу (порт) по генеральному контракту Заказчика</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">km_rate</code></td>
+      <td><code class="code-pill">NUMERIC DEFAULT 0</code></td>
+      <td>Компенсация транспортных расходов от Заказчика</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">tmc</code></td>
+      <td><code class="code-pill">NUMERIC DEFAULT 0</code></td>
+      <td>Себестоимость израсходованных материалов (ТМЦ)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">extras</code></td>
+      <td><code class="code-pill">NUMERIC DEFAULT 0</code></td>
+      <td>Сумма дополнительных расходов по объекту</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">tech_link</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Ссылка на Яндекс.Диск с технической документацией и схемами Заказчика</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">contract_id</code></td>
+      <td><code class="code-pill">INTEGER REFERENCES contracts(id)</code></td>
+      <td>Ссылка на Генеральный договор с Заказчиком</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">own_company_id</code></td>
+      <td><code class="code-pill">INTEGER REFERENCES own_companies(id)</code></td>
+      <td>Собственное юрлицо («Мы»), ведущее этот объект (1 = КС, 2 = К10, 3 = Ультима)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">assignment_status</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Статус входного контроля: <code class="code-pill">pending</code> (ожидает проверки ПМ) / <code class="code-pill">accepted</code> (допущено к назначению)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">status</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Общий статус (<code class="code-pill">new</code>, <code class="code-pill">assigned</code>, <code class="code-pill">progress</code>, <code class="code-pill">control</code>, <code class="code-pill">done</code>, <code class="code-pill">cancelled</code>)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">stage</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Макро-этап (<code class="code-pill">request</code>, <code class="code-pill">survey</code>, <code class="code-pill">install</code>, <code class="code-pill">control</code>, <code class="code-pill">acceptance</code>, <code class="code-pill">payment</code>)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">stage_num</code></td>
+      <td><code class="code-pill">INTEGER DEFAULT 0</code></td>
+      <td>Числовой этап трека исполнительной документации (0..9)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">macro_status</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Единый сквозной статус (<code class="code-pill">new</code>, <code class="code-pill">assigned</code>, <code class="code-pill">install</code>, <code class="code-pill">id_in_progress</code>, <code class="code-pill">id_delivered</code>, <code class="code-pill">accepted</code>, <code class="code-pill">paid</code>)</td>
+    </tr>
+    <tr>
+      <td><strong>Параллельные статусы</strong></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">status_smr</code></td>
+      <td><code class="code-pill">TEXT DEFAULT 'pending'</code></td>
+      <td>Статус строительно-монтажных работ (<code class="code-pill">pending</code>, <code class="code-pill">in_progress</code>, <code class="code-pill">ready</code>, <code class="code-pill">verified</code>)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">status_supply</code></td>
+      <td><code class="code-pill">TEXT DEFAULT 'none'</code></td>
+      <td>Статус обеспечения материалами (<code class="code-pill">none</code>, <code class="code-pill">reserved</code>, <code class="code-pill">shipped</code>, <code class="code-pill">received</code>)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">status_id</code></td>
+      <td><code class="code-pill">TEXT DEFAULT 'pending'</code></td>
+      <td>Статус исполнительной документации (<code class="code-pill">pending</code>, <code class="code-pill">design</code>, <code class="code-pill">ready</code>, <code class="code-pill">delivered</code>, <code class="code-pill">accepted</code>)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">status_acts</code></td>
+      <td><code class="code-pill">TEXT DEFAULT 'pending'</code></td>
+      <td>Статус подписания первичных актов (<code class="code-pill">pending</code>, <code class="code-pill">generated</code>, <code class="code-pill">signed_sub</code>, <code class="code-pill">signed_cust</code>)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">status_payment_sub</code></td>
+      <td><code class="code-pill">TEXT DEFAULT 'pending'</code></td>
+      <td>Статус расчетов с субподрядчиком (<code class="code-pill">pending</code>, <code class="code-pill">invoice_received</code>, <code class="code-pill">approved</code>, <code class="code-pill">paid</code>)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">status_payment_customer</code></td>
+      <td><code class="code-pill">TEXT DEFAULT 'pending'</code></td>
+      <td>Статус поступления оплаты от Заказчика (<code class="code-pill">pending</code>, <code class="code-pill">invoiced</code>, <code class="code-pill">partial</code>, <code class="code-pill">paid</code>)</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+<hr class="divider" />
+<h3 id="3-2-контур-субподряда-таблица-task-subcontracts" class="doc-h3">3.2. Контур субподряда: Таблица <code class="code-pill">task_subcontracts</code></h3>
+<p class="doc-p">Фиксирует юридическое поручение на выполнение СМР между Генподрядчиком и Подрядчиком на конкретном объекте.</p>
+<div class="table-wrapper">
+<table class="data-table">
+  <thead><tr>
+    <th>Колонка</th>
+    <th>Тип данных</th>
+    <th>Описание</th>
+  </tr></thead>
+  <tbody>
+    <tr>
+      <td><code class="code-pill">id</code></td>
+      <td><code class="code-pill">SERIAL PRIMARY KEY</code></td>
+      <td>Внутренний номер субподрядного поручения</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">task_id</code></td>
+      <td><code class="code-pill">TEXT REFERENCES tasks(id)</code></td>
+      <td>Ссылка на заявку/объект</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">contractor_id</code></td>
+      <td><code class="code-pill">INTEGER REFERENCES contractors(id)</code></td>
+      <td>Ссылка на контрагента-исполнителя</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">own_company_id</code></td>
+      <td><code class="code-pill">INTEGER REFERENCES own_companies(id)</code></td>
+      <td>Собственное юрлицо-Генподрядчик в договоре</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">contractor_contract_id</code></td>
+      <td><code class="code-pill">INTEGER REFERENCES contractor_contracts(id)</code></td>
+      <td>Рамочный договор подряда между Нами и Исполнителем</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">price_list_id</code></td>
+      <td><code class="code-pill">INTEGER REFERENCES contractor_price_lists(id)</code></td>
+      <td>Протокол договорной цены (Приложение №1 к договору подряда)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">work_type</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Наименование поручаемых работ</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">price_agreed</code></td>
+      <td><code class="code-pill">NUMERIC DEFAULT 0</code></td>
+      <td><strong>Согласованная стоимость СМР:</strong> итого к выплате подрядчику</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">assigned_date</code></td>
+      <td><code class="code-pill">DATE</code></td>
+      <td>Дата выдачи заказ-наряда</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">deadline</code></td>
+      <td><code class="code-pill">DATE</code></td>
+      <td>Нормативный дедлайн завершения работ монтажником</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">specialist_id</code></td>
+      <td><code class="code-pill">INTEGER REFERENCES specialists(id)</code></td>
+      <td>Назначенный специалист (монтажник/бригадир)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">installer_fio</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>ФИО монтажника (для пропуска и заказ-наряда)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">installer_phone</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Телефон монтажника для оперативной связи</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">installer_passport</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Паспортные данные монтажника (серия, номер, кем/когда выдан)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">auto_number</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Марка и госномер автотранспорта монтажника</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">calculation_details</code></td>
+      <td><code class="code-pill">JSONB DEFAULT '{}'</code></td>
+      <td><strong>Полный детализированный расчет:</strong> массив позиций <code class="code-pill">lines</code> (порты, шкафы, км) и <code class="code-pill">third_party_lines</code> (доп. расходы)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">ports_count</code></td>
+      <td><code class="code-pill">INTEGER DEFAULT 0</code></td>
+      <td>Количество портов, включенных в расчет</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">distance_km</code></td>
+      <td><code class="code-pill">NUMERIC DEFAULT 0</code></td>
+      <td>Тарифицируемый километраж по объекту</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">status</code></td>
+      <td><code class="code-pill">TEXT DEFAULT 'assigned'</code></td>
+      <td>Статус подряда (<code class="code-pill">assigned</code>, <code class="code-pill">in_progress</code>, <code class="code-pill">done</code>, <code class="code-pill">accepted</code>, <code class="code-pill">paid</code>)</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+<hr class="divider" />
+<h3 id="3-3-структура-json-поля-calculation-details-в-task-subcontracts" class="doc-h3">3.3. Структура JSON-поля <code class="code-pill">calculation_details</code> в <code class="code-pill">task_subcontracts</code></h3>
+<p class="doc-p">Для обеспечения 100% прозрачности финансового аудита калькулятор сохраняет структуру сметы объекта в структурированном виде:</p>
+<div class="code-card">
+  <div class="code-header"><span class="code-badge">json</span><button class="copy-btn" onclick="copyCode(this)">Копировать</button></div>
+  <pre class="code-pre"><code>{
+  "contractId": 4,
+  "contractNumber": "СКС СЗ 090626",
+  "contractDate": "2026-06-09",
+  "ownCompanyId": 2,
+  "ownCompanyName": "ООО \"К10\"",
+  "priceListId": 3,
+  "lines": [
+    {
+      "work_code": "port_5e",
+      "name": "Базовая стоимость работ 1 порт СКС 5е (шкала: &gt;3 шт)",
+      "qty": 4,
+      "unit": "порт",
+      "price": 2500,
+      "sum": 10000,
+      "tier": 2
+    },
+    {
+      "work_code": "tksh_32u",
+      "name": "Монтаж напольного ТКШ 32U",
+      "qty": 1,
+      "unit": "шт",
+      "price": 8000,
+      "sum": 8000
+    },
+    {
+      "work_code": "km_rate",
+      "name": "Транспортные расходы (компенсация проезда авто свыше 10 км: 45 км × 12 ₽)",
+      "qty": 45,
+      "unit": "км",
+      "price": 12,
+      "sum": 540
+    }
+  ],
+  "third_party_lines": [
+    {
+      "name": "Алмазное бурение технологических отверстий",
+      "performer": "Специалист по алмазному бурению",
+      "payment_type": "through_contractor",
+      "contract_info": "Договор / чек",
+      "amount": 22000
+    },
+    {
+      "name": "Аренда автовышки с машинистом",
+      "performer": "ООО \"СпецАвтоТранс\"",
+      "payment_type": "direct",
+      "contract_info": "Договор аренды спецтехники №44",
+      "amount": 15000
+    }
+  ],
+  "summary": {
+    "totalSmrWorks": 18000,
+    "totalTransport": 540,
+    "contractorSmrTotal": 18540,
+    "thirdPartyViaContractor": 22000,
+    "thirdPartyDirect": 15000,
+    "totalSubcontractPayout": 40540,
+    "totalSiteExpenses": 55540
+  }
+}</code></pre>
+</div>
+<hr class="divider" />
+<h3 id="3-4-реестр-сгенерированных-документов-таблица-task-documents" class="doc-h3">3.4. Реестр сгенерированных документов: Таблица <code class="code-pill">task_documents</code></h3>
+<div class="table-wrapper">
+<table class="data-table">
+  <thead><tr>
+    <th>Колонка</th>
+    <th>Тип</th>
+    <th>Назначение</th>
+  </tr></thead>
+  <tbody>
+    <tr>
+      <td><code class="code-pill">id</code></td>
+      <td><code class="code-pill">SERIAL PRIMARY KEY</code></td>
+      <td>Идентификатор записи</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">task_id</code></td>
+      <td><code class="code-pill">TEXT REFERENCES tasks(id)</code></td>
+      <td>Ссылка на заявку</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">subcontract_id</code></td>
+      <td><code class="code-pill">INTEGER REFERENCES task_subcontracts(id)</code></td>
+      <td>Ссылка на субподряд (если документ субподрядный)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">doc_type</code></td>
+      <td><code class="code-pill">TEXT NOT NULL</code></td>
+      <td>Тип документа (<code class="code-pill">order_subcontract</code>, <code class="code-pill">contract</code>, <code class="code-pill">completion_act</code>, <code class="code-pill">invoice</code>, <code class="code-pill">permit_letter</code>, <code class="code-pill">power_attorney</code>, <code class="code-pill">id_registry</code>, <code class="code-pill">tmc_act</code>)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">doc_number</code></td>
+      <td><code class="code-pill">TEXT</code></td>
+      <td>Официальный номер документа (например, <code class="code-pill">ЗН-0926-02-001-1</code>, <code class="code-pill">АКТ-0926-02-001-1</code>, <code class="code-pill">ИСХ-0926-02-001-ДОП</code>)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">doc_date</code></td>
+      <td><code class="code-pill">DATE DEFAULT CURRENT_DATE</code></td>
+      <td>Дата формирования документа</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">title</code></td>
+      <td><code class="code-pill">TEXT NOT NULL</code></td>
+      <td>Человекочитаемое наименование документа</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">file_url</code></td>
+      <td><code class="code-pill">TEXT NOT NULL</code></td>
+      <td>Путь к сгенерированному файлу на диске сервере (<code class="code-pill">/uploads/documents/...docx</code>)</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">file_type</code></td>
+      <td><code class="code-pill">TEXT DEFAULT 'docx'</code></td>
+      <td>Формат файла</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">meta</code></td>
+      <td><code class="code-pill">JSONB DEFAULT '{}'</code></td>
+      <td>Снимок параметров, переданных в генератор</td>
+    </tr>
+    <tr>
+      <td><code class="code-pill">created_by</code></td>
+      <td><code class="code-pill">INTEGER REFERENCES users(id)</code></td>
+      <td>Пользователь, сформировавший документ</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+<hr class="divider" />
+<h2 id="4-матрица-трассируемости-данных-data-traceability-matrix" class="doc-h2">4. Матрица трассируемости данных (Data Traceability Matrix)</h2>
+<p class="doc-p">Таблица показывает, <strong>откуда конкретное поле поступает</strong>, <strong>где хранится в БД</strong>, <strong>в каких формулах участвует</strong> и <strong>в какие документы переносится</strong>.</p>
+<div class="table-wrapper">
+<table class="data-table">
+  <thead><tr>
+    <th>Бизнес-параметр</th>
+    <th>Источник поступления</th>
+    <th>Таблица и поле БД</th>
+    <th>Формула / Алгоритм</th>
+    <th>Выходные документы (.docx)</th>
+  </tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Номер заявки</strong></td>
+      <td>Реестр Excel / Заказчик</td>
+      <td><code class="code-pill">tasks.id</code></td>
+      <td>Прямой маппинг при парсинге</td>
+      <td>Все документы (Заказ-наряд, КС-2, Счет, Письмо на допуск, Реестр ИД)</td>
+    </tr>
+    <tr>
+      <td><strong>Адрес объекта</strong></td>
+      <td>Реестр Excel ➔ DaData</td>
+      <td><code class="code-pill">tasks.address</code>, <code class="code-pill">clean_address</code></td>
+      <td>Геокодирование, нормализация ФИАС</td>
+      <td>Заказ-наряд (таблица объекта), Письмо на допуск, КС-2, Накладная М-15</td>
+    </tr>
+    <tr>
+      <td><strong>Офис ВСП / ГОСБ</strong></td>
+      <td>Реестр Excel</td>
+      <td><code class="code-pill">tasks.vsp</code>, <code class="code-pill">tasks.gosb</code></td>
+      <td>Прямой маппинг</td>
+      <td>Заказ-наряд, Письмо на допуск куратору Сбера, Реестр ИД</td>
+    </tr>
+    <tr>
+      <td><strong>Выручка Заказчика</strong></td>
+      <td>Реестр Excel / Контракт</td>
+      <td><code class="code-pill">tasks.amount</code></td>
+      <td>Фиксированная сумма контракта Заказчика</td>
+      <td>Финансовый дашборд, расчёт маржи объекта</td>
+    </tr>
+    <tr>
+      <td><strong>Количество портов</strong></td>
+      <td>Реестр Excel / ПМ</td>
+      <td><code class="code-pill">tasks.in_order</code>, <code class="code-pill">fact</code></td>
+      <td>Проверка шкалы объема: до 3 портов включительно или более 3</td>
+      <td>Заказ-наряд (объем работ), КС-2, Счет</td>
+    </tr>
+    <tr>
+      <td><strong>Тариф за порт СМР</strong></td>
+      <td>Прайс-лист подрядчика (<code class="code-pill">price_list_items</code>)</td>
+      <td><code class="code-pill">price_list_items.price_tier_1</code>, <code class="code-pill">price_tier_2</code></td>
+      <td>Если портов > 3 ➔ 2 500 ₽ (тир 2), иначе 3 000 ₽ (тир 1)</td>
+      <td>Заказ-наряд (Приложение №2), КС-2 (расценка)</td>
+    </tr>
+    <tr>
+      <td><strong>Шкаф ТКШ</strong></td>
+      <td>Чек-лист обследования / Задание</td>
+      <td><code class="code-pill">calculation_details.lines</code></td>
+      <td>Фиксированный тариф по типу шкафа (42U=10к, 32U=8к, 18U=6.5к)</td>
+      <td>Заказ-наряд, КС-2, Счёт</td>
+    </tr>
+    <tr>
+      <td><strong>Удаленность объекта</strong></td>
+      <td>DaData / Яндекс.Карты</td>
+      <td><code class="code-pill">tasks.distance_km</code></td>
+      <td>Если удаленность > 10 км ➔ (км − 10) × 12 ₽</td>
+      <td>Заказ-наряд (строка транспортных расходов), КС-2</td>
+    </tr>
+    <tr>
+      <td><strong>Дополнительные расходы</strong></td>
+      <td>Ручной ввод ПМ / Счета</td>
+      <td><code class="code-pill">calculation_details.third_party_lines</code></td>
+      <td>Суммирование в смету с признаком плательщика</td>
+      <td>Заказ-наряд (если платит Подрядчик), Финансовый баланс</td>
+    </tr>
+    <tr>
+      <td><strong>Генподрядчик («Мы»)</strong></td>
+      <td>Привязка контракта / ПМ</td>
+      <td><code class="code-pill">own_companies</code> (1=КС, 2=К10, 3=Ультима)</td>
+      <td>Выбор юрлица по договору и режиму НДС</td>
+      <td>Шапка и реквизиты всех 8 документов Word</td>
+    </tr>
+    <tr>
+      <td><strong>Субподрядчик</strong></td>
+      <td>Назначение ПМ</td>
+      <td><code class="code-pill">contractors</code>, <code class="code-pill">task_subcontracts</code></td>
+      <td>Справочник контрагентов, проверка ИНН/р/с</td>
+      <td>Преамбула и реквизиты Заказ-наряда, Договора, КС-2, Счета</td>
+    </tr>
+    <tr>
+      <td><strong>Специалист СМР</strong></td>
+      <td>Справочник монтажников</td>
+      <td><code class="code-pill">specialists</code>, <code class="code-pill">task_subcontracts</code></td>
+      <td>ФИО, телефон, паспорт, автотранспорт</td>
+      <td>Письмо на допуск Сбера, Доверенность М-2, Накладная М-15</td>
+    </tr>
+    <tr>
+      <td><strong>Материалы (ТМЦ)</strong></td>
+      <td>Норматив СКС / Склад</td>
+      <td><code class="code-pill">task_materials</code>, <code class="code-pill">materials</code></td>
+      <td>Квантование бухт (305м), остатки складов</td>
+      <td>Накладная М-15, Доверенность М-2</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+<hr class="divider" />
+<h2 id="5-алгоритмы-расчета-и-бизнес-формулы" class="doc-h2">5. Алгоритмы расчёта и бизнес-формулы</h2>
+<h3 id="5-1-дифференцированная-шкала-стоимости-портов-скс-приложение-1" class="doc-h3">5.1. Дифференцированная шкала стоимости портов СКС (Приложение №1)</h3>
+<p class="doc-p">В соответствии с официальными тарифными протоколами группы (для Сбербанка, ОСФР и Росприроднадзора) действует правило объема:</p>
+<div class="callout callout-blue">
+  <div class="callout-body">🔹 <strong>Категория 5е:</strong><br>- При объеме <strong>от 1 до 3 портов:</strong> <code class="code-pill">3 000 руб./порт</code><br>- При объеме <strong>свыше 3 портов:</strong> <code class="code-pill">2 500 руб./порт</code><br>🔹 <strong>Категория 6 / 6А и оптические порты (дуплекс 2 волокна):</strong><br>- При объеме <strong>от 1 до 3 портов:</strong> <code class="code-pill">3 500 руб./порт</code><br>- При объеме <strong>свыше 3 портов:</strong> <code class="code-pill">3 000 руб./порт</code><br><strong>Формула расчета:</strong><br><code class="code-pill">Стоимость работ по портам = Количество портов × Тариф шкалы</code></div>
+</div>
+<h3 id="5-2-транспортные-расходы-выезд-свыше-10-км" class="doc-h3">5.2. Транспортные расходы (Выезд свыше 10 км)</h3>
+<p class="doc-p">В черте города и в радиусе до 10 км от базового города подрядчика транспортные расходы включены в базовую ставку монтажа. При удаленности свыше 10 км начисляется километраж по ставке <strong>12 ₽/км</strong>:</p>
+<div class="callout callout-amber">
+  <div class="callout-body">🚗 <strong>Правило компенсации проезда автотранспорта:</strong><br>- Если <code class="code-pill">Удаленность <= 10 км</code> => <strong>0 руб.</strong> (включено в базовый монтаж)<br>- Если <code class="code-pill">Удаленность > 10 км</code> => <code class="code-pill">(Километраж − 10 км) × 12 руб./км</code><br><em>Пример:</em> расстояние 55 км => (55 − 10) × 12 = 45 × 12 = <strong>540 руб.</strong></div>
+</div>
+<h3 id="5-3-стоимость-монтажа-и-замены-шкафов-ткш" class="doc-h3">5.3. Стоимость монтажа и замены шкафов ТКШ</h3>
+<ul>
+  <li>Монтаж напольного ТКШ 42–48U (800х800): <strong>10 000 руб.</strong></li>
+  <li>Монтаж напольного ТКШ 32U (600х600 / 800х800): <strong>8 000 руб.</strong></li>
+  <li>Монтаж навесного ТКШ 18–22U: <strong>6 500 руб.</strong></li>
+  <li>Замена существующего ТКШ с перемонтажом оборудования: <strong>10 000 руб.</strong></li>
+  <li>Перешивка портов при замене ТКШ: <strong>500 руб./порт</strong></li>
+  <li>Демонтаж напольного ТКШ 42U: <strong>7 000 руб.</strong></li>
+  <li>Демонтаж напольного ТКШ 32U: <strong>6 000 руб.</strong></li>
+  <li>Демонтаж навесного ТКШ до 22U: <strong>5 000 руб.</strong></li>
+  <li>Модернизация шкафа (600мм / 800мм): <strong>3 000 руб.</strong></li>
+</ul>
+<h3 id="5-4-классификация-дополнительных-расходов-по-объекту" class="doc-h3">5.4. Классификация дополнительных расходов по объекту</h3>
+<p class="doc-p">На объектах регулярно возникают сопутствующие работы сторонних специалистов. Система четко разделяет два механизма оплаты:</p>
+<ol>
+  <li><strong><code class="code-pill">through_contractor</code> (Через подрядчика в смете):</strong> Сумма добавляется в Заказ-наряд монтажника. Подрядчик оплачивает услугу на месте (или выполняет своими силами), а Генподрядчик компенсирует ее по акту КС-2.<br>&nbsp;&nbsp;&nbsp;&nbsp;• <em>Примеры:</em> Алмазное бурение (типовой тариф <strong>22 000 руб.</strong>), суточные монтажника (<strong>700 руб./день</strong>), проживание в гостинице, ГСМ.</li>
+  <li><strong><code class="code-pill">direct</code> (Прямая оплата Генподрядчиком «Мы»):</strong> Генподрядчик заключает прямой договор со сторонней организацией (или поставщиком услуг) и оплачивает со своего расчетного счета. Монтажнику эта сумма в смету <strong>не начисляется</strong>, но вычитается из общей маржинальности объекта.<br>&nbsp;&nbsp;&nbsp;&nbsp;• <em>Примеры:</em> Аренда спецтехники / автовышки с машинистом (<strong>15 000 руб.</strong>), доставка крупногабаритных грузов транспортной компанией.</li>
+</ol>
+<h3 id="5-5-формула-сквозного-финансового-баланса-объекта" class="doc-h3">5.5. Формула сквозного финансового баланса объекта</h3>
+<div class="callout callout-diamond">
+  <div class="callout-body">💎 <strong>Сквозной расчет финансов по объекту:</strong><br>1. <code class="code-pill">Итого к выплате Подрядчику (СМР) = Сумма СМР-работ + Доп. расходы (в смете подрядчика)</code><br>2. <code class="code-pill">Общие прямые затраты = Итого Подрядчику + Доп. расходы (напрямую Генподрядчиком) + Себестоимость ТМЦ</code><br>3. <code class="code-pill">Чистый операционный остаток (Маржа) = tasks.amount (Выручка Заказчика) − Общие прямые затраты</code><br>4. <code class="code-pill">Рентабельность объекта (%) = (Чистый операционный остаток / tasks.amount) × 100%</code></div>
+</div>
+<hr class="divider" />
+<h2 id="6-движок-генерации-документов-server-services-docxgenerator-js" class="doc-h2">6. Движок генерации документов (<code class="code-pill">server/services/docxGenerator.js</code>)</h2>
+<p class="doc-p">Генерация документов выполняется программно на сервере с использованием библиотеки <code class="code-pill">docx</code>, что гарантирует строгую типографику, соответствие ГОСТам делопроизводства и отсутствие зависимостей от сторонних офисных пакетов.</p>
+
+      <div class="diagram-wrapper">
+        <div class="diagram-toolbar">
+          <div class="diagram-toolbar-title">
+            <span class="diagram-icon">🗺️</span>
+            <strong>Пакет исходящих документов и параллельные жизненные циклы</strong>
+          </div>
+          <div class="diagram-toolbar-actions">
+            <button type="button" class="ctrl-btn" onclick="zoomDiagram('diagram_box_2', 0.25)">🔍 Увеличить (+)</button>
+            <button type="button" class="ctrl-btn" onclick="zoomDiagram('diagram_box_2', -0.25)">🔍 Уменьшить (−)</button>
+            <button type="button" class="ctrl-btn" onclick="resetZoom('diagram_box_2')">100%</button>
+            <button type="button" class="ctrl-btn ctrl-btn-accent" onclick="openFullscreen('diagram_box_2')">⛶ Во весь экран</button>
+            <a href="images/documents_and_lifecycle.svg" target="_blank" class="ctrl-btn ctrl-btn-link">↗ Открыть файл</a>
+          </div>
+        </div>
+        <div class="diagram-viewport" id="diagram_box_2">
+          <div class="diagram-scalable">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 760" width="1040" height="760" style="background:#ffffff; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;">
+  <defs>
+    <filter id="shadow2" x="-4%" y="-2%" width="108%" height="106%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.06"/>
+    </filter>
+  </defs>
+
+  <!-- Заголовок схемы -->
+  <rect x="20" y="20" width="1000" height="70" rx="12" fill="#0f172a" filter="url(#shadow2)"/>
+  <text x="50" y="52" fill="#ffffff" font-size="20" font-weight="800">StockEasy — Документооборот и параллельные жизненные циклы</text>
+  <text x="50" y="74" fill="#94a3b8" font-size="13" font-weight="500">8 выходных документов Word (.docx) и матрица параллельных неблокирующих статусов</text>
+
+  <!-- ========================================== -->
+  <!-- СЕКЦИЯ 1 (СЛЕВА): ГЕНЕРАТОР ДОКУМЕНТОВ -->
+  <!-- ========================================== -->
+  <g transform="translate(20, 110)">
+    <rect x="0" y="0" width="530" height="630" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5" filter="url(#shadow2)"/>
+    <rect x="16" y="-12" width="310" height="26" rx="6" fill="#4f46e5"/>
+    <text x="26" y="5" fill="#ffffff" font-size="12" font-weight="700">1. ПАКЕТ ИСХОДЯЩИХ ДОКУМЕНТОВ (.DOCX)</text>
+
+    <!-- Карточка 1: Заказ-наряд -->
+    <rect x="20" y="25" width="490" height="66" rx="8" fill="#ffffff" stroke="#c7d2fe" stroke-width="1.5"/>
+    <text x="35" y="47" fill="#1e1b4b" font-size="13" font-weight="700">📄 Приложение №2 к Договору (Заказ-наряд)</text>
+    <text x="35" y="65" fill="#475569" font-size="11">• Номер заявки Заказчика, адрес, ВСП/ГОСБ, смета портов и ТКШ, сроки и подписи</text>
+    <text x="35" y="81" fill="#4f46e5" font-size="10" font-weight="600">➔ Формируется при назначении исполнителя СМР</text>
+
+    <!-- Карточка 2: Договор подряда -->
+    <rect x="20" y="99" width="490" height="66" rx="8" fill="#ffffff" stroke="#c7d2fe" stroke-width="1.5"/>
+    <text x="35" y="121" fill="#1e1b4b" font-size="13" font-weight="700">📑 Договор подряда (Генеральный рамочный)</text>
+    <text x="35" y="139" fill="#475569" font-size="11">• Юридические условия, взаимные обязательства Нас и Субподрядчика, реквизиты</text>
+    <text x="35" y="155" fill="#4f46e5" font-size="10" font-weight="600">➔ Заключается между Нашим юрлицом (КС / К10 / Ультима) и Подрядчиком</text>
+
+    <!-- Карточка 3: Акт КС-2 -->
+    <rect x="20" y="173" width="490" height="66" rx="8" fill="#ffffff" stroke="#c7d2fe" stroke-width="1.5"/>
+    <text x="35" y="195" fill="#1e1b4b" font-size="13" font-weight="700">✅ Акт сдачи-приемки выполненных работ (КС-2)</text>
+    <text x="35" y="213" fill="#475569" font-size="11">• Фактический объем работ, расценки за единицу, итого к выплате подрядчику</text>
+    <text x="35" y="229" fill="#4f46e5" font-size="10" font-weight="600">➔ Первичный закрывающий документ для бухгалтерии</text>
+
+    <!-- Карточка 4: Счет на оплату -->
+    <rect x="20" y="247" width="490" height="66" rx="8" fill="#ffffff" stroke="#c7d2fe" stroke-width="1.5"/>
+    <text x="35" y="269" fill="#1e1b4b" font-size="13" font-weight="700">💰 Счет на оплату от подрядчика</text>
+    <text x="35" y="287" fill="#475569" font-size="11">• Расчетный счет монтажника, БИК банка, основание платежа, сумма без НДС</text>
+    <text x="35" y="303" fill="#4f46e5" font-size="10" font-weight="600">➔ Основание для безналичного перевода вознаграждения</text>
+
+    <!-- Карточка 5: Письмо на допуск -->
+    <rect x="20" y="321" width="490" height="66" rx="8" fill="#ffffff" stroke="#c7d2fe" stroke-width="1.5"/>
+    <text x="35" y="343" fill="#1e1b4b" font-size="13" font-weight="700">🪪 Письмо на допуск на объект (по форме Сбера)</text>
+    <text x="35" y="361" fill="#475569" font-size="11">• Список специалистов, паспортные данные, контактный телефон, номер авто</text>
+    <text x="35" y="377" fill="#4f46e5" font-size="10" font-weight="600">➔ Направляется куратору и службе безопасности Заказчика</text>
+
+    <!-- Карточка 6: Доверенность М-2 -->
+    <rect x="20" y="395" width="490" height="66" rx="8" fill="#ffffff" stroke="#c7d2fe" stroke-width="1.5"/>
+    <text x="35" y="417" fill="#1e1b4b" font-size="13" font-weight="700">📜 Доверенность на получение ТМЦ (Форма М-2)</text>
+    <text x="35" y="435" fill="#475569" font-size="11">• Полномочия монтажника на получение кабеля и шкафов в ТК или у поставщика</text>
+    <text x="35" y="451" fill="#4f46e5" font-size="10" font-weight="600">➔ Действительна 15 календарных дней с подписью Гендиректора</text>
+
+    <!-- Карточка 7: Реестр ИД -->
+    <rect x="20" y="469" width="490" height="66" rx="8" fill="#ffffff" stroke="#c7d2fe" stroke-width="1.5"/>
+    <text x="35" y="491" fill="#1e1b4b" font-size="13" font-weight="700">📋 Сопроводительный реестр передачи ИД</text>
+    <text x="35" y="509" fill="#475569" font-size="11">• Опись комплекта: титульный лист, схемы DWG/PDF, кабельный журнал, Fluke-тесты</text>
+    <text x="35" y="525" fill="#4f46e5" font-size="10" font-weight="600">➔ Подписывается представителем Заказчика при сдаче документации</text>
+
+    <!-- Карточка 8: Накладная М-15 -->
+    <rect x="20" y="543" width="490" height="66" rx="8" fill="#ffffff" stroke="#c7d2fe" stroke-width="1.5"/>
+    <text x="35" y="565" fill="#1e1b4b" font-size="13" font-weight="700">📦 Накладная передачи материалов (Форма М-15)</text>
+    <text x="35" y="583" fill="#475569" font-size="11">• Списание ТМЦ со склада Генподрядчика в подотчет монтажнику</text>
+    <text x="35" y="599" fill="#4f46e5" font-size="10" font-weight="600">➔ Фиксирует расход материалов на конкретный объект</text>
+  </g>
+
+  <!-- ========================================== -->
+  <!-- СЕКЦИЯ 2 (СПРАВА): ПАРАЛЛЕЛЬНЫЕ ТРЕКИ -->
+  <!-- ========================================== -->
+  <g transform="translate(570, 110)">
+    <rect x="0" y="0" width="450" height="630" rx="12" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5" filter="url(#shadow2)"/>
+    <rect x="16" y="-12" width="350" height="26" rx="6" fill="#16a34a"/>
+    <text x="26" y="5" fill="#ffffff" font-size="12" font-weight="700">2. МАТРИЦА ПАРАЛЛЕЛЬНЫХ ТРЕКОВ (БЕЗ БЛОКИРОВОК)</text>
+
+    <!-- Входной контроль -->
+    <rect x="20" y="25" width="410" height="75" rx="8" fill="#ffffff" stroke="#eab308" stroke-width="1.5"/>
+    <text x="35" y="48" fill="#854d0e" font-size="13" font-weight="700">🚦 ШАГ 1: Входной контроль заявки (Gate)</text>
+    <text x="35" y="68" fill="#334155" font-size="11">• pending (ожидает проверки ПМ ссылки на тех. инфу)</text>
+    <text x="35" y="86" fill="#15803d" font-size="11" font-weight="700">➔ accepted (разрешает назначение подрядчика)</text>
+
+    <!-- Трек 1: СМР -->
+    <rect x="20" y="115" width="410" height="110" rx="8" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
+    <text x="35" y="138" fill="#15803d" font-size="13" font-weight="700">🛠️ ТРЕК 1: Монтажные работы (status_smr)</text>
+    <text x="35" y="160" fill="#334155" font-size="12">1. pending ➔ Ожидает назначения монтажников</text>
+    <text x="35" y="180" fill="#334155" font-size="12">2. in_progress ➔ Бригада на объекте / монтаж трасс</text>
+    <text x="35" y="200" fill="#334155" font-size="12">3. ready ➔ Работы выполнены, загружен фотоотчет</text>
+    <text x="35" y="220" fill="#15803d" font-size="12" font-weight="700">4. verified ➔ Качество принято инженером технадзора</text>
+
+    <!-- Трек 2: Снабжение -->
+    <rect x="20" y="240" width="410" height="110" rx="8" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
+    <text x="35" y="263" fill="#15803d" font-size="13" font-weight="700">📦 ТРЕК 2: Снабжение и ТМЦ (status_supply)</text>
+    <text x="35" y="285" fill="#334155" font-size="12">1. none ➔ Спецификация не сформирована</text>
+    <text x="35" y="305" fill="#334155" font-size="12">2. reserved ➔ Бухты кабеля и шкафы забронированы</text>
+    <text x="35" y="325" fill="#334155" font-size="12">3. shipped ➔ Груз передан в ТК или выдан со склада</text>
+    <text x="35" y="345" fill="#15803d" font-size="12" font-weight="700">4. received ➔ Материалы получены монтажником</text>
+
+    <!-- Трек 3: ИД -->
+    <rect x="20" y="365" width="410" height="120" rx="8" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
+    <text x="35" y="388" fill="#15803d" font-size="13" font-weight="700">📐 ТРЕК 3: Проектирование и ИД (status_id)</text>
+    <text x="35" y="410" fill="#334155" font-size="12">1. pending ➔ Ожидает окончания СМР и журнала</text>
+    <text x="35" y="430" fill="#334155" font-size="12">2. design ➔ Проектировщик готовит схему и паспорт</text>
+    <text x="35" y="450" fill="#334155" font-size="12">3. ready ➔ Альбом собран, подписан ЭЦП</text>
+    <text x="35" y="470" fill="#15803d" font-size="12" font-weight="700">4. accepted ➔ ИД официально согласована Сбером</text>
+
+    <!-- Трек 4: Взаиморасчеты -->
+    <rect x="20" y="500" width="410" height="110" rx="8" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
+    <text x="35" y="523" fill="#15803d" font-size="13" font-weight="700">💰 ТРЕК 4: Финансы и оплаты</text>
+    <text x="35" y="545" fill="#334155" font-size="12">• Подрядчику: pending ➔ invoice_received ➔ paid</text>
+    <text x="35" y="565" fill="#334155" font-size="12">• От Заказчика: pending ➔ invoiced ➔ paid</text>
+    <text x="35" y="585" fill="#15803d" font-size="12" font-weight="700">➔ Полный расчет после приемки объекта и ИД</text>
+  </g>
+</svg>
+
+          </div>
+        </div>
+      </div>
+      
+<h3 id="6-1-состав-и-назначение-генерируемых-документов" class="doc-h3">6.1. Состав и назначение генерируемых документов</h3>
+<ol>
+  <li><strong>Заказ-наряд (Приложение №2 к Договору субподряда)</strong><br>&nbsp;&nbsp;&nbsp;&nbsp;• <em>Функция:</em> Официальное техническое задание и протокол цены на конкретный объект.<br>&nbsp;&nbsp;&nbsp;&nbsp;• <em>Данные:</em> Реквизиты сторон (Генподрядчик и Подрядчик), номер заявки Заказчика, адрес, ВСП, ГОСБ, объем работ (порты, шкафы), согласованные сроки начала и окончания, итоговая цена с указанием неначисления НДС (УСН), таблица подписей и печатей.</li>
+  <li><strong>Письмо о согласовании допуска на объект (для службы безопасности Заказчика)</strong><br>&nbsp;&nbsp;&nbsp;&nbsp;• <em>Функция:</em> Пропускной лист для беспрепятственного прохода монтажников на охраняемые объекты Сбербанка.<br>&nbsp;&nbsp;&nbsp;&nbsp;• <em>Данные:</em> Адрес объекта, номер ВСП, даты проведения работ, таблица специалистов (ФИО, серия/номер паспорта, кем и когда выдан, контактный телефон, марка и госномер автомобиля), ФИО ответственного за охрану труда и ТБ.</li>
+  <li><strong>Доверенность на получение ТМЦ (Типовая форма М-2)</strong><br>&nbsp;&nbsp;&nbsp;&nbsp;• <em>Функция:</em> Полномочия монтажника на получение кабельной продукции и оборудования со склада поставщика (ТД «Телеком-Снаб», ЭТМ) или терминала транспортной компании.<br>&nbsp;&nbsp;&nbsp;&nbsp;• <em>Данные:</em> Доверитель (Генподрядчик), паспортные данные поверенного специалиста, наименование поставщика, спецификация получаемых ТМЦ.</li>
+  <li><strong>Сопроводительный реестр передачи исполнительной документации (Реестр ИД)</strong><br>&nbsp;&nbsp;&nbsp;&nbsp;• <em>Функция:</em> Акт приема-передачи комплекта исполнительной документации куратору Заказчика.<br>&nbsp;&nbsp;&nbsp;&nbsp;• <em>Данные:</em> Титульный лист, исполнительные схемы (DWG/PDF), кабельный журнал, протоколы измерений Fluke Networks Cat.5e PASS, фотоальбом скрытых и открытых работ.</li>
+  <li><strong>Договор подряда (Генеральный рамочный)</strong><br>&nbsp;&nbsp;&nbsp;&nbsp;• <em>Функция:</em> Базовый гражданско-правовой договор между Нашим юрлицом и Субподрядчиком со всеми юридическими условиями, взаимной ответственностью и реквизитами расчетных счетов.</li>
+  <li><strong>Акт сдачи-приемки выполненных работ (КС-2)</strong><br>&nbsp;&nbsp;&nbsp;&nbsp;• <em>Функция:</em> Закрывающий бухгалтерский документ на выполненный объем работ для выплаты вознаграждения подрядчику.</li>
+  <li><strong>Счет на оплату от подрядчика</strong><br>&nbsp;&nbsp;&nbsp;&nbsp;• <em>Функция:</em> Платежный документ с банковскими реквизитами Подрядчика для бухгалтерии Генподрядчика.</li>
+  <li><strong>Накладная / Акт приема-передачи ТМЦ (Форма М-15)</strong><br>&nbsp;&nbsp;&nbsp;&nbsp;• <em>Функция:</em> Фиксация выдачи материалов со склада Генподрядчика в подотчет монтажнику.</li>
+</ol>
+<hr class="divider" />
+<h2 id="7-жизненный-цикл-заявки-и-матрица-параллельных-статусов" class="doc-h2">7. Жизненный цикл заявки и матрица параллельных статусов</h2>
+<p class="doc-p">Для устранения блокировок между отделами в системе реализована <strong>неблокирующая параллельная модель статусов</strong> (визуализирована на схеме выше):</p>
+<div class="table-wrapper">
+<table class="data-table">
+  <thead><tr>
+    <th>Производственный трек</th>
+    <th>Статусная цепочка</th>
+    <th>Бизнес-правило и условие перехода</th>
+  </tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>🚦 Входной контроль (Gate)</strong></td>
+      <td><code class="code-pill">pending</code> ➔ <code class="code-pill">accepted</code></td>
+      <td>Проверка ПМ наличия ТЗ, адреса и ссылки на документацию перед допуском к распределению</td>
+    </tr>
+    <tr>
+      <td><strong>🛠️ Трек СМР (<code class="code-pill">status_smr</code>)</strong></td>
+      <td><code class="code-pill">pending</code> ➔ <code class="code-pill">in_progress</code> ➔ <code class="code-pill">ready</code> ➔ <code class="code-pill">verified</code></td>
+      <td>Работы на объекте, загрузка фотоотчета, инспекционный контроль инженера технадзора</td>
+    </tr>
+    <tr>
+      <td><strong>📦 Трек Снабжения (<code class="code-pill">status_supply</code>)</strong></td>
+      <td><code class="code-pill">none</code> ➔ <code class="code-pill">reserved</code> ➔ <code class="code-pill">shipped</code> ➔ <code class="code-pill">received</code></td>
+      <td>Резерв кабеля/шкафов на складе, отгрузка в ТК, подтверждение получения монтажником</td>
+    </tr>
+    <tr>
+      <td><strong>📐 Трек ИД (<code class="code-pill">status_id</code>)</strong></td>
+      <td><code class="code-pill">pending</code> ➔ <code class="code-pill">design</code> ➔ <code class="code-pill">ready</code> ➔ <code class="code-pill">delivered</code> ➔ <code class="code-pill">accepted</code></td>
+      <td>Подготовка исполнительных схем, кабельного журнала, сдача комплекта куратору Заказчика</td>
+    </tr>
+    <tr>
+      <td><strong>💰 Взаиморасчеты с подрядчиком</strong></td>
+      <td><code class="code-pill">pending</code> ➔ <code class="code-pill">invoice_received</code> ➔ <code class="code-pill">approved</code> ➔ <code class="code-pill">paid</code></td>
+      <td>Оплата согласуется только после подтверждения СМР (<code class="code-pill">verified</code>) и сдачи ИД (<code class="code-pill">ready</code>)</td>
+    </tr>
+    <tr>
+      <td><strong>🏛️ Оплата от Заказчика</strong></td>
+      <td><code class="code-pill">pending</code> ➔ <code class="code-pill">invoiced</code> ➔ <code class="code-pill">partial</code> ➔ <code class="code-pill">paid</code></td>
+      <td>Выставление счета Заказчику после подписания КС-2/КС-3 и приемки ИД</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+<h3 id="7-1-правила-перехода-между-этапами" class="doc-h3">7.1. Правила перехода между этапами</h3>
+<ol>
+  <li><strong>Входной контроль (Gate 1):</strong> Без подтверждения ПМ заявка находится в статусе <code class="code-pill">assignment_status = 'pending'</code>. Кнопки назначения подрядчика и утверждения сметы заблокированы.</li>
+  <li><strong>Снабжение и СМР не ждут друг друга:</strong> Подрядчик может выйти на обследование или прокладку трасс, пока склад комплектует кванты кабеля.</li>
+  <li><strong>Исполнительная документация (ИД):</strong> Подготовка альбома схем начинается сразу после загрузки фотоотчета и кабельного журнала монтажником (<code class="code-pill">status_smr = 'ready'</code>).</li>
+  <li><strong>Финансовое закрытие:</strong> Оплата субподрядчику (<code class="code-pill">status_payment_sub = 'paid'</code>) согласуется после подтверждения качества работ инженером технадзора (<code class="code-pill">status_smr = 'verified'</code>) и комплектности ИД (<code class="code-pill">status_id = 'ready'</code>).</li>
+</ol>
+<hr class="divider" />
+<h2 id="8-итоги-и-эксплуатационные-гарантии" class="doc-h2">8. Итоги и эксплуатационные гарантии</h2>
+<ol>
+  <li><strong>Отсутствие вымышленных сущностей:</strong> Вся схема опирается исключительно на существующие таблицы PostgreSQL (<code class="code-pill">tasks</code>, <code class="code-pill">task_subcontracts</code>, <code class="code-pill">contractor_contracts</code>, <code class="code-pill">price_list_items</code>, <code class="code-pill">own_companies</code>, <code class="code-pill">task_documents</code>) и рабочие функции бэкенда.</li>
+  <li><strong>Защита финансовых данных:</strong> Поле <code class="code-pill">tasks.amount</code> (выручка от Заказчика) изолировано от субподрядных расчетов и не перезаписывается сметой подрядчика.</li>
+  <li><strong>Автоматическая синхронизация:</strong> Изменение подрядчика или сметы в мастере моментально обновляет <code class="code-pill">tasks.contractor</code>, строку в <code class="code-pill">task_subcontracts</code> и финансовые сводки дашборда.</li>
+  <li><strong>Готовность к аудиту:</strong> Любой сгенерированный документ (.docx) полностью воспроизводим из сохраненного слепка параметров в <code class="code-pill">task_documents.meta</code> и <code class="code-pill">task_subcontracts.calculation_details</code>.</li>
+</ol>
+
+    </main>
+  </div>
+
+  <!-- ПОЛНОЭКРАННОЕ ОКНО ДЛЯ ПРОСМОТРА СХЕМ -->
+  <div id="fullscreenModal" class="fullscreen-modal" onclick="closeFullscreen()">
+    <div class="fullscreen-header" onclick="event.stopPropagation()">
+      <strong id="fullscreenTitle">Просмотр схемы</strong>
+      <button class="btn btn-ghost" onclick="closeFullscreen()">✕ Закрыть (Esc)</button>
+    </div>
+    <div class="fullscreen-body" id="fullscreenBody" onclick="event.stopPropagation()"></div>
+  </div>
+
+  <script>
+    // Зум и управление схемами
+    var zoomLevels = {};
+
+    function zoomDiagram(boxId, delta) {
+      if (!zoomLevels[boxId]) zoomLevels[boxId] = 1;
+      zoomLevels[boxId] = Math.max(0.4, Math.min(3.0, zoomLevels[boxId] + delta));
+      applyZoom(boxId);
+    }
+
+    function resetZoom(boxId) {
+      zoomLevels[boxId] = 1;
+      applyZoom(boxId);
+    }
+
+    function applyZoom(boxId) {
+      var box = document.getElementById(boxId);
+      if (!box) return;
+      var scalable = box.querySelector('.diagram-scalable');
+      if (scalable) {
+        var lvl = zoomLevels[boxId] || 1;
+        if (lvl <= 1) {
+          scalable.style.maxWidth = (1040 * lvl) + 'px';
+          scalable.style.width = (100 * lvl) + '%';
+        } else {
+          scalable.style.maxWidth = 'none';
+          scalable.style.width = (100 * lvl) + '%';
+        }
+      }
+    }
+
+    function openFullscreen(boxId) {
+      var box = document.getElementById(boxId);
+      if (!box) return;
+      var svg = box.querySelector('svg');
+      if (!svg) return;
+      var modal = document.getElementById('fullscreenModal');
+      var body = document.getElementById('fullscreenBody');
+      body.innerHTML = svg.outerHTML;
+      modal.classList.add('active');
+    }
+
+    function closeFullscreen() {
+      var modal = document.getElementById('fullscreenModal');
+      modal.classList.remove('active');
+    }
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') closeFullscreen();
+    });
+
+    // Переключение темной/светлой темы
+    function toggleTheme() {
+      var current = document.documentElement.getAttribute('data-theme');
+      var next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+    }
+
+    (function() {
+      var saved = localStorage.getItem('theme');
+      if (saved) {
+        document.documentElement.setAttribute('data-theme', saved);
+      }
+    })();
+
+    // Копирование кода
+    function copyCode(btn) {
+      var card = btn.closest('.code-card');
+      var code = card ? card.querySelector('code').innerText : '';
+      navigator.clipboard.writeText(code).then(function() {
+        btn.textContent = 'Скопировано!';
+        setTimeout(function() { btn.textContent = 'Копировать'; }, 2000);
+      });
+    }
+  </script>
+</body>
+</html>

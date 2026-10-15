@@ -8,7 +8,7 @@ var S = {
   syncing: false,
   tasks: [], chains: [], stats: {}, importInfo: null, users: [], contractors: [], ownCompanies: [], specialists: [], notifications: [],
   selChain: null, selChainStep: null, chainMgr: '',
-  taskQ: '', taskSt: '', taskPr: '', taskReg: '', taskMgr: '', taskYear: '', taskOverdue: '',
+  taskQ: '', taskSt: '', taskPr: '', taskReg: '', taskMgr: '', taskPm: '', taskYear: '', taskOverdue: '',
   taskCustomer: '',
   taskContractor: '',
   taskArch: 'no',

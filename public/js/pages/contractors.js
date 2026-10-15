@@ -1,4 +1,4 @@
-// public/js/pages/contractors.js - Справочники организаций: Заказчики, Поставщики материалов, Логистика / ТК, Подрядчики СМР
+// public/js/pages/contractors.js - Справочники организаций: Заказчики, Поставщики материалов, Логистика / ТК, Подрядчики СМР, Прочие, Собственные юрлица
 
 var contractorSearchTimeout = null;
 
@@ -18,7 +18,7 @@ function pageContractors() {
         <div>
           <h1 class="page-title" style="margin:0">Организации</h1>
           <div style="font-size:.82rem; color:var(--text-3); margin-top:2px">
-            Справочник заказчиков, поставщиков материалов, логистики (ТК) и подрядчиков СМР
+            Единый справочник: Заказчики, Подрядчики СМР, Поставщики ТМЦ, Логистика (ТК), Прочие ДОПы и Собственные юрлица
           </div>
         </div>
         <div id="contractor_top_actions"></div>
@@ -26,6 +26,9 @@ function pageContractors() {
 
       <!-- ВЕРХНИЕ ВКЛАДКИ -->
       <div style="display:flex; gap:8px; border-bottom:1.5px solid var(--border); padding-bottom:6px; margin-bottom:1.25rem; flex-wrap:wrap">
+        <button class="btn btn-sm ${S.contractorActiveTab === 'subcontractor' ? '' : 'btn-ghost'}" onclick="setContractorTab('subcontractor')">
+          👷 Подрядчики СМР <span id="badge_count_subcontractor" style="opacity:.8">(${getContractorCount('subcontractor')})</span>
+        </button>
         <button class="btn btn-sm ${S.contractorActiveTab === 'customer' ? '' : 'btn-ghost'}" onclick="setContractorTab('customer')">
           🏛️ Заказчики <span id="badge_count_customer" style="opacity:.8">(${getContractorCount('customer')})</span>
         </button>
@@ -35,8 +38,11 @@ function pageContractors() {
         <button class="btn btn-sm ${S.contractorActiveTab === 'logistics' ? '' : 'btn-ghost'}" onclick="setContractorTab('logistics')">
           🚚 Логистика / ТК <span id="badge_count_logistics" style="opacity:.8">(${getContractorCount('logistics')})</span>
         </button>
-        <button class="btn btn-sm ${S.contractorActiveTab === 'subcontractor' ? '' : 'btn-ghost'}" onclick="setContractorTab('subcontractor')">
-          👷 Подрядчики СМР <span id="badge_count_subcontractor" style="opacity:.8">(${getContractorCount('subcontractor')})</span>
+        <button class="btn btn-sm ${S.contractorActiveTab === 'other_expense' ? '' : 'btn-ghost'}" onclick="setContractorTab('other_expense')">
+          🛠️ Прочие (Аренда / Спецтехника) <span id="badge_count_other_expense" style="opacity:.8">(${getContractorCount('other_expense')})</span>
+        </button>
+        <button class="btn btn-sm ${S.contractorActiveTab === 'own' ? '' : 'btn-ghost'}" onclick="setContractorTab('own')">
+          🏛️ Собственные юрлица («Мы») <span id="badge_count_own" style="opacity:.8">(${getContractorCount('own')})</span>
         </button>
       </div>
     </div>
@@ -72,17 +78,22 @@ function getContractorSearchPlaceholder(tab) {
     customer: '🔍 Поиск заказчика по названию, ИНН, договору или куратору...',
     supplier: '🔍 Поиск поставщика по названию, ИНН, телефону или городу...',
     logistics: '🔍 Поиск транспортной компании по названию, ИНН, телефону или городу...',
-    subcontractor: '🔍 Поиск подрядчика по названию, ИНН, договору или директору...'
+    subcontractor: '🔍 Поиск подрядчика по названию, ИНН, договору или директору...',
+    other_expense: '🔍 Поиск поставщика доп. услуг (аренда, спецтехника, вышка, бурение)...',
+    own: '🔍 Поиск среди собственных компаний группы (ООО "К10", ООО "КС", ООО "Ультима")...'
   };
   return p[tab] || '🔍 Поиск по названию или ИНН...';
 }
 
 function getContractorCount(type) {
   if (!S.contractors) return '0';
-  if (type === 'subcontractor') {
-    return S.contractors.filter(c => c.type === 'subcontractor' || c.type === 'executor' || c.type === 'internal' || !c.type).length;
+  if (type === 'own') {
+    return S.contractors.filter(c => c.type === 'own' || c.is_own === true).length;
   }
-  return S.contractors.filter(c => c.type === type).length;
+  if (type === 'subcontractor') {
+    return S.contractors.filter(c => (c.type === 'subcontractor' || c.type === 'executor' || c.type === 'internal' || !c.type) && !c.is_own).length;
+  }
+  return S.contractors.filter(c => c.type === type && !c.is_own).length;
 }
 
 function setContractorTab(tab) {
@@ -111,12 +122,18 @@ function renderContractorsView() {
   if (bcLog) bcLog.textContent = '(' + getContractorCount('logistics') + ')';
   var bcSub = document.getElementById('badge_count_subcontractor');
   if (bcSub) bcSub.textContent = '(' + getContractorCount('subcontractor') + ')';
+  var bcOth = document.getElementById('badge_count_other_expense');
+  if (bcOth) bcOth.textContent = '(' + getContractorCount('other_expense') + ')';
+  var bcOwn = document.getElementById('badge_count_own');
+  if (bcOwn) bcOwn.textContent = '(' + getContractorCount('own') + ')';
 
   var tabTitles = {
     customer: 'Заказчика',
     supplier: 'Поставщика материалов',
     logistics: 'ТК / Логистику',
-    subcontractor: 'Подрядчика СМР'
+    subcontractor: 'Подрядчика СМР',
+    other_expense: 'Контрагента (ДОПы / Аренда)',
+    own: 'Собственное юрлицо'
   };
 
   if (topActions) {
@@ -139,7 +156,9 @@ function renderContractorsView() {
     if (curTab === 'customer') matchesType = (c.type === 'customer');
     else if (curTab === 'supplier') matchesType = (c.type === 'supplier');
     else if (curTab === 'logistics') matchesType = (c.type === 'logistics');
-    else matchesType = (c.type === 'subcontractor' || c.type === 'executor' || c.type === 'internal' || !c.type);
+    else if (curTab === 'other_expense') matchesType = (c.type === 'other_expense');
+    else if (curTab === 'own') matchesType = (c.type === 'own' || c.is_own === true);
+    else matchesType = ((c.type === 'subcontractor' || c.type === 'executor' || c.type === 'internal' || !c.type) && !c.is_own);
 
     if (!matchesType) return false;
     if (!q) return true;
@@ -155,7 +174,14 @@ function renderContractorsView() {
   // Обновляем бейдж с количеством и плейсхолдер
   var countBadge = document.getElementById('contractor_count_badge');
   if (countBadge) {
-    var titles = { customer: 'Заказчиков', supplier: 'Поставщиков', logistics: 'Транспортных компаний', subcontractor: 'Подрядчиков СМР' };
+    var titles = { 
+      customer: 'Заказчиков', 
+      supplier: 'Поставщиков', 
+      logistics: 'Транспортных компаний', 
+      subcontractor: 'Подрядчиков СМР',
+      other_expense: 'Прочих контрагентов',
+      own: 'Собственных юрлиц'
+    };
     countBadge.innerHTML = (titles[curTab] || 'Организаций') + ' в базе: <b>' + list.length + '</b>';
   }
   var searchInp = document.getElementById('contractor_search_input');
@@ -169,10 +195,64 @@ function renderContractorsView() {
     renderSuppliersTable(container, list);
   } else if (curTab === 'logistics') {
     renderLogisticsTable(container, list);
+  } else if (curTab === 'other_expense') {
+    renderOtherExpenseTable(container, list);
+  } else if (curTab === 'own') {
+    renderOwnCompaniesTable(container, list);
   } else {
     renderSubcontractorsTable(container, list);
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. ТАБЛИЦА «🏛️ ЗАКАЗЧИКИ»
+// ─────────────────────────────────────────────────────────────────────────────
+
+function copyContractorRequisites(id) {
+  var c = (S.contractors || []).find(function(x){ return x.id === id; });
+  if (!c) return;
+
+  var lines = [];
+  lines.push('КАРТОЧКА ПРЕДПРИЯТИЯ: ' + (c.name_full || c.name_short));
+  lines.push('Краткое наименование: ' + c.name_short);
+  if (c.legal_form) lines.push('Организационно-правовая форма: ' + c.legal_form);
+  lines.push('ИНН: ' + (c.inn || '—') + (c.kpp ? ' / КПП: ' + c.kpp : ''));
+  if (c.ogrn) lines.push('ОГРН/ОГРНИП: ' + c.ogrn);
+  if (c.address_legal) lines.push('Юридический адрес: ' + c.address_legal);
+  if (c.address_postal) lines.push('Почтовый / фактический адрес: ' + c.address_postal);
+  
+  var dirStr = c.director || c.signer_name || '—';
+  var posStr = c.signer_position || 'Директор';
+  var basisStr = c.acting_basis || 'Устава';
+  lines.push('В лице: ' + posStr + ' ' + dirStr + ', действующего на основании ' + basisStr);
+
+  lines.push('');
+  lines.push('БАНКОВСКИЕ РЕКВИЗИТЫ:');
+  lines.push('Банк: ' + (c.bank_name || '—'));
+  lines.push('БИК: ' + (c.bik || '—'));
+  if (c.account_corr) lines.push('Корр. счет: ' + c.account_corr);
+  lines.push('Расчетный счет: ' + (c.account_pay || '—'));
+
+  if (c.phone || c.email) {
+    lines.push('');
+    lines.push('КОНТАКТЫ:');
+    if (c.phone) lines.push('Телефон: ' + c.phone);
+    if (c.email) lines.push('Email: ' + c.email);
+    if (c.curator_name) lines.push('Контактное лицо / куратор: ' + c.curator_name);
+  }
+
+  var fullText = lines.join('\n');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(fullText).then(function() {
+      alert('✓ Карточка предприятия скопирована в буфер обмена!\n\n' + fullText);
+    }).catch(function() {
+      window.prompt('Скопируйте реквизиты:', fullText);
+    });
+  } else {
+    window.prompt('Скопируйте реквизиты:', fullText);
+  }
+}
+window.copyContractorRequisites = copyContractorRequisites;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. ТАБЛИЦА «🏛️ ЗАКАЗЧИКИ»
@@ -194,15 +274,22 @@ function renderCustomersTable(container, list) {
       if (c.curator_email) curatorInfo += `<div style="font-size:.73rem; color:var(--text-3)">✉️ ${escHtml(c.curator_email)}</div>`;
     }
 
+    var basisInfo = c.director ? `<div style="font-size:.72rem; color:var(--text-3); margin-top:2px">В лице: ${escHtml(c.director)} (на осн. ${escHtml(c.acting_basis || 'Устава')})</div>` : '';
+
     return `
       <tr id="contractor_row_${c.id}" data-contractor-id="${c.id}" style="border-bottom: 1px solid var(--border); transition: background .2s">
         <td style="padding: 10px 12px">
-          <div style="font-weight:700; font-size:.9rem">${escHtml(c.name_short)}</div>
+          <div style="font-weight:700; font-size:.9rem">
+            ${c.legal_form ? '<span class="badge b-gray" style="font-size:.68rem; margin-right:4px">' + escHtml(c.legal_form) + '</span>' : ''}
+            ${escHtml(c.name_short)}
+          </div>
           <div style="font-size:.74rem; color:var(--text-3); margin-top:2px">
             ИНН: <b style="font-family:monospace; color:var(--text)">${escHtml(c.inn || '—')}</b> ${c.kpp ? '· КПП: ' + escHtml(c.kpp) : ''}
+            ${c.ogrn ? '· ОГРН: ' + escHtml(c.ogrn) : ''}
           </div>
           ${c.name_full ? '<div style="font-size:.74rem; color:var(--text-3); line-height:1.2; margin-top:2px">' + escHtml(c.name_full) + '</div>' : ''}
           ${c.address_legal ? '<div style="font-size:.72rem; color:var(--text-3); margin-top:3px">📍 ' + escHtml(c.address_legal) + '</div>' : ''}
+          ${basisInfo}
         </td>
         <td style="padding: 10px 12px">${contractInfo}</td>
         <td style="padding: 10px 12px">${curatorInfo}</td>
@@ -210,6 +297,7 @@ function renderCustomersTable(container, list) {
           <span class="badge b-green">🟢 Активен</span>
         </td>
         <td style="padding: 10px 12px; text-align:right; white-space:nowrap">
+          <button class="btn btn-sm btn-ghost" onclick="copyContractorRequisites(${c.id})" title="Скопировать карточку предприятия (реквизиты)">📋</button>
           <button class="btn btn-sm btn-ghost" onclick="editContractor(${c.id})" title="Редактировать заказчика">✏️</button>
           <button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteContractor(${c.id})" title="Удалить">✕</button>
         </td>
@@ -226,7 +314,7 @@ function renderCustomersTable(container, list) {
             <th>Генеральный договор</th>
             <th>Куратор и контакты</th>
             <th>Статус</th>
-            <th style="width:80px"></th>
+            <th style="width:110px"></th>
           </tr>
         </thead>
         <tbody>
@@ -256,9 +344,13 @@ function renderSuppliersTable(container, list) {
     return `
       <tr id="contractor_row_${c.id}" data-contractor-id="${c.id}" style="border-bottom: 1px solid var(--border); transition: background .2s">
         <td style="padding: 10px 12px">
-          <div style="font-weight:700; font-size:.9rem">${escHtml(c.name_short)}</div>
+          <div style="font-weight:700; font-size:.9rem">
+            ${c.legal_form ? '<span class="badge b-gray" style="font-size:.68rem; margin-right:4px">' + escHtml(c.legal_form) + '</span>' : ''}
+            ${escHtml(c.name_short)}
+          </div>
           <div style="font-size:.74rem; color:var(--text-3); margin-top:2px">
             ИНН: <b style="font-family:monospace; color:var(--text)">${escHtml(c.inn || '—')}</b> ${c.kpp ? '· КПП: ' + escHtml(c.kpp) : ''}
+            ${c.ogrn ? '· ОГРН: ' + escHtml(c.ogrn) : ''}
           </div>
           ${c.name_full ? '<div style="font-size:.74rem; color:var(--text-3); margin-top:2px">' + escHtml(c.name_full.slice(0, 90)) + '</div>' : ''}
           ${bankInfo}
@@ -271,6 +363,7 @@ function renderSuppliersTable(container, list) {
           ${escHtml(c.address_legal ? c.address_legal.slice(0, 60) + '...' : '—')}
         </td>
         <td style="padding: 10px 12px; text-align:right; white-space:nowrap">
+          <button class="btn btn-sm btn-ghost" onclick="copyContractorRequisites(${c.id})" title="Скопировать карточку предприятия (реквизиты)">📋</button>
           <button class="btn btn-sm btn-ghost" onclick="viewContractorDetails(${c.id})" title="Доверенности на получение груза">📜 Доверенности</button>
           <button class="btn btn-sm btn-ghost" onclick="editContractor(${c.id})" title="Редактировать">✏️</button>
           <button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteContractor(${c.id})" title="Удалить">✕</button>
@@ -288,7 +381,7 @@ function renderSuppliersTable(container, list) {
             <th>Категория</th>
             <th>Контакты</th>
             <th>Склад / Юр. адрес</th>
-            <th style="width:130px"></th>
+            <th style="width:160px"></th>
           </tr>
         </thead>
         <tbody>
@@ -319,9 +412,13 @@ function renderLogisticsTable(container, list) {
     return `
       <tr id="contractor_row_${c.id}" data-contractor-id="${c.id}" style="border-bottom: 1px solid var(--border); transition: background .2s">
         <td style="padding: 10px 12px">
-          <div style="font-weight:700; font-size:.9rem">${escHtml(c.name_short)}</div>
+          <div style="font-weight:700; font-size:.9rem">
+            ${c.legal_form ? '<span class="badge b-gray" style="font-size:.68rem; margin-right:4px">' + escHtml(c.legal_form) + '</span>' : ''}
+            ${escHtml(c.name_short)}
+          </div>
           <div style="font-size:.74rem; color:var(--text-3); margin-top:2px">
             ИНН: <b style="font-family:monospace; color:var(--text)">${escHtml(c.inn || '—')}</b> ${c.kpp ? '· КПП: ' + escHtml(c.kpp) : ''}
+            ${c.ogrn ? '· ОГРН: ' + escHtml(c.ogrn) : ''}
           </div>
           ${c.name_full ? '<div style="font-size:.74rem; color:var(--text-3); margin-top:2px">' + escHtml(c.name_full.slice(0, 90)) + '</div>' : ''}
           ${bankInfo}
@@ -334,6 +431,7 @@ function renderLogisticsTable(container, list) {
           ${escHtml(c.address_legal ? c.address_legal.slice(0, 60) + '...' : '—')}
         </td>
         <td style="padding: 10px 12px; text-align:right; white-space:nowrap">
+          <button class="btn btn-sm btn-ghost" onclick="copyContractorRequisites(${c.id})" title="Скопировать карточку предприятия (реквизиты)">📋</button>
           <button class="btn btn-sm btn-ghost" onclick="viewContractorDetails(${c.id})" title="Доверенности на получение груза">📜 Доверенности</button>
           <button class="btn btn-sm btn-ghost" onclick="editContractor(${c.id})" title="Редактировать">✏️</button>
           <button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteContractor(${c.id})" title="Удалить">✕</button>
@@ -351,7 +449,7 @@ function renderLogisticsTable(container, list) {
             <th>Категория</th>
             <th>Контакты терминала</th>
             <th>Терминал / Юр. адрес</th>
-            <th style="width:130px"></th>
+            <th style="width:160px"></th>
           </tr>
         </thead>
         <tbody>
@@ -380,9 +478,13 @@ function renderSubcontractorsTable(container, list) {
     return `
       <tr id="contractor_row_${c.id}" data-contractor-id="${c.id}" style="border-bottom: 1px solid var(--border); transition: background .2s">
         <td style="padding: 10px 12px">
-          <div style="font-weight:700; font-size:.9rem">${escHtml(c.name_short)}</div>
+          <div style="font-weight:700; font-size:.9rem">
+            ${c.legal_form ? '<span class="badge b-gray" style="font-size:.68rem; margin-right:4px">' + escHtml(c.legal_form) + '</span>' : ''}
+            ${escHtml(c.name_short)}
+          </div>
           <div style="font-size:.74rem; color:var(--text-3); margin-top:2px">
             ИНН: <b style="font-family:monospace; color:var(--text)">${escHtml(c.inn || '—')}</b> ${c.kpp ? '· КПП: ' + escHtml(c.kpp) : ''}
+            ${c.ogrn ? '· ОГРН: ' + escHtml(c.ogrn) : ''}
           </div>
           ${c.director ? '<div style="font-size:.73rem; color:var(--text-3); margin-top:2px">Директор: ' + escHtml(c.director) + '</div>' : ''}
           ${c.phone ? '<div style="font-size:.73rem; color:var(--text-3)">📞 ' + escHtml(c.phone) + '</div>' : ''}
@@ -395,6 +497,7 @@ function renderSubcontractorsTable(container, list) {
           <span class="badge b-green">🟢 Аккредитован</span>
         </td>
         <td style="padding: 10px 12px; text-align:right; white-space:nowrap">
+          <button class="btn btn-sm btn-ghost" onclick="copyContractorRequisites(${c.id})" title="Скопировать карточку предприятия (реквизиты)">📋</button>
           <button class="btn btn-sm btn-ghost" onclick="viewContractorDetails(${c.id})" title="Просмотр монтажников и доверенностей">👷 Бригада и документы</button>
           <button class="btn btn-sm btn-ghost" onclick="editContractor(${c.id})" title="Редактировать">✏️</button>
           <button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteContractor(${c.id})" title="Удалить">✕</button>
@@ -412,7 +515,7 @@ function renderSubcontractorsTable(container, list) {
             <th>Договор субподряда</th>
             <th>Монтажники в штате</th>
             <th>Статус</th>
-            <th style="width:160px"></th>
+            <th style="width:190px"></th>
           </tr>
         </thead>
         <tbody>
@@ -423,6 +526,147 @@ function renderSubcontractorsTable(container, list) {
   `;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. ТАБЛИЦА «🛠️ ПРОЧИЕ КОНТРАГЕНТЫ (АРЕНДА / СПЕЦТЕХНИКА / ДОПЫ)»
+// ─────────────────────────────────────────────────────────────────────────────
+
+function renderOtherExpenseTable(container, list) {
+  var rows = list.map(function(c) {
+    var contactDisplay = '—';
+    if (c.phone || c.email || c.curator_name) {
+      contactDisplay = `
+        ${c.curator_name ? '<div style="font-weight:600">' + escHtml(c.curator_name) + '</div>' : ''}
+        ${c.phone ? '<div>📞 ' + escHtml(c.phone) + '</div>' : ''}
+        ${c.email ? '<div style="font-size:.73rem; color:var(--text-3)">✉️ ' + escHtml(c.email) + '</div>' : ''}
+      `;
+    }
+
+    var bankInfo = c.bank_name ? `<div style="font-size:.75rem; color:var(--text-2); margin-top:3px">🏛️ ${escHtml(c.bank_name)} ${c.bik ? '· БИК ' + escHtml(c.bik) : ''}</div>` : '';
+
+    return `
+      <tr id="contractor_row_${c.id}" data-contractor-id="${c.id}" style="border-bottom: 1px solid var(--border); transition: background .2s">
+        <td style="padding: 10px 12px">
+          <div style="font-weight:700; font-size:.9rem">
+            ${c.legal_form ? '<span class="badge b-gray" style="font-size:.68rem; margin-right:4px">' + escHtml(c.legal_form) + '</span>' : ''}
+            ${escHtml(c.name_short)}
+          </div>
+          <div style="font-size:.74rem; color:var(--text-3); margin-top:2px">
+            ИНН: <b style="font-family:monospace; color:var(--text)">${escHtml(c.inn || '—')}</b> ${c.kpp ? '· КПП: ' + escHtml(c.kpp) : ''}
+            ${c.ogrn ? '· ОГРН: ' + escHtml(c.ogrn) : ''}
+          </div>
+          ${c.name_full ? '<div style="font-size:.74rem; color:var(--text-3); margin-top:2px">' + escHtml(c.name_full.slice(0, 90)) + '</div>' : ''}
+          ${bankInfo}
+        </td>
+        <td style="padding: 10px 12px">
+          <span class="badge b-yellow">🛠️ Аренда / Спецтехника / ДОПы</span>
+          ${c.comment ? '<div style="font-size:.73rem; color:var(--text-3); margin-top:3px">' + escHtml(c.comment) + '</div>' : ''}
+        </td>
+        <td style="padding: 10px 12px; font-size:.85rem">${contactDisplay}</td>
+        <td style="padding: 10px 12px; font-size:.8rem; color:var(--text-3)">
+          ${escHtml(c.address_legal ? c.address_legal.slice(0, 60) + '...' : '—')}
+        </td>
+        <td style="padding: 10px 12px; text-align:right; white-space:nowrap">
+          <button class="btn btn-sm btn-ghost" onclick="copyContractorRequisites(${c.id})" title="Скопировать карточку предприятия (реквизиты)">📋</button>
+          <button class="btn btn-sm btn-ghost" onclick="editContractor(${c.id})" title="Редактировать">✏️</button>
+          <button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteContractor(${c.id})" title="Удалить">✕</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="card tbl-wrap">
+      <table>
+        <thead>
+          <tr style="background:var(--bg)">
+            <th>Контрагент (ДОП-расходы)</th>
+            <th>Услуги / Специфика</th>
+            <th>Контакты и куратор</th>
+            <th>Банк / Юр. адрес</th>
+            <th style="width:130px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--text-3)">Прочие контрагенты не найдены. Нажмите «+ Добавить Контрагента (ДОПы / Аренда)»</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. ТАБЛИЦА «🏛️ СОБСТВЕННЫЕ ЮРЛИЦА («МЫ»)»
+// ─────────────────────────────────────────────────────────────────────────────
+
+function renderOwnCompaniesTable(container, list) {
+  var rows = list.map(function(c) {
+    var vatBadge = '';
+    var rate = Number(c.vat_rate || 0);
+    if (rate === 0) {
+      vatBadge = `<span class="badge b-green" style="font-weight:700">🟢 ${escHtml(c.tax_system || 'УСН без НДС (0%)')}</span>`;
+    } else if (rate === 5) {
+      vatBadge = `<span class="badge b-blue" style="font-weight:700">🔵 ${escHtml(c.tax_system || 'УСН с НДС 5%')}</span>`;
+    } else {
+      vatBadge = `<span class="badge b-yellow" style="font-weight:700">🟠 ${escHtml(c.tax_system || 'ОСНО с НДС 22%')}</span>`;
+    }
+
+    var dirStr = c.director || c.signer_name || '—';
+    var basisStr = c.acting_basis || 'Устава';
+
+    return `
+      <tr id="contractor_row_${c.id}" data-contractor-id="${c.id}" style="border-bottom: 1px solid var(--border); transition: background .2s">
+        <td style="padding: 10px 12px">
+          <div style="font-weight:700; font-size:.95rem; color:var(--text)">
+            🏛️ ${escHtml(c.name_short)}
+          </div>
+          <div style="font-size:.74rem; color:var(--text-3); margin-top:2px">
+            ИНН: <b style="font-family:monospace; color:var(--text)">${escHtml(c.inn || '—')}</b> ${c.kpp ? '· КПП: ' + escHtml(c.kpp) : ''}
+            ${c.ogrn ? '· ОГРН: ' + escHtml(c.ogrn) : ''}
+          </div>
+          ${c.name_full ? '<div style="font-size:.74rem; color:var(--text-3); line-height:1.2; margin-top:2px">' + escHtml(c.name_full) + '</div>' : ''}
+          ${c.address_legal ? '<div style="font-size:.72rem; color:var(--text-3); margin-top:3px">📍 ' + escHtml(c.address_legal) + '</div>' : ''}
+        </td>
+        <td style="padding: 10px 12px">
+          ${vatBadge}
+          <div style="font-size:.74rem; color:var(--text-3); margin-top:4px">Ставка НДС: <b>${rate}%</b></div>
+        </td>
+        <td style="padding: 10px 12px">
+          <div style="font-weight:600; font-size:.85rem">${escHtml(dirStr)}</div>
+          <div style="font-size:.74rem; color:var(--text-3); margin-top:2px">На основании: <b>${escHtml(basisStr)}</b></div>
+          ${c.phone ? '<div style="font-size:.73rem; color:var(--text-3); margin-top:2px">📞 ' + escHtml(c.phone) + '</div>' : ''}
+        </td>
+        <td style="padding: 10px 12px">
+          <div style="font-weight:600; font-size:.82rem">${escHtml(c.bank_name || '—')}</div>
+          <div style="font-size:.72rem; font-family:monospace; color:var(--text-3); margin-top:2px">БИК: ${escHtml(c.bik || '—')}</div>
+          <div style="font-size:.72rem; font-family:monospace; color:var(--text-2); margin-top:2px">Р/с: ${escHtml(c.account_pay || '—')}</div>
+        </td>
+        <td style="padding: 10px 12px; text-align:right; white-space:nowrap">
+          <button class="btn btn-sm" onclick="copyContractorRequisites(${c.id})" title="Скопировать карточку предприятия в буфер обмена">📋 Карточка</button>
+          <button class="btn btn-sm btn-ghost" onclick="editContractor(${c.id})" title="Редактировать реквизиты">✏️</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="card tbl-wrap">
+      <table>
+        <thead>
+          <tr style="background:var(--bg)">
+            <th>Собственная компания («Мы»)</th>
+            <th>Налогообложение и НДС</th>
+            <th>Руководитель и полномочия</th>
+            <th>Банковские реквизиты</th>
+            <th style="width:130px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--text-3)">Собственные компании не найдены</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
 var _contractorSearchTimer = null;
 function onContractorSearch(val) {
   S.contractorSearch = val;
@@ -479,6 +723,20 @@ function renderContractorAddForm(container, curTab) {
       contractTitle: 'Договор субподряда',
       curatorPlaceholder: 'Главный инженер / Бригадир',
       btn: '+ Сохранить Подрядчика'
+    },
+    other_expense: { 
+      title: '🛠️ Добавить Контрагента (ДОПы / Аренда)', 
+      typeText: 'Поставщик спецтехники (автовышка, бурение), аренды инструмента, ДОП-услуг',
+      contractTitle: 'Договор / Счет / Заказ',
+      curatorPlaceholder: 'Диспетчер / Менеджер',
+      btn: '+ Сохранить Контрагента'
+    },
+    own: { 
+      title: '🏛️ Добавить Собственное юридическое лицо группы', 
+      typeText: 'Юридическое лицо нашей группы («Мы») для выставления счетов и договоров',
+      contractTitle: 'Внутренний приказ / Устав',
+      curatorPlaceholder: 'Ответственное лицо',
+      btn: '+ Сохранить Юрлицо'
     }
   };
   var curInfo = labels[curTab] || labels.subcontractor;
@@ -497,12 +755,19 @@ function renderContractorAddForm(container, curTab) {
     </div>
 
     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1.25rem; margin-bottom:1.25rem">
-      <!-- Левая колонка -->
+      <!-- Левая колонка: Основные реквизиты предприятия -->
       <div>
-        <div class="mb">
-          <label style="font-size:.75rem; font-weight:600">Краткое наименование *</label>
-          <input id="nc_name_short" type="text" placeholder="ООО 'Компания' / ИП Иванов" style="width:100%">
+        <div class="g2 mb">
+          <div>
+            <label style="font-size:.75rem; font-weight:600">ОПФ (форма)</label>
+            <input id="nc_legal_form" type="text" placeholder="ООО / ИП / ПАО / СЗ" style="width:100%">
+          </div>
+          <div>
+            <label style="font-size:.75rem; font-weight:600">Краткое наименование *</label>
+            <input id="nc_name_short" type="text" placeholder="ООО 'Компания' / ИП Иванов" style="width:100%">
+          </div>
         </div>
+
         <div class="g2 mb">
           <div>
             <div style="display:flex; justify-content:space-between; align-items:center">
@@ -516,22 +781,46 @@ function renderContractorAddForm(container, curTab) {
             <input id="nc_kpp" type="text" placeholder="КПП (для юрлиц)">
           </div>
         </div>
+
         <div class="mb">
-          <label style="font-size:.75rem; font-weight:600">Полное наименование</label>
-          <textarea id="nc_name_full" placeholder="Полное юр. наименование" style="width:100%; min-height:48px"></textarea>
+          <label style="font-size:.75rem; font-weight:600">ОГРН / ОГРНИП</label>
+          <input id="nc_ogrn" type="text" placeholder="13 или 15 цифр" style="width:100%">
         </div>
+
         <div class="mb">
-          <label style="font-size:.75rem; font-weight:600">Юридический адрес / Терминал</label>
-          <textarea id="nc_address" placeholder="Адрес регистрации или терминала" style="width:100%; min-height:48px"></textarea>
+          <label style="font-size:.75rem; font-weight:600">Полное наименование (для договоров)</label>
+          <textarea id="nc_name_full" placeholder="Полное юр. наименование предприятия" style="width:100%; min-height:48px"></textarea>
         </div>
+
         <div class="mb">
-          <label style="font-size:.75rem; font-weight:600">Руководитель (Директор)</label>
-          <input id="nc_director" type="text" placeholder="ФИО Генерального директора" style="width:100%">
+          <label style="font-size:.75rem; font-weight:600">Юридический адрес регистрации</label>
+          <textarea id="nc_address" placeholder="Адрес регистрации по ЕГРЮЛ/ЕГРИП" style="width:100%; min-height:48px"></textarea>
+        </div>
+
+        <div class="mb">
+          <label style="font-size:.75rem; font-weight:600">Почтовый / фактический адрес</label>
+          <textarea id="nc_address_postal" placeholder="Почтовый адрес для писем и счетов" style="width:100%; min-height:44px"></textarea>
         </div>
       </div>
 
-      <!-- Правая колонка: Специфика договора, контакты и банк -->
+      <!-- Правая колонка: Подписант, договор, контакты и банк -->
       <div>
+        <div class="g2 mb">
+          <div>
+            <label style="font-size:.75rem; font-weight:600">Руководитель (ФИО)</label>
+            <input id="nc_director" type="text" placeholder="ФИО Генерального директора" style="width:100%">
+          </div>
+          <div>
+            <label style="font-size:.75rem; font-weight:600">Должность подписанта</label>
+            <input id="nc_signer_position" type="text" placeholder="Директор / Генеральный директор" value="Директор" style="width:100%">
+          </div>
+        </div>
+
+        <div class="mb">
+          <label style="font-size:.75rem; font-weight:600">Действует на основании</label>
+          <input id="nc_acting_basis" type="text" placeholder="Устава / Доверенности №..." value="Устава" style="width:100%">
+        </div>
+
         <div class="g2 mb">
           <div>
             <label style="font-size:.75rem; font-weight:600">${curInfo.contractTitle}</label>
@@ -601,21 +890,28 @@ function saveNewContractor(tabType) {
 
   var data = {
     inn: inn,
-    kpp: document.getElementById('nc_kpp').value.trim(),
+    kpp: document.getElementById('nc_kpp') ? document.getElementById('nc_kpp').value.trim() : null,
+    ogrn: document.getElementById('nc_ogrn') ? document.getElementById('nc_ogrn').value.trim() : null,
+    legal_form: document.getElementById('nc_legal_form') ? document.getElementById('nc_legal_form').value.trim() : null,
     name_short: nameShort,
-    name_full: document.getElementById('nc_name_full').value.trim(),
+    name_full: document.getElementById('nc_name_full') ? document.getElementById('nc_name_full').value.trim() : null,
     type: tabType,
-    address_legal: document.getElementById('nc_address').value.trim(),
-    director: document.getElementById('nc_director').value.trim(),
-    contract_number: document.getElementById('nc_contract_number').value.trim(),
-    contract_date: document.getElementById('nc_contract_date').value || null,
-    curator_name: document.getElementById('nc_curator_name').value.trim(),
-    phone: document.getElementById('nc_phone').value.trim(),
-    email: document.getElementById('nc_email').value.trim(),
-    bank_name: document.getElementById('nc_bank').value.trim(),
-    bik: document.getElementById('nc_bik').value.trim(),
+    address_legal: document.getElementById('nc_address') ? document.getElementById('nc_address').value.trim() : null,
+    address_postal: document.getElementById('nc_address_postal') ? document.getElementById('nc_address_postal').value.trim() : null,
+    director: document.getElementById('nc_director') ? document.getElementById('nc_director').value.trim() : null,
+    signer_name: document.getElementById('nc_director') ? document.getElementById('nc_director').value.trim() : null,
+    signer_position: document.getElementById('nc_signer_position') ? document.getElementById('nc_signer_position').value.trim() : 'Директор',
+    acting_basis: document.getElementById('nc_acting_basis') ? document.getElementById('nc_acting_basis').value.trim() : 'Устава',
+    contract_number: document.getElementById('nc_contract_number') ? document.getElementById('nc_contract_number').value.trim() : null,
+    contract_date: document.getElementById('nc_contract_date') && document.getElementById('nc_contract_date').value ? document.getElementById('nc_contract_date').value : null,
+    curator_name: document.getElementById('nc_curator_name') ? document.getElementById('nc_curator_name').value.trim() : null,
+    phone: document.getElementById('nc_phone') ? document.getElementById('nc_phone').value.trim() : null,
+    email: document.getElementById('nc_email') ? document.getElementById('nc_email').value.trim() : null,
+    bank_name: document.getElementById('nc_bank') ? document.getElementById('nc_bank').value.trim() : null,
+    bik: document.getElementById('nc_bik') ? document.getElementById('nc_bik').value.trim() : null,
     account_corr: document.getElementById('nc_acc_corr') ? document.getElementById('nc_acc_corr').value.trim() : null,
-    account_pay: document.getElementById('nc_acc_pay').value.trim()
+    account_pay: document.getElementById('nc_acc_pay') ? document.getElementById('nc_acc_pay').value.trim() : null,
+    is_own: (tabType === 'own')
   };
 
   api('/contractors', {
@@ -639,25 +935,32 @@ function editContractor(id) {
 
   var contractDateStr = c.contract_date ? c.contract_date.slice(0, 10) : '';
 
-  showModal('✏️ Редактировать организацию #' + id, [
+  showModal('✏️ Редактировать карточку организации #' + id, [
     { key: 'nameShort', label: 'Краткое наименование', value: c.name_short, required: true },
+    { key: 'legalForm', label: 'ОПФ (форма организации)', value: c.legal_form || '' },
     { key: 'type', label: 'Тип организации', type: 'select', value: c.type || 'subcontractor', options: [
+        { value: 'subcontractor', label: '👷 Подрядчик СМР (монтажная организация)' },
         { value: 'customer', label: '🏛️ Заказчик (кто нам платит)' },
         { value: 'supplier', label: '📦 Поставщик материалов и оборудования' },
         { value: 'logistics', label: '🚚 Логистика / Транспортная компания (ТК)' },
-        { value: 'subcontractor', label: '👷 Подрядчик СМР (монтажная организация)' }
+        { value: 'other_expense', label: '🛠️ Прочие (Аренда инструмента, спецтехника, ДОПы)' },
+        { value: 'own', label: '🏛️ Собственное юрлицо («Мы»)' }
       ]
     },
     { key: 'inn', label: 'ИНН', value: c.inn, required: true },
     { key: 'kpp', label: 'КПП', value: c.kpp || '' },
+    { key: 'ogrn', label: 'ОГРН / ОГРНИП', value: c.ogrn || '' },
     { key: 'nameFull', label: 'Полное наименование', type: 'textarea', value: c.name_full || '' },
+    { key: 'director', label: 'Руководитель (ФИО)', value: c.director || '' },
+    { key: 'signerPosition', label: 'Должность подписанта', value: c.signer_position || 'Директор' },
+    { key: 'actingBasis', label: 'Действует на основании', value: c.acting_basis || 'Устава' },
+    { key: 'addressLegal', label: 'Юридический адрес', type: 'textarea', value: c.address_legal || '' },
+    { key: 'addressPostal', label: 'Почтовый / фактический адрес', type: 'textarea', value: c.address_postal || '' },
     { key: 'contractNumber', label: 'Номер договора', value: c.contract_number || '' },
     { key: 'contractDate', label: 'Дата договора', type: 'date', value: contractDateStr },
     { key: 'curatorName', label: 'Куратор / Контактное лицо', value: c.curator_name || '' },
     { key: 'phone', label: 'Телефон', value: c.phone || '' },
     { key: 'email', label: 'Email', value: c.email || '' },
-    { key: 'director', label: 'Директор', value: c.director || '' },
-    { key: 'addressLegal', label: 'Юридический адрес', type: 'textarea', value: c.address_legal || '' },
     { key: 'bankName', label: 'Банк', value: c.bank_name || '' },
     { key: 'bik', label: 'БИК', value: c.bik || '' },
     { key: 'accountCorr', label: 'Корр. счет', value: c.account_corr || '' },
@@ -668,21 +971,28 @@ function editContractor(id) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name_short: d.nameShort,
+        legal_form: d.legalForm,
         type: d.type,
         inn: d.inn,
         kpp: d.kpp,
+        ogrn: d.ogrn,
         name_full: d.nameFull,
+        director: d.director,
+        signer_name: d.director,
+        signer_position: d.signerPosition,
+        acting_basis: d.actingBasis,
+        address_legal: d.addressLegal,
+        address_postal: d.addressPostal,
         contract_number: d.contractNumber,
         contract_date: d.contractDate || null,
         curator_name: d.curatorName,
         phone: d.phone,
         email: d.email,
-        director: d.director,
-        address_legal: d.addressLegal,
         bank_name: d.bankName,
         bik: d.bik,
         account_corr: d.accountCorr,
-        account_pay: d.accountPay
+        account_pay: d.accountPay,
+        is_own: (d.type === 'own')
       })
     }).then(function(res) {
       if (res && res.error) return alert(res.error);
@@ -993,6 +1303,9 @@ function openAddInstallerModal(contractorId, contractorName) {
           modal._extraData.specialistId = s.id;
           if (inputs.phone && s.phone) inputs.phone.value = s.phone;
           if (inputs.position && s.position) inputs.position.value = s.position;
+          if (inputs.employmentType && s.employment_type) inputs.employmentType.value = s.employment_type;
+          if (inputs.autoNumber && s.auto_number) inputs.autoNumber.value = s.auto_number;
+          if (inputs.actingBasis && s.acting_basis) inputs.actingBasis.value = s.acting_basis;
           if (inputs.passportSeriesNumber && s.passport_series_number) inputs.passportSeriesNumber.value = s.passport_series_number;
           if (inputs.passportRaw && s.passport_raw) inputs.passportRaw.value = s.passport_raw;
         },
@@ -1001,8 +1314,17 @@ function openAddInstallerModal(contractorId, contractorName) {
         }
       }
     },
-    { key: 'phone', label: 'Телефон монтажника', placeholder: '+7 (999) 000-00-00' },
+    { key: 'employmentType', label: 'Форма занятости / Статус', type: 'select', value: 'subcontractor_worker', options: [
+        { value: 'subcontractor_worker', label: '👷 Монтажник субподрядчика' },
+        { value: 'self_employed', label: '💼 Самозанятый (СЗ)' },
+        { value: 'sole_proprietor', label: '🏛️ Индивидуальный предприниматель (ИП)' },
+        { value: 'staff', label: '🏢 Штатный сотрудник' }
+      ]
+    },
     { key: 'position', label: 'Должность', value: 'Монтажник СКС' },
+    { key: 'phone', label: 'Телефон монтажника', placeholder: '+7 (999) 000-00-00' },
+    { key: 'autoNumber', label: 'Автотранспорт для допуска (марка, гос. номер)', placeholder: 'например: Газель А123ВС77' },
+    { key: 'actingBasis', label: 'Основание полномочий (Устав / Доверенность)', placeholder: 'например: Доверенность №1 от 10.01.2025' },
     { key: 'passportSeriesNumber', label: 'Серия и Номер паспорта', placeholder: '5014 123456' },
     { key: 'passportRaw', label: 'Полные паспортные данные (для допуска)', type: 'textarea', placeholder: 'Кем и когда выдан, код подразделения' }
   ], function(d) {
@@ -1014,6 +1336,9 @@ function openAddInstallerModal(contractorId, contractorName) {
         fullName: d.fullName,
         phone: d.phone,
         position: d.position,
+        employmentType: d.employmentType,
+        autoNumber: d.autoNumber,
+        actingBasis: d.actingBasis,
         passportSeriesNumber: d.passportSeriesNumber,
         passportRaw: d.passportRaw
       })
@@ -1086,16 +1411,25 @@ function selectContractorSuggestion(encodedJson, prefix) {
   if (searchInput) searchInput.value = data.name_short;
 
   if (data.inn) document.getElementById(prefix + '_inn').value = data.inn;
-  if (data.kpp) document.getElementById(prefix + '_kpp').value = data.kpp;
-  if (data.name_short) document.getElementById(prefix + '_name_short').value = data.name_short;
-  if (data.name_full) document.getElementById(prefix + '_name_full').value = data.name_full;
-  if (data.address_legal) document.getElementById(prefix + '_address').value = data.address_legal;
-  if (data.director) document.getElementById(prefix + '_director').value = data.director;
+  if (data.kpp && document.getElementById(prefix + '_kpp')) document.getElementById(prefix + '_kpp').value = data.kpp;
+  if (data.ogrn && document.getElementById(prefix + '_ogrn')) document.getElementById(prefix + '_ogrn').value = data.ogrn;
+  if (data.legal_form && document.getElementById(prefix + '_legal_form')) document.getElementById(prefix + '_legal_form').value = data.legal_form;
+  if (data.name_short && document.getElementById(prefix + '_name_short')) document.getElementById(prefix + '_name_short').value = data.name_short;
+  if (data.name_full && document.getElementById(prefix + '_name_full')) document.getElementById(prefix + '_name_full').value = data.name_full;
+  if (data.address_legal && document.getElementById(prefix + '_address')) document.getElementById(prefix + '_address').value = data.address_legal;
+  if (data.address_postal && document.getElementById(prefix + '_address_postal')) document.getElementById(prefix + '_address_postal').value = data.address_postal;
+  if (data.director && document.getElementById(prefix + '_director')) document.getElementById(prefix + '_director').value = data.director;
+  if (data.signer_position && document.getElementById(prefix + '_signer_position')) document.getElementById(prefix + '_signer_position').value = data.signer_position;
+  if (data.acting_basis && document.getElementById(prefix + '_acting_basis')) document.getElementById(prefix + '_acting_basis').value = data.acting_basis;
 
   var statusEl = document.getElementById(prefix + '_inn_status');
   if (statusEl && data.inn) statusEl.innerHTML = '<span style="color:var(--green)">✓ Заполнено из DaData</span>';
 
-  [prefix+'_inn', prefix+'_kpp', prefix+'_name_short', prefix+'_name_full', prefix+'_address', prefix+'_director'].forEach(function(id) {
+  [
+    prefix+'_inn', prefix+'_kpp', prefix+'_ogrn', prefix+'_legal_form', 
+    prefix+'_name_short', prefix+'_name_full', prefix+'_address', prefix+'_address_postal',
+    prefix+'_director', prefix+'_signer_position', prefix+'_acting_basis'
+  ].forEach(function(id) {
     var el = document.getElementById(id);
     if (el && el.value) { 
       el.style.background = '#e8f5e9'; 
@@ -1128,16 +1462,35 @@ function onInnDirectInput(val, prefix) {
         var kppEl = document.getElementById(prefix + '_kpp');
         if (kppEl && party.kpp) kppEl.value = party.kpp;
 
+        var ogrnEl = document.getElementById(prefix + '_ogrn');
+        if (ogrnEl && party.ogrn) ogrnEl.value = party.ogrn;
+
+        var lfEl = document.getElementById(prefix + '_legal_form');
+        if (lfEl && party.legal_form) lfEl.value = party.legal_form;
+
         var fullEl = document.getElementById(prefix + '_name_full');
         if (fullEl && party.name_full) fullEl.value = party.name_full;
 
         var addrEl = document.getElementById(prefix + '_address');
         if (addrEl && party.address_legal) addrEl.value = party.address_legal;
 
+        var postalEl = document.getElementById(prefix + '_address_postal');
+        if (postalEl && party.address_postal) postalEl.value = party.address_postal;
+
         var dirEl = document.getElementById(prefix + '_director');
         if (dirEl && party.director) dirEl.value = party.director;
 
-        [prefix + '_name_short', prefix + '_kpp', prefix + '_name_full', prefix + '_address', prefix + '_director'].forEach(function(id) {
+        var posEl = document.getElementById(prefix + '_signer_position');
+        if (posEl && party.signer_position) posEl.value = party.signer_position;
+
+        var basisEl = document.getElementById(prefix + '_acting_basis');
+        if (basisEl && party.acting_basis) basisEl.value = party.acting_basis;
+
+        [
+          prefix + '_name_short', prefix + '_kpp', prefix + '_ogrn', prefix + '_legal_form',
+          prefix + '_name_full', prefix + '_address', prefix + '_address_postal',
+          prefix + '_director', prefix + '_signer_position', prefix + '_acting_basis'
+        ].forEach(function(id) {
           var el = document.getElementById(id);
           if (el && el.value) {
             el.style.background = '#e8f5e9';

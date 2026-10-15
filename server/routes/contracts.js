@@ -132,6 +132,8 @@ router.get('/contracts', authenticateToken, async (req, res) => {
             'comment', ca.comment,
             'geo_lat', ca.geo_lat,
             'geo_lon', ca.geo_lon,
+            'agreement_date', ca.agreement_date,
+            'deadline', ca.deadline,
             'linked_tasks_count', (SELECT COUNT(*) FROM tasks t WHERE t.contract_agreement_id = ca.id)
           ) ORDER BY ca.agreement_number ASC NULLS LAST, ca.id ASC
         ) AS agreements
@@ -839,7 +841,7 @@ router.post('/contracts/:id/agreements', authenticateToken, async (req, res) => 
 
   try {
     const contractId = parseInt(req.params.id, 10);
-    const { region, city, external_number, price_unit, amount, comment, status } = req.body;
+    const { agreement_code, region, city, external_number, price_unit, amount, comment, status, agreement_date, deadline } = req.body;
 
     if (!region || !region.trim()) {
       return res.status(400).json({ error: 'Укажите регион или город для допсоглашения' });
@@ -851,7 +853,7 @@ router.post('/contracts/:id/agreements', authenticateToken, async (req, res) => 
       [contractId]
     );
     const nextNum = parseInt(maxRows[0].next_num, 10) || 1;
-    const agCode = `ДС-${nextNum}`;
+    const agCode = (agreement_code && agreement_code.trim()) ? agreement_code.trim() : `ДС-${nextNum}`;
 
     const targetLoc = (city || region).trim();
     const coords = resolveCityCoordinates(targetLoc) || resolveCityCoordinates(region.trim());
@@ -861,8 +863,9 @@ router.post('/contracts/:id/agreements', authenticateToken, async (req, res) => 
     const { rows: newRows } = await pool.query(`
       INSERT INTO contract_agreements (
         contract_id, agreement_number, agreement_code, external_number,
-        region, city, price_unit, amount, comment, status, geo_lat, geo_lon, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+        region, city, price_unit, amount, comment, status, geo_lat, geo_lon,
+        agreement_date, deadline, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
       RETURNING *, 0 AS linked_tasks_count
     `, [
       contractId,
@@ -876,7 +879,9 @@ router.post('/contracts/:id/agreements', authenticateToken, async (req, res) => 
       comment || '',
       status || 'active',
       geoLat,
-      geoLon
+      geoLon,
+      agreement_date || null,
+      deadline || null
     ]);
 
     res.json(newRows[0]);
@@ -887,7 +892,7 @@ router.post('/contracts/:id/agreements', authenticateToken, async (req, res) => 
 });
 
 /**
- * Обновить параметры дополнительного соглашения (в т.ч. региональную цену, лимит, комментарий)
+ * Обновить параметры дополнительного соглашения (в т.ч. региональную цену, лимит, комментарий, дату и срок)
  */
 router.patch('/contracts/agreements/:id', authenticateToken, async (req, res) => {
   const role = String(req.user.role || '').toLowerCase();
@@ -897,7 +902,7 @@ router.patch('/contracts/agreements/:id', authenticateToken, async (req, res) =>
 
   try {
     const agreementId = parseInt(req.params.id, 10);
-    const { price_unit, price_list, amount, comment, status, external_number, region, city } = req.body;
+    const { price_unit, price_list, amount, comment, status, external_number, region, city, agreement_date, deadline } = req.body;
 
     const { rows: curRows } = await pool.query('SELECT * FROM contract_agreements WHERE id = $1', [agreementId]);
     if (!curRows.length) {
@@ -913,6 +918,8 @@ router.patch('/contracts/agreements/:id', authenticateToken, async (req, res) =>
     const newExtNum = external_number !== undefined ? external_number.trim() : cur.external_number;
     const newRegion = region !== undefined ? region.trim() : cur.region;
     const newCity = city !== undefined ? city.trim() : cur.city;
+    const newAgDate = agreement_date !== undefined ? (agreement_date || null) : cur.agreement_date;
+    const newDeadline = deadline !== undefined ? (deadline || null) : cur.deadline;
 
     let geoLat = cur.geo_lat;
     let geoLon = cur.geo_lon;
@@ -936,11 +943,13 @@ router.patch('/contracts/agreements/:id', authenticateToken, async (req, res) =>
         city = $8,
         geo_lat = $9,
         geo_lon = $10,
+        agreement_date = $11,
+        deadline = $12,
         updated_at = NOW()
-      WHERE id = $11
+      WHERE id = $13
       RETURNING *,
         (SELECT COUNT(*) FROM tasks t WHERE t.contract_agreement_id = contract_agreements.id) AS linked_tasks_count
-    `, [newPriceUnit, newAmount, newPriceList, newComment, newStatus, newExtNum, newRegion, newCity, geoLat, geoLon, agreementId]);
+    `, [newPriceUnit, newAmount, newPriceList, newComment, newStatus, newExtNum, newRegion, newCity, geoLat, geoLon, newAgDate, newDeadline, agreementId]);
 
     res.json(updatedRows[0]);
   } catch (err) {

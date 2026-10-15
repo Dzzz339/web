@@ -11,7 +11,15 @@ const isLocal = !connectionString || connectionString.includes('localhost') || c
 
 export const pool = new Pool({
   connectionString: connectionString,
-  ssl: isLocal ? false : { rejectUnauthorized: false }
+  ssl: isLocal ? false : { rejectUnauthorized: false },
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000
+});
+
+// Защита от аварийного падения сервера при разрыве неактивного соединения в пуле
+pool.on('error', (err) => {
+  console.error('⚠️ [DB POOL ERROR] Непредвиденная ошибка неактивного клиента БД:', err.message);
 });
 
 export async function initDB() {
@@ -211,9 +219,22 @@ export async function initDB() {
   await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS curator_phone TEXT`);
   await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS curator_email TEXT`);
   await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS comment TEXT`);
+  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS ogrn TEXT`);
+  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS legal_form TEXT`);
+  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS address_postal TEXT`);
+  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS acting_basis TEXT DEFAULT 'Устава'`);
+  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS signer_name TEXT`);
+  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS signer_position TEXT DEFAULT 'Директор'`);
+  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS is_own BOOLEAN DEFAULT false`);
+  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS own_company_id INTEGER REFERENCES own_companies(id) ON DELETE SET NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contractors_type ON contractors(type)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contractors_is_own ON contractors(is_own)`);
 
-  // Классификация и нормализация типов контрагентов (Заказчики, Поставщики, Подрядчики СМР)
+  await pool.query(`ALTER TABLE specialists ADD COLUMN IF NOT EXISTS employment_type TEXT DEFAULT 'subcontractor_worker'`);
+  await pool.query(`ALTER TABLE specialists ADD COLUMN IF NOT EXISTS acting_basis TEXT`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_specialists_employment ON specialists(employment_type)`);
+
+  // Классификация и нормализация типов контрагентов (Заказчики, Поставщики, Подрядчики СМР, Логистика, Прочие)
   await pool.query(`
     UPDATE contractors SET type = 'customer' 
     WHERE inn IN ('7707083893', '2901004169') 
@@ -229,7 +250,9 @@ export async function initDB() {
        OR name_short ILIKE '%этм%' 
        OR name_short ILIKE '%русский свет%' 
        OR name_short ILIKE '%дкс%' 
-       OR name_short ILIKE '%рубеж%';
+       OR name_short ILIKE '%рубеж%'
+       OR name_short ILIKE '%телеком-снаб%'
+       OR name_short ILIKE '%кабельторг%';
   `);
 
   await pool.query(`
@@ -243,12 +266,52 @@ export async function initDB() {
        OR name_short ILIKE '%желдор%' 
        OR name_short ILIKE '%транспортн%' 
        OR name_short ILIKE '%логистик%'
+       OR name_short ILIKE '%возовоз%'
        OR name_short ILIKE '%грузовоз%';
   `);
 
   await pool.query(`
+    UPDATE contractors SET type = 'other_expense' 
+    WHERE name_short ILIKE '%аренда%' 
+       OR name_short ILIKE '%вышк%' 
+       OR name_short ILIKE '%бурен%' 
+       OR name_short ILIKE '%спецтехник%' 
+       OR name_short ILIKE '%манипулятор%'
+       OR name_short ILIKE '%инструмент%';
+  `);
+
+  await pool.query(`
     UPDATE contractors SET type = 'subcontractor' 
-    WHERE type = 'executor' OR type = 'internal' OR type IS NULL;
+    WHERE (type = 'executor' OR type = 'internal' OR type IS NULL) AND is_own IS NOT TRUE;
+  `);
+
+  // Синхронизация собственных юрлиц (ООО «К10», ООО «Кабельные Системы», ООО «Ультима») в справочник организаций
+  await pool.query(`
+    INSERT INTO contractors (
+      inn, kpp, ogrn, name_short, name_full, legal_form, address_legal, address_postal, director, 
+      signer_name, signer_position, acting_basis, bank_name, bik, account_corr, account_pay, phone, email, 
+      type, is_own, own_company_id, status
+    )
+    SELECT 
+      oc.inn, oc.kpp, oc.ogrn, oc.name_short, oc.name_full, 'ООО', oc.address_legal, oc.address_postal, oc.director,
+      oc.director, oc.director_title, 'Устава', oc.bank_name, oc.bik, oc.account_corr, oc.account_pay, oc.phone, oc.email,
+      'own', true, oc.id, 'active'
+    FROM own_companies oc
+    ON CONFLICT (inn) DO UPDATE SET 
+      is_own = true,
+      own_company_id = EXCLUDED.own_company_id,
+      type = 'own',
+      name_short = EXCLUDED.name_short,
+      name_full = EXCLUDED.name_full,
+      director = EXCLUDED.director,
+      signer_name = EXCLUDED.signer_name,
+      signer_position = EXCLUDED.signer_position,
+      address_legal = EXCLUDED.address_legal,
+      address_postal = EXCLUDED.address_postal,
+      bank_name = EXCLUDED.bank_name,
+      bik = EXCLUDED.bik,
+      account_corr = EXCLUDED.account_corr,
+      account_pay = EXCLUDED.account_pay;
   `);
 
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS customer TEXT DEFAULT 'ПАО Сбербанк'`);
@@ -373,6 +436,9 @@ export async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contract_agreements_ext_num ON contract_agreements(external_number)`);
   await pool.query(`ALTER TABLE contract_agreements ADD COLUMN IF NOT EXISTS geo_lat NUMERIC(10, 6)`);
   await pool.query(`ALTER TABLE contract_agreements ADD COLUMN IF NOT EXISTS geo_lon NUMERIC(10, 6)`);
+  await pool.query(`ALTER TABLE contract_agreements ADD COLUMN IF NOT EXISTS agreement_date DATE`);
+  await pool.query(`ALTER TABLE contract_agreements ADD COLUMN IF NOT EXISTS deadline DATE`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contract_agreements_date ON contract_agreements(agreement_date)`);
 
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS contract_agreement_id INTEGER REFERENCES contract_agreements(id) ON DELETE SET NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_contract_agreement_id ON tasks(contract_agreement_id)`);

@@ -117,7 +117,9 @@ router.post('/specialists', authenticateToken, requireRole('admin', 'director', 
       auto_number,
       organization,
       position,
-      contractor_id
+      contractor_id,
+      employment_type,
+      acting_basis
     } = req.body;
 
     if (!full_name || !full_name.trim()) {
@@ -148,8 +150,10 @@ router.post('/specialists', authenticateToken, requireRole('admin', 'director', 
           organization = COALESCE(NULLIF($8, ''), organization),
           position = COALESCE(NULLIF($9, ''), position),
           contractor_id = COALESCE($10, contractor_id),
-          auto_number = COALESCE(NULLIF($11, ''), auto_number)
-        WHERE id = $12
+          auto_number = COALESCE(NULLIF($11, ''), auto_number),
+          employment_type = COALESCE(NULLIF($12, ''), employment_type),
+          acting_basis = COALESCE(NULLIF($13, ''), acting_basis)
+        WHERE id = $14
         RETURNING *`,
         [
           full_name.trim(),
@@ -163,6 +167,8 @@ router.post('/specialists', authenticateToken, requireRole('admin', 'director', 
           position || null,
           contractor_id ? parseInt(contractor_id) : null,
           auto_number || null,
+          employment_type || null,
+          acting_basis || null,
           targetId
         ]
       );
@@ -171,8 +177,8 @@ router.post('/specialists', authenticateToken, requireRole('admin', 'director', 
 
     const { rows } = await pool.query(
       `INSERT INTO specialists 
-       (full_name, phone, passport_series_number, passport_issued_by, passport_issue_date, passport_code, passport_raw, organization, position, contractor_id, auto_number)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       (full_name, phone, passport_series_number, passport_issued_by, passport_issue_date, passport_code, passport_raw, organization, position, contractor_id, auto_number, employment_type, acting_basis)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING *`,
       [
         full_name.trim(),
@@ -185,7 +191,9 @@ router.post('/specialists', authenticateToken, requireRole('admin', 'director', 
         organization || 'ООО "Ультима"',
         position || 'Монтажник СКС',
         contractor_id || null,
-        auto_number || null
+        auto_number || null,
+        employment_type || 'subcontractor_worker',
+        acting_basis || null
       ]
     );
     res.status(201).json(rows[0]);
@@ -209,7 +217,9 @@ router.put('/specialists/:id', authenticateToken, requireRole('admin', 'director
       auto_number,
       organization,
       position,
-      contractor_id
+      contractor_id,
+      employment_type,
+      acting_basis
     } = req.body;
 
     const { rows } = await pool.query(
@@ -224,8 +234,10 @@ router.put('/specialists/:id', authenticateToken, requireRole('admin', 'director
            organization = COALESCE($8, organization),
            position = COALESCE($9, position),
            contractor_id = $10,
-           auto_number = COALESCE($11, auto_number)
-       WHERE id = $12
+           auto_number = COALESCE($11, auto_number),
+           employment_type = COALESCE($12, employment_type),
+           acting_basis = COALESCE($13, acting_basis)
+       WHERE id = $14
        RETURNING *`,
       [
         full_name ? full_name.trim() : null,
@@ -239,6 +251,8 @@ router.put('/specialists/:id', authenticateToken, requireRole('admin', 'director
         position || null,
         contractor_id || null,
         auto_number !== undefined ? (auto_number || null) : null,
+        employment_type || null,
+        acting_basis || null,
         id
       ]
     );

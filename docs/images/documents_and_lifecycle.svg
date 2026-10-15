@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 760" width="1040" height="760" style="background:#ffffff; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;">
+  <defs>
+    <filter id="shadow2" x="-4%" y="-2%" width="108%" height="106%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.06"/>
+    </filter>
+  </defs>
+
+  <!-- Заголовок схемы -->
+  <rect x="20" y="20" width="1000" height="70" rx="12" fill="#0f172a" filter="url(#shadow2)"/>
+  <text x="50" y="52" fill="#ffffff" font-size="20" font-weight="800">StockEasy — Документооборот и параллельные жизненные циклы</text>
+  <text x="50" y="74" fill="#94a3b8" font-size="13" font-weight="500">8 выходных документов Word (.docx) и матрица параллельных неблокирующих статусов</text>
+
+  <!-- ========================================== -->
+  <!-- СЕКЦИЯ 1 (СЛЕВА): ГЕНЕРАТОР ДОКУМЕНТОВ -->
+  <!-- ========================================== -->
+  <g transform="translate(20, 110)">
+    <rect x="0" y="0" width="530" height="630" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5" filter="url(#shadow2)"/>
+    <rect x="16" y="-12" width="310" height="26" rx="6" fill="#4f46e5"/>
+    <text x="26" y="5" fill="#ffffff" font-size="12" font-weight="700">1. ПАКЕТ ИСХОДЯЩИХ ДОКУМЕНТОВ (.DOCX)</text>
+
+    <!-- Карточка 1: Заказ-наряд -->
+    <rect x="20" y="25" width="490" height="66" rx="8" fill="#ffffff" stroke="#c7d2fe" stroke-width="1.5"/>
+    <text x="35" y="47" fill="#1e1b4b" font-size="13" font-weight="700">📄 Приложение №2 к Договору (Заказ-наряд)</text>
+    <text x="35" y="65" fill="#475569" font-size="11">• Номер заявки Заказчика, адрес, ВСП/ГОСБ, смета портов и ТКШ, сроки и подписи</text>
+    <text x="35" y="81" fill="#4f46e5" font-size="10" font-weight="600">➔ Формируется при назначении исполнителя СМР</text>
+
+    <!-- Карточка 2: Договор подряда -->
+    <rect x="20" y="99" width="490" height="66" rx="8" fill="#ffffff" stroke="#c7d2fe" stroke-width="1.5"/>
+    <text x="35" y="121" fill="#1e1b4b" font-size="13" font-weight="700">📑 Договор подряда (Генеральный рамочный)</text>
+    <text x="35" y="139" fill="#475569" font-size="11">• Юридические условия, взаимные обязательства Нас и Субподрядчика, реквизиты</text>
+    <text x="35" y="155" fill="#4f46e5" font-size="10" font-weight="600">➔ Заключается между Нашим юрлицом (КС / К10 / Ультима) и Подрядчиком</text>
+
+    <!-- Карточка 3: Акт КС-2 -->
+    <rect x="20" y="173" width="490" height="66" rx="8" fill="#ffffff" stroke="#c7d2fe" stroke-width="1.5"/>
+    <text x="35" y="195" fill="#1e1b4b" font-size="13" font-weight="700">✅ Акт сдачи-приемки выполненных работ (КС-2)</text>
+    <text x="35" y="213" fill="#475569" font-size="11">• Фактический объем работ, расценки за единицу, итого к выплате подрядчику</text>
+    <text x="35" y="229" fill="#4f46e5" font-size="10" font-weight="600">➔ Первичный закрывающий документ для бухгалтерии</text>
+
+    <!-- Карточка 4: Счет на оплату -->
+    <rect x="20" y="247" width="490" height="66" rx="8" fill="#ffffff" stroke="#c7d2fe" stroke-width="1.5"/>
+    <text x="35" y="269" fill="#1e1b4b" font-size="13" font-weight="700">💰 Счет на оплату от подрядчика</text>
+    <text x="35" y="287" fill="#475569" font-size="11">• Расчетный счет монтажника, БИК банка, основание платежа, сумма без НДС</text>
+    <text x="35" y="303" fill="#4f46e5" font-size="10" font-weight="600">➔ Основание для безналичного перевода вознаграждения</text>
+
+    <!-- Карточка 5: Письмо на допуск -->
+    <rect x="20" y="321" width="490" height="66" rx="8" fill="#ffffff" stroke="#c7d2fe" stroke-width="1.5"/>
+    <text x="35" y="343" fill="#1e1b4b" font-size="13" font-weight="700">🪪 Письмо на допуск на объект (по форме Сбера)</text>
+    <text x="35" y="361" fill="#475569" font-size="11">• Список специалистов, паспортные данные, контактный телефон, номер авто</text>
+    <text x="35" y="377" fill="#4f46e5" font-size="10" font-weight="600">➔ Направляется куратору и службе безопасности Заказчика</text>
+
+    <!-- Карточка 6: Доверенность М-2 -->
+    <rect x="20" y="395" width="490" height="66" rx="8" fill="#ffffff" stroke="#c7d2fe" stroke-width="1.5"/>
+    <text x="35" y="417" fill="#1e1b4b" font-size="13" font-weight="700">📜 Доверенность на получение ТМЦ (Форма М-2)</text>
+    <text x="35" y="435" fill="#475569" font-size="11">• Полномочия монтажника на получение кабеля и шкафов в ТК или у поставщика</text>
+    <text x="35" y="451" fill="#4f46e5" font-size="10" font-weight="600">➔ Действительна 15 календарных дней с подписью Гендиректора</text>
+
+    <!-- Карточка 7: Реестр ИД -->
+    <rect x="20" y="469" width="490" height="66" rx="8" fill="#ffffff" stroke="#c7d2fe" stroke-width="1.5"/>
+    <text x="35" y="491" fill="#1e1b4b" font-size="13" font-weight="700">📋 Сопроводительный реестр передачи ИД</text>
+    <text x="35" y="509" fill="#475569" font-size="11">• Опись комплекта: титульный лист, схемы DWG/PDF, кабельный журнал, Fluke-тесты</text>
+    <text x="35" y="525" fill="#4f46e5" font-size="10" font-weight="600">➔ Подписывается представителем Заказчика при сдаче документации</text>
+
+    <!-- Карточка 8: Накладная М-15 -->
+    <rect x="20" y="543" width="490" height="66" rx="8" fill="#ffffff" stroke="#c7d2fe" stroke-width="1.5"/>
+    <text x="35" y="565" fill="#1e1b4b" font-size="13" font-weight="700">📦 Накладная передачи материалов (Форма М-15)</text>
+    <text x="35" y="583" fill="#475569" font-size="11">• Списание ТМЦ со склада Генподрядчика в подотчет монтажнику</text>
+    <text x="35" y="599" fill="#4f46e5" font-size="10" font-weight="600">➔ Фиксирует расход материалов на конкретный объект</text>
+  </g>
+
+  <!-- ========================================== -->
+  <!-- СЕКЦИЯ 2 (СПРАВА): ПАРАЛЛЕЛЬНЫЕ ТРЕКИ -->
+  <!-- ========================================== -->
+  <g transform="translate(570, 110)">
+    <rect x="0" y="0" width="450" height="630" rx="12" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5" filter="url(#shadow2)"/>
+    <rect x="16" y="-12" width="350" height="26" rx="6" fill="#16a34a"/>
+    <text x="26" y="5" fill="#ffffff" font-size="12" font-weight="700">2. МАТРИЦА ПАРАЛЛЕЛЬНЫХ ТРЕКОВ (БЕЗ БЛОКИРОВОК)</text>
+
+    <!-- Входной контроль -->
+    <rect x="20" y="25" width="410" height="75" rx="8" fill="#ffffff" stroke="#eab308" stroke-width="1.5"/>
+    <text x="35" y="48" fill="#854d0e" font-size="13" font-weight="700">🚦 ШАГ 1: Входной контроль заявки (Gate)</text>
+    <text x="35" y="68" fill="#334155" font-size="11">• pending (ожидает проверки ПМ ссылки на тех. инфу)</text>
+    <text x="35" y="86" fill="#15803d" font-size="11" font-weight="700">➔ accepted (разрешает назначение подрядчика)</text>
+
+    <!-- Трек 1: СМР -->
+    <rect x="20" y="115" width="410" height="110" rx="8" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
+    <text x="35" y="138" fill="#15803d" font-size="13" font-weight="700">🛠️ ТРЕК 1: Монтажные работы (status_smr)</text>
+    <text x="35" y="160" fill="#334155" font-size="12">1. pending ➔ Ожидает назначения монтажников</text>
+    <text x="35" y="180" fill="#334155" font-size="12">2. in_progress ➔ Бригада на объекте / монтаж трасс</text>
+    <text x="35" y="200" fill="#334155" font-size="12">3. ready ➔ Работы выполнены, загружен фотоотчет</text>
+    <text x="35" y="220" fill="#15803d" font-size="12" font-weight="700">4. verified ➔ Качество принято инженером технадзора</text>
+
+    <!-- Трек 2: Снабжение -->
+    <rect x="20" y="240" width="410" height="110" rx="8" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
+    <text x="35" y="263" fill="#15803d" font-size="13" font-weight="700">📦 ТРЕК 2: Снабжение и ТМЦ (status_supply)</text>
+    <text x="35" y="285" fill="#334155" font-size="12">1. none ➔ Спецификация не сформирована</text>
+    <text x="35" y="305" fill="#334155" font-size="12">2. reserved ➔ Бухты кабеля и шкафы забронированы</text>
+    <text x="35" y="325" fill="#334155" font-size="12">3. shipped ➔ Груз передан в ТК или выдан со склада</text>
+    <text x="35" y="345" fill="#15803d" font-size="12" font-weight="700">4. received ➔ Материалы получены монтажником</text>
+
+    <!-- Трек 3: ИД -->
+    <rect x="20" y="365" width="410" height="120" rx="8" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
+    <text x="35" y="388" fill="#15803d" font-size="13" font-weight="700">📐 ТРЕК 3: Проектирование и ИД (status_id)</text>
+    <text x="35" y="410" fill="#334155" font-size="12">1. pending ➔ Ожидает окончания СМР и журнала</text>
+    <text x="35" y="430" fill="#334155" font-size="12">2. design ➔ Проектировщик готовит схему и паспорт</text>
+    <text x="35" y="450" fill="#334155" font-size="12">3. ready ➔ Альбом собран, подписан ЭЦП</text>
+    <text x="35" y="470" fill="#15803d" font-size="12" font-weight="700">4. accepted ➔ ИД официально согласована Сбером</text>
+
+    <!-- Трек 4: Взаиморасчеты -->
+    <rect x="20" y="500" width="410" height="110" rx="8" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
+    <text x="35" y="523" fill="#15803d" font-size="13" font-weight="700">💰 ТРЕК 4: Финансы и оплаты</text>
+    <text x="35" y="545" fill="#334155" font-size="12">• Подрядчику: pending ➔ invoice_received ➔ paid</text>
+    <text x="35" y="565" fill="#334155" font-size="12">• От Заказчика: pending ➔ invoiced ➔ paid</text>
+    <text x="35" y="585" fill="#15803d" font-size="12" font-weight="700">➔ Полный расчет после приемки объекта и ИД</text>
+  </g>
+</svg>

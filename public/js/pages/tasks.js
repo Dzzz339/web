@@ -1,7 +1,9 @@
 function clearFilters() {
-  S.taskQ=''; S.taskSt=''; S.taskPr=''; S.taskReg=''; S.taskMgr=''; S.taskYear=''; S.taskOverdue='';
+  S.taskQ=''; S.taskSt=''; S.taskPr=''; S.taskReg=''; S.taskMgr=''; S.taskPm=''; S.taskYear=''; S.taskOverdue='';
   S.taskCustomer=''; S.taskContractor=''; S.taskDistanceFilter='';
   S.taskArch='no'; S.taskStage=''; S.taskSort=''; S.taskView='all'; // Сбрасываем фильтры
+  S.taskContractId = null; S.taskContractTitle = null;
+  S.taskAgreementId = null; S.taskAgreementTitle = null;
   renderApp();
 }
 
@@ -15,6 +17,7 @@ function applyTasksFilters() {
   S.taskReg = v('treg');
   S.taskCustomer = v('tcust');
   S.taskMgr = v('tmgr');
+  S.taskPm = v('tpm');
   S.taskStage = v('tstage');
   S.taskSt = v('tst');
   S.taskPr = v('tpr');
@@ -34,6 +37,7 @@ function removeTaskFilter(key) {
   if (key === 'reg') S.taskReg = '';
   else if (key === 'cust') S.taskCustomer = '';
   else if (key === 'mgr') S.taskMgr = '';
+  else if (key === 'pm') S.taskPm = '';
   else if (key === 'stage') S.taskStage = '';
   else if (key === 'st') S.taskSt = '';
   else if (key === 'pr') S.taskPr = '';
@@ -43,6 +47,8 @@ function removeTaskFilter(key) {
   else if (key === 'yr') S.taskYear = '';
   else if (key === 'arch') S.taskArch = 'no';
   else if (key === 'sort') S.taskSort = '';
+  else if (key === 'contract') { S.taskContractId = null; S.taskContractTitle = null; }
+  else if (key === 'agreement') { S.taskAgreementId = null; S.taskAgreementTitle = null; }
   renderApp();
 }
 
@@ -83,7 +89,7 @@ function statBox(lbl, val, sub, color) {
 }
 
 function pageTasks() {
-  var q=S.taskQ, st=S.taskSt, pr=S.taskPr, reg=S.taskReg, mgr=S.taskMgr, yr=S.taskYear, ovd=S.taskOverdue, cust=S.taskCustomer, contr=S.taskContractor, distFilter=S.taskDistanceFilter;
+  var q=S.taskQ, st=S.taskSt, pr=S.taskPr, reg=S.taskReg, mgr=S.taskMgr, pm=S.taskPm, yr=S.taskYear, ovd=S.taskOverdue, cust=S.taskCustomer, contr=S.taskContractor, distFilter=S.taskDistanceFilter;
   var isWorker = S.user && (S.user.role === 'worker' || S.user.role === 'installer' || S.user.role === 'contractor');
   var defaultModeForRole = (function() {
     if (isWorker) return 'contractor';
@@ -110,9 +116,10 @@ function pageTasks() {
     if (q) {
       var cleanQ = q.toLowerCase().replace(/[,;.]/g, ' ');
       var searchWords = cleanQ.split(/\s+/).filter(Boolean);
-      // Собираем всё содержимое строки в одну кучу для поиска
+      // Собираем всё содержимое строки в одну кучу для поиска (включая номер в ЭДО и ПМ)
       var content = (
         (t.id || '') + ' ' + 
+        (t.edoNumber || '') + ' ' + 
         (t.title || '') + ' ' + 
         (t.region || '') + ' ' + 
         (t.address || '') + ' ' + 
@@ -135,17 +142,25 @@ function pageTasks() {
       if (!isMatch) return false;
     }
 
-    // Фильтр по Контрагенту / Исполнителю
+    // Фильтр по Проект-менеджеру (ПМ «Мы»)
+    if (pm) {
+      var tPm = (t.assignee || '').trim().toLowerCase();
+      var targetPm = pm.trim().toLowerCase();
+      if (targetPm === 'не назначен') {
+        if (tPm) return false;
+      } else {
+        if (tPm !== targetPm && !tPm.includes(targetPm)) return false;
+      }
+    }
+
+    // Фильтр по Контрагенту / Субподрядчику (СМР)
     if (contr) {
       var tContr = (t.contractor || '').trim().toLowerCase();
-      var tAssign = (t.assignee || '').trim().toLowerCase();
       var targetContr = contr.trim().toLowerCase();
       if (targetContr === 'не назначен') {
-        if (tContr || tAssign) return false;
+        if (tContr) return false;
       } else {
-        if (tContr !== targetContr && tAssign !== targetContr && !tContr.includes(targetContr) && !tAssign.includes(targetContr)) {
-          return false;
-        }
+        if (tContr !== targetContr && !tContr.includes(targetContr)) return false;
       }
     }
 
@@ -156,6 +171,18 @@ function pageTasks() {
       if (distFilter === 'none' && dKm > 0) return false;
       if (distFilter === 'gt5k' && !(dKm >= 5000)) return false;
       if (distFilter === 'gt10k' && !(dKm >= 10000)) return false;
+    }
+
+    // Фильтр по Договору
+    if (S.taskContractId) {
+      var tCid = t.contract_id != null ? t.contract_id : t.contractId;
+      if (Number(tCid) !== Number(S.taskContractId)) return false;
+    }
+
+    // Фильтр по Дополнительному соглашению (ДС / Лот)
+    if (S.taskAgreementId) {
+      var tAgId = t.contract_agreement_id != null ? t.contract_agreement_id : t.contractAgreementId;
+      if (Number(tAgId) !== Number(S.taskAgreementId)) return false;
     }
 
     // Остальные фильтры (статус, приоритет и т.д. — оставляем как было)
@@ -207,13 +234,27 @@ function pageTasks() {
   var hasUnassignedContr = false;
   S.tasks.forEach(function(t) {
     var c = (t.contractor || '').trim();
-    var a = (t.assignee || '').trim();
     if (c) contractorSet.add(c);
-    if (a) contractorSet.add(a);
-    if (!c && !a) hasUnassignedContr = true;
+    else hasUnassignedContr = true;
   });
   var contractors = Array.from(contractorSet).sort();
   if (hasUnassignedContr) contractors.push('Не назначен');
+
+  var pmSet = new Set();
+  var hasUnassignedPm = false;
+  S.tasks.forEach(function(t) {
+    var a = (t.assignee || '').trim();
+    if (a) pmSet.add(a);
+    else hasUnassignedPm = true;
+  });
+  (S.users || []).forEach(function(u) {
+    if (u.role === 'manager' || u.role === 'admin' || u.role === 'director') {
+      var fn = (u.fullName || u.full_name || '').trim();
+      if (fn) pmSet.add(fn);
+    }
+  });
+  var pms = Array.from(pmSet).filter(Boolean).sort();
+  if (hasUnassignedPm) pms.push('Не назначен');
 
   // Сортировка — dateZayavki хранится в YYYY-MM-DD, localeCompare даёт правильный порядок
   if (S.taskSort) {
@@ -236,7 +277,8 @@ function pageTasks() {
   var activeFilters = [];
   if (reg) activeFilters.push({ key: 'reg', label: '📍 ' + reg });
   if (cust) activeFilters.push({ key: 'cust', label: '🏛️ ' + cust });
-  if (mgr) activeFilters.push({ key: 'mgr', label: '👔 ' + mgr });
+  if (mgr) activeFilters.push({ key: 'mgr', label: '👔 Заказчик: ' + mgr });
+  if (pm) activeFilters.push({ key: 'pm', label: '👤 ПМ: ' + pm });
   if (S.taskStage) {
     var stageLabels = {
       'new': '📥 Новые (дата последней загрузки)',
@@ -275,6 +317,8 @@ function pageTasks() {
   if (S.taskArch === 'yes') activeFilters.push({ key: 'arch', label: '📦 Архив' });
   if (S.taskSort === 'date_desc') activeFilters.push({ key: 'sort', label: '↓ Свежие сначала' });
   if (S.taskSort === 'date_asc') activeFilters.push({ key: 'sort', label: '↑ Старые сначала' });
+  if (S.taskContractId) activeFilters.push({ key: 'contract', label: '📑 ' + (S.taskContractTitle || ('Договор #' + S.taskContractId)) });
+  if (S.taskAgreementId) activeFilters.push({ key: 'agreement', label: '📑 ' + (S.taskAgreementTitle || ('ДС #' + S.taskAgreementId)) });
 
   var activeCount = activeFilters.length;
   var hasFilter = activeCount > 0 || !!q;
@@ -300,7 +344,7 @@ function pageTasks() {
 
   var topControls = '<div style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.65rem;align-items:center;justify-content:space-between">' +
     '<div style="display:flex;flex:1;min-width:300px;gap:.45rem;align-items:center">' +
-      '<input id="tq" type="text" placeholder="🔍 Поиск по номеру, адресу, исполнителю..." style="flex:1;min-width:200px;height:36px" value="' + escHtml(q) + '">' +
+      '<input id="tq" type="text" placeholder="🔍 Поиск по номеру, ЭДО, адресу, исполнителю, ПМ..." style="flex:1;min-width:200px;height:36px" value="' + escHtml(q) + '">' +
       '<button type="button" class="btn btn-sm ' + (S.tasksFiltersOpen ? 'btn-primary' : (activeCount > 0 ? 'btn-secondary' : 'btn-ghost')) + '" onclick="toggleTasksFilters()" style="display:inline-flex;align-items:center;gap:6px;height:36px;white-space:nowrap;padding:0 12px">' +
         '⚙️ Фильтры' + (activeCount > 0 ? ' <span class="badge ' + (S.tasksFiltersOpen ? 'b-white' : 'b-blue') + '" style="font-size:.7rem;padding:2px 7px">' + activeCount + '</span>' : '') + ' ' + (S.tasksFiltersOpen ? '▴' : '▾') +
       '</button>' +
@@ -324,7 +368,7 @@ function pageTasks() {
             '<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--text-3);letter-spacing:.3px">📍 География и Заказчик</div>' +
             '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Заказчик</label><select id="tcust" style="width:100%"><option value="">Все заказчики</option>' + mkOpts(customers, cust) + '</select></div>' +
             '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Регион</label><select id="treg" style="width:100%"><option value="">Все регионы</option>' + mkOpts(regions, reg) + '</select></div>' +
-            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Менеджер Заказчика</label><select id="tmgr" style="width:100%"><option value="">Все менеджеры</option>' + mkOpts(managers, mgr) + '</select></div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Менеджер Заказчика</label><select id="tmgr" style="width:100%"><option value="">Все менеджеры Заказчика</option>' + mkOpts(managers, mgr) + '</select></div>' +
           '</div>' +
           // Группа 2: Статусы и Сроки
           '<div style="display:flex;flex-direction:column;gap:8px">' +
@@ -367,7 +411,8 @@ function pageTasks() {
           // Группа 3: Исполнители и Экономика
           '<div style="display:flex;flex-direction:column;gap:8px">' +
             '<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--text-3);letter-spacing:.3px">👤 Исполнители и Экономика</div>' +
-            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Контрагент / Субподрядчик</label><select id="tcontr" style="width:100%"><option value="">Все контрагенты</option>' + mkOpts(contractors, contr) + '</select></div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Проект-менеджер (ПМ)</label><select id="tpm" style="width:100%"><option value="">Все ПМ</option>' + mkOpts(pms, pm) + '</select></div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Контрагент / Субподрядчик</label><select id="tcontr" style="width:100%"><option value="">Все подрядчики</option>' + mkOpts(contractors, contr) + '</select></div>' +
             '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Удаленность</label>' +
               '<select id="tdist" style="width:100%">' +
                 '<option value="">Удаленность: Все</option>' +
@@ -586,25 +631,33 @@ function pageTasks() {
     var fin = getTaskFinance(t);
     var cFin = getTaskContractorFinance(t);
 
-    // 1. Номер + статус + маркер высокого приоритета
+    // 1. Номер + статус + маркер высокого приоритета + номер ЭДО
     var isHighPr = (t.priority === 'high');
     var prMark = isHighPr ? '<span title="Высокий приоритет" style="color:var(--red);font-size:.85rem;margin-right:3px">🔴</span>' : '';
     var stBdg = '<div style="margin-top:3px">' + stBadge(t.status) + (Number(t.openRemarksCount) > 0 ? ' <span class="badge b-red" style="font-size:.65rem;padding:1px 4px" title="Замечания">⚠️ ' + t.openRemarksCount + '</span>' : '') + '</div>';
+    var edoBadge = t.edoNumber
+      ? '<div class="t3" style="font-size:.68rem;color:var(--blue);margin-top:2px;font-family:monospace" title="Номер документа в ЭДО Заказчика">ЭДО: ' + highlight(t.edoNumber, q) + '</div>'
+      : '';
     var colNumber = '<td style="vertical-align:top;white-space:nowrap">' +
       prMark + '<button class="btn-link" style="font-weight:700;font-size:.84rem" onclick="openCard(\'' + tid + '\')">⇒ ' + highlight(t.id, q) + '</button>' +
+      edoBadge +
       stBdg +
     '</td>';
 
-    // 2. Дата заявки
-    var dateFormatted = t.dateZayavki ? t.dateZayavki.slice(0, 10).split('-').reverse().join('.') : '<span class="t3">—</span>';
-    var colDate = '<td style="vertical-align:top;white-space:nowrap;color:var(--text-2);font-size:.8rem">' + dateFormatted + '</td>';
+    // 2. Дата заявки и Дата ПП (внесения)
+    var dateFormatted = t.dateZayavki ? t.dateZayavki.slice(0, 10).split('-').reverse().join('.') : '—';
+    var datePpFormatted = t.currentDate ? t.currentDate.slice(0, 10).split('-').reverse().join('.') : '';
+    var colDate = '<td style="vertical-align:top;white-space:nowrap;font-size:.8rem">' +
+      '<div style="font-weight:600;color:var(--text)" title="Дата поступления заявки Заказчика">' + dateFormatted + '</div>' +
+      (datePpFormatted ? '<div class="t3" style="font-size:.7rem;margin-top:2px" title="Дата ПП (планового подтверждения / дата внесения)">ПП: ' + datePpFormatted + '</div>' : '') +
+    '</td>';
 
     // 3. Дедлайн + просрочка
     var dlDate = t.deadline ? t.deadline.slice(0, 10).split('-').reverse().join('.') : '';
     var odBadge = (t.overdueDays > 0)
-      ? '<div style="color:var(--red);font-weight:700;font-size:.72rem">+' + t.overdueDays + ' дн</div>'
+      ? '<div style="color:var(--red);font-weight:700;font-size:.72rem;margin-top:2px;display:inline-flex;align-items:center;gap:3px;background:rgba(239,68,68,0.1);padding:1px 5px;border-radius:4px" title="Просрочено на ' + t.overdueDays + ' дн.">⚠️ +' + t.overdueDays + ' дн</div>'
       : '';
-    var dlHtml = dlDate ? ('<div style="font-weight:600">' + dlDate + '</div>' + odBadge) : (odBadge || '<span class="t3">—</span>');
+    var dlHtml = dlDate ? ('<div style="font-weight:600;color:var(--text)">' + dlDate + '</div>' + odBadge) : (odBadge || '<span class="t3">—</span>');
     var colDeadline = '<td style="vertical-align:top;white-space:nowrap;font-size:.8rem">' + dlHtml + '</td>';
 
     // 4. Адрес объекта (компактно с тултипом, без распирания таблицы)
@@ -629,11 +682,15 @@ function pageTasks() {
       factPorts + ' / ' + inOrderPorts + ' <span class="t3" style="font-size:.68rem;font-weight:normal">п.</span>' +
     '</td>';
 
-    // 7. Подрядчик / Исполнитель
-    var colContr = '<td style="vertical-align:top;max-width:125px">' +
-      '<button class="btn-link" style="text-align:left;max-width:125px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem" onclick="openContractorPicker(\'' + tid + '\')" title="' + escHtml(t.contractor || 'Назначить подрядчика') + '">' +
+    // 7. Подрядчик / Исполнитель и ПМ
+    var pmBadge = t.assignee
+      ? '<div class="t3" style="font-size:.7rem;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-2)" title="Проект-менеджер (ПМ): ' + escHtml(t.assignee) + '">👔 ПМ: ' + highlight(t.assignee, q) + '</div>'
+      : '';
+    var colContr = '<td style="vertical-align:top;max-width:130px">' +
+      '<button class="btn-link" style="text-align:left;max-width:130px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem" onclick="openContractorPicker(\'' + tid + '\')" title="' + escHtml(t.contractor || 'Назначить подрядчика') + '">' +
         (t.contractor ? ('👤 ' + escHtml(t.contractor)) : '<span class="t3" style="border-bottom:1px dashed var(--orange);color:var(--orange)">+ Назначить</span>') +
       '</button>' +
+      pmBadge +
     '</td>';
 
     // 8 & 9. Цена и Стоимость
@@ -715,13 +772,13 @@ function pageTasks() {
     totals +
     '<div class="card tbl-wrap">' +
       '<table class="tasks-table"><thead><tr>' +
-        '<th style="width:115px">Номер</th>' +
-        '<th style="width:80px">Дата</th>' +
+        '<th style="width:120px">Номер / ЭДО</th>' +
+        '<th style="width:90px" title="Дата заявки и дата ПП (внесения)">Дата / ПП</th>' +
         '<th style="width:85px">Дедлайн</th>' +
         '<th style="width:190px">Адрес объекта</th>' +
         '<th style="width:105px">Что делать</th>' +
         '<th style="width:85px">Сколько</th>' +
-        '<th style="width:125px">Подрядчик</th>' +
+        '<th style="width:130px">Исполнитель / ПМ</th>' +
         (function() {
           if (appMode === 'customer') return '<th style="width:90px">Цена (Вход)</th><th style="width:125px">Стоимость</th>';
           if (appMode === 'contractor') return '<th style="width:90px">Цена (Подряд)</th><th style="width:130px">Стоимость</th>';
@@ -780,15 +837,17 @@ function renderContractorPicker() {
         '<button id="cp_search_clear_btn" onclick="clearContractorPickerSearch()" style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; color:var(--text-3); font-size:1.1rem; display:' + (S.cpQuery ? 'block' : 'none') + '">&times;</button>' +
       '</div>' +
       '<div id="cp_list_container" style="max-height:300px;overflow-y:auto">' + renderContractorPickerRows(qy) + '</div>' +
-      '<div style="text-align:right;margin-top:1rem">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem">' +
+        (t.contractor ? '<button class="btn btn-sm btn-ghost" style="color:var(--red);border-color:#fca5a5" onclick="removeContractorFromTask(\'' + String(S.cpTaskId).replace(/'/g,"\\'") + '\')">❌ Убрать подрядчика</button>' : '<span></span>') +
         '<button class="btn btn-sm" onclick="S.cpMode=\'new\';renderApp()">+ Добавить нового</button>' +
       '</div>';
   }
 
+  var pickerTitle = (t.contractor ? 'Сменить подрядчика' : 'Назначить подрядчика') + ' — заявка ' + escHtml(t.id);
   return '<div class="modal-overlay" onclick="if(event.target===this) closeContractorPicker()">' +
     '<div class="modal-box">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">' +
-        '<h3>Контрагент — заявка ' + escHtml(t.id) + '</h3>' +
+        '<h3 style="margin:0">' + pickerTitle + '</h3>' +
         '<button class="btn btn-sm btn-ghost" onclick="closeContractorPicker()">✕</button>' +
       '</div>' +
       body +
@@ -824,14 +883,26 @@ function renderContractorPickerRows(qy) {
            (c.inn||'').toLowerCase().indexOf(qy) !== -1;
   }).slice(0, 30);
 
-  return matches.length
-    ? matches.map(function(c) {
-        return '<div class="field-row" style="cursor:pointer" onclick="assignContractorToTask(\'' + String(S.cpTaskId).replace(/'/g,"\\'") + '\',\'' + (c.name_short||'').replace(/'/g,"\\'") + '\')">' +
-          '<div class="field-lbl">' + escHtml(c.name_short) + '</div>' +
-          '<div class="field-val t3">ИНН ' + (c.inn||'—') + '</div>' +
-        '</div>';
-      }).join('')
-    : '<div class="t3" style="padding:.5rem 0">Ничего не найдено</div>';
+  var html = '';
+  var curT = (S.tasks || []).find(function(x){ return String(x.id) === String(S.cpTaskId); });
+  if (curT && curT.contractor && !qy) {
+    html += '<div class="field-row" style="cursor:pointer;background:#fef2f2;border:1px dashed #fca5a5;margin-bottom:6px;border-radius:6px;padding:6px 10px" onclick="removeContractorFromTask(\'' + String(S.cpTaskId).replace(/'/g,"\\'") + '\')">' +
+      '<div class="field-lbl" style="color:var(--red);font-weight:700">❌ Снять текущего подрядчика (' + escHtml(curT.contractor) + ')</div>' +
+      '<div class="field-val t3" style="font-size:.72rem">Перевести заявку в «Не распределено»</div>' +
+    '</div>';
+  }
+
+  if (matches.length) {
+    html += matches.map(function(c) {
+      return '<div class="field-row" style="cursor:pointer;padding:8px 10px;border-radius:6px" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="assignContractorToTask(\'' + String(S.cpTaskId).replace(/'/g,"\\'") + '\',\'' + (c.name_short||'').replace(/'/g,"\\'") + '\')">' +
+        '<div class="field-lbl" style="font-weight:600">' + escHtml(c.name_short) + '</div>' +
+        '<div class="field-val t3" style="font-size:.75rem">ИНН ' + (c.inn||'—') + '</div>' +
+      '</div>';
+    }).join('');
+  } else {
+    html += '<div class="t3" style="padding:.5rem 0">Ничего не найдено</div>';
+  }
+  return html;
 }
 
 function onContractorPickerSearch(val) {
@@ -867,18 +938,68 @@ function assignContractorToTask(taskId, nameShort) {
   if ((t.contractor||'') !== nameShort) {
     hist.push({date:now, author:author, field:'Подрядчик', old:t.contractor||'', new:nameShort});
   }
-  api('/tasks/' + taskId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({contractor: nameShort, _history: hist})})
+
+  var targetMacro = (t.macroStatus === 'new' || !t.macroStatus) ? 'assigned' : t.macroStatus;
+  var targetStage = (t.stageNum === 0 || !t.stageNum) ? 1 : t.stageNum;
+
+  api('/tasks/' + taskId, {
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({contractor: nameShort, macroStatus: targetMacro, stageNum: targetStage, _history: hist})
+  })
     .then(function(){
       t.contractor = nameShort;
+      t.macroStatus = targetMacro;
+      t.stageNum = targetStage;
       t._history = hist;
       if (S.cardDraft) delete S.cardDraft.contractor;
       closeContractorPicker(); 
-      if (typeof loadCardSubcontracts === 'function' && S.cardId && String(S.cardId) === String(taskId)) { loadCardSubcontracts(taskId); }
+      if (window._curCardSubcontracts && window._curCardSubcontracts[0]) {
+        window._curCardSubcontracts[0].contractor_name = nameShort;
+      }
+      if (typeof loadCardSubcontracts === 'function' && S.cardId && String(S.cardId) === String(taskId)) { 
+        loadCardSubcontracts(taskId); 
+      }
       renderApp();
       if (window.restorePageScroll) window.restorePageScroll(targetId);
     })
     .catch(function(e){ alert('Ошибка: ' + e.message); });
 }
+
+function removeContractorFromTask(taskId) {
+  if (!confirm('Снять подрядчика с заявки? Статус заявки вернется в «Не распределено».')) return;
+  var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+  var targetId = (typeof S !== 'undefined' && S.page === 'kanban') ? ('kcard_' + taskId) : ('task_row_' + taskId);
+  if (window.savePageScroll) window.savePageScroll(targetId);
+  var now = new Date().toLocaleString('ru');
+  var author = S.user ? (S.user.full_name || S.user.username) : 'Система';
+  var hist = t._history || [];
+  hist.push({date:now, author:author, field:'Подрядчик', old:t.contractor||'', new:''});
+
+  api('/tasks/' + taskId, {
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({contractor: '', macroStatus: 'new', stageNum: 0, _history: hist})
+  })
+    .then(function(){
+      t.contractor = '';
+      t.macroStatus = 'new';
+      t.stageNum = 0;
+      t._history = hist;
+      if (S.cardDraft) delete S.cardDraft.contractor;
+      closeContractorPicker();
+      window._curCardSubcontracts = [];
+      if (window._taskSmrSpec) delete window._taskSmrSpec[taskId];
+      if (typeof loadCardSubcontracts === 'function' && S.cardId && String(S.cardId) === String(taskId)) { 
+        loadCardSubcontracts(taskId); 
+      }
+      renderApp();
+      if (window.restorePageScroll) window.restorePageScroll(targetId);
+    })
+    .catch(function(e){ alert('Ошибка снятия подрядчика: ' + e.message); });
+}
+window.removeContractorFromTask = removeContractorFromTask;
 function acceptTask(taskId) {
   api('/tasks/' + taskId + '/accept', { method: 'POST' }).then(function(res) {
     if (res.error) return alert(res.error);

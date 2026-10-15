@@ -13,3 +13,6 @@ uploads/*.docx
 *.docx
 scratch/
 *.zip
+backups/
+uploads/
+Разбор всего/

@@ -36,7 +36,15 @@ window.onCardOwnCompanyChange = function(val) {
   var numVal = Number(val);
   S.cardDraft.own_company_id = numVal;
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(S.cardId); });
-  if (t) t.own_company_id = numVal;
+  if (t) {
+    t.own_company_id = numVal;
+    api('/tasks/' + encodeURIComponent(t.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ own_company_id: numVal })
+    }).catch(function(e){ console.error('Error auto-saving own_company_id:', e); });
+  }
+  renderApp();
 };
 
 window.toggleTaskEditLock = function() {
@@ -58,7 +66,7 @@ window.approveTaskEntry = function(taskId) {
   }
 
   var isSber = !(t.customer) || String(t.customer).toLowerCase().includes('сбер');
-  var defaultCtrl = isSber ? 'Городович И.О.' : 'Овсянников Д.В.';
+  var defaultCtrl = isSber ? 'Городович М.В.' : 'Овсянников Д.В.';
   var controllerVal = (S.cardDraft && S.cardDraft.controller !== undefined) ? S.cardDraft.controller : (t.controller || defaultCtrl);
 
   var payload = {
@@ -201,6 +209,26 @@ window.submitDeclineTaskEntry = function(taskId) {
 window.acceptTask = function(taskId) { window.approveTaskEntry(taskId); };
 window.declineTask = function(taskId) { window.openDeclineTaskModal(taskId); };
 
+window._takeTaskToStage = function(taskId, stageNum) {
+  var stgName = (ID_STAGES[stageNum] ? ID_STAGES[stageNum].name : ('Этап ' + stageNum));
+  if (!confirm('Перевести заявку на этап ' + stageNum + ' (' + stgName + ')?')) return;
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stageNum: stageNum })
+  }).then(function() {
+    showToast('Этап успешно обновлен: ' + stgName, 'success');
+    var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+    if (t) {
+      t.stageNum = stageNum;
+      t.stage_num = stageNum;
+    }
+    openCard(taskId);
+  }).catch(function(err) {
+    alert('Ошибка смены этапа: ' + (err.message || err));
+  });
+};
+
 window.filterCardContractsList = function(q) {
   var qy = String(q || '').toLowerCase().trim();
   var inp = document.getElementById('card_contract_search_inp');
@@ -230,17 +258,76 @@ window.selectCardContract = function(cId) {
     t.contract_id = numVal;
     t.contractId = numVal;
   }
-  if (numVal) {
+  if (!numVal) {
+    S.cardDraft.contract_agreement_id = null;
+    if (t) {
+      t.contract_agreement_id = null;
+      t.contractAgreementId = null;
+    }
+  } else {
     var matchedC = (S.contracts || []).find(function(x){ return Number(x.id) === numVal; });
-    if (matchedC && matchedC.our_entity_name) {
-      var foundOwn = (S.ownCompanies || []).find(function(oc){ return oc.name_short === matchedC.our_entity_name; });
-      if (foundOwn) {
-        S.cardDraft.own_company_id = foundOwn.id;
-        if (t) t.own_company_id = foundOwn.id;
+    if (matchedC) {
+      if (matchedC.our_entity_name) {
+        var foundOwn = (S.ownCompanies || []).find(function(oc){ return oc.name_short === matchedC.our_entity_name; });
+        if (foundOwn) {
+          S.cardDraft.own_company_id = foundOwn.id;
+          if (t) t.own_company_id = foundOwn.id;
+        }
+      }
+      if (matchedC.agreements && matchedC.agreements.length > 0 && t && t.region) {
+        var regLow = String(t.region).trim().toLowerCase();
+        var agFound = matchedC.agreements.find(function(a) {
+          var aReg = (a.region || a.city || '').toLowerCase();
+          return aReg && (regLow.includes(aReg) || aReg.includes(regLow));
+        });
+        if (agFound) {
+          S.cardDraft.contract_agreement_id = agFound.id;
+          t.contract_agreement_id = agFound.id;
+          t.contractAgreementId = agFound.id;
+        }
       }
     }
   }
   S._cardContractPickerOpen = false;
+  renderApp();
+};
+
+window.onCardAgreementChange = function(agId) {
+  var numVal = agId ? Number(agId) : null;
+  S.cardDraft.contract_agreement_id = numVal;
+  var t = S.tasks.find(function(x){ return String(x.id) === String(S.cardId); });
+  if (t) {
+    t.contract_agreement_id = numVal;
+    t.contractAgreementId = numVal;
+    if (numVal) {
+      var curC = (S.contracts || []).find(function(x){ return Number(x.id) === Number(t.contract_id || t.contractId); });
+      if (curC && curC.agreements) {
+        var ag = curC.agreements.find(function(a){ return Number(a.id) === numVal; });
+        if (ag && (!t.region || t.region === '—')) {
+          t.region = ag.region || ag.city || t.region;
+          S.cardDraft.region = t.region;
+        }
+      }
+    }
+  }
+  renderApp();
+};
+
+window.recalcCardUnitPrice = function(taskId) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+  var curAmount = parseFloat(Object.prototype.hasOwnProperty.call(S.cardDraft, 'amount') ? S.cardDraft.amount : t.amount) || 0;
+  var curPorts = parseFloat(Object.prototype.hasOwnProperty.call(S.cardDraft, 'inOrder') ? S.cardDraft.inOrder : (t.inOrder || t.ports || t.fact)) || 0;
+  if (!curAmount || !curPorts) {
+    alert('Для расчета единичной стоимости укажите сумму договора и количество портов (в заказе).');
+    return;
+  }
+  var unitPrice = Math.round(curAmount / curPorts);
+  S.cardDraft.pricePerUnit = unitPrice;
+  t.pricePerUnit = unitPrice;
+  var inp = document.querySelector('[data-key="pricePerUnit"]');
+  if (inp) inp.value = unitPrice;
+  if (typeof showToast === 'function') showToast('Стоимость за единицу: ' + unitPrice.toLocaleString('ru-RU') + ' ₽', 'success');
   renderApp();
 };
 
@@ -318,7 +405,11 @@ function setCardTab(tabName) {
     if (tabName === 'items') {
       loadCardSubcontracts(S.cardId);
       if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(S.cardId);
+      if (window.renderSmrChecklist) window.renderSmrChecklist(S.cardId);
     }
+  }
+  if ((tabName === 'files' || tabName === 'docs') && S.cardId) {
+    loadCardDocuments(S.cardId);
   }
   if (tabName === 'chat' && S.cardId) {
     loadTaskChat(S.cardId);
@@ -351,6 +442,7 @@ function openCard(id) {
   refreshTaskItemsList(id);
   loadCardMaterials(id);
   if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(id);
+  if (window.renderSmrChecklist) window.renderSmrChecklist(id);
   if (S.cardTab === 'chat' || S.taskChatDrawerOpen) {
     loadTaskChat(id);
   }
@@ -396,10 +488,11 @@ function pageCard() {
   var isSber = !taskCustomer || taskCustomer.toLowerCase().includes('сбер');
 
   var controllerOpts = (function() {
-    var curCtrl = Object.prototype.hasOwnProperty.call(S.cardDraft, 'controller') ? S.cardDraft.controller : (t.controller || (isSber ? 'Городович И.О.' : 'Овсянников Д.В.'));
+    var curCtrl = Object.prototype.hasOwnProperty.call(S.cardDraft, 'controller') ? S.cardDraft.controller : (t.controller || (isSber ? 'Городович М.В.' : 'Овсянников Д.В.'));
+    if (curCtrl === 'Городович И.О.' || curCtrl === 'Городович Илья Олегович') curCtrl = 'Городович М.В.';
     var presets = [
-      { v: 'Городович И.О.', l: 'Городович И.О. (Ген. директор ООО «К10»)' },
-      { v: 'Овсянников Д.В.', l: 'Овсянников Д.В. (Ген. директор ООО «Кабельные Системы»)' }
+      { v: 'Городович М.В.', l: 'Городович М.В. (Директор ООО «К10»)' },
+      { v: 'Овсянников Д.В.', l: 'Овсянников Д.В. (Директор ООО «Кабельные Системы»)' }
     ];
     (S.users || []).filter(function(u){ return u.role === 'director' || u.role === 'admin'; }).forEach(function(u){
       if (!presets.some(function(p){ return p.v === u.full_name; })) {
@@ -430,17 +523,50 @@ function pageCard() {
     ? S.cardDraft.contract_id 
     : (t.contract_id != null ? t.contract_id : t.contractId);
 
-  // Автоматическая привязка по префиксу номера заявки (например, 0926-02-1 -> договор 0926-02)
-  if (!curContractId && t.id) {
-    var mPrefix = String(t.id).match(/^(\d{4}-\d{2})/);
-    if (mPrefix) {
-      var autoMatched = (S.contracts || []).find(function(c) {
-        return c.internal_number === mPrefix[1];
+  // Привязка к генеральному контракту по реальным реквизитам: номер контракта, Заказчик и регион (Отказ от слепой привязки по 0926-02 - замечание Алексея, скрин12)
+  if (!curContractId) {
+    var rawTextToSearch = (String(t.region || '') + ' ' + String(t.comment || '') + ' ' + String(t.tzText || '') + ' ' + String(t.id || ''));
+    var extNumMatch = rawTextToSearch.match(/\b(5000\d{7}|\d{8,12})\b/);
+    if (extNumMatch) {
+      var numTarget = extNumMatch[1];
+      var matchedByNum = (S.contracts || []).find(function(c) {
+        if (c.contract_number && c.contract_number.includes(numTarget)) return true;
+        if (c.agreements && c.agreements.some(function(ag) { return ag.external_number && ag.external_number.includes(numTarget); })) return true;
+        return false;
       });
-      if (autoMatched) {
-        curContractId = autoMatched.id;
-        t.contract_id = autoMatched.id;
-        t.contractId = autoMatched.id;
+      if (matchedByNum) {
+        curContractId = matchedByNum.id;
+        t.contract_id = matchedByNum.id;
+        t.contractId = matchedByNum.id;
+        if (matchedByNum.agreements && !t.contract_agreement_id) {
+          var matchedAg = matchedByNum.agreements.find(function(ag) { return ag.external_number && ag.external_number.includes(numTarget); });
+          if (matchedAg) t.contract_agreement_id = matchedAg.id;
+        }
+      }
+    }
+
+    if (!curContractId && t.region) {
+      var regLower = String(t.region).trim().toLowerCase();
+      var matchedByReg = (S.contracts || []).find(function(c) {
+        if (!matchesTaskCustomer(c)) return false;
+        if (c.agreements && c.agreements.some(function(ag) {
+          var agReg = (ag.region || ag.city || '').toLowerCase();
+          return agReg && (regLower.includes(agReg) || agReg.includes(regLower));
+        })) return true;
+        var cPlace = (c.delivery_place || '').toLowerCase();
+        return cPlace && (regLower.includes(cPlace) || cPlace.includes(regLower));
+      });
+      if (matchedByReg) {
+        curContractId = matchedByReg.id;
+        t.contract_id = matchedByReg.id;
+        t.contractId = matchedByReg.id;
+        if (matchedByReg.agreements && !t.contract_agreement_id) {
+          var matchedAg2 = matchedByReg.agreements.find(function(ag) {
+            var agReg = (ag.region || ag.city || '').toLowerCase();
+            return agReg && (regLower.includes(agReg) || agReg.includes(regLower));
+          });
+          if (matchedAg2) t.contract_agreement_id = matchedAg2.id;
+        }
       }
     }
   }
@@ -449,20 +575,23 @@ function pageCard() {
     return getContractSortKey(b) - getContractSortKey(a);
   });
 
-  var filterMode = S._cardContractFilterMode || (isSber ? 'sber' : 'all');
-  var sberContractsCount = allContracts.filter(function(c) {
+  function matchesTaskCustomer(c) {
     var cCust = (c.customer_name || '').toLowerCase();
     var cEnt = (c.our_entity_name || '').toLowerCase();
-    return cCust.includes('сбер') || cEnt.includes('к10');
-  }).length;
+    if (isSber) {
+      return cCust.includes('сбер') || cEnt.includes('к10');
+    }
+    if (!taskCustomer) return true;
+    var tLow = taskCustomer.toLowerCase();
+    return cCust.includes(tLow) || tLow.includes(cCust);
+  }
+
+  var customerContractsCount = allContracts.filter(matchesTaskCustomer).length;
+  var filterMode = S._cardContractFilterMode || 'customer';
 
   var sortedContracts = allContracts.filter(function(c) {
-    if (filterMode === 'sber') {
-      var cCust = (c.customer_name || '').toLowerCase();
-      var cEnt = (c.our_entity_name || '').toLowerCase();
-      return cCust.includes('сбер') || cEnt.includes('к10') || String(c.id) === String(curContractId);
-    }
-    return true;
+    if (filterMode === 'all') return true;
+    return matchesTaskCustomer(c) || String(c.id) === String(curContractId);
   });
 
   var contractOpts = '<option value="">— (Не привязан к договору) —</option>' + sortedContracts.map(function(c) {
@@ -489,7 +618,18 @@ function pageCard() {
       } else if (type === 'number') {
         var num = parseFloat(val);
         var isCurrency = ['amount', 'pricePerUnit', 'distanceKm', 'extras', 'tmc'].includes(key);
-        displayVal = (!isNaN(num) && val !== '' && val != null) ? (num.toLocaleString('ru-RU') + (isCurrency ? ' ₽' : '')) : '—';
+        if (key === 'pricePerUnit' && (!num || num <= 0)) {
+          var curAmt = parseFloat(t.amount) || 0;
+          var curPts = parseFloat(t.inOrder || t.ports || t.fact) || 0;
+          if (curAmt > 0 && curPts > 0) {
+            num = Math.round(curAmt / curPts);
+            displayVal = num.toLocaleString('ru-RU') + ' ₽ <span class="t3" style="font-size:.7rem">(расчет)</span>';
+          } else {
+            displayVal = '—';
+          }
+        } else {
+          displayVal = (!isNaN(num) && val !== '' && val != null) ? (num.toLocaleString('ru-RU') + (isCurrency ? ' ₽' : '')) : '—';
+        }
       } else if (type === 'url') {
         displayVal = val ? ('<a href="' + escHtml(val) + '" target="_blank" rel="noopener noreferrer" style="color:var(--blue);text-decoration:underline;word-break:break-all">🔗 Открыть ссылку</a>') : '—';
       } else if (key === 'contract_id') {
@@ -545,14 +685,6 @@ function pageCard() {
           });
         }
       }
-      if (!curC && t.id) {
-        var mPref = String(t.id).match(/^(\d{4}-\d{2})/);
-        if (mPref) {
-          curC = (S.contracts || []).find(function(c) {
-            return c.internal_number === mPref[1];
-          });
-        }
-      }
       if (curC && !curContractId) {
         curContractId = curC.id;
         t.contract_id = curC.id;
@@ -560,26 +692,41 @@ function pageCard() {
       var cleanNum = curC ? cleanContractNumber(curC.contract_number) : '';
       var showPicker = S._cardContractPickerOpen || !curC;
 
+      var curAgId = Object.prototype.hasOwnProperty.call(S.cardDraft, 'contract_agreement_id')
+        ? S.cardDraft.contract_agreement_id
+        : (t.contract_agreement_id != null ? t.contract_agreement_id : t.contractAgreementId);
+
+      var agreementSelectorHtml = '';
+      if (curC && curC.agreements && curC.agreements.length > 0) {
+        var agOptionsHtml = '<option value="">— Выберите региональное ДС / Лот —</option>' + (curC.agreements || []).map(function(ag) {
+          var isAgSel = String(curAgId) === String(ag.id);
+          var agCode = ag.agreement_code || ('ДС-' + ag.agreement_number);
+          var regCity = ag.city || ag.region || 'Регион не указан';
+          var extNum = ag.external_number ? (' · № ' + ag.external_number) : '';
+          var dStr = ag.agreement_date ? (' от ' + new Date(ag.agreement_date).toLocaleDateString('ru-RU')) : '';
+          return '<option value="' + ag.id + '"' + (isAgSel ? ' selected' : '') + '>' + escHtml(agCode + ' (' + regCity + ')' + extNum + dStr) + '</option>';
+        }).join('');
+
+        agreementSelectorHtml = '<div style="margin-bottom:6px;padding:6px 10px;background:#f8fafc;border:1.5px solid #cbd5e1;border-radius:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+          '<span style="font-size:.76rem;font-weight:700;color:var(--text);white-space:nowrap">📑 Доп. соглашение (Лот / Регион):</span>' +
+          '<select id="card_contract_agreement_select" style="flex:1;min-width:200px;font-size:.78rem;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:#fff" onchange="window.onCardAgreementChange(this.value)">' +
+            agOptionsHtml +
+          '</select>' +
+        '</div>';
+      }
+
       var selectedContractCard = curC ? (
-        '<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px;padding:10px 12px;margin-bottom:6px;box-shadow:0 1px 3px rgba(0,0,0,0.03)">' +
-          '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">' +
-            '<div>' +
-              '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
-                (curC.internal_number ? '<span class="badge b-orange" style="font-weight:700;font-size:.78rem;font-family:monospace">Вн. ' + escHtml(curC.internal_number) + '</span>' : '') +
-                (cleanNum ? '<span class="badge b-blue" style="font-weight:600;font-size:.78rem">№ ' + escHtml(cleanNum) + '</span>' : '') +
-                '<span class="badge b-green" style="font-size:.72rem">🔗 Привязан</span>' +
-              '</div>' +
-              '<div style="font-weight:700;font-size:.88rem;color:var(--text);margin-top:4px">' +
-                escHtml(curC.customer_name || 'Не указан') +
-              '</div>' +
-              '<div style="font-size:.76rem;color:var(--text-2);margin-top:2px">' +
-                (curC.contract_type_summary ? ('<b>' + escHtml(curC.contract_type_summary) + '</b> · ') : '') +
-                '🏢 ' + escHtml(curC.our_entity_name || (isSber ? 'ООО «К10»' : 'ООО "Кабельные Системы"')) +
-              '</div>' +
+        '<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:6px;padding:6px 10px;margin-bottom:6px;box-shadow:0 1px 2px rgba(0,0,0,0.02)">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">' +
+            '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0;flex:1">' +
+              (curC.internal_number ? '<span class="badge b-orange" style="font-weight:700;font-size:.74rem;font-family:monospace;padding:1px 5px">Вн. ' + escHtml(curC.internal_number) + '</span>' : '') +
+              (cleanNum ? '<span class="badge b-blue" style="font-weight:600;font-size:.74rem;padding:1px 5px">№ ' + escHtml(cleanNum) + '</span>' : '') +
+              '<span style="font-weight:700;font-size:.82rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + escHtml(curC.customer_name || '') + '">' + escHtml(curC.customer_name || 'Заказчик') + '</span>' +
+              '<span style="font-size:.74rem;color:var(--text-2);white-space:nowrap">(' + escHtml(curC.contract_type_summary || 'СМР') + ' · 🏢 ' + escHtml(curC.our_entity_name || (isSber ? 'ООО «К10»' : 'ООО "Кабельные Системы"')) + ')</span>' +
             '</div>' +
             '<div style="display:flex;gap:4px;flex-shrink:0">' +
-              '<button type="button" class="btn btn-sm btn-ghost" onclick="openContractModal(' + curC.id + ')" style="padding:3px 8px;font-size:.74rem;border:1px solid #bbf7d0" title="Открыть карточку генерального договора">👁️ Договор</button>' +
-              '<button type="button" class="btn btn-sm btn-ghost" onclick="toggleCardContractPicker()" style="padding:3px 8px;font-size:.74rem;color:var(--text-3);border:1px solid var(--border)" title="Выбрать другой договор или отвязать">' + (showPicker ? 'Скрыть ▲' : 'Сменить ✕') + '</button>' +
+              '<button type="button" class="btn btn-sm btn-ghost" onclick="openContractModal(' + curC.id + ')" style="padding:2px 7px;font-size:.72rem;border:1px solid #bbf7d0;background:#fff" title="Открыть карточку генерального договора">👁️ Договор</button>' +
+              '<button type="button" class="btn btn-sm btn-ghost" onclick="toggleCardContractPicker()" style="padding:2px 7px;font-size:.72rem;color:var(--text-3);border:1px solid var(--border);background:#fff" title="Выбрать другой договор или отвязать">' + (showPicker ? 'Скрыть ▲' : 'Сменить ✕') + '</button>' +
             '</div>' +
           '</div>' +
         '</div>'
@@ -587,8 +734,9 @@ function pageCard() {
 
       var pickerDisplay = showPicker ? 'block' : 'none';
 
+      var customerLabel = isSber ? 'Сбербанк' : (taskCustomer || 'Текущий заказчик');
       var quickFiltersHtml = '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;align-items:center">' +
-        '<button type="button" class="btn btn-sm ' + (filterMode === 'sber' ? 'btn-primary' : 'btn-ghost') + '" onclick="setCardContractFilterMode(\'sber\')" style="padding:2px 8px;font-size:.72rem">✓ Только Сбербанк (' + sberContractsCount + ')</button>' +
+        '<button type="button" class="btn btn-sm ' + (filterMode !== 'all' ? 'btn-primary' : 'btn-ghost') + '" onclick="setCardContractFilterMode(\'customer\')" style="padding:2px 8px;font-size:.72rem">✓ Только ' + escHtml(customerLabel) + ' (' + customerContractsCount + ')</button>' +
         '<button type="button" class="btn btn-sm ' + (filterMode === 'all' ? 'btn-primary' : 'btn-ghost') + '" onclick="setCardContractFilterMode(\'all\')" style="padding:2px 8px;font-size:.72rem">Все заказчики (' + allContracts.length + ')</button>' +
         '<div style="width:1px;height:14px;background:#cbd5e1;margin:0 2px"></div>' +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="filterCardContractsList(\'0526\')" style="padding:1px 6px;font-size:.72rem;background:#fef3c7;color:#92400e;border-color:#fde68a">0526 (Май 26)</button>' +
@@ -622,7 +770,7 @@ function pageCard() {
           '<span style="font-size:.78rem;font-weight:700;color:var(--text)">Выбор генерального контракта:</span>' +
           '<button type="button" class="btn btn-sm btn-ghost" onclick="selectCardContract(\'\')" style="font-size:.72rem;color:var(--red);padding:1px 6px">✕ Отвязать от договора</button>' +
         '</div>' +
-        '<input type="text" id="card_contract_search_inp" placeholder="🔍 Поиск по номеру (0926...), договору или заказчику..." oninput="filterCardContractsList(this.value)" style="width:100%;padding:5px 8px;font-size:.82rem;border:1px solid var(--border);border-radius:6px;margin-bottom:6px">' +
+        '<input type="text" id="card_contract_search_inp" placeholder="🔍 Поиск по номеру договора, заказчику или региону..." oninput="filterCardContractsList(this.value)" style="width:100%;padding:5px 8px;font-size:.82rem;border:1px solid var(--border);border-radius:6px;margin-bottom:6px">' +
         quickFiltersHtml +
         '<div id="card_contract_items_list" style="max-height:220px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px;background:#fff">' +
           contractsItemsHtml +
@@ -632,6 +780,7 @@ function pageCard() {
       inp = '<div style="width:100%">' +
         '<select name="contract_id" data-key="contract_id" id="card_contract_select" style="display:none">' + contractOpts + '</select>' +
         selectedContractCard +
+        agreementSelectorHtml +
         pickerHtml +
       '</div>';
     }
@@ -697,11 +846,13 @@ function pageCard() {
       });
       if (val && !custOptsList.includes(val)) custOptsList.unshift(val);
 
-      var custOptsHtml = custOptsList.map(function(opt) {
-        var isSel = (String(val || '').toLowerCase().trim() === opt.toLowerCase().trim()) ? ' selected' : '';
-        return '<option value="' + escHtml(opt) + '"' + isSel + '>' + escHtml(opt) + '</option>';
+      var custDatalistOptions = custOptsList.map(function(opt) {
+        return '<option value="' + escHtml(opt) + '">';
       }).join('');
-      inp = '<select name="customer" data-key="customer" style="width:100%">' + custOptsHtml + '</select>';
+      inp = '<div style="position:relative;width:100%">' +
+        '<input type="text" list="card_customer_datalist" name="customer" data-key="customer" value="' + escHtml(val) + '" placeholder="🔍 Начните ввод заказчика..." style="width:100%;padding:5px 8px;font-size:.82rem;font-weight:600;border:1.5px solid var(--border);border-radius:6px;box-sizing:border-box" autocomplete="off">' +
+        '<datalist id="card_customer_datalist">' + custDatalistOptions + '</datalist>' +
+      '</div>';
     }
     else if (key === 'contact') {
       var rawContact = String(val || '');
@@ -726,6 +877,17 @@ function pageCard() {
       inp = '<div style="width:100%">' +
         '<textarea name="'+key+'" data-key="'+key+'" style="width:100%;font-size:.82rem;min-height:54px;transition:min-height .2s ease" rows="3" onfocus="this.style.minHeight=\'110px\'" onblur="if(this.value.length < 120) this.style.minHeight=\'54px\'">' + escHtml(rawContact) + '</textarea>' +
         quickContactActions +
+      '</div>';
+    }
+    else if (key === 'pricePerUnit') {
+      var curAmount = parseFloat(Object.prototype.hasOwnProperty.call(S.cardDraft, 'amount') ? S.cardDraft.amount : t.amount) || 0;
+      var curPorts = parseFloat(Object.prototype.hasOwnProperty.call(S.cardDraft, 'inOrder') ? S.cardDraft.inOrder : (t.inOrder || t.ports || t.fact)) || 0;
+      var calcPrice = (curAmount > 0 && curPorts > 0) ? Math.round(curAmount / curPorts) : 0;
+      var curVal = (val !== '' && val != null) ? val : (calcPrice > 0 ? calcPrice : '');
+
+      inp = '<div style="display:flex;gap:4px;align-items:center;width:100%">' +
+        '<input type="number" name="pricePerUnit" data-key="pricePerUnit" value="' + String(curVal).replace(/"/g,'&quot;') + '" placeholder="0" style="flex:1">' +
+        (calcPrice > 0 ? ('<button type="button" class="btn btn-sm btn-ghost" onclick="window.recalcCardUnitPrice(\'' + escHtml(t.id) + '\')" title="Пересчитать по формуле: ' + curAmount + ' ÷ ' + curPorts + ' = ' + calcPrice + ' ₽" style="padding:3px 7px;font-size:.74rem;white-space:nowrap;border:1px solid var(--border)">🔄 ' + calcPrice.toLocaleString('ru-RU') + ' ₽</button>') : '') +
       '</div>';
     }
     else if (type === 'textarea') inp = '<textarea name="'+key+'" data-key="'+key+'"' + (ph ? (' placeholder="' + escHtml(ph) + '"') : '') + ' style="width:100%;font-size:.82rem;min-height:54px;transition:min-height .2s ease" onfocus="this.style.minHeight=\'110px\'" onblur="if(this.value.length < 120) this.style.minHeight=\'54px\'">'+val+'</textarea>';
@@ -782,17 +944,17 @@ function pageCard() {
 
   var mapId = 'leafmap' + Date.now();
   var dgisUrl  = 'https://2gis.ru/search/' + encodeURIComponent('Россия, ' + mapFullAddr);
-  var yandexUrl = 'https://yandex.ru/maps/?text=' + encodeURIComponent('Россия, ' + mapFullAddr);
+  var yandexUrl = 'https://yandex.ru/maps/?rtext=~' + encodeURIComponent('Россия, ' + mapFullAddr) + '&rtt=auto';
 
   // Кнопки карт — показываются ВСЕГДА под картой
   var mapNavBtns = '<div style="display:flex;gap:.5rem;margin-top:.6rem;flex-wrap:wrap">' +
-    '<a href="' + dgisUrl + '" target="_blank" class="btn btn-sm" style="background:#3069b0;gap:5px">' +
+    '<a href="' + dgisUrl + '" target="_blank" class="btn btn-sm" style="background:#3069b0;gap:5px;color:#fff">' +
       '<svg width="13" height="13" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="10" r="4"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="white"/></svg>' +
       '2ГИС' +
     '</a>' +
-    '<a href="' + yandexUrl + '" target="_blank" class="btn btn-sm" style="background:#fc3f1d;gap:5px">' +
+    '<a href="' + yandexUrl + '" target="_blank" class="btn btn-sm" style="background:#fc3f1d;gap:5px;color:#fff;font-weight:700" title="Построить маршрут на Яндекс.Картах (Навигатор)">' +
       '<svg width="13" height="13" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="10" r="4"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="white"/></svg>' +
-      'Яндекс.Карты' +
+      '📍 Маршрут (Яндекс.Карты)' +
     '</a>' +
   '</div>';
 
@@ -904,16 +1066,51 @@ function pageCard() {
         macroStatusBadge(t.macroStatus || 'new') +
       '</div>';
 
-  var hdr = '<div class="card-hdr" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:.5rem">' +
-    '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
-      '<button class="btn btn-sm btn-ghost" onclick="returnFromCard()" title="Вернуться назад к списку" style="font-weight:600">← ' + (S._cardOriginPage === 'kanban' ? 'Канбан' : 'Заявки') + '</button>' +
-      '<h1 style="margin:0;font-size:1.25rem">'+t.id+'</h1>' +
+  var dateZayavkiStr = t.dateZayavki ? t.dateZayavki.slice(0, 10).split('-').reverse().join('.') : '—';
+  var datePpStr = t.currentDate
+    ? (String(t.currentDate).slice(0, 10).includes('-') ? String(t.currentDate).slice(0, 10).split('-').reverse().join('.') : String(t.currentDate).slice(0, 10))
+    : ((t.rawData && (t.rawData['текущая дата'] || t.rawData['текущяя дата'] || t.rawData['дата с пп'] || t.rawData['дата_внесения'])) || '—');
+  var deadlineStr = t.deadline ? t.deadline.slice(0, 10).split('-').reverse().join('.') : '—';
+
+  var overdueBadge = '';
+  if (t.deadline) {
+    var dl = new Date(t.deadline);
+    var now = new Date();
+    var isDone = ['accepted', 'billing', 'paid', 'archived', 'done'].includes((t.macroStatus || t.status || '').toLowerCase());
+    if (!isDone && dl < now) {
+      var diffDays = Math.max(1, Math.floor((now - dl) / (1000 * 60 * 60 * 24)));
+      overdueBadge = ' <span class="badge b-red" style="padding:1px 5px;font-size:.68rem;font-weight:700" title="Просрочено на ' + diffDays + ' дн.">⚠️ +' + diffDays + ' дн.</span>';
+    }
+  }
+
+  var edoNumVal = t.edoNumber || (t.rawData && (t.rawData['№ документа в эдо'] || t.rawData['№ в эдо'] || t.rawData['номер в эдо'] || t.rawData['эдо'])) || '';
+  var edoBadge = edoNumVal
+    ? '<span class="badge b-blue" style="font-size:.82rem;font-weight:700;padding:2px 8px;letter-spacing:0.3px;cursor:pointer" onclick="if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(\'' + escHtml(edoNumVal) + '\');}if(window.showToast)showToast(\'Номер ЭДО скопирован: ' + escHtml(edoNumVal) + '\')" title="Номер документа в ЭДО Заказчика (кликните, чтобы скопировать)">ЭДО: ' + escHtml(edoNumVal) + '</span>'
+    : '<span class="badge b-gray" style="font-size:.74rem;padding:2px 6px;color:var(--text-3)" title="Номер документа в ЭДО не указан">ЭДО: —</span>';
+
+  var datesBlock = '<div class="card-sticky-dates" title="Ключевые даты заявки: поступление, ПП и дедлайн">' +
+    '<div title="Дата поступления заявки от Заказчика"><span style="color:var(--text-3);font-size:.7rem">Заявка:</span> <b>' + dateZayavkiStr + '</b></div>' +
+    '<div style="color:var(--border)">|</div>' +
+    '<div title="Дата планового подтверждения (ПП) / дата внесения из реестра"><span style="color:var(--text-3);font-size:.7rem">ПП:</span> <b style="color:var(--blue)">' + datePpStr + '</b></div>' +
+    '<div style="color:var(--border)">|</div>' +
+    '<div title="Плановый срок завершения (дедлайн)"><span style="color:var(--text-3);font-size:.7rem">Дедлайн:</span> <b>' + deadlineStr + '</b>' + overdueBadge + '</div>' +
+  '</div>';
+
+  var hdr = '<div class="card-hdr" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:.4rem">' +
+    '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+      '<button class="btn btn-sm btn-ghost" onclick="returnFromCard()" title="Вернуться назад к списку" style="font-weight:600;padding:4px 8px">← ' + (S._cardOriginPage === 'kanban' ? 'Канбан' : 'Заявки') + '</button>' +
+      '<h1 style="margin:0;font-size:1.2rem;display:inline-block;white-space:nowrap">' + t.id + '</h1>' +
+      edoBadge +
       macroStatusHtml +
     '</div>' +
-    '<div style="display:flex;align-items:center;gap:6px">' +
-      '<button class="btn btn-sm btn-ghost" onclick="toggleTaskChatDrawer(\'' + eid + '\')" title="Открыть чат по заявке сбоку" style="font-size:.78rem;font-weight:600">💬 Чат</button>' +
-      (isManagerOrAdmin ? '<button class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.25)" onclick="deleteTaskPrompt(\'' + eid + '\')" title="Удалить заявку из базы">🗑️ Удалить</button>' : '') +
-      '<button class="btn btn-sm btn-ghost" onclick="window.print()" title="Распечатать карточку объекта / сохранить в PDF" style="font-size:.78rem">🖨️ Печать</button>' +
+    '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+      datesBlock +
+      '<div style="display:flex;align-items:center;gap:4px">' +
+        '<a href="https://yandex.ru/maps/?rtext=~' + encodeURIComponent('Россия, ' + mapFullAddr) + '&rtt=auto" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" title="Построить автомобильный маршрут на Яндекс.Картах" style="font-size:.78rem;font-weight:600;padding:4px 8px;color:#fc3f1d;border-color:rgba(252,63,29,0.3)">📍 Маршрут</a>' +
+        '<button class="btn btn-sm btn-ghost" onclick="toggleTaskChatDrawer(\'' + eid + '\')" title="Открыть чат по заявке сбоку" style="font-size:.78rem;font-weight:600;padding:4px 8px">💬 Чат</button>' +
+        (isManagerOrAdmin ? '<button class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.25);font-size:.78rem;padding:4px 8px" onclick="deleteTaskPrompt(\'' + eid + '\')" title="Удалить заявку из базы">🗑️</button>' : '') +
+        '<button class="btn btn-sm btn-ghost" onclick="window.print()" title="Распечатать карточку объекта / сохранить в PDF" style="font-size:.78rem;padding:4px 8px">🖨️</button>' +
+      '</div>' +
     '</div>' +
   '</div>';
 
@@ -933,7 +1130,7 @@ function pageCard() {
     'Специалист ТО проверяет ТЗ, изучает Заказчика, выясняет ключевые моменты и передает ответственному менеджеру.',
     'Монтаж на объекте начат. Исполнители выполняют прокладку и установку оборудования.',
     'Монтаж завершён. Менеджер собирает фотоотчёт и результаты замеров для передачи в проектный отдел.',
-    'Материалы переданы в очередь ИД. Проектировщик берёт задачу в работу (ставится срок 3 рабочих дня).',
+    'Закрытие СМР. Проверка протоколов измерений портов, КЖ и чек-листа СМР для сдачи в проектный отдел.',
     'ИД в проектировании. Проектировщик подготавливает комплект исполнительной документации.',
     'Исполнительная документация готова. Отдел отправки проверяет альбом и направляет Заказчику.',
     'ИД на согласовании у Заказчика. При наличии правок вносите замечания в карточку. Приёмка блокируется открытыми замечаниями.',
@@ -1032,29 +1229,96 @@ function pageCard() {
     ? ' <span class="card-tab-badge badge-red">' + openRemCount + '</span>'
     : '';
 
+  var isAccepted = (t.assignmentStatus === 'accepted' || t.assignment_status === 'accepted') ||
+                   (Number(t.stage_num || t.stageNum || 0) > 0) ||
+                   (t.status && !['new', 'pending', 'cancelled'].includes(t.status)) ||
+                   (Boolean(t.contractor && t.contractor.trim()));
+
+  var techLinkVal = String(t.tech_link || t.techLink || t.materials_link || t.materialsLink || '').trim();
+
+  var compactActionBar = (function() {
+    var stageObj = (typeof APP_HINTS !== 'undefined' && APP_HINTS.stages && APP_HINTS.stages[curStageNum]) || { title: curStg.name, role: curStg.role, goal: idStageHelp[curStageNum] || curStg.name };
+    var techBtn = techLinkVal
+      ? ('<a href="' + escHtml(techLinkVal) + '" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-primary" style="background:#2563eb;color:#fff;font-weight:700;font-size:.76rem;padding:3px 9px;text-decoration:none;display:inline-flex;align-items:center;gap:4px" title="Открыть папку с ТЗ на Яндекс.Диске">📁 Диск Заказчика ↗</a>' +
+         '<button type="button" class="btn btn-xs btn-ghost" onclick="window.editCardTechLink(\'' + eid + '\')" style="font-size:.72rem;padding:2px 6px;border:1px solid #bfdbfe;color:#1d4ed8;background:#fff" title="Изменить ссылку на Яндекс.Диск">✏️</button>')
+      : ('<button type="button" class="btn btn-xs btn-ghost" onclick="window.editCardTechLink(\'' + eid + '\')" style="font-size:.74rem;padding:3px 8px;border:1px dashed #3b82f6;color:#1d4ed8;background:#eff6ff">+ Папка на Яндекс.Диске</button>');
+
+    var entryActions = '';
+    if (!isWorker) {
+      if (!isAccepted) {
+        entryActions = '<div style="display:inline-flex;gap:4px;align-items:center">' +
+          '<button type="button" class="btn btn-xs btn-primary" onclick="approveTaskEntry(\'' + eid + '\')" style="background:#16a34a;border-color:#16a34a;font-weight:700;padding:3px 9px;font-size:.76rem">✓ Принять заявку</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="openDeclineTaskModal(\'' + eid + '\')" style="color:#dc2626;border:1px solid #fca5a5;background:#fff;font-size:.74rem;padding:2px 7px">✕ Отклонить</button>' +
+        '</div>';
+      } else {
+        var stageActionBtn = '';
+        if (curStageNum === 3) {
+          stageActionBtn = '<button type="button" class="btn btn-xs btn-primary" onclick="window._takeTaskToStage(\'' + eid + '\', 4)" style="background:#2563eb;border-color:#2563eb;font-weight:700;padding:3px 10px;font-size:.76rem" title="Принять задачу в работу проектным отделом (норматив 3 дня)">📐 Взять в работу: ИД в проектировании</button>';
+        } else if (curStageNum === 4) {
+          stageActionBtn = '<button type="button" class="btn btn-xs btn-primary" onclick="window._takeTaskToStage(\'' + eid + '\', 5)" style="background:#16a34a;border-color:#16a34a;font-weight:700;padding:3px 10px;font-size:.76rem" title="Завершить разработку альбома ИД и передать на согласование">📄 ИД готова (сдать Заказчику)</button>';
+        } else if (curStageNum === 2 || (curStageNum === 1 && (Number(t.fact) > 0 || (t.rawData && t.rawData.dataVyhoda)))) {
+          stageActionBtn = '<button type="button" class="btn btn-xs btn-primary" onclick="window._takeTaskToStage(\'' + eid + '\', 3)" style="background:#059669;border-color:#059669;font-weight:700;padding:3px 10px;font-size:.76rem" title="Завершить СМР и перейти к закрытию и ИД">🏁 Закрыть СМР</button>';
+        }
+
+        entryActions = '<div style="display:inline-flex;gap:4px;align-items:center">' +
+          stageActionBtn +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="toggleTaskEditLock()" style="padding:2px 8px;font-size:.72rem;border:1px solid ' + (S._taskEditUnlocked ? '#fca5a5' : '#bbf7d0') + ';background:#fff;color:' + (S._taskEditUnlocked ? '#b91c1c' : '#15803d') + ';font-weight:600" title="' + (S._taskEditUnlocked ? 'Заблокировать поля' : 'Разблокировать поля для редактирования') + '">' +
+            (S._taskEditUnlocked ? '🔓 Заблокировать' : '✏️ Правка полей') +
+          '</button>' +
+        '</div>';
+      }
+    } else {
+      if (curStageNum === 1 || curStageNum === 2) {
+        entryActions = '<button type="button" class="btn btn-xs btn-primary" onclick="window._takeTaskToStage(\'' + eid + '\', 3)" style="background:#059669;border-color:#059669;font-weight:700;padding:3px 10px;font-size:.76rem" title="Завершить монтаж и сдать СМР">🏁 Сдать СМР куратору</button>';
+      }
+    }
+
+    return '<div class="stage-guide-banner" style="margin:4px 0 6px;padding:6px 12px;background:#f8fafc;border:1.5px solid var(--border);border-radius:6px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;flex:1">' +
+        '<span style="font-size:1.1rem;line-height:1">💡</span>' +
+        '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+          '<span style="font-weight:700;font-size:.84rem;color:var(--text)">' + escHtml(stageObj.title || curStg.name) + '</span>' +
+          '<span class="badge b-blue" style="font-size:.68rem;padding:1px 5px">' + escHtml(stageObj.role || curStg.role) + '</span>' +
+        '</div>' +
+        (stageObj.goal ? ('<div style="font-size:.76rem;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:380px" title="' + escHtml(stageObj.goal) + '">🎯 ' + escHtml(stageObj.goal) + '</div>') : '') +
+      '</div>' +
+      '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;flex-shrink:0">' +
+        techBtn +
+        '<button type="button" class="btn btn-xs btn-ghost" onclick="showStageHelpModal(' + curStageNum + ')" style="border:1px solid var(--border);background:#fff;white-space:nowrap;padding:3px 8px;font-weight:600;font-size:.74rem;color:var(--orange-dark)" title="Подробный регламент шага">❓ Регламент</button>' +
+        entryActions +
+      '</div>' +
+    '</div>';
+  })();
+
   var isWorker = S.user && (S.user.role === 'worker' || S.user.role === 'installer' || S.user.role === 'contractor');
-  var tabsNav = '<div class="card-tabs-nav" style="display:flex;gap:4px;overflow-x:auto;padding-bottom:4px;margin-bottom:1rem;border-bottom:1.5px solid var(--border)">' +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'main' ? 'active' : '') + '" data-tab="main" onclick="setCardTab(\'main\')" style="padding:6px 14px;font-size:.82rem">' +
+  var tabsNav = '<div class="card-tabs-nav">' +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'main' ? 'active' : '') + '" data-tab="main" onclick="setCardTab(\'main\')" style="padding:5px 12px;font-size:.82rem">' +
       '🏛️ Информация' +
     '</button>' +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'items' ? 'active' : '') + '" data-tab="items" onclick="setCardTab(\'items\')" style="padding:6px 14px;font-size:.82rem">' +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'items' ? 'active' : '') + '" data-tab="items" onclick="setCardTab(\'items\')" style="padding:5px 12px;font-size:.82rem">' +
       '👷 Исполнение / СМР' +
     '</button>' +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'supply' ? 'active' : '') + '" data-tab="supply" onclick="setCardTab(\'supply\')" style="padding:6px 14px;font-size:.82rem">' +
-      '📦 Снабжение' +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'supply' ? 'active' : '') + '" data-tab="supply" onclick="setCardTab(\'supply\')" style="padding:5px 12px;font-size:.82rem">' +
+      '📦 Закрытие и учет ТМЦ' +
     '</button>' +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'files' ? 'active' : '') + '" data-tab="files" onclick="setCardTab(\'files\')" style="padding:6px 14px;font-size:.82rem">' +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'files' ? 'active' : '') + '" data-tab="files" onclick="setCardTab(\'files\')" style="padding:5px 12px;font-size:.82rem">' +
       '📄 Документы' + remarksTabBadge +
     '</button>' +
-    (isWorker ? '' : '<button type="button" class="card-tab-btn ' + (curTab === 'finance' ? 'active' : '') + '" data-tab="finance" onclick="setCardTab(\'finance\')" style="padding:6px 14px;font-size:.82rem">' +
+    (isWorker ? '' : '<button type="button" class="card-tab-btn ' + (curTab === 'finance' ? 'active' : '') + '" data-tab="finance" onclick="setCardTab(\'finance\')" style="padding:5px 12px;font-size:.82rem">' +
       '💰 Экономика' +
     '</button>') +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'chat' ? 'active' : '') + '" data-tab="chat" onclick="setCardTab(\'chat\')" style="padding:6px 14px;font-size:.82rem">' +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'chat' ? 'active' : '') + '" data-tab="chat" onclick="setCardTab(\'chat\')" style="padding:5px 12px;font-size:.82rem">' +
       '💬 Чат' +
     '</button>' +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'history' ? 'active' : '') + '" data-tab="history" onclick="setCardTab(\'history\')" style="padding:6px 14px;font-size:.82rem">' +
+    '<button type="button" class="card-tab-btn ' + (curTab === 'history' ? 'active' : '') + '" data-tab="history" onclick="setCardTab(\'history\')" style="padding:5px 12px;font-size:.82rem">' +
       '🕒 История' +
     '</button>' +
+  '</div>';
+
+  var stickyHeader = '<div class="card-sticky-topbar">' +
+    hdr +
+    compactActionBar +
+    tabsNav +
   '</div>';
 
   var rawExtraRows = (function() {
@@ -1107,7 +1371,7 @@ function pageCard() {
   var phoneMatch = (t.contact || '').match(/(?:\+7|8)[\s\-(]?\d{3}[\s\-)]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}/);
   var cleanPhone = phoneMatch ? phoneMatch[0].replace(/[^\d+]/g, '') : null;
   var quickActionsBar = '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:.85rem">' +
-    '<a href="https://yandex.ru/maps/?text=' + encodeURIComponent('Россия, ' + mapFullAddr) + '" target="_blank" rel="noopener noreferrer" class="quick-contact-btn nav-btn">📍 Яндекс.Навигатор</a>' +
+    '<a href="https://yandex.ru/maps/?rtext=~' + encodeURIComponent('Россия, ' + mapFullAddr) + '&rtt=auto" target="_blank" rel="noopener noreferrer" class="quick-contact-btn nav-btn" style="background:#fff1f2;color:#be123c;border-color:#fecdd3;font-weight:700">📍 Маршрут (Яндекс.Карты)</a>' +
     '<a href="https://2gis.ru/search/' + encodeURIComponent('Россия, ' + mapFullAddr) + '" target="_blank" rel="noopener noreferrer" class="quick-contact-btn nav-btn" style="background:#f0fdfa;color:#0f766e;border-color:#99f6e4">🗺️ 2ГИС</a>' +
     (cleanPhone ? '<a href="tel:' + cleanPhone + '" class="quick-contact-btn call-btn">📞 Позвонить (' + escHtml(phoneMatch[0]) + ')</a>' : '') +
   '</div>';
@@ -1122,12 +1386,13 @@ function pageCard() {
   var curOwnCompanyId = t.own_company_id || (defaultOurEntity.includes('К10') ? 2 : (defaultOurEntity.includes('Ультима') ? 3 : 1));
 
   var ownOpts = (S.ownCompanies || [
-    { id: 2, name_short: 'ООО «К10»', director: 'Городович И.О.' },
-    { id: 1, name_short: 'ООО "Кабельные Системы"', director: 'Овсянников Д.В.' },
-    { id: 3, name_short: 'ООО "Ультима"', director: 'Городович И.О.' }
+    { id: 2, name_short: 'ООО «К10»', director: 'Городович М.В.', tax_system: 'УСН (без НДС)', vat_rate: 0 },
+    { id: 1, name_short: 'ООО "Кабельные Системы"', director: 'Овсянников Д.В.', tax_system: 'УСН с НДС 5%', vat_rate: 5 },
+    { id: 3, name_short: 'ООО "Ультима"', director: 'Чайка А.В.', tax_system: 'ОСНО (НДС 22%)', vat_rate: 22 }
   ]).map(function(oc) {
     var isSel = (Number(curOwnCompanyId) === Number(oc.id) || oc.name_short === defaultOurEntity) ? ' selected' : '';
-    return '<option value="' + oc.id + '"' + isSel + '>' + escHtml(oc.name_short) + ' (Директор: ' + escHtml(oc.director || '') + ')</option>';
+    var taxInfo = oc.tax_system ? (' · ' + oc.tax_system) : (Number(oc.vat_rate) > 0 ? (' · НДС ' + oc.vat_rate + '%') : ' · без НДС');
+    return '<option value="' + oc.id + '"' + isSel + '>' + escHtml(oc.name_short) + taxInfo + '</option>';
   }).join('');
 
   var isViewLocked = (t.assignmentStatus === 'accepted' && !S._taskEditUnlocked);
@@ -1177,127 +1442,59 @@ function pageCard() {
   var contrPhoneHtml = renderContrPhoneHtml(false);
 
   var quickDocsCard = '<div class="card p">' +
-    '<div class="sec-title" style="margin-bottom:.5rem;display:flex;align-items:center;gap:6px">📄 Документы объекта</div>' +
+    '<div class="sec-title" style="margin-bottom:.5rem;display:flex;align-items:center;justify-content:space-between">' +
+      '<span style="display:flex;align-items:center;gap:6px">📄 Документы объекта</span>' +
+      '<span style="font-size:.72rem;color:var(--text-3)">Комплект Word (.docx)</span>' +
+    '</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">' +
-      '<button type="button" class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\'' + eid + '\')" title="Сформировать официальное письмо на допуск в Word (с паспортами монтажников)">🪪 Письмо на допуск</button>' +
-      '<button type="button" class="btn btn-sm btn-ghost" onclick="exportDoc(\'app2\',\'' + eid + '\')" title="Сформировать Заказ-наряд (Приложение №2) в Word / PDF">📄 Приложение №2</button>' +
-      '<button type="button" class="btn btn-sm btn-ghost" onclick="exportDoc(\'invoice\',\'' + eid + '\')" title="Сформировать и выгрузить Счёт на оплату">💰 Счёт на оплату</button>' +
-      '<button type="button" class="btn btn-sm btn-ghost" onclick="exportDoc(\'act\',\'' + eid + '\')" title="Сформировать Акт сдачи-приемки выполненных работ (КС-2)">✅ Акт работ</button>' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\'' + eid + '\')" title="Сформировать официальное письмо на допуск на объект в Word">🪪 Допуск на объект</button>' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'order_subcontract\')" title="Сформировать Заказ-наряд (Приложение №2 к Договору субподряда)">📄 Приложение №2</button>' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'completion_act\')" title="Сформировать двухсторонний Акт сдачи-приемки работ («Сдал/Принял»)">🤝 Акт «Сдал/Принял»</button>' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'invoice\')" title="Сформировать официальный Счет на оплату от Подрядчика">💰 Счёт на оплату</button>' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'tmc_act\')" title="Сформировать Акт списания материалов (ТМЦ) объекта">📦 Акт расхода ТМЦ</button>' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'id_registry\')" title="Сформировать Альбом исполнительной документации (СКС)">📑 Альбом ИД</button>' +
     '</div>' +
   '</div>';
 
-  var isAccepted = (t.assignmentStatus === 'accepted' || t.assignment_status === 'accepted') ||
-                   (Number(t.stage_num || t.stageNum || 0) > 0) ||
-                   (t.status && !['new', 'pending', 'cancelled'].includes(t.status)) ||
-                   (Boolean(t.contractor && t.contractor.trim()));
-
-  var techLinkVal = String(t.tech_link || t.techLink || t.materials_link || t.materialsLink || '').trim();
-  var techLinkBanner = '<div class="card p" style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:8px;margin-bottom:1rem;padding:10px 14px;box-shadow:0 1px 3px rgba(37,99,235,0.06)">' +
-    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">' +
-      '<div style="display:flex;align-items:center;gap:10px">' +
-        '<div style="font-size:1.4rem;line-height:1">📁</div>' +
-        '<div>' +
-          '<div style="font-weight:700;font-size:.88rem;color:#1e40af;display:flex;align-items:center;gap:6px">' +
-            '<span>Шаг 1 проверки: Техническая документация объекта (ТЗ, схемы, фото)</span>' +
-            '<span class="badge b-blue" style="font-size:.7rem">Первый шаг</span>' +
-          '</div>' +
-          '<div style="font-size:.76rem;color:#3b82f6;margin-top:2px">' +
-            (techLinkVal ? ('Ссылка на диск Заказчика: <a href="' + escHtml(techLinkVal) + '" target="_blank" rel="noopener noreferrer" style="font-family:monospace;text-decoration:underline;color:#1d4ed8;font-weight:600">' + escHtml(techLinkVal.length > 55 ? techLinkVal.slice(0, 55) + '…' : techLinkVal) + '</a>') : 'Папка объекта еще не прикреплена — вставьте ссылку на Яндекс.Диск с ТЗ') +
-          '</div>' +
-        '</div>' +
-      '</div>' +
-      '<div style="display:flex;gap:6px;align-items:center">' +
-        (techLinkVal ? ('<a href="' + escHtml(techLinkVal) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-primary" style="background:#2563eb;font-weight:700;padding:6px 14px;font-size:.82rem" title="Открыть облачную папку в новой вкладке">↗ Открыть папку на Яндекс.Диске</a>') : '') +
-        '<button type="button" class="btn btn-sm btn-ghost" onclick="window.editCardTechLink(\'' + eid + '\')" style="font-size:.76rem;padding:5px 8px;border:1px solid #bfdbfe;background:#fff;color:#1d4ed8">' + (techLinkVal ? '✏️ Изменить ссылку' : '+ Добавить ссылку на диск') + '</button>' +
-      '</div>' +
-    '</div>' +
-  '</div>';
-
-  var entryControlBanner = (function() {
-    if (isWorker) return '';
-    if (!isAccepted) {
-      return '<div class="card p" style="background:#fffbeb;border:2px solid #f59e0b;border-radius:8px;margin-bottom:1rem;padding:12px 16px;box-shadow:0 1px 3px rgba(0,0,0,0.05)">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">' +
-          '<div>' +
-            '<div style="display:flex;align-items:center;gap:8px">' +
-              '<span style="font-size:1.15rem">⚠️</span>' +
-              '<span style="font-weight:700;font-size:1rem;color:#b45309">Входной контроль заявки (Ожидает подтверждения)</span>' +
-              '<span class="badge b-orange" style="font-size:.72rem">Этап 1: Проверка</span>' +
-            '</div>' +
-            '<div style="font-size:.8rem;color:#92400e;margin-top:4px">' +
-              'Проверьте входящие параметры от Заказчика, назначьте Проект-менеджера (ПМ) и Держателя контракта, затем примите заявку в работу.' +
-            '</div>' +
-          '</div>' +
-          '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
-            '<button type="button" class="btn btn-sm btn-primary" onclick="approveTaskEntry(\'' + eid + '\')" style="background:#16a34a;border-color:#16a34a;font-weight:700;padding:6px 14px;box-shadow:0 1px 2px rgba(0,0,0,0.1)">✓ Принять заявку в работу</button>' +
-            '<button type="button" class="btn btn-sm btn-ghost" onclick="openDeclineTaskModal(\'' + eid + '\')" style="color:#dc2626;border:1px solid #fca5a5;background:#fff;font-weight:600;padding:6px 12px">✕ Отклонить заявку</button>' +
-          '</div>' +
-        '</div>' +
-      '</div>';
-    }
-
-    return '<div class="card p" style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px;margin-bottom:1rem;padding:10px 14px;box-shadow:0 1px 3px rgba(0,0,0,0.03)">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">' +
-        '<div style="display:flex;align-items:center;gap:8px">' +
-          '<span style="color:#16a34a;font-weight:700;font-size:1.15rem">✅</span>' +
-          '<div>' +
-            '<div style="font-weight:700;font-size:.88rem;color:#166534">Заявка принята в работу (Входной контроль пройден)</div>' +
-            '<div style="font-size:.76rem;color:#15803d;margin-top:2px">' +
-              'ПМ: <b>' + escHtml(t.assignee || 'Не назначен') + '</b> · Держатель контракта: <b>' + escHtml(t.controller || 'Городович И.О.') + '</b>' +
-            '</div>' +
-          '</div>' +
-        '</div>' +
-        '<div style="display:flex;align-items:center;gap:8px">' +
-          '<span class="badge b-green" style="font-size:.74rem">🔒 Поля защищены</span>' +
-          '<button type="button" class="btn btn-sm btn-ghost" onclick="toggleTaskEditLock()" style="padding:3px 10px;font-size:.74rem;border:1px solid #bbf7d0;background:#fff;color:#15803d;font-weight:600">' +
-            (S._taskEditUnlocked ? '🔒 Заблокировать поля' : '✏️ Разблокировать поля для правки') +
-          '</button>' +
-        '</div>' +
-      '</div>' +
-    '</div>';
-  })();
-
+  var isAccepted = (t.assignmentStatus === 'accepted' || t.assignment_status === 'accepted');
   var customerInflowCard = '<div class="card p" style="border:1.5px solid var(--border);background:#fff">' +
-    '<div class="sec-title" style="margin-bottom:.65rem;display:flex;justify-content:space-between;align-items:center">' +
+    '<div class="sec-title" style="margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center">' +
       '<span style="display:flex;align-items:center;gap:6px">💰 Параметры заказа по договору (Вход)</span>' +
       '<span class="badge b-blue" style="font-size:.72rem">Из договора / Excel</span>' +
     '</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
       field('Сумма договора / заявки', 'amount', 'number', true) +
       field('Удаленность объекта (км)', 'distanceKm', 'number', true) +
-      field('В заказе (портов)', 'inOrder', 'number', true) +
-      field('Факт выходов / портов', 'fact', 'number', true) +
+      field('В заказе Заказчика (план, портов)', 'inOrder', 'number', true) +
+      field('Фактически смонтировано (портов)', 'fact', 'number', true) +
       field('Стоимость за единицу', 'pricePerUnit', 'number', true) +
       (isWorker ? '' : field('№ документа в ЭДО', 'edoNumber', 'text', true)) +
     '</div>' +
-    (isWorker ? '' : '<div style="margin-top:8px">' + field('№ счёта / сумма', 'invoiceInfo', 'text', true) + '</div>') +
-    '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end">' +
+    '<div style="margin-top:8px;padding-top:6px;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end">' +
       '<button type="button" class="btn btn-sm btn-primary" onclick="setCardTab(\'items\')" style="font-size:.8rem;padding:4px 12px;font-weight:600">👷 Перейти к расчету СМР и подрядчику →</button>' +
     '</div>' +
   '</div>';
 
   var paneMain = '<div id="cardTabPane-main" class="card-tab-pane" style="display:' + (curTab === 'main' ? 'block' : 'none') + '">' +
-    techLinkBanner +
-    entryControlBanner +
     '<div class="card-info-dashboard">' +
       '<!-- ЛЕВАЯ КОЛОНКА -->' +
-      '<div style="display:flex;flex-direction:column;gap:1rem">' +
+      '<div style="display:flex;flex-direction:column;gap:.75rem">' +
         '<!-- 1. Объект и Генеральный контракт -->' +
         '<div class="card p">' +
-          '<div class="sec-title" style="margin-bottom:.65rem;display:flex;justify-content:space-between;align-items:center">' +
+          '<div class="sec-title" style="margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center">' +
             '<span>🏛️ Объект, Договор и Стороны</span>' +
             '<span class="badge b-gray" style="font-size:.72rem">Карточка объекта</span>' +
           '</div>' +
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">' +
             field('Заказчик', 'customer', null, true) +
             renderOurEntityHtml(true) +
           '</div>' +
-          (isWorker ? '' : '<div style="margin-bottom:8px">' + field('Генеральный контракт', 'contract_id', 'select', true) + '</div>') +
-          '<div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-bottom:8px">' +
+          (isWorker ? '' : '<div style="margin-bottom:6px">' + field('Генеральный контракт', 'contract_id', 'select', true) + '</div>') +
+          '<div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-bottom:6px">' +
             field('Регион', 'region', 'text', true) +
             field('Адрес объекта', 'address', 'text', true) +
           '</div>' +
-          '<div style="display:grid;grid-template-columns:' + (isWorker ? '1fr' : 'repeat(4, 1fr)') + ';gap:8px;margin-bottom:8px">' +
+          '<div style="display:grid;grid-template-columns:' + (isWorker ? '1fr' : 'repeat(4, 1fr)') + ';gap:6px;margin-bottom:6px">' +
             (isWorker ? '' : field('№ ГОСБ', 'gosb', 'text', true)) +
             (isWorker ? '' : field('№ ВСП', 'vsp', 'text', true)) +
             (isWorker ? '' : field('Тип объекта', 'tipObj', 'text', true)) +
@@ -1308,21 +1505,9 @@ function pageCard() {
           '</div>' +
         '</div>' +
 
-        '<!-- 2. Заметки и комментарии -->' +
+        '<!-- 2. Карта объекта -->' +
         '<div class="card p">' +
-          '<div class="sec-title" style="margin-bottom:.65rem">💬 Заметки и комментарии</div>' +
-          (isWorker ? '' : 
-            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
-              field('Внутренний комментарий', 'comment', 'textarea', true) +
-              field('Комментарий из Excel', 'excelComment', 'textarea', true) +
-            '</div>' +
-            rawExtraRows
-          ) +
-        '</div>' +
-
-        '<!-- 3. Карта объекта -->' +
-        '<div class="card p">' +
-          '<div class="sec-title" style="margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center">' +
+          '<div class="sec-title" style="margin-bottom:.4rem;display:flex;justify-content:space-between;align-items:center">' +
             '<span>🗺️ Карта объекта</span>' +
             '<span style="font-size:.74rem;color:var(--text-3)">Геолокация по адресу</span>' +
           '</div>' +
@@ -1331,47 +1516,50 @@ function pageCard() {
       '</div>' +
 
       '<!-- ПРАВАЯ КОЛОНКА -->' +
-      '<div style="display:flex;flex-direction:column;gap:1rem">' +
+      '<div style="display:flex;flex-direction:column;gap:.75rem">' +
         '<!-- 1. Команда, Сроки и Регламент -->' +
         '<div class="card p">' +
-          '<div class="sec-title" style="margin-bottom:.65rem;display:flex;justify-content:space-between;align-items:center">' +
+          '<div class="sec-title" style="margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center">' +
             '<span>👥 Команда, Сроки и Регламент</span>' +
             '<span class="badge b-blue" style="font-size:.72rem">Контроль процесса</span>' +
           '</div>' +
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">' +
             field('Статус заявки', 'status', null, true) +
             field('Приоритет', 'priority', 'select', true) +
           '</div>' +
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">' +
             field('Проект-менеджер (ПМ)', 'assignee', 'select', true) +
             (isWorker ? '' : field('Держатель контракта (Контролёр)', 'controller', 'select', true)) +
           '</div>' +
-          '<div style="display:grid;grid-template-columns:' + (isWorker ? '1fr' : '1fr 1fr') + ';gap:8px;margin-bottom:8px">' +
+          '<div style="display:grid;grid-template-columns:' + (isWorker ? '1fr' : '1fr 1fr') + ';gap:8px;margin-bottom:6px">' +
             (isWorker ? '' : field('Ответственное лицо (Заказчик)', 'manager', 'text', true)) +
             '<div>' +
               field('Субподрядчик (наш)', 'contractor', 'text', true) +
               renderContrPhoneHtml(true) +
             '</div>' +
           '</div>' +
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
-            field('Дедлайн (план)', 'deadline', 'date', true) +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">' +
+            field('Дата распределения', 'distributedAt', 'date', true) +
             field('Дата выхода (факт)', 'dataVyhoda', 'date', true) +
           '</div>' +
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
-            (isWorker ? '' : field('Дата заявки', 'dateZayavki', 'date', true)) +
-            field('Дата распределения', 'distributedAt', 'date', true) +
-          '</div>' +
-          '<div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:8px;margin-bottom:4px">' +
+          '<div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:6px;margin-bottom:6px">' +
             field('Обследование', 'obsledovanie', 'text', true) +
             field('Доступ', 'dostup', 'text', true) +
             field('Приёмка (фото)', 'priemka', 'text', true) +
           '</div>' +
+          (isWorker ? '' : 
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;padding-top:6px;border-top:1px dashed var(--border)">' +
+              field('Внутренний комментарий', 'comment', 'textarea', true) +
+              field('Комментарий из Excel', 'excelComment', 'textarea', true) +
+            '</div>' +
+            rawExtraRows
+          ) +
           (t.status === 'cancelled'
-            ? '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)"><span class="badge b-red" style="padding:5px 10px;font-weight:700">🚫 Заявка отменена' + (t.overdueReason ? ': ' + escHtml(t.overdueReason) : '') + '</span></div>'
+            ? '<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border)"><span class="badge b-red" style="padding:4px 8px;font-weight:700">🚫 Заявка отменена' + (t.overdueReason ? ': ' + escHtml(t.overdueReason) : '') + '</span></div>'
             : (!isLocked
-                ? '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">' +
+                ? '<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">' +
                     '<span style="font-size:.74rem;color:var(--text-3)">Если работы невозможны:</span>' +
-                    '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.3);font-size:.76rem;padding:2px 8px" onclick="cancelTaskPrompt(\'' + eid + '\')" title="Отменить заявку с указанием причины">🚫 Отменить заявку</button>' +
+                    '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.3);font-size:.74rem;padding:2px 7px" onclick="cancelTaskPrompt(\'' + eid + '\')" title="Отменить заявку с указанием причины">🚫 Отменить заявку</button>' +
                   '</div>'
                 : '')) +
         '</div>' +
@@ -1382,8 +1570,8 @@ function pageCard() {
         '<!-- 3. Документы объекта и Data Lineage -->' +
         quickDocsCard +
         (isWorker ? '' : '<div class="card p" style="background:#f8fafc;border:1.5px solid var(--border)">' +
-          '<div class="sec-title" style="margin-bottom:.4rem;display:flex;align-items:center;gap:6px">📌 Происхождение заявки (Data Lineage)</div>' +
-          '<div style="display:flex;flex-direction:column;gap:6px;font-size:.78rem">' +
+          '<div class="sec-title" style="margin-bottom:.3rem;display:flex;align-items:center;gap:6px">📌 Происхождение заявки (Data Lineage)</div>' +
+          '<div style="display:flex;flex-direction:column;gap:4px;font-size:.76rem">' +
             '<div style="display:flex;justify-content:space-between"><span>Поступила в систему:</span><b style="color:var(--blue)">' + (t.firstImportedAt ? new Date(t.firstImportedAt).toLocaleString('ru-RU') : (t.dateZayavki ? t.dateZayavki.slice(0,10).split('-').reverse().join('.') : '—')) + '</b></div>' +
             '<div style="display:flex;justify-content:space-between"><span>Исходный реестр:</span><b style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(t.importSource || t.sheet || '') + '">' + escHtml(t.importSource || t.sheet || 'Excel-импорт') + '</b></div>' +
             (t.dateZayavki ? '<div style="display:flex;justify-content:space-between"><span>Дата по Заказчику:</span><b>' + t.dateZayavki.slice(0,10).split('-').reverse().join('.') + '</b></div>' : '') +
@@ -1416,11 +1604,11 @@ function pageCard() {
     '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:.5rem">' +
       '<div class="sec-title" style="margin:0">📦 Материалы и Чек-лист СКС</div>' +
       '<div style="display:flex;gap:.4rem;align-items:center">' +
-        '<label class="btn btn-sm btn-ghost" style="cursor:pointer" title="Загрузить чек-лист Заказчика (PDF)">' +
-          '📥 Загрузить PDF' +
+        '<label class="btn btn-sm btn-ghost" style="cursor:pointer" title="Загрузить чек-лист / ведомость Заказчика в формате PDF">' +
+          '📥 Загрузить PDF (чек-лист/ведомость)' +
           '<input type="file" accept=".pdf" style="display:none" onchange="uploadChecklistPdf(this.files[0], \'' + eid + '\')">' +
         '</label>' +
-        '<button class="btn btn-sm btn-ghost" onclick="recalculateTaskMaterials(\'' + eid + '\')" title="Пересчитать плановые нормы по типовику">🔄 Расчет</button>' +
+        '<button class="btn btn-sm btn-ghost" onclick="recalculateTaskMaterials(\'' + eid + '\')" title="Пересчитать плановые нормы по типовику и объему заявки">🔄 Пересчитать по нормам</button>' +
       '</div>' +
     '</div>' +
     '<div id="cardMaterialsContainer" class="t3">Загрузка материалов…</div>' +
@@ -1480,9 +1668,66 @@ function pageCard() {
     })() +
   '</div>';
 
+  var smrClosingBlock = (function() {
+    var rawDate = t.dataVyhoda || t.data_vyhoda || '';
+    var formattedDate = rawDate ? String(rawDate).slice(0, 10) : '';
+    var curStage = Number(t.stage_num !== undefined ? t.stage_num : t.stageNum) || 0;
+    var stageTitle = (ID_STAGES[curStage] && ID_STAGES[curStage].name) || ('Этап ' + curStage);
+
+    return '<div class="card p mb" id="smrClosingBlock" style="border:1.5px solid var(--border);border-radius:8px;background:var(--surface,#fff);margin-bottom:1rem">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;padding-bottom:.5rem;border-bottom:1.5px solid var(--border);flex-wrap:wrap;gap:8px">' +
+        '<div>' +
+          '<div class="sec-title" style="margin:0;font-size:1.05rem;display:flex;align-items:center;gap:6px">' +
+            '<span>🏁 Закрытие СМР и сдача объекта</span>' +
+          '</div>' +
+          '<div style="font-size:.78rem;color:var(--text-3);margin-top:2px">' +
+            'Фиксация факта монтажа, кабельный журнал (КЖ), результаты прозвонки портов и сдача в проектный отдел' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+          (curStage < 3
+            ? '<button type="button" class="btn btn-sm btn-primary" onclick="window._takeTaskToStage(\'' + eid + '\', 3)" style="font-weight:700">🏁 Перевести в «Закрытие СМР»</button>'
+            : '<span class="badge b-green" style="font-size:.75rem;padding:4px 8px">✓ Этап: ' + escHtml(stageTitle) + '</span>'
+          ) +
+        '</div>' +
+      '</div>' +
+      '<div id="smrChecklistContainer" style="margin-bottom:1rem"></div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:12px;margin-bottom:1rem;background:var(--bg,#f8fafc);padding:10px 12px;border-radius:6px;border:1px solid var(--border)">' +
+        '<div>' +
+          '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">📅 Фактическая дата завершения СМР:</label>' +
+          '<input type="date" class="inp" id="cardDataVyhoda" value="' + escHtml(formattedDate) + '" onchange="updateField(\'' + eid + '\', \'dataVyhoda\', this.value)" style="padding:4px 8px;font-size:.84rem;width:100%">' +
+        '</div>' +
+        '<div>' +
+          '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">🔌 Фактически смонтировано (портов):</label>' +
+          '<input type="number" class="inp" min="0" value="' + (t.fact != null ? t.fact : (t.inOrder || 0)) + '" onchange="updateField(\'' + eid + '\', \'fact\', this.value)" style="padding:4px 8px;font-size:.84rem;width:100%">' +
+        '</div>' +
+        '<div>' +
+          '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">📋 Статус монтажных работ:</label>' +
+          '<select class="inp" onchange="updateField(\'' + eid + '\', \'statusSmr\', this.value)" style="padding:4px 8px;font-size:.84rem;width:100%">' +
+            '<option value="in_progress"' + (t.statusSmr === 'in_progress' ? ' selected' : '') + '>🔧 В процессе монтажа</option>' +
+            '<option value="done"' + (t.statusSmr === 'done' || curStage >= 2 ? ' selected' : '') + '>✅ СМР полностью завершены</option>' +
+            '<option value="issues"' + (t.statusSmr === 'issues' ? ' selected' : '') + '>⚠️ Есть замечания / доработки</option>' +
+          '</select>' +
+        '</div>' +
+      '</div>' +
+      '<div id="portsBlock">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
+          '<div class="sec-title" style="margin:0;font-size:.95rem;display:flex;align-items:center;gap:6px">' +
+            '<span>📊 КЖ / Протокол измерений портов</span>' +
+          '</div>' +
+          '<div style="display:flex;gap:6px">' +
+            '<button type="button" class="btn btn-sm btn-ghost" onclick="addPortRow(\'' + eid + '\')">+ Добавить порт</button>' +
+          '</div>' +
+        '</div>' +
+        '<div id="portsList" class="t3">Загрузка…</div>' +
+      '</div>' +
+    '</div>';
+  })();
+
   var paneItems = '<div id="cardTabPane-items" class="card-tab-pane" style="display:' + (curTab === 'items' ? 'block' : 'none') + '">' +
     '<div id="cardSmrCalculatorBlock" style="margin-bottom:1rem"></div>' +
     '<div id="cardSubcontractsContainer" style="display:none"></div>' +
+    smrClosingBlock +
     '<div class="card p mb" id="attachmentsBlock">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
         '<div class="sec-title" style="margin:0;font-size:1rem;display:flex;align-items:center;gap:6px">📷 Файлы и фотоотчёты к заявке (ТЗ, схемы, чек-листы)</div>' +
@@ -1521,11 +1766,15 @@ function pageCard() {
     '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:.75rem">' +
       '<div>' +
         '<div class="sec-title" style="margin:0;font-size:1.05rem">📑 Реестр сформированных документов</div>' +
-        '<div style="font-size:.78rem;color:var(--text-3);margin-top:2px">Официальные документы по объекту: Заказ-наряды, Письма на допуск, Доверенности М-2, Реестры ИД</div>' +
+        '<div style="font-size:.78rem;color:var(--text-3);margin-top:2px">Официальные документы по объекту: Заказ-наряды (Прил. №2), Акты «Сдал/Принял», Счета на оплату, Письма на допуск, Акты расхода ТМЦ, Альбомы ИД</div>' +
       '</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-        '<button class="btn btn-sm btn-primary" onclick="generateTaskRegistryDoc(\'' + eid + '\')">📑 Сформировать Реестр ИД (.docx)</button>' +
-        '<button class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\'' + eid + '\')">📄 Допуск на объект</button>' +
+        '<button type="button" class="btn btn-sm btn-primary" onclick="generateTaskDoc(\'' + eid + '\', \'order_subcontract\')">📄 Приложение №2</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'completion_act\')">🤝 Акт «Сдал/Принял»</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'invoice\')">💰 Счет</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'tmc_act\')">📦 Акт расхода ТМЦ</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'id_registry\')">📑 Альбом ИД</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\'' + eid + '\')">🪪 Допуск на объект</button>' +
       '</div>' +
     '</div>' +
     '<div id="cardDocumentsContainer" class="t3">Загрузка документов…</div>' +
@@ -1555,13 +1804,6 @@ function pageCard() {
         '<label class="btn btn-sm btn-ghost">📊 Excel ПИ<input type="file" accept=".xlsx,.xls" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'pi_excel\',this.files)"></label>' +
       '</div>' +
     '</div>' +
-    '<div class="card p" id="portsBlock">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
-        '<div class="sec-title" style="margin:0">КЖ / Протокол измерений портов</div>' +
-        '<button class="btn btn-sm btn-ghost" onclick="addPortRow(\''+t.id+'\')">+ Порт</button>' +
-      '</div>' +
-      '<div id="portsList" class="t3">Загрузка…</div>' +
-    '</div>' +
   '</div>';
 
   var paneFinance = (function() {
@@ -1589,6 +1831,20 @@ function pageCard() {
     var calculatedUnitRateStr = calcUnitRate > 0 ? (calcUnitRate.toLocaleString('ru-RU') + ' ₽ / ед.') : '—';
 
     var totalCustomerAmount = getTaskFinance(t).total;
+    if (totalCustomerAmount === 0 && amountVal > 0) totalCustomerAmount = amountVal;
+
+    // Сопутствующие затраты (ДОПы + ТК) из t.rawData.extraExpensesList
+    var extraExpenses = (t.rawData && Array.isArray(t.rawData.extraExpensesList)) ? t.rawData.extraExpensesList : [];
+    var dopExpenses = extraExpenses.filter(function(x){ return x.category === 'dop'; });
+    var transportExpenses = extraExpenses.filter(function(x){ return x.category === 'transport'; });
+
+    var dopSubcontract = dopExpenses.filter(function(x){ return x.payer_mode === 'through_contractor'; }).reduce(function(a, b){ return a + (Number(b.amount) || 0); }, 0);
+    var dopDirect = dopExpenses.filter(function(x){ return x.payer_mode === 'direct_third_party'; }).reduce(function(a, b){ return a + (Number(b.amount) || 0); }, 0);
+    var costDopsTotal = (extraExpenses.length > 0 || dopExpenses.length > 0) ? (dopSubcontract + dopDirect) : extrasVal;
+
+    var transportSubcontract = transportExpenses.filter(function(x){ return x.payer_mode === 'through_contractor'; }).reduce(function(a, b){ return a + (Number(b.amount) || 0); }, 0);
+    var transportDirect = transportExpenses.filter(function(x){ return x.payer_mode === 'direct_third_party'; }).reduce(function(a, b){ return a + (Number(b.amount) || 0); }, 0);
+    var costTransportTotal = (extraExpenses.length > 0 || transportExpenses.length > 0) ? (transportSubcontract + transportDirect) : distanceVal;
 
     // Субподрядчик
     var taskContr = (t.contractor || '').trim();
@@ -1600,12 +1856,32 @@ function pageCard() {
 
     // Формула Алексея для субподряда: Сумма = (ед * факт + уд + доп)
     var subRate = (t.rawData && t.rawData.subRate != null) ? Number(t.rawData.subRate) : (curSub && curSub.price_agreed && effectivePorts > 0 ? Math.round(curSub.price_agreed / effectivePorts) : 500);
-    var subDist = (t.rawData && t.rawData.subDist != null) ? Number(t.rawData.subDist) : (distanceVal > 0 ? Math.round(distanceVal * 0.5) : 0);
-    var subExtras = (t.rawData && t.rawData.subExtras != null) ? Number(t.rawData.subExtras) : 0;
+    var subDist = (t.rawData && t.rawData.subDist != null) 
+      ? Number(t.rawData.subDist) 
+      : (transportSubcontract > 0 ? transportSubcontract : (distanceVal > 0 ? Math.round(distanceVal * 0.5) : 0));
+    var subExtras = (t.rawData && t.rawData.subExtras != null) 
+      ? Number(t.rawData.subExtras) 
+      : (dopSubcontract > 0 ? dopSubcontract : 0);
 
+    var subWorkCost = Math.round(subRate * effectivePorts);
     var calculatedSubTotal = curSub && curSub.price_agreed > 0
       ? Number(curSub.price_agreed)
-      : Math.round((subRate * effectivePorts) + subDist + subExtras);
+      : (subWorkCost + subDist + subExtras);
+
+    // Налоговый режим собственного юрлица (К10: 0% УСН, КС: 5% УСН с НДС, Ультима: 22% ОСНО)
+    var curOwnId = Number(t.own_company_id || (S.cardDraft && S.cardDraft.own_company_id)) || (isSber ? 2 : 1);
+    var ownComp = (S.ownCompanies || []).find(function(c){ return Number(c.id) === curOwnId; }) || 
+      (S.ownCompanies || []).find(function(c){ return c.code === (isSber ? 'K10' : 'KS'); }) || 
+      { id: 2, code: 'K10', name_short: 'ООО «К10»', tax_system: 'УСН (без НДС)', vat_rate: 0 };
+
+    var vatRate = Number(ownComp.vat_rate) || 0;
+    var vatAmount = vatRate > 0 ? Math.round(totalCustomerAmount * (vatRate / (100 + vatRate))) : 0;
+
+    // 5 статей затрат + налог НДС
+    var costMaterials = tmcVal;
+    var totalCost = subWorkCost + costMaterials + costDopsTotal + costTransportTotal + vatAmount;
+    var operatingMargin = totalCustomerAmount - totalCost;
+    var marginPercent = totalCustomerAmount > 0 ? Math.round((operatingMargin / totalCustomerAmount) * 1000) / 10 : 0;
 
     // Реестр выплат субподрядчику
     var payments = (t._payments || (t.rawData && t.rawData.subPayments) || []);
@@ -1622,6 +1898,35 @@ function pageCard() {
         '<button type="button" class="btn btn-sm btn-ghost" onclick="removeSubPayment(\'' + eid + '\', ' + pIdx + ')" style="color:var(--red);padding:1px 5px;font-size:.72rem">✕</button>' +
       '</div>';
     }).join('') : '<div class="t3" style="font-size:.76rem;padding:4px 0">Выплат подрядчику пока не зафиксировано</div>';
+
+    // Список сопутствующих расходов
+    var expensesListHtml = extraExpenses.length ? extraExpenses.map(function(exp, idx) {
+      var isDop = exp.category === 'dop';
+      var catBadge = isDop 
+        ? '<span class="badge" style="background:#ffedd5;color:#9a3412;font-size:.7rem;font-weight:600">🛠️ ДОПы</span>'
+        : '<span class="badge" style="background:#e0f2fe;color:#0369a1;font-size:.7rem;font-weight:600">🚚 ТК/Транспорт</span>';
+      
+      var isThroughSub = exp.payer_mode === 'through_contractor';
+      var payerBadge = isThroughSub
+        ? '<span class="badge b-green" style="font-size:.68rem" title="В смету субподрядчику (компенсация)">👷 В смету монтажнику</span>'
+        : '<span class="badge b-blue" style="font-size:.68rem" title="Напрямую третьему лицу / ТК (прямой расход Генподрядчика)">🏢 Напрямую 3-му лицу</span>';
+
+      return '<div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg);padding:6px 10px;border-radius:6px;margin-bottom:6px;font-size:.78rem;border:1px solid var(--border)">' +
+        '<div style="flex:1;min-width:0;padding-right:8px">' +
+          '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+            catBadge +
+            payerBadge +
+            '<b style="color:var(--text)">' + escHtml(exp.title || 'Расход') + '</b>' +
+            (exp.date ? ('<span class="t3" style="font-size:.7rem">(' + exp.date + ')</span>') : '') +
+          '</div>' +
+          (exp.comment ? ('<div style="font-size:.71rem;color:var(--text-3);margin-top:2px">' + escHtml(exp.comment) + '</div>') : '') +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="font-weight:700;font-size:.88rem;color:var(--text)">' + fmtMoney(exp.amount) + '</span>' +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="window._removeExtraExpense(\'' + eid + '\', ' + idx + ')" style="color:var(--red);padding:2px 6px;font-size:.72rem" title="Удалить расход">✕</button>' +
+        '</div>' +
+      '</div>';
+    }).join('') : '<div style="background:var(--bg);padding:8px 10px;border-radius:6px;border:1px dashed var(--border);font-size:.76rem;color:var(--text-3);margin-bottom:8px">Позиции сопутствующих расходов еще не добавлены. Базовые значения из заявки: ДОПы — <b>' + fmtMoney(extrasVal) + '</b>, Транспорт/ТК — <b>' + fmtMoney(distanceVal) + '</b>. Нажмите «+ Добавить расход» для детализации.</div>';
 
     return '<div id="cardTabPane-finance" class="card-tab-pane" style="display:' + ((curTab === 'finance' || curTab === 'fin') ? 'block' : 'none') + '">' +
       '<div style="display:grid;grid-template-columns:1.05fr 0.95fr;gap:1.25rem;align-items:start">' +
@@ -1657,8 +1962,17 @@ function pageCard() {
 
             '<div class="field-row" style="background:#f0fdf4;padding:8px 10px;border-radius:6px;border:1px solid #bbf7d0;margin-top:6px">' +
               '<div class="field-lbl" style="font-weight:700;color:#166534">ИТОГО от Заказчика</div>' +
-              '<div class="field-val" style="font-weight:800;font-size:1.15rem;color:#15803d">' + fmtMoney(totalCustomerAmount) + '</div>' +
+              '<div class="field-val" style="display:flex;align-items:center;justify-content:space-between">' +
+                '<span style="font-weight:800;font-size:1.15rem;color:#15803d">' + fmtMoney(totalCustomerAmount) + '</span>' +
+                (totalCustomerAmount > 0 ? '<span class="badge b-green" style="font-size:.7rem">✓ Смета согласована</span>' : '') +
+              '</div>' +
             '</div>' +
+            (isFactKnown && inOrderVal > 0 && factVal !== inOrderVal
+              ? '<div style="margin-top:6px;padding:5px 8px;border-radius:4px;background:#fffbeb;border:1px solid #fde68a;font-size:.73rem;color:#92400e;line-height:1.3">' +
+                  '⚠️ <b>Внимание:</b> факт портов (' + factVal + ' шт.) отличается от заказа (' + inOrderVal + ' шт.). Требуется перерасчет сметы.' +
+                '</div>'
+              : ''
+            ) +
 
             '<div class="divider"></div>' +
             '<div style="font-weight:700;font-size:.82rem;color:var(--text-2);margin-bottom:8px">Объемы выполнения:</div>' +
@@ -1679,18 +1993,18 @@ function pageCard() {
           '</div>' +
         '</div>' +
 
-        // ПРАВАЯ КОЛОНКА: ВЫХОД (СЕБЕСТОИМОСТЬ: ТМЦ + СУБПОДРЯД)
+        // ПРАВАЯ КОЛОНКА: ВЫХОД (СЕБЕСТОИМОСТЬ: 5 СТАТЕЙ ЗАТРАТ + НАЛОГИ)
         '<div style="display:flex;flex-direction:column;gap:1rem">' +
           '<div style="font-weight:700;font-size:.86rem;color:var(--orange-dark);display:flex;align-items:center;gap:6px;background:#fffbeb;padding:6px 10px;border-radius:6px;border:1px solid #fde68a">' +
-            '<span>📤</span> ВЫХОД: СЕБЕСТОИМОСТЬ (ТМЦ + СУБПОДРЯД)' +
+            '<span>📤</span> ВЫХОД: СЕБЕСТОИМОСТЬ (5 СТАТЕЙ ЗАТРАТ + НАЛОГИ)' +
           '</div>' +
 
           // КАРТОЧКА 1: ТМЦ
           '<div class="card p">' +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">' +
               '<div>' +
-                '<div class="sec-title" style="margin:0">ТМЦ (Материалы и логистика)</div>' +
-                '<div style="font-size:.76rem;color:var(--text-3)">Списание со склада и доставка на объект</div>' +
+                '<div class="sec-title" style="margin:0">Статья 3: ТМЦ (Материалы со склада)</div>' +
+                '<div style="font-size:.76rem;color:var(--text-3)">Списание со склада и факт расхода на объекте</div>' +
               '</div>' +
               '<button type="button" class="btn btn-sm btn-ghost" onclick="setCardTab(\'supply\')" style="font-size:.74rem">📦 На склад →</button>' +
             '</div>' +
@@ -1701,28 +2015,48 @@ function pageCard() {
                 '<div style="font-weight:700;font-size:1rem;color:var(--text);margin-top:2px">' + fmtMoney(tmcVal) + '</div>' +
               '</div>' +
               '<div style="background:var(--bg);padding:8px 10px;border-radius:6px">' +
-                '<div class="t3" style="font-size:.72rem">Доставка / Логистика</div>' +
-                '<div style="font-weight:700;font-size:1rem;color:var(--text);margin-top:2px">' + fmtMoney(extrasVal) + '</div>' +
+                '<div class="t3" style="font-size:.72rem">Статус списания ТМЦ</div>' +
+                '<div style="font-weight:700;font-size:.85rem;color:var(--green);margin-top:4px">' + (tmcVal > 0 ? '✓ Списано по акту' : 'По нормативу портов') + '</div>' +
               '</div>' +
             '</div>' +
 
             '<div style="font-size:.8rem;color:var(--text-2);border-top:1px dashed var(--border);padding-top:8px">' +
               '<div style="display:flex;justify-content:space-between;margin-bottom:4px">' +
-                '<span>Кабель UTP / ВОЛС, разъемы, патч-панели</span>' +
+                '<span>Кабель UTP Cat.5e, патч-панели, розетки, органайзеры</span>' +
                 '<b>' + fmtMoney(tmcVal) + '</b>' +
-              '</div>' +
-              '<div style="display:flex;justify-content:space-between;color:var(--text-3);font-size:.75rem">' +
-                '<span>Транспорт и доставка («откуда-куда-кто-почем»)</span>' +
-                '<span>' + fmtMoney(extrasVal) + '</span>' +
               '</div>' +
             '</div>' +
           '</div>' +
 
-          // КАРТОЧКА 2: (СУБ)ПОДРЯДЧИК
+          // КАРТОЧКА 2: СОПУТСТВУЮЩИЕ ЗАТРАТЫ (ДОПЫ + ТК)
           '<div class="card p">' +
             '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.75rem">' +
               '<div>' +
-                '<div class="sec-title" style="margin:0">Расчет с субподрядчиком</div>' +
+                '<div class="sec-title" style="margin:0">Сопутствующие затраты (ДОПы + ТК)</div>' +
+                '<div style="font-size:.76rem;color:var(--text-3);margin-top:2px">Спецработы, бурение, вышка, доставка ТК, выезды бригад</div>' +
+              '</div>' +
+              '<button type="button" class="btn btn-sm btn-primary" onclick="window._openAddExtraExpense(\'' + eid + '\')" style="font-size:.74rem">+ Добавить расход</button>' +
+            '</div>' +
+
+            expensesListHtml +
+
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;background:var(--bg);padding:8px 10px;border-radius:6px;border:1px solid var(--border);margin-top:8px;font-size:.78rem">' +
+              '<div>' +
+                '<div class="t3" style="font-size:.71rem;display:flex;align-items:center;gap:4px">🛠️ <b>Статья 4 (ДОПы):</b> ' + fmtMoney(costDopsTotal) + '</div>' +
+                '<div style="font-size:.71rem;color:var(--text-3);margin-top:2px">В смету монтажнику: ' + fmtMoney(dopSubcontract) + ' · 3-м лицам: ' + fmtMoney(dopDirect) + '</div>' +
+              '</div>' +
+              '<div>' +
+                '<div class="t3" style="font-size:.71rem;display:flex;align-items:center;gap:4px">🚚 <b>Статья 5 (ТК/Транспорт):</b> ' + fmtMoney(costTransportTotal) + '</div>' +
+                '<div style="font-size:.71rem;color:var(--text-3);margin-top:2px">Монтажнику: ' + fmtMoney(transportSubcontract) + ' · Прямо в ТК: ' + fmtMoney(transportDirect) + '</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+
+          // КАРТОЧКА 3: РАСЧЕТ С СУБПОДРЯДЧИКОМ
+          '<div class="card p">' +
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.75rem">' +
+              '<div>' +
+                '<div class="sec-title" style="margin:0">Статья 2: СМР и расчет с субподрядчиком</div>' +
                 '<div style="font-size:.78rem;color:var(--text-3);margin-top:2px">' + subTitle + '</div>' +
               '</div>' +
               '<button type="button" class="btn btn-sm btn-ghost" onclick="setCardTab(\'items\')" style="font-size:.74rem">👷 В поручения →</button>' +
@@ -1776,10 +2110,113 @@ function pageCard() {
 
             // Остаток к выплате
             '<div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg);padding:8px 10px;border-radius:6px;border:1px solid var(--border);margin-top:8px">' +
-              '<span style="font-size:.78rem;font-weight:600">Остаток к выплате:</span>' +
+              '<div>' +
+                '<span style="font-size:.78rem;font-weight:600">Остаток к выплате монтажнику:</span>' +
+                (remainingToPay === 0 && calculatedSubTotal > 0 && totalPaid > 0
+                  ? '<div style="font-size:.72rem;color:var(--green);font-weight:700">✓ Выплачено полностью</div>'
+                  : (totalPaid > 0
+                      ? '<div style="font-size:.72rem;color:var(--text-3)">Оплачено ' + fmtMoney(totalPaid) + ' из ' + fmtMoney(calculatedSubTotal) + '</div>'
+                      : '<div style="font-size:.72rem;color:var(--text-3)">Выплат еще не производилось</div>'
+                    )
+                ) +
+              '</div>' +
               '<span style="font-weight:800;font-size:1.05rem;color:' + remainingColor + '">' + fmtMoney(remainingToPay) + '</span>' +
             '</div>' +
 
+          '</div>' +
+
+          // КАРТОЧКА 4: СКВОЗНОЙ ФИНАНСОВЫЙ БАЛАНС И 5 СТАТЕЙ ЗАТРАТ
+          '<div class="card p" style="border:1.5px solid ' + (operatingMargin >= 0 ? '#bbf7d0' : '#fecaca') + ';background:' + (operatingMargin >= 0 ? '#f0fdf4' : '#fef2f2') + '">' +
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.75rem">' +
+              '<div>' +
+                '<div class="sec-title" style="margin:0;color:' + (operatingMargin >= 0 ? '#166534' : '#991b1b') + '">📊 Финансовый баланс объекта</div>' +
+                '<div style="font-size:.76rem;color:var(--text-3);margin-top:2px">Сквозной расчет: Доход Заказчика − 5 статей затрат − Налог НДС</div>' +
+              '</div>' +
+              '<span class="badge ' + (operatingMargin >= 0 ? 'b-green' : 'b-red') + '" style="font-size:.76rem;font-weight:700">' +
+                (operatingMargin >= 0 ? '✓ Прибыль ' + (marginPercent > 0 ? '+' : '') + marginPercent + '%' : '⚠️ Убыток ' + marginPercent + '%') +
+              '</span>' +
+            '</div>' +
+
+            // Плашка налогового режима юрлица
+            '<div style="background:#ffffff;padding:8px 10px;border-radius:6px;border:1px solid rgba(0,0,0,0.06);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">' +
+              '<div style="display:flex;align-items:center;gap:6px">' +
+                '<span style="font-size:.82rem;font-weight:700;color:var(--text)">🏛️ Юрлицо и режим:</span>' +
+                '<select onchange="onCardOwnCompanyChange(this.value)" style="font-size:.76rem;font-weight:600;padding:2px 6px;border:1.5px solid var(--border);border-radius:4px;background:var(--bg)">' +
+                  (S.ownCompanies || [
+                    { id: 2, name_short: 'ООО «К10»', tax_system: 'УСН (без НДС)', vat_rate: 0 },
+                    { id: 1, name_short: 'ООО "Кабельные Системы"', tax_system: 'УСН с НДС 5%', vat_rate: 5 },
+                    { id: 3, name_short: 'ООО "Ультима"', tax_system: 'ОСНО (НДС 22%)', vat_rate: 22 }
+                  ]).map(function(oc) {
+                    var isSel = Number(oc.id) === Number(ownComp.id) ? ' selected' : '';
+                    var taxLbl = oc.tax_system || (Number(oc.vat_rate) > 0 ? ('НДС ' + oc.vat_rate + '%') : 'без НДС');
+                    return '<option value="' + oc.id + '"' + isSel + '>' + escHtml(oc.name_short) + ' · ' + escHtml(taxLbl) + '</option>';
+                  }).join('') +
+                '</select>' +
+              '</div>' +
+              '<div style="font-size:.73rem;color:var(--text-3)">' +
+                (vatRate > 0 ? ('НДС ' + vatRate + '% к уплате: <b>' + fmtMoney(vatAmount) + '</b>') : '<span style="color:var(--green);font-weight:600">✓ УСН без НДС (0 ₽)</span>') +
+              '</div>' +
+            '</div>' +
+
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">' +
+              '<div style="background:#ffffff;padding:8px 10px;border-radius:6px;border:1px solid rgba(0,0,0,0.06)">' +
+                '<div class="t3" style="font-size:.72rem">Выручка от Заказчика (Вход)</div>' +
+                '<div style="font-weight:800;font-size:1.08rem;color:var(--blue);margin-top:2px">' + fmtMoney(totalCustomerAmount) + '</div>' +
+              '</div>' +
+              '<div style="background:#ffffff;padding:8px 10px;border-radius:6px;border:1px solid rgba(0,0,0,0.06)">' +
+                '<div class="t3" style="font-size:.72rem">Итого себестоимость + налог (Выход)</div>' +
+                '<div style="font-weight:800;font-size:1.08rem;color:var(--text);margin-top:2px">' + fmtMoney(totalCost) + '</div>' +
+              '</div>' +
+            '</div>' +
+
+            '<div style="background:#ffffff;padding:10px 12px;border-radius:6px;border:1px solid rgba(0,0,0,0.06);font-size:.79rem;margin-bottom:10px">' +
+              '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--border)">' +
+                '<span class="t3">1. 📥 Выручка Заказчика (по смете договора):</span>' +
+                '<b style="color:var(--blue)">+ ' + fmtMoney(totalCustomerAmount) + '</b>' +
+              '</div>' +
+              '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--border)">' +
+                '<span class="t3">2. 📤 СМР — Монтажные работы (' + effectivePorts + ' портов):</span>' +
+                '<b>− ' + fmtMoney(subWorkCost) + '</b>' +
+              '</div>' +
+              '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--border)">' +
+                '<span class="t3">3. 📦 ТМЦ — Материалы со склада:</span>' +
+                '<b>− ' + fmtMoney(costMaterials) + '</b>' +
+              '</div>' +
+              '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--border)">' +
+                '<span class="t3">4. 🛠️ Сопутствующие ДОПы (бурение, вышка, проживание):</span>' +
+                '<span>' +
+                  '<b>− ' + fmtMoney(costDopsTotal) + '</b>' +
+                  (dopSubcontract > 0 ? (' <span class="t3" style="font-size:.68rem">(монтажнику ' + fmtMoney(dopSubcontract) + ')</span>') : '') +
+                '</span>' +
+              '</div>' +
+              '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--border)">' +
+                '<span class="t3">5. 🚚 Транспорт и логистика (ТК / выезд):</span>' +
+                '<span>' +
+                  '<b>− ' + fmtMoney(costTransportTotal) + '</b>' +
+                  (transportSubcontract > 0 ? (' <span class="t3" style="font-size:.68rem">(монтажнику ' + fmtMoney(transportSubcontract) + ')</span>') : '') +
+                '</span>' +
+              '</div>' +
+              '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--border)">' +
+                '<span class="t3">6. 🏛️ Налог НДС (' + escHtml(ownComp.code) + ' · ' + vatRate + '%):</span>' +
+                '<b style="color:' + (vatAmount > 0 ? '#9a3412' : 'var(--text-3)') + '">− ' + fmtMoney(vatAmount) + '</b>' +
+              '</div>' +
+              '<div style="display:flex;justify-content:space-between;padding:6px 0 2px;font-weight:700">' +
+                '<span>ИТОГО затраты и налоги объекта:</span>' +
+                '<span>' + fmtMoney(totalCost) + '</span>' +
+              '</div>' +
+            '</div>' +
+
+            '<div style="display:flex;justify-content:space-between;align-items:center;background:#ffffff;padding:10px 12px;border-radius:6px;border:1.5px solid ' + (operatingMargin >= 0 ? '#86efac' : '#fca5a5') + '">' +
+              '<div>' +
+                '<div style="font-size:.75rem;text-transform:uppercase;font-weight:700;color:var(--text-3)">Чистая операционная маржа</div>' +
+                '<div style="font-size:.74rem;color:var(--text-2)">Рентабельность сделки: <b>' + (marginPercent > 0 ? '+' : '') + marginPercent + '%</b></div>' +
+              '</div>' +
+              '<div style="text-align:right">' +
+                '<div style="font-weight:900;font-size:1.25rem;color:' + (operatingMargin >= 0 ? '#15803d' : '#b91c1c') + '">' +
+                  (operatingMargin >= 0 ? '+' : '') + fmtMoney(operatingMargin) +
+                '</div>' +
+              '</div>' +
+            '</div>' +
           '</div>' +
 
         '</div>' +
@@ -1841,10 +2278,8 @@ function pageCard() {
       '</div>'
     : '';
 
-  return hdr +
+  return stickyHeader +
     cancelledBanner +
-    smartActionBox +
-    tabsNav +
     '<form id="cardForm" onsubmit="return false;">' +
       paneMain +
       paneItems +
@@ -1874,56 +2309,77 @@ function refreshTaskItemsList(taskId) {
       var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
       var isLocked = t && (['accepted','billing','paid','archived'].includes((t.macroStatus||'').toLowerCase()) || t.status === 'cancelled' || (t.stageNum != null && t.stageNum >= 8));
       var contractors = S.contractors || [];
+
+      // Определяем подрядчика по умолчанию из заявки
+      var defaultContrObj = null;
+      if (t) {
+        var tContrName = (t.contractor || (t.subcontract && t.subcontract.contractor_name) || '').trim();
+        var tContrId = t.contractor_id || (t.subcontract && t.subcontract.contractor_id);
+        if (tContrId) {
+          defaultContrObj = contractors.find(function(c) { return String(c.id) === String(tContrId); });
+        }
+        if (!defaultContrObj && tContrName) {
+          defaultContrObj = contractors.find(function(c) {
+            return (c.name_short && c.name_short.toLowerCase() === tContrName.toLowerCase()) ||
+                   (c.name_full && c.name_full.toLowerCase() === tContrName.toLowerCase()) ||
+                   (c.name && c.name.toLowerCase() === tContrName.toLowerCase());
+          });
+        }
+      }
+
       var rows = items.map(function(it, idx) {
         var statusColor = it.status === 'done' ? 'var(--green)' : it.status === 'progress' ? 'var(--orange)' : 'var(--text-3)';
-        var statusLabel = it.status === 'done' ? '✓ Выполнено' : it.status === 'progress' ? '⚙ В работе' : '⏳ Запланировано';
+        var statusLabel = it.status === 'done' ? '✓ Выполнено' : it.status === 'progress' ? '⚙ В работе' : '⏳ План';
+
+        var itContrId = it.contractor_id || (defaultContrObj ? defaultContrObj.id : null);
+        var itContrName = it.contractor_name || (defaultContrObj ? defaultContrObj.name_short : null);
 
         var contOptions = '<option value="">(Не назначен)</option>' +
           contractors.map(function(c) {
-            var selected = (it.contractor_id === c.id || it.contractor_name === c.name_short) ? ' selected' : '';
+            var selected = (String(itContrId) === String(c.id) || (itContrName && itContrName.toLowerCase() === (c.name_short||'').toLowerCase())) ? ' selected' : '';
             return '<option value="' + c.id + '"' + selected + '>' + escHtml(c.name_short) + '</option>';
           }).join('');
 
         var margin = (Number(it.amount_customer) || 0) - (Number(it.amount_contractor) || 0);
         var selectDisabled = isLocked ? ' disabled' : '';
 
-        return '<tr style="border-bottom:1px solid var(--border);font-size:.82rem">' +
-          '<td style="padding:6px 8px;font-weight:600;color:var(--text-3)">' + (idx + 1) + '</td>' +
-          '<td style="padding:6px 8px">' +
-            '<div style="font-weight:600;color:var(--text)">' + escHtml(it.work_type) + '</div>' +
-            (it.comment ? '<div style="font-size:.72rem;color:var(--text-3)">' + escHtml(it.comment) + '</div>' : '') +
+        return '<tr style="border-bottom:1px solid var(--border);font-size:.78rem">' +
+          '<td style="padding:4px 6px;font-weight:600;color:var(--text-3);text-align:center">' + (idx + 1) + '</td>' +
+          '<td style="padding:4px 6px;max-width:240px">' +
+            '<div style="font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(it.work_type) + '">' + escHtml(it.work_type) + '</div>' +
+            (it.comment ? '<div style="font-size:.7rem;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(it.comment) + '</div>' : '') +
           '</td>' +
-          '<td style="padding:6px 8px;white-space:nowrap;font-weight:600">' + (it.quantity || 1) + ' ' + escHtml(it.unit || 'шт.') + '</td>' +
-          '<td style="padding:6px 8px;white-space:nowrap;color:var(--text)">' + fmtMoney(it.amount_customer) + '</td>' +
-          '<td style="padding:6px 8px">' +
-            '<select class="field-input"' + selectDisabled + ' style="padding:2px 6px;font-size:.76rem" onchange="updateItemContractor(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ',this.value)">' +
+          '<td style="padding:4px 6px;white-space:nowrap;font-weight:600">' + (it.quantity || 1) + ' ' + escHtml(it.unit || 'шт.') + '</td>' +
+          '<td style="padding:4px 6px;white-space:nowrap;color:var(--text)">' + fmtMoney(it.amount_customer) + '</td>' +
+          '<td style="padding:4px 6px">' +
+            '<select class="field-input"' + selectDisabled + ' style="width:100%;max-width:145px;padding:2px 4px;font-size:.74rem;height:24px" onchange="updateItemContractor(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ',this.value)">' +
               contOptions +
             '</select>' +
           '</td>' +
-          '<td style="padding:6px 8px;white-space:nowrap;color:var(--text-2)">' + fmtMoney(it.amount_contractor) + '</td>' +
-          '<td style="padding:6px 8px;white-space:nowrap;font-weight:600;color:' + (margin >= 0 ? 'var(--green)' : 'var(--red)') + '">' + fmtMoney(margin) + '</td>' +
-          '<td style="padding:6px 8px;white-space:nowrap">' +
-            '<span style="font-size:.74rem;color:' + statusColor + ';font-weight:600">' + statusLabel + '</span>' +
+          '<td style="padding:4px 6px;white-space:nowrap;color:var(--text-2)">' + fmtMoney(it.amount_contractor) + '</td>' +
+          '<td style="padding:4px 6px;white-space:nowrap;font-weight:600;color:' + (margin >= 0 ? 'var(--green)' : 'var(--red)') + '">' + fmtMoney(margin) + '</td>' +
+          '<td style="padding:4px 6px;white-space:nowrap">' +
+            '<span style="font-size:.72rem;color:' + statusColor + ';font-weight:600">' + statusLabel + '</span>' +
           '</td>' +
-          '<td style="padding:6px 8px;text-align:right;white-space:nowrap">' +
-            (!isLocked ? '<button class="btn btn-sm btn-ghost" onclick="editItemModal(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ')" title="Редактировать">✏️</button>' : '') +
-            (!isLocked ? '<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteItemModal(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ')" title="Удалить">✕</button>' : '') +
+          '<td style="padding:4px 6px;text-align:right;white-space:nowrap">' +
+            (!isLocked ? '<button class="btn btn-xs btn-ghost" onclick="editItemModal(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ')" title="Редактировать">✏️</button>' : '') +
+            (!isLocked ? '<button class="btn btn-xs btn-ghost" style="color:var(--red)" onclick="deleteItemModal(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ')" title="Удалить">✕</button>' : '') +
           '</td>' +
         '</tr>';
       }).join('');
 
-      el.innerHTML = '<div style="overflow-x:auto">' +
-        '<table style="width:100%;border-collapse:collapse;text-align:left">' +
-          '<thead><tr style="background:var(--bg);font-size:.74rem;color:var(--text-3);border-bottom:1px solid var(--border)">' +
-            '<th style="padding:6px 8px">№</th>' +
-            '<th style="padding:6px 8px">Вид работ / позиция</th>' +
-            '<th style="padding:6px 8px">Кол-во</th>' +
-            '<th style="padding:6px 8px">Заказчик (вход)</th>' +
-            '<th style="padding:6px 8px">Подрядчик (исп.)</th>' +
-            '<th style="padding:6px 8px">Подрядчику</th>' +
-            '<th style="padding:6px 8px">Маржа</th>' +
-            '<th style="padding:6px 8px">Статус</th>' +
-            '<th style="padding:6px 8px"></th>' +
+      el.innerHTML = '<div style="overflow-x:auto;max-width:100%">' +
+        '<table style="width:100%;border-collapse:collapse;text-align:left;line-height:1.25">' +
+          '<thead><tr style="background:var(--bg);font-size:.72rem;color:var(--text-3);border-bottom:1.5px solid var(--border)">' +
+            '<th style="padding:5px 6px;width:24px;text-align:center">№</th>' +
+            '<th style="padding:5px 6px">Вид работ / позиция</th>' +
+            '<th style="padding:5px 6px;width:75px">Кол-во</th>' +
+            '<th style="padding:5px 6px;width:85px">Заказчик</th>' +
+            '<th style="padding:5px 6px;width:150px">Подрядчик (исп.)</th>' +
+            '<th style="padding:5px 6px;width:85px">Подрядчику</th>' +
+            '<th style="padding:5px 6px;width:80px">Маржа</th>' +
+            '<th style="padding:5px 6px;width:85px">Статус</th>' +
+            '<th style="padding:5px 6px;width:55px;text-align:right"></th>' +
           '</tr></thead>' +
           '<tbody>' + rows + '</tbody>' +
         '</table></div>';
@@ -1941,13 +2397,16 @@ function updateItemsSummary(taskId, items) {
   var tabBadge = document.getElementById('cardTabItemsBadge');
   if (tabBadge) tabBadge.textContent = (items && items.length) ? String(items.length) : '';
 
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  var defaultContr = t ? (t.contractor || (t.subcontract && t.subcontract.contractor_name) || '') : '';
+
   var totalCust = 0, totalCont = 0;
   var contractorsMap = {};
 
   (items || []).forEach(function(it) {
     totalCust += Number(it.amount_customer) || 0;
     totalCont += Number(it.amount_contractor) || 0;
-    var cName = it.contractor_name;
+    var cName = it.contractor_name || defaultContr;
     if (!cName && it.contractor_id) {
       var found = (S.contractors || []).find(function(c) { return c.id === it.contractor_id; });
       if (found) cName = found.name_short;
@@ -1979,7 +2438,7 @@ function updateItemsSummary(taskId, items) {
     if (cNames.length > 0) {
       ordersBar.innerHTML = '<span style="font-weight:600;color:var(--text-3)">Заказы подрядчикам (Приложение №2):</span>' +
         cNames.map(function(cn) {
-          return '<button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:.74rem" onclick="exportDoc(\'app2\',\'' + taskId.replace(/'/g, "\\'") + '\',\'' + cn.replace(/'/g, "\\'") + '\')">📥 Заказ: ' + escHtml(cn) + ' (' + contractorsMap[cn] + ' поз.)</button>';
+          return '<button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:.74rem" onclick="generateTaskDoc(\'' + taskId.replace(/'/g, "\\'") + '\', \'order_subcontract\')">📥 Заказ: ' + escHtml(cn) + ' (' + contractorsMap[cn] + ' поз.)</button>';
         }).join('');
     } else {
       ordersBar.innerHTML = '';
@@ -2003,6 +2462,10 @@ function addItemPrompt(taskId) {
   var priceContStr = prompt('Ставка Подрядчику за ед., руб. (необязательно):', '0');
   var priceCont = parseFloat((priceContStr || '0').replace(',', '.')) || 0;
 
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  var defContr = t ? (t.contractor || (t.subcontract && t.subcontract.contractor_name) || '') : '';
+  var defContrObj = defContr ? (S.contractors || []).find(function(c){ return c.name_short === defContr || c.name === defContr; }) : null;
+
   api('/tasks/' + encodeURIComponent(taskId) + '/items', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -2013,15 +2476,17 @@ function addItemPrompt(taskId) {
       price_customer: priceCust,
       amount_customer: qty * priceCust,
       price_contractor: priceCont,
-      amount_contractor: qty * priceCont
+      amount_contractor: qty * priceCont,
+      contractor_id: defContrObj ? defContrObj.id : null,
+      contractor_name: defContrObj ? defContrObj.name_short : (defContr || null)
     })
   })
   .then(function(res) {
     if (res.error) return alert('Ошибка: ' + res.error);
     refreshTaskItemsList(taskId);
-    var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
-    if (t) {
-      t.amount = (t.amount || 0) + (qty * priceCust);
+    var tTask = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
+    if (tTask) {
+      tTask.amount = (tTask.amount || 0) + (qty * priceCust);
     }
   })
   .catch(function(err) {
@@ -2110,6 +2575,12 @@ function refreshAttachmentsList(taskId) {
   var el = document.getElementById('attachmentsList');
   if (!el) return;
   loadAttachments(taskId).then(function(list) {
+    var photoCount = Array.isArray(list) ? list.filter(function(a){ return a.type === 'photo_report' || a.type === 'scheme'; }).length : 0;
+    if (!window._curTaskPhotos) window._curTaskPhotos = {};
+    window._curTaskPhotos[taskId] = photoCount;
+    window._curPhotoReportsCount = photoCount;
+    if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
+
     if (!Array.isArray(list) || !list.length) {
       el.innerHTML = '<span class="t3">Пока ничего не загружено</span>';
       return;
@@ -2149,6 +2620,12 @@ function refreshPortsList(taskId) {
   var el = document.getElementById('portsList');
   if (!el) return;
   api('/tasks/' + taskId + '/ports').then(function(rows) {
+    var pCount = Array.isArray(rows) ? rows.length : 0;
+    if (!window._curTaskPorts) window._curTaskPorts = {};
+    window._curTaskPorts[taskId] = pCount;
+    window._curPortsCount = pCount;
+    if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
+
     if (!Array.isArray(rows) || !rows.length) {
       el.innerHTML = '<span class="t3">Строк пока нет</span>';
       return;
@@ -2185,7 +2662,10 @@ function savePortRow(rowId, taskId) {
     marking:    document.getElementById('pr_' + rowId + '_marking').value,
     cableLength: document.getElementById('pr_' + rowId + '_len').value || null
   };
-  api('/ports/' + rowId, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) });
+  api('/ports/' + rowId, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) })
+    .then(function() {
+      if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
+    });
 }
 
 function deletePortRow(rowId, taskId) {
@@ -2303,10 +2783,11 @@ function openAccessLetterModal(taskId) {
     var existing = document.getElementById('_access_letter_modal');
     if (existing) existing.remove();
 
-    var defaultContractor = 'ООО "Ультима"';
+    var defaultContractor = t.contractor || 'ООО "К10"';
     var defaultResponsible = '8(923) 102-40-42, ПМ – Чайка Алексей Николаевич';
     
     var parts = [];
+    if (t.customer) parts.push('Заказчик: ' + t.customer);
     if (t.address) parts.push(t.address);
     if (t.vsp) parts.push('ВСП ' + t.vsp);
     if (t.gosb) parts.push('ГОСБ ' + t.gosb);
@@ -2324,8 +2805,8 @@ function openAccessLetterModal(taskId) {
       <div style="background:#fff;border-radius:14px;padding:1.5rem;width:100%;max-width:640px;box-shadow:0 12px 48px rgba(0,0,0,.25);max-height:90vh;display:flex;flex-direction:column">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
           <div>
-            <div style="font-weight:700;font-size:1.1rem">📄 Письмо на допуск (Word .docx)</div>
-            <div style="font-size:.8rem;color:var(--text-3);margin-top:2px">Подготовка допуска для объекта: <b>${escHtml(t.id)}</b></div>
+            <div style="font-weight:700;font-size:1.1rem">📄 Письмо на допуск на объект (.docx)</div>
+            <div style="font-size:.8rem;color:var(--text-3);margin-top:2px">Объект: <b>${escHtml(t.id)}</b> (${escHtml(t.customer || 'Заказчик')}, ${escHtml(t.address || '')})</div>
           </div>
           <button onclick="document.getElementById('_access_letter_modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-3);line-height:1">×</button>
         </div>
@@ -2458,6 +2939,7 @@ function downloadAccessLetter(taskId) {
     document.body.removeChild(a);
     URL.revokeObjectURL(bUrl);
     modal.remove();
+    loadCardDocuments(taskId);
   })
   .catch(function(err) {
     alert('Не удалось сформировать письмо на допуск: ' + err.message);
@@ -2518,7 +3000,42 @@ function loadCardMaterials(taskId) {
     var materials = res[0] || [];
     var checklist = res[1] || null;
 
+    if (Array.isArray(materials)) {
+      window._curMaterialsWrittenOff = materials.some(function(m){ return m.is_written_off; });
+    }
+    if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
+
     var html = '';
+
+    // Электронный акцепт ТМЦ в подотчет (без бумажной М-15)
+    var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+    var isCustodyAccepted = Boolean((t.rawData && t.rawData.tmcAccepted) || (t.raw_data && t.raw_data.tmcAccepted) || t.tmcAccepted);
+
+    if (isCustodyAccepted) {
+      var acceptedByStr = (t.rawData && t.rawData.tmcAcceptedBy) || (t.raw_data && t.raw_data.tmcAcceptedBy) || t.contractor || 'Исполнитель';
+      var acceptedAtStr = (t.rawData && t.rawData.tmcAcceptedAt) || (t.raw_data && t.raw_data.tmcAcceptedAt) || '';
+      html += '<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:6px;padding:8px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="font-size:1.25rem">✅</span>' +
+          '<div>' +
+            '<div style="font-weight:700;font-size:.82rem;color:#166534">ТМЦ приняты в подотчет исполнителем (электронный акцепт)</div>' +
+            '<div style="font-size:.73rem;color:#15803d">Принял: <b>' + escHtml(acceptedByStr) + '</b> · ' + (acceptedAtStr ? escHtml(acceptedAtStr) + ' · ' : '') + 'Ответственность по Договору подряда (без М-15)</div>' +
+          '</div>' +
+        '</div>' +
+        '<span class="badge b-green" style="font-size:.72rem;font-weight:700">✓ Мат. ответственность принята</span>' +
+      '</div>';
+    } else {
+      html += '<div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:6px;padding:8px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="font-size:1.25rem">📦</span>' +
+          '<div>' +
+            '<div style="font-weight:700;font-size:.82rem;color:#1e40af">Электронный акцепт ТМЦ в подотчет (без бумажной накладной М-15)</div>' +
+            '<div style="font-size:.73rem;color:#2563eb">Материалы передаются монтажнику под материальную ответственность в соответствии с Договором подряда</div>' +
+          '</div>' +
+        '</div>' +
+        '<button type="button" class="btn btn-sm btn-primary" onclick="window.acceptTmcCustody(\'' + encodeURIComponent(taskId) + '\')" style="font-weight:700;font-size:.76rem">✍️ Принять ТМЦ в подотчет</button>' +
+      '</div>';
+    }
 
     // Блок краткой информации по чек-листу
     if (checklist) {
@@ -2542,42 +3059,69 @@ function loadCardMaterials(taskId) {
       return;
     }
 
-    // Таблица материалов (план vs факт)
+    // Таблица материалов (план vs факт с ценами и суммами списания для накладной)
     var allWrittenOff = materials.every(function(m){ return m.is_written_off; });
+    var totalTmcSum = 0;
 
     html += '<table style="width:100%;border-collapse:collapse;font-size:.82rem;margin-bottom:10px">' +
       '<thead><tr style="border-bottom:1px solid var(--border);color:var(--text-3);text-align:left">' +
-        '<th style="padding:6px 4px">Материал</th>' +
-        '<th style="padding:6px 4px;text-align:right">План</th>' +
-        '<th style="padding:6px 4px;text-align:right">Факт</th>' +
+        '<th style="padding:6px 4px">№</th>' +
+        '<th style="padding:6px 4px">Материал / Артикул</th>' +
+        '<th style="padding:6px 4px;text-align:right">План (норма)</th>' +
+        '<th style="padding:6px 4px;text-align:right">Факт расход</th>' +
+        '<th style="padding:6px 4px;text-align:right">Цена за ед.</th>' +
+        '<th style="padding:6px 4px;text-align:right">Сумма (₽)</th>' +
       '</tr></thead><tbody>';
 
-    materials.forEach(function(m) {
+    materials.forEach(function(m, idx) {
       var isDone = m.is_written_off;
+      var curQty = (m.fact_qty != null ? parseFloat(m.fact_qty) : parseFloat(m.plan_qty)) || 0;
+      var price = parseFloat(m.price_default) || (m.code && m.code.includes('CABLE') ? 45 : (m.code && m.code.includes('KEYSTONE') ? 120 : (m.code && m.code.includes('PATCH') ? 150 : 80)));
+      var itemSum = Math.round(curQty * price);
+      totalTmcSum += itemSum;
+
       var factInput = isDone
-        ? '<span style="font-weight:700;color:var(--green)">' + (m.fact_qty != null ? m.fact_qty : m.plan_qty) + ' ' + m.unit + '</span>'
-        : '<input type="number" step="any" min="0" value="' + (m.fact_qty != null ? m.fact_qty : m.plan_qty) + '" id="fact_mat_' + m.material_id + '" style="width:65px;padding:3px 6px;text-align:right;font-size:.82rem">';
+        ? '<span style="font-weight:700;color:var(--green)">' + curQty + ' ' + m.unit + '</span>'
+        : '<input type="number" step="any" min="0" value="' + curQty + '" id="fact_mat_' + m.material_id + '" style="width:65px;padding:3px 6px;text-align:right;font-size:.82rem">';
 
       html += '<tr style="border-bottom:1px solid var(--border)">' +
+        '<td style="padding:6px 4px;color:var(--text-3);font-size:.74rem">' + (idx + 1) + '</td>' +
         '<td style="padding:6px 4px">' +
           '<div style="font-weight:600">' + escHtml(m.name) + '</div>' +
           (m.calc_details ? '<div style="font-size:.7rem;color:var(--text-3)">' + escHtml(m.calc_details) + '</div>' : '') +
         '</td>' +
         '<td style="padding:6px 4px;text-align:right;white-space:nowrap;color:var(--text-2)">' + m.plan_qty + ' ' + m.unit + '</td>' +
         '<td style="padding:6px 4px;text-align:right;white-space:nowrap">' + factInput + '</td>' +
+        '<td style="padding:6px 4px;text-align:right;white-space:nowrap;color:var(--text-3);font-size:.76rem">' + price.toLocaleString('ru-RU') + ' ₽</td>' +
+        '<td style="padding:6px 4px;text-align:right;white-space:nowrap;font-weight:700;color:var(--text)">' + itemSum.toLocaleString('ru-RU') + ' ₽</td>' +
       '</tr>';
     });
+
+    html += '<tr style="background:var(--bg);font-weight:700;border-top:2px solid var(--border)">' +
+      '<td colspan="5" style="padding:8px 6px;text-align:right">ИТОГО себестоимость ТМЦ по объекту:</td>' +
+      '<td style="padding:8px 6px;text-align:right;font-size:.92rem;color:var(--blue)">' + totalTmcSum.toLocaleString('ru-RU') + ' ₽</td>' +
+    '</tr>';
 
     html += '</tbody></table>';
 
     if (allWrittenOff) {
-      html += '<div style="background:#ecfdf5;color:#065f46;padding:8px 12px;border-radius:6px;font-size:.8rem;font-weight:600;display:flex;align-items:center;gap:6px">' +
-        '<span>✅</span> ТМЦ списаны со склада подрядчика в полном объеме' +
+      html += '<div style="background:#ecfdf5;color:#065f46;padding:10px 14px;border-radius:6px;font-size:.8rem;font-weight:600;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;border:1px solid #86efac">' +
+        '<div style="display:flex;align-items:center;gap:6px"><span>✅</span> ТМЦ списаны со склада в подотчет объекта на сумму <b>' + totalTmcSum.toLocaleString('ru-RU') + ' ₽</b></div>' +
+        '<div style="display:flex;gap:6px">' +
+          '<button class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + encodeURIComponent(taskId) + '\', \'tmc_act\')" title="Сформировать печатную форму М-15">📦 Форма М-15 (Word)</button>' +
+          '<button class="btn btn-sm btn-ghost" onclick="recalculateTaskMaterials(\'' + encodeURIComponent(taskId) + '\')">🔄 Пересчитать по нормам</button>' +
+        '</div>' +
       '</div>';
     } else {
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
-        '<button class="btn btn-sm btn-primary" onclick="writeOffTaskMaterials(\'' + encodeURIComponent(taskId) + '\')">✅ Списать ТМЦ по факту</button>' +
-        '<button class="btn btn-sm btn-ghost" onclick="recalculateTaskMaterials(\'' + encodeURIComponent(taskId) + '\')" title="Пересчитать нормы">🔄 Пересчитать</button>' +
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">' +
+        '<div style="display:flex;gap:6px">' +
+          '<button class="btn btn-sm btn-primary" onclick="writeOffTaskMaterials(\'' + encodeURIComponent(taskId) + '\')" title="Списать фактически израсходованные ТМЦ с фиксацией в себестоимости">✅ Списать ТМЦ по факту</button>' +
+          '<button class="btn btn-sm" onclick="saveTaskMaterialsFact(\'' + encodeURIComponent(taskId) + '\')" title="Сохранить введенные количества факта без списания со склада">💾 Сохранить факт</button>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px">' +
+          '<button class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + encodeURIComponent(taskId) + '\', \'tmc_act\')" title="Сформировать накладную на списание ТМЦ">📦 Форма М-15</button>' +
+          '<button class="btn btn-sm btn-ghost" onclick="recalculateTaskMaterials(\'' + encodeURIComponent(taskId) + '\')" title="Пересчитать плановые нормы по типовику и объему заявки">🔄 Пересчитать по нормам</button>' +
+        '</div>' +
       '</div>';
     }
 
@@ -2604,6 +3148,40 @@ function recalculateTaskMaterials(taskId) {
   });
 }
 
+function saveTaskMaterialsFact(taskId) {
+  fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials', { headers: { 'Authorization': 'Bearer ' + S.token } })
+    .then(function(r){ return r.json(); })
+    .then(function(materials) {
+      if (!materials || !materials.length) return;
+      var items = [];
+      materials.forEach(function(m) {
+        var inp = document.getElementById('fact_mat_' + m.material_id);
+        var qty = inp ? parseFloat(inp.value) : (m.fact_qty != null ? m.fact_qty : m.plan_qty);
+        items.push({ material_id: m.material_id, fact_qty: isNaN(qty) ? 0 : qty });
+      });
+
+      fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials/save-fact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.token },
+        body: JSON.stringify({ items: items })
+      })
+      .then(function(r){ return r.json(); })
+      .then(function(res) {
+        if (res.success) {
+          if (typeof showToast === 'function') showToast('✅ Фактический расход ТМЦ сохранен');
+          else alert('✅ Фактический расход ТМЦ сохранен!');
+          loadCardMaterials(taskId);
+        } else {
+          alert('Ошибка сохранения: ' + (res.error || 'неизвестная ошибка'));
+        }
+      })
+      .catch(function(err) {
+        alert('Ошибка сохранения факта: ' + (err.message || err));
+      });
+    });
+}
+window.saveTaskMaterialsFact = saveTaskMaterialsFact;
+
 function writeOffTaskMaterials(taskId) {
   fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials', { headers: { 'Authorization': 'Bearer ' + S.token } })
     .then(function(r){ return r.json(); })
@@ -2616,7 +3194,7 @@ function writeOffTaskMaterials(taskId) {
         items.push({ material_id: m.material_id, quantity: isNaN(qty) ? m.plan_qty : qty });
       });
 
-      if (!confirm('Подтвердить фактический расход и списать материалы с виртуального склада подрядчика?')) return;
+      if (!confirm('Подтвердить фактический расход и списать материалы с виртуального склада подрядчика с фиксацией в себестоимости объекта?')) return;
 
       fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials/write-off', {
         method: 'POST',
@@ -2626,26 +3204,239 @@ function writeOffTaskMaterials(taskId) {
       .then(function(r){ return r.json(); })
       .then(function(res) {
         if (res.success) {
-          alert('✅ Материалы успешно списаны со склада подрядчика!');
+          var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+          if (t && res.total_tmc !== undefined) {
+            t.tmc = res.total_tmc;
+          }
+          var msg = '✅ Материалы успешно списаны со склада подрядчика!';
+          if (res.total_tmc) {
+            msg += '\nСебестоимость ТМЦ по объекту зафиксирована: ' + Math.round(res.total_tmc).toLocaleString('ru-RU') + ' ₽';
+          }
+          if (typeof showToast === 'function') showToast(msg);
+          else alert(msg);
           loadCardMaterials(taskId);
+          if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(taskId);
+          if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
         } else {
           alert('Ошибка списания: ' + (res.error || 'неизвестная ошибка'));
         }
+      })
+      .catch(function(err) {
+        alert('Ошибка списания материалов: ' + (err.message || err));
       });
     });
 }
+window.writeOffTaskMaterials = writeOffTaskMaterials;
+
+function acceptTmcCustody(taskId) {
+  if (!confirm('Подтвердить принятие ТМЦ по спецификации в подотчет монтажнику под личную материальную ответственность согласно Договору подряда (без необходимости оформления бумажной накладной М-15)?')) {
+    return;
+  }
+  fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials/accept-custody', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.token }
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(res) {
+    if (res.success) {
+      var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); });
+      if (t) {
+        if (!t.rawData) t.rawData = {};
+        if (!t.raw_data) t.raw_data = {};
+        t.rawData.tmcAccepted = true;
+        t.rawData.tmcAcceptedAt = res.tmcAcceptedAt;
+        t.rawData.tmcAcceptedBy = res.tmcAcceptedBy;
+        t.raw_data.tmcAccepted = true;
+        t.raw_data.tmcAcceptedAt = res.tmcAcceptedAt;
+        t.raw_data.tmcAcceptedBy = res.tmcAcceptedBy;
+        t.tmcAccepted = true;
+      }
+      if (typeof showToast === 'function') {
+        showToast('✅ ТМЦ приняты в подотчет! Материальная ответственность зафиксирована.');
+      } else {
+        alert('✅ ТМЦ приняты в подотчет! Материальная ответственность зафиксирована в системе.');
+      }
+      loadCardMaterials(taskId);
+      if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
+    } else {
+      alert('Ошибка акцепта подотчета: ' + (res.error || 'неизвестная ошибка'));
+    }
+  })
+  .catch(function(err) {
+    alert('Ошибка сети при принятии ТМЦ: ' + (err.message || err));
+  });
+}
+window.acceptTmcCustody = acceptTmcCustody;
+
+function updateField(taskId, fieldName, value) {
+  var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); });
+  if (t) {
+    t[fieldName] = value;
+    if (fieldName === 'dataVyhoda') {
+      t.dataVyhoda = value;
+      t.data_vyhoda = value;
+      if (!t.rawData) t.rawData = {};
+      t.rawData.dataVyhoda = value;
+    }
+    if (fieldName === 'fact') {
+      t.fact = value !== '' ? Number(value) : null;
+    }
+    if (fieldName === 'statusSmr') {
+      t.statusSmr = value;
+      t.status_smr = value;
+    }
+  }
+
+  var payload = {};
+  payload[fieldName] = value;
+
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  .then(function(res) {
+    if (res && res.error) {
+      alert('Ошибка сохранения: ' + res.error);
+    } else {
+      if (typeof showToast === 'function') {
+        showToast('✓ Сохранено');
+      }
+      if (window.renderSmrChecklist) {
+        window.renderSmrChecklist(taskId);
+      }
+    }
+  })
+  .catch(function(err) {
+    console.error('updateField error:', err);
+    alert('Ошибка сохранения поля: ' + (err.message || err));
+  });
+}
+window.updateField = updateField;
+
+function renderSmrChecklist(taskId) {
+  var el = document.getElementById('smrChecklistContainer');
+  if (!el) return;
+  var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+
+  var factVal = (t.fact != null && t.fact !== '') ? Number(t.fact) : null;
+  var inOrderVal = Number(t.inOrder || t.ports || 0);
+  var checkPorts = (factVal !== null && factVal > 0) || (inOrderVal > 0);
+
+  var rawDate = t.dataVyhoda || t.data_vyhoda || (t.rawData && (t.rawData.dataVyhoda || t.rawData.data_vyhoda));
+  var checkDate = Boolean(rawDate);
+
+  var portsCount = (window._curTaskPorts && window._curTaskPorts[taskId] !== undefined) ? window._curTaskPorts[taskId] : (window._curPortsCount || 0);
+  var checkKj = (portsCount > 0);
+
+  var photosCount = (window._curTaskPhotos && window._curTaskPhotos[taskId] !== undefined) ? window._curTaskPhotos[taskId] : (window._curPhotoReportsCount || 0);
+  var checkPhotos = (photosCount > 0);
+
+  var tmcAccepted = Boolean((t.rawData && t.rawData.tmcAccepted) || (t.raw_data && t.raw_data.tmcAccepted) || t.tmcAccepted);
+  var tmcWrittenOff = Boolean(window._curMaterialsWrittenOff);
+  var checkTmc = (tmcAccepted || tmcWrittenOff);
+
+  var items = [
+    {
+      id: 'ports',
+      title: '1. Смонтированный объем портов',
+      desc: factVal !== null ? ('Смонтировано: ' + factVal + ' шт.') : (inOrderVal ? ('План: ' + inOrderVal + ' шт. (факт не подтвержден)') : 'Количество не указано'),
+      passed: checkPorts,
+      action: '<button type="button" class="btn btn-xs btn-ghost" onclick="var inp=document.querySelector(\'#smrClosingBlock input[type=number]\');if(inp){inp.focus();inp.select();}" style="font-size:.7rem;padding:2px 6px">Указать факт</button>'
+    },
+    {
+      id: 'date',
+      title: '2. Фактическая дата завершения СМР',
+      desc: rawDate ? ('Дата выхода: ' + String(rawDate).slice(0, 10).split('-').reverse().join('.')) : 'Дата не заполнена в карточке',
+      passed: checkDate,
+      action: '<button type="button" class="btn btn-xs btn-ghost" onclick="var inp=document.getElementById(\'cardDataVyhoda\');if(inp){inp.focus();}" style="font-size:.7rem;padding:2px 6px">Указать дату</button>'
+    },
+    {
+      id: 'kj',
+      title: '3. Кабельный журнал (КЖ) / Прозвонка',
+      desc: portsCount > 0 ? (portsCount + ' линий/портов с маркировкой') : 'КЖ не заполнен монтажником',
+      passed: checkKj,
+      action: '<button type="button" class="btn btn-xs btn-ghost" onclick="addPortRow(\'' + encodeURIComponent(taskId) + '\')" style="font-size:.7rem;padding:2px 6px">+ Добавить порт</button>'
+    },
+    {
+      id: 'photos',
+      title: '4. Фотоотчет с объекта (до/после монтажа)',
+      desc: photosCount > 0 ? (photosCount + ' фото загружено') : 'Фотоотчет монтажника не прикреплен',
+      passed: checkPhotos,
+      action: '<label class="btn btn-xs btn-ghost" style="cursor:pointer;font-size:.7rem;padding:2px 6px;margin:0">📷 Загрузить фото<input type="file" multiple accept="image/*" style="display:none" onchange="handleAttachmentUpload(\'' + taskId + '\',\'photo_report\',this.files)"></label>'
+    },
+    {
+      id: 'tmc',
+      title: '5. Отчет ТМЦ и электронный акцепт подотчета',
+      desc: tmcAccepted ? 'ТМЦ приняты в подотчет монтажником' : (tmcWrittenOff ? 'ТМЦ списаны со склада' : 'Подотчет ТМЦ не акцептован'),
+      passed: checkTmc,
+      action: '<button type="button" class="btn btn-xs btn-ghost" onclick="setCardTab(\'supply\')" style="font-size:.7rem;padding:2px 6px">Перейти к ТМЦ →</button>'
+    }
+  ];
+
+  var passedCount = items.filter(function(x){ return x.passed; }).length;
+  var allPassed = (passedCount === items.length);
+
+  var bannerBg = allPassed ? '#f0fdf4' : '#fffbeb';
+  var bannerBorder = allPassed ? '#86efac' : '#fde68a';
+  var bannerColor = allPassed ? '#166534' : '#92400e';
+  var bannerTitle = allPassed 
+    ? '✅ Чек-лист готовности монтажника успешно пройден (' + passedCount + ' из ' + items.length + ')'
+    : '📋 Чек-лист готовности монтажника к закрытию СМР (' + passedCount + ' из ' + items.length + ' выполнено)';
+  var bannerSubtitle = allPassed
+    ? 'Все обязательные данные СМР зафиксированы: объем портов, дата выхода, кабельный журнал, фотоотчет и отчет ТМЦ. Объект готов к передаче в проектирование ИД.'
+    : 'Для сдачи объекта в проектный отдел заполните все обязательные пункты чек-листа:';
+
+  var itemsHtml = items.map(function(item) {
+    var icon = item.passed ? '✅' : '⏳';
+    var badgeClass = item.passed ? 'badge b-green' : 'badge b-orange';
+    var badgeText = item.passed ? '✓ Выполнено' : 'Требуется';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid #f1f5f9;gap:8px;flex-wrap:wrap;background:#ffffff;border-radius:4px;margin-bottom:3px">' +
+      '<div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1">' +
+        '<span style="font-size:1rem;line-height:1">' + icon + '</span>' +
+        '<div style="min-width:0">' +
+          '<div style="font-size:.8rem;font-weight:700;color:var(--text)">' + item.title + '</div>' +
+          '<div style="font-size:.73rem;color:var(--text-3)">' + item.desc + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:6px">' +
+        '<span class="' + badgeClass + '" style="font-size:.7rem;padding:2px 6px">' + badgeText + '</span>' +
+        (!item.passed ? item.action : '') +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  el.innerHTML = '<div style="background:' + bannerBg + ';border:1.5px solid ' + bannerBorder + ';border-radius:8px;padding:10px 12px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">' +
+      '<div>' +
+        '<div style="font-weight:700;font-size:.86rem;color:' + bannerColor + '">' + bannerTitle + '</div>' +
+        '<div style="font-size:.74rem;color:' + bannerColor + ';opacity:.9">' + bannerSubtitle + '</div>' +
+      '</div>' +
+      (allPassed 
+        ? '<span class="badge b-green" style="font-weight:700;font-size:.75rem;padding:3px 8px">Готов к сдаче в ИД</span>'
+        : '<span class="badge b-orange" style="font-weight:700;font-size:.75rem;padding:3px 8px">Осталось: ' + (items.length - passedCount) + '</span>'
+      ) +
+    '</div>' +
+    '<div style="display:flex;flex-direction:column;gap:3px;margin-top:8px">' +
+      itemsHtml +
+    '</div>' +
+  '</div>';
+}
+window.renderSmrChecklist = renderSmrChecklist;
 
 
 // changeTaskMacroStatus определена глобально в public/js/helpers.js
 
 function loadCardSubcontracts(taskId) {
   var cont = document.getElementById('cardSubcontractsContainer');
-  if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(taskId);
-  if (!cont) return;
+  window._curCardSubcontracts = [];
   api('/tasks/' + encodeURIComponent(taskId) + '/subcontracts')
     .then(function(subs) {
-      window._curCardSubcontracts = subs || [];
-      if (!Array.isArray(subs) || !subs.length) {
+      window._curCardSubcontracts = Array.isArray(subs) ? subs : [];
+      if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(taskId);
+      if (!cont) return;
+
+      if (!window._curCardSubcontracts.length) {
         var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); }) || {};
         var taskContr = (t.contractor || '').trim();
         var contrObj = taskContr ? (S.contractors || []).find(function(c){ return c.name_short === taskContr; }) : null;
@@ -2654,28 +3445,29 @@ function loadCardSubcontracts(taskId) {
           cont.innerHTML = '<div style="background:#fff;border:1.5px solid var(--border);border-radius:8px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,0.04)">' +
             '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:10px">' +
               '<div>' +
-                '<div style="font-size:.74rem;color:var(--text-3);text-transform:uppercase;font-weight:700">Исполнитель СМР на объекте</div>' +
+                '<div style="font-size:.74rem;color:var(--text-3);text-transform:uppercase;font-weight:700">Исполнитель СМР на объекте (Подрядчик)</div>' +
                 '<div style="font-weight:700;font-size:1.05rem;color:var(--text);margin-top:2px">🏢 ' + escHtml(taskContr) + '</div>' +
                 '<div style="font-size:.78rem;color:var(--text-2);margin-top:2px">' +
                   (contrObj && contrObj.inn ? ('ИНН: ' + escHtml(contrObj.inn)) : '') +
                   (contrObj && contrObj.phone ? (' • Тел: ' + escHtml(contrObj.phone)) : '') +
                 '</div>' +
               '</div>' +
-              '<span class="badge b-pink" style="font-size:.8rem;padding:4px 10px;font-weight:600">Назначен в заявке</span>' +
+              '<span class="badge b-blue" style="font-size:.8rem;padding:4px 10px;font-weight:600">Назначен в заявке</span>' +
             '</div>' +
             '<div style="background:var(--bg);padding:10px 12px;border-radius:6px;font-size:.82rem;margin-bottom:12px;color:var(--text-2)">' +
               'Подрядчик выбран в карточке заявки. Нажмите «Оформить через Мастер», чтобы рассчитать стоимость по прайс-листу (КС / К10), согласовать смету и сформировать официальные документы.' +
             '</div>' +
             '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-              '<button class="btn btn-sm btn-primary" onclick="openSubcontractWizardModal(\'' + escHtml(taskId) + '\')">🪄 Оформить через Мастер субподряда</button>' +
+              '<button class="btn btn-sm btn-primary" onclick="openSubcontractWizardModal(\'' + escHtml(taskId) + '\')">🪄 Оформить через Мастер поручения</button>' +
               '<button class="btn btn-sm btn-ghost" onclick="openContractorPicker(\'' + escHtml(taskId) + '\')">🔍 Сменить подрядчика</button>' +
+              '<button class="btn btn-sm btn-ghost" style="color:var(--red);border-color:#fca5a5" onclick="removeContractorFromTask(\'' + escHtml(taskId) + '\')">❌ Убрать подрядчика</button>' +
             '</div>' +
           '</div>';
           return;
         }
 
         cont.innerHTML = '<div style="background:var(--bg);padding:14px;border-radius:8px;text-align:center;color:var(--text-3);font-size:.85rem">' +
-          '<span>Субподрядчики на объект еще не назначены.</span> ' +
+          '<span>Подрядчик на объект еще не назначен.</span> ' +
           '<button class="btn btn-sm btn-link" onclick="openSubcontractWizardModal(\'' + escHtml(taskId) + '\')">+ Назначить исполнителя через Мастер</button>' +
         '</div>';
         return;
@@ -2729,9 +3521,9 @@ function loadCardSubcontracts(taskId) {
             '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
               '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'contract\')" title="Сформировать Договор подряда">🤝 Договор (.docx)</button>' +
               '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'order_subcontract\')" title="Сформировать Заказ-наряд (Приложение 2 к Договору)">📄 Заказ-наряд (.docx)</button>' +
-              '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'completion_act\')" title="Сформировать Акт сдачи-приемки (КС-2)">✅ Акт работ (.docx)</button>' +
+              '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'completion_act\')" title="Сформировать двухсторонний Акт сдачи-приемки работ («Сдал/Принял»)">🤝 Акт «Сдал/Принял» (.docx)</button>' +
               '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'invoice\')" title="Сформировать Счет на оплату от Подрядчика">💰 Счет от Подрядчика (.docx)</button>' +
-              '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'tmc_act\')" title="Сформировать Акт передачи (Накладную) ТМЦ со склада">🚚 Накладная ТМЦ (.docx)</button>' +
+              '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'tmc_act\')" title="Сформировать Акт списания материалов (ТМЦ) объекта">📦 Акт расхода ТМЦ (.docx)</button>' +
               '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'permit_letter\')" title="Сформировать официальное письмо на допуск монтажников">🪪 Допуск (.docx)</button>' +
               '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'power_attorney\')" title="Сформировать доверенность М-2 на получение ТМЦ">📦 Доверенность М-2 (.docx)</button>' +
             '</div>' +
@@ -2998,6 +3790,16 @@ function _renderSubcontractModal(taskId, editId) {
   var curPass = editSub ? (editSub.installer_passport || '') : '';
   var curAuto = editSub ? (editSub.auto_number || '') : '';
 
+  if (curSpecId) {
+    var spById = (S.specialists || []).find(function(s){ return String(s.id) === String(curSpecId); });
+    if (spById) {
+      if (!curFio) curFio = spById.full_name || '';
+      if (!curPhone) curPhone = spById.phone || '';
+      if (!curPass) curPass = spById.passport_raw || spById.passport_series_number || '';
+      if (!curAuto) curAuto = spById.auto_number || '';
+    }
+  }
+
   if (!curSpecId && curFio) {
     var spMatch = (S.specialists || []).find(function(s){
       return (s.full_name || '').trim().toLowerCase() === curFio.trim().toLowerCase();
@@ -3011,7 +3813,7 @@ function _renderSubcontractModal(taskId, editId) {
   }
 
   if (!curSpecId && !curFio && selectedCName) {
-    var cleanContr = selectedCName.replace(/^(?:ИП|ООО|СЗ|АО|ЗАО)s+/i, '').trim().toLowerCase();
+    var cleanContr = selectedCName.replace(/^(?:ИП|ООО|СЗ|АО|ЗАО)\s+/i, '').trim().toLowerCase();
     var spMatchContr = (S.specialists || []).find(function(s){
       return (s.full_name || '').trim().toLowerCase() === cleanContr;
     });
@@ -3153,12 +3955,13 @@ function _renderSubcontractModal(taskId, editId) {
   };
 
   var curWorkType = editSub ? editSub.work_type : (t.work_type || 'Монтаж СКС');
-  var curPrice = editSub ? (editSub.price_agreed || '') : (t.amount || '');
+  var curPrice = editSub ? (editSub.price_agreed != null ? editSub.price_agreed : '') : '';
   var curDeadline = (editSub && editSub.deadline) ? editSub.deadline.slice(0, 10) : ((t.deadline) ? String(t.deadline).slice(0, 10) : '');
   var curComment = editSub ? (editSub.comment || '') : '';
 
-  var modalTitle = editSub ? '✏️ Редактировать субподряд' : '🤝 Назначить субподрядчика';
-  var submitBtnLabel = editSub ? 'Сохранить изменения' : 'Сохранить субподряд';
+  var isAlreadyAssigned = !!(selectedCName || t.contractor);
+  var modalTitle = isAlreadyAssigned ? '✏️ Редактировать данные подрядчика' : '🤝 Назначить подрядчика';
+  var submitBtnLabel = isAlreadyAssigned ? 'Сохранить изменения' : 'Назначить подрядчика';
 
   var modal = document.createElement('div');
   modal.id = '_subcontract_modal';
@@ -3292,9 +4095,12 @@ function _renderSubcontractModal(taskId, editId) {
       '</div>' +
     '</div>' +
 
-    '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:1.25rem;border-top:1px solid var(--border);padding-top:10px">' +
-      '<button class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_subcontract_modal\').remove()">Отмена</button>' +
-      '<button class="btn btn-sm btn-primary" onclick="saveSubcontract(\'' + escHtml(taskId) + '\'' + (editId ? (', ' + editId) : '') + ')">' + submitBtnLabel + '</button>' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:1.25rem;border-top:1px solid var(--border);padding-top:10px">' +
+      (isAlreadyAssigned ? '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red);border:1px solid #fca5a5;padding:4px 10px" onclick="document.getElementById(\'_subcontract_modal\').remove();removeContractorFromTask(\'' + escHtml(taskId) + '\')">❌ Убрать подрядчика</button>' : '<div></div>') +
+      '<div style="display:flex;gap:8px">' +
+        '<button class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_subcontract_modal\').remove()">Отмена</button>' +
+        '<button class="btn btn-sm btn-primary" onclick="saveSubcontract(\'' + escHtml(taskId) + '\'' + (editId ? (', ' + editId) : '') + ')">' + submitBtnLabel + '</button>' +
+      '</div>' +
     '</div>' +
   '</div>';
 
@@ -3362,12 +4168,21 @@ function saveSubcontract(taskId, editId) {
     if (modal) modal.remove();
     var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
     var targetContr = contractorName;
-    if (t && targetContr && t.contractor !== targetContr) {
+    if (t && targetContr) {
       t.contractor = targetContr;
-      api('/tasks/' + encodeURIComponent(taskId), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contractor: targetContr }) });
+      if (t.macroStatus === 'new' || !t.macroStatus) {
+        t.macroStatus = 'assigned';
+        t.stageNum = 1;
+      }
+      api('/tasks/' + encodeURIComponent(taskId), { 
+        method: 'PUT', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ contractor: targetContr, macroStatus: t.macroStatus, stageNum: t.stageNum }) 
+      });
     }
     loadCardSubcontracts(taskId);
     loadCardDocuments(taskId);
+    if (typeof renderApp === 'function') renderApp();
   })
   .catch(function(err) {
     alert('Ошибка сохранения субподряда: ' + err.message);
@@ -3400,46 +4215,51 @@ function deleteSubcontract(taskId, subId) {
     });
 }
 
-function generateSubcontractDoc(taskId, subcontractId, docType) {
+window.generateTaskDoc = function(taskId, docType, optSubcontractId) {
+  var docTitles = {
+    order_subcontract: 'Заказ-наряд (Приложение №2)',
+    completion_act: 'Акт сдачи-приемки («Сдал/Принял»)',
+    invoice: 'Счет на оплату',
+    permit_letter: 'Письмо на допуск на объект',
+    tmc_act: 'Акт списания материалов (ТМЦ)',
+    id_registry: 'Альбом исполнительной документации (СКС)',
+    contract: 'Договор подряда',
+    power_attorney: 'Доверенность на получение ТМЦ'
+  };
+  var label = docTitles[docType] || 'Документ';
+  var body = { doc_type: docType };
+  if (optSubcontractId) body.subcontract_id = optSubcontractId;
+
   api('/tasks/' + encodeURIComponent(taskId) + '/documents/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ doc_type: docType, subcontract_id: subcontractId })
+    body: JSON.stringify(body)
   })
   .then(function(res) {
     if (res.error) throw new Error(res.error);
-    var link = document.createElement('a');
-    link.href = res.file_url;
-    link.download = (res.title || 'document') + '.docx';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+    if (res.file_url) {
+      var link = document.createElement('a');
+      link.href = res.file_url;
+      link.download = (res.title || docType) + '.docx';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+    if (typeof showToast === 'function') showToast('✅ ' + label + ' сформирован!');
+    else alert('✅ ' + label + ' успешно сформирован и сохранен в реестре документов!');
     loadCardDocuments(taskId);
   })
   .catch(function(err) {
-    alert('Ошибка формирования документа: ' + err.message);
+    alert('Ошибка формирования (' + label + '): ' + err.message);
   });
+};
+
+function generateSubcontractDoc(taskId, subcontractId, docType) {
+  return window.generateTaskDoc(taskId, docType, subcontractId);
 }
 
 function generateTaskRegistryDoc(taskId) {
-  api('/tasks/' + encodeURIComponent(taskId) + '/documents/generate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ doc_type: 'id_registry' })
-  })
-  .then(function(res) {
-    if (res.error) throw new Error(res.error);
-    var link = document.createElement('a');
-    link.href = res.file_url;
-    link.download = (res.title || 'registry_id') + '.docx';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    loadCardDocuments(taskId);
-  })
-  .catch(function(err) {
-    alert('Ошибка формирования Реестра ИД: ' + err.message);
-  });
+  return window.generateTaskDoc(taskId, 'id_registry');
 }
 
 function loadCardDocuments(taskId) {
@@ -3448,22 +4268,36 @@ function loadCardDocuments(taskId) {
   api('/tasks/' + encodeURIComponent(taskId) + '/documents')
     .then(function(docs) {
       if (!Array.isArray(docs) || !docs.length) {
-        cont.innerHTML = '<div style="color:var(--text-3);font-size:.82rem">Официальные документы пока не сформированы. Нажмите «Сформировать Реестр ИД» или сгенерируйте Заказ-наряд во вкладке субподрядов.</div>';
+        cont.innerHTML = '<div style="color:var(--text-3);font-size:.82rem">Официальные документы пока не сформированы. Нажмите «📑 Альбом ИД» или сгенерируйте Заказ-наряд («Приложение №2»).</div>';
         return;
       }
 
       var html = '<table class="table" style="font-size:.82rem;margin-top:.4rem">' +
         '<thead><tr>' +
           '<th>Документ</th>' +
+          '<th>Тип</th>' +
           '<th>№ и Дата</th>' +
           '<th>Сформировал</th>' +
           '<th>Действия</th>' +
         '</tr></thead><tbody>';
 
       docs.forEach(function(d) {
-        var dateStr = d.doc_date ? d.doc_date.slice(0, 10).split('-').reverse().join('.') : '—';
+        var rawDate = d.doc_date || d.created_at;
+        var dateStr = rawDate ? rawDate.slice(0, 10).split('-').reverse().join('.') : '—';
+
+        var typeBadge = '<span class="badge b-gray" style="font-size:.68rem">' + escHtml(d.doc_type || 'Документ') + '</span>';
+        if (d.doc_type === 'order_subcontract') typeBadge = '<span class="badge b-blue" style="font-size:.68rem">Приложение №2</span>';
+        else if (d.doc_type === 'completion_act') typeBadge = '<span class="badge b-green" style="font-size:.68rem">Сдал/Принял</span>';
+        else if (d.doc_type === 'invoice') typeBadge = '<span class="badge b-yellow" style="font-size:.68rem">Счет</span>';
+        else if (d.doc_type === 'tmc_act') typeBadge = '<span class="badge b-gray" style="font-size:.68rem">Акт ТМЦ</span>';
+        else if (d.doc_type === 'id_registry') typeBadge = '<span class="badge b-purple" style="font-size:.68rem">Альбом ИД</span>';
+        else if (d.doc_type === 'permit_letter') typeBadge = '<span class="badge b-orange" style="font-size:.68rem">Допуск</span>';
+        else if (d.doc_type === 'contract') typeBadge = '<span class="badge b-blue" style="font-size:.68rem">Договор</span>';
+        else if (d.doc_type === 'power_attorney') typeBadge = '<span class="badge b-gray" style="font-size:.68rem">Доверенность</span>';
+
         html += '<tr>' +
           '<td><a href="' + escHtml(d.file_url) + '" download style="font-weight:600;display:flex;align-items:center;gap:6px">📄 ' + escHtml(d.title) + '</a></td>' +
+          '<td style="white-space:nowrap">' + typeBadge + '</td>' +
           '<td style="white-space:nowrap">' + escHtml(d.doc_number || '—') + ' от ' + dateStr + '</td>' +
           '<td style="white-space:nowrap;color:var(--text-2)">' + escHtml(d.created_by_name || 'Система') + '</td>' +
           '<td style="white-space:nowrap">' +
@@ -3496,7 +4330,23 @@ function deleteCardDocument(taskId, docId) {
 
 // --- NEW WORKFLOW ACTIONS ---
 window.submitSmr = function(taskId) {
-  if (!confirm('Вы подтверждаете, что строительно-монтажные работы по объекту выполнены и готовы к сдаче куратору?')) return;
+  var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+  var portsCount = (window._curTaskPorts && window._curTaskPorts[taskId] !== undefined) ? window._curTaskPorts[taskId] : (window._curPortsCount || 0);
+  var photosCount = (window._curTaskPhotos && window._curTaskPhotos[taskId] !== undefined) ? window._curTaskPhotos[taskId] : (window._curPhotoReportsCount || 0);
+  var tmcAccepted = Boolean((t.rawData && t.rawData.tmcAccepted) || (t.raw_data && t.raw_data.tmcAccepted) || t.tmcAccepted);
+
+  var warnings = [];
+  if (!t.dataVyhoda && !t.data_vyhoda && !(t.rawData && t.rawData.dataVyhoda)) warnings.push('• Не указана фактическая дата выхода СМР');
+  if (portsCount === 0) warnings.push('• Не заполнен Кабельный журнал (КЖ)');
+  if (photosCount === 0) warnings.push('• Не загружен фотоотчет с объекта');
+  if (!tmcAccepted && !window._curMaterialsWrittenOff) warnings.push('• Не акцептован подотчет ТМЦ');
+
+  var confirmMsg = 'Вы подтверждаете, что строительно-монтажные работы по объекту выполнены и готовы к сдаче куратору?';
+  if (warnings.length > 0) {
+    confirmMsg += '\n\n⚠️ Внимание! По чек-листу готовности СМР есть замечания:\n' + warnings.join('\n') + '\n\nВсе равно передать СМР на проверку?';
+  }
+  if (!confirm(confirmMsg)) return;
+
   api('/tasks/' + encodeURIComponent(taskId) + '/smr/submit', { method: 'POST' })
     .then(function(res) {
       if (res && res.error) alert(res.error);
@@ -3506,7 +4356,23 @@ window.submitSmr = function(taskId) {
 };
 
 window.acceptSmr = function(taskId) {
-  if (!confirm('Принять строительно-монтажные работы по объекту?\n\nЭто действие:\n1. Зафиксирует внутреннюю приёмку СМР куратором\n2. Разрешит оплату субподрядчику / бригаде\n3. Подготовит заявку к сдаче Заказчику')) return;
+  var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+  var portsCount = (window._curTaskPorts && window._curTaskPorts[taskId] !== undefined) ? window._curTaskPorts[taskId] : (window._curPortsCount || 0);
+  var photosCount = (window._curTaskPhotos && window._curTaskPhotos[taskId] !== undefined) ? window._curTaskPhotos[taskId] : (window._curPhotoReportsCount || 0);
+  var tmcAccepted = Boolean((t.rawData && t.rawData.tmcAccepted) || (t.raw_data && t.raw_data.tmcAccepted) || t.tmcAccepted);
+
+  var warnings = [];
+  if (!t.dataVyhoda && !t.data_vyhoda && !(t.rawData && t.rawData.dataVyhoda)) warnings.push('• Не указана фактическая дата выхода СМР');
+  if (portsCount === 0) warnings.push('• Не заполнен Кабельный журнал (КЖ)');
+  if (photosCount === 0) warnings.push('• Не прикреплен фотоотчет с объекта');
+  if (!tmcAccepted && !window._curMaterialsWrittenOff) warnings.push('• Не акцептован подотчет ТМЦ');
+
+  var confirmMsg = 'Принять строительно-монтажные работы по объекту?\n\nЭто действие:\n1. Зафиксирует внутреннюю приёмку СМР куратором\n2. Разрешит оплату субподрядчику / бригаде\n3. Подготовит заявку к сдаче Заказчику';
+  if (warnings.length > 0) {
+    confirmMsg += '\n\n⚠️ Обратите внимание: по чек-листу монтажника не все пункты закрыты:\n' + warnings.join('\n') + '\n\nПродолжить приёмку?';
+  }
+  if (!confirm(confirmMsg)) return;
+
   api('/tasks/' + encodeURIComponent(taskId) + '/smr/accept', { method: 'POST' })
     .then(function(res) {
       if (res && res.error) alert(res.error);
@@ -3583,15 +4449,271 @@ window._openAddSubPayment = function(taskId) {
   });
   if (!t.rawData) t.rawData = {};
   t.rawData.subPayments = t._payments;
+
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rawData: t.rawData })
+  }).then(function(){
+    if (typeof showToast === 'function') showToast('✅ Выплата зафиксирована', 'success');
+  }).catch(function(e){
+    console.error('Error saving sub payment:', e);
+    if (typeof showToast === 'function') showToast('⚠️ Ошибка сохранения выплаты: ' + e.message, 'error');
+  });
+
   renderApp();
 };
 
 window.removeSubPayment = function(taskId, idx) {
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
   if (!t || !t._payments) return;
+  if (!confirm('Удалить эту запись о выплате?')) return;
   t._payments.splice(idx, 1);
   if (!t.rawData) t.rawData = {};
   t.rawData.subPayments = t._payments;
+
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rawData: t.rawData })
+  }).then(function(){
+    if (typeof showToast === 'function') showToast('🗑️ Выплата удалена', 'info');
+  }).catch(function(e){
+    console.error('Error removing sub payment:', e);
+    if (typeof showToast === 'function') showToast('⚠️ Ошибка удаления: ' + e.message, 'error');
+  });
+
+  renderApp();
+};
+
+// ─── СОПУТСТВУЮЩИЕ ЗАТРАТЫ (ДОПЫ + ТК): МОДАЛКА И ОБРАБОТЧИКИ ────────────────
+
+window._openAddExtraExpense = function(taskId) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+
+  var existing = document.getElementById('_extra_expense_modal');
+  if (existing) existing.remove();
+
+  var modal = document.createElement('div');
+  modal.id = '_extra_expense_modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(2px)';
+
+  modal.innerHTML = '' +
+    '<div style="background:#fff;border-radius:14px;padding:1.5rem;width:100%;max-width:580px;box-shadow:0 12px 48px rgba(0,0,0,.25);max-height:90vh;display:flex;flex-direction:column">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">' +
+        '<div>' +
+          '<div style="font-weight:700;font-size:1.1rem">➕ Добавить сопутствующий расход (ДОПы / ТК)</div>' +
+          '<div style="font-size:.8rem;color:var(--text-3);margin-top:2px">Объект № <b>' + escHtml(t.id) + '</b> (' + escHtml(t.address || '') + ')</div>' +
+        '</div>' +
+        '<button onclick="document.getElementById(\'_extra_expense_modal\').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-3);line-height:1">×</button>' +
+      '</div>' +
+
+      '<div style="overflow-y:auto;flex:1;padding-right:4px">' +
+        // 1. Категория
+        '<div style="margin-bottom:12px">' +
+          '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text);margin-bottom:6px">1. Категория затрат</label>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+            '<label id="cat_dop_label" style="display:flex;align-items:center;gap:6px;background:#ffedd5;padding:8px 12px;border-radius:8px;border:1.5px solid #ea580c;cursor:pointer;font-size:.82rem;font-weight:600;color:#9a3412">' +
+              '<input type="radio" name="exp_category" value="dop" checked onchange="window._onExpCatChange(this.value)">' +
+              '<span>🛠️ Статья 4: ДОПы (спецработы)</span>' +
+            '</label>' +
+            '<label id="cat_transport_label" style="display:flex;align-items:center;gap:6px;background:#f0f9ff;padding:8px 12px;border-radius:8px;border:1.5px solid #0284c7;cursor:pointer;font-size:.82rem;font-weight:600;color:#0369a1">' +
+              '<input type="radio" name="exp_category" value="transport" onchange="window._onExpCatChange(this.value)">' +
+              '<span>🚚 Статья 5: ТК / Транспорт</span>' +
+            '</label>' +
+          '</div>' +
+        '</div>' +
+
+        // Быстрые шаблоны
+        '<div style="margin-bottom:12px">' +
+          '<label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-3);margin-bottom:4px">Частые шаблоны расходов (клик для автозаполнения):</label>' +
+          '<div style="display:flex;flex-wrap:wrap;gap:6px">' +
+            '<button type="button" class="btn btn-sm btn-ghost" style="font-size:.73rem;padding:3px 8px;border:1px solid var(--border)" onclick="window._fillExpPreset(\'Алмазное бурение перекрытий\', 22000, \'dop\', \'through_contractor\')">💎 Алмазное бурение (22 000 ₽)</button>' +
+            '<button type="button" class="btn btn-sm btn-ghost" style="font-size:.73rem;padding:3px 8px;border:1px solid var(--border)" onclick="window._fillExpPreset(\'Аренда автовышки 18м\', 15000, \'dop\', \'direct_third_party\')">🚜 Автовышка (15 000 ₽)</button>' +
+            '<button type="button" class="btn btn-sm btn-ghost" style="font-size:.73rem;padding:3px 8px;border:1px solid var(--border)" onclick="window._fillExpPreset(\'Проживание бригады в гостинице\', 6000, \'dop\', \'through_contractor\')">🏨 Проживание бригады</button>' +
+            '<button type="button" class="btn btn-sm btn-ghost" style="font-size:.73rem;padding:3px 8px;border:1px solid var(--border)" onclick="window._fillExpPreset(\'Доставка ТК Деловые Линии\', 4500, \'transport\', \'direct_third_party\')">📦 ТК Деловые Линии</button>' +
+            '<button type="button" class="btn btn-sm btn-ghost" style="font-size:.73rem;padding:3px 8px;border:1px solid var(--border)" onclick="window._fillExpPreset(\'Доставка ТК ПЭК\', 3800, \'transport\', \'direct_third_party\')">📦 ТК ПЭК</button>' +
+            '<button type="button" class="btn btn-sm btn-ghost" style="font-size:.73rem;padding:3px 8px;border:1px solid var(--border)" onclick="window._fillExpPreset(\'Выезд бригады / Километраж (ГСМ)\', 3000, \'transport\', \'through_contractor\')">⛽ Выезд бригады / ГСМ</button>' +
+            '<button type="button" class="btn btn-sm btn-ghost" style="font-size:.73rem;padding:3px 8px;border:1px solid var(--border)" onclick="window._fillExpPreset(\'Спецтехника / Манипулятор\', 12000, \'dop\', \'direct_third_party\')">🏗️ Манипулятор</button>' +
+          '</div>' +
+        '</div>' +
+
+        // Поля формы
+        '<div style="display:grid;grid-template-columns:1.3fr 0.9fr;gap:10px;margin-bottom:10px">' +
+          '<div>' +
+            '<label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Наименование расхода *</label>' +
+            '<input type="text" id="exp_title_input" placeholder="например, Алмазное бурение перекрытий" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+          '</div>' +
+          '<div>' +
+            '<label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Сумма затрат (₽) *</label>' +
+            '<input type="number" id="exp_amount_input" placeholder="0" min="0" step="100" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;font-weight:700">' +
+          '</div>' +
+        '</div>' +
+
+        // Разделение получателя / плательщика
+        '<div style="margin-bottom:10px">' +
+          '<label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Способ оплаты и получатель *</label>' +
+          '<select id="exp_payer_mode_select" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.84rem;font-weight:600">' +
+            '<option value="through_contractor">👷 В смету подрядчику (компенсация в Заказ-наряде и к выплате монтажнику)</option>' +
+            '<option value="direct_third_party">🏢 Напрямую 3-му лицу / ТК (прямой расход Генподрядчика, монтажнику не идет)</option>' +
+          '</select>' +
+          '<div style="font-size:.72rem;color:var(--text-3);margin-top:3px" id="exp_payer_hint">' +
+            '💡 «В смету подрядчику» увеличит Заказ-наряд монтажника и сумму к выплате. «Напрямую 3-му лицу» учитывается в затратах объекта, но не начисляется монтажнику.' +
+          '</div>' +
+        '</div>' +
+
+        '<div>' +
+          '<label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Примечание / № накладной / трек-номер ТК</label>' +
+          '<input type="text" id="exp_comment_input" placeholder="например, Накладная ТК № СПБ-08912 от 12.10" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+        '</div>' +
+      '</div>' +
+
+      '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:1rem;border-top:1px solid var(--border);padding-top:12px">' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_extra_expense_modal\').remove()">Отмена</button>' +
+        '<button type="button" class="btn btn-sm btn-primary" onclick="window._saveExtraExpense(\'' + taskId + '\')">💾 Добавить в смету объекта</button>' +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(modal);
+  var inp = document.getElementById('exp_title_input');
+  if (inp) inp.focus();
+};
+
+window._onExpCatChange = function(cat) {
+  var dopLbl = document.getElementById('cat_dop_label');
+  var transLbl = document.getElementById('cat_transport_label');
+  if (cat === 'dop') {
+    if (dopLbl) dopLbl.style.borderColor = '#ea580c';
+    if (transLbl) transLbl.style.borderColor = 'transparent';
+  } else {
+    if (dopLbl) dopLbl.style.borderColor = 'transparent';
+    if (transLbl) transLbl.style.borderColor = '#0284c7';
+  }
+};
+
+window._fillExpPreset = function(title, amount, cat, payerMode) {
+  var titleInp = document.getElementById('exp_title_input');
+  var amtInp = document.getElementById('exp_amount_input');
+  var payerSel = document.getElementById('exp_payer_mode_select');
+  if (titleInp) titleInp.value = title;
+  if (amtInp && amount > 0) amtInp.value = amount;
+  if (payerSel && payerMode) payerSel.value = payerMode;
+  var radios = document.getElementsByName('exp_category');
+  for (var i = 0; i < radios.length; i++) {
+    if (radios[i].value === cat) radios[i].checked = true;
+  }
+  window._onExpCatChange(cat);
+};
+
+window._saveExtraExpense = function(taskId) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+
+  var title = (document.getElementById('exp_title_input').value || '').trim();
+  var amt = parseFloat(document.getElementById('exp_amount_input').value) || 0;
+  if (!title) { alert('Укажите наименование расхода'); return; }
+  if (amt <= 0) { alert('Укажите корректную сумму расхода'); return; }
+
+  var radios = document.getElementsByName('exp_category');
+  var cat = 'dop';
+  for (var i = 0; i < radios.length; i++) {
+    if (radios[i].checked) { cat = radios[i].value; break; }
+  }
+
+  var payerMode = document.getElementById('exp_payer_mode_select').value || 'through_contractor';
+  var comment = (document.getElementById('exp_comment_input').value || '').trim();
+
+  if (!t.rawData) t.rawData = {};
+  if (!Array.isArray(t.rawData.extraExpensesList)) t.rawData.extraExpensesList = [];
+
+  var newExp = {
+    id: 'exp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+    category: cat,
+    title: title,
+    amount: amt,
+    payer_mode: payerMode,
+    date: new Date().toLocaleDateString('ru-RU'),
+    comment: comment
+  };
+
+  t.rawData.extraExpensesList.push(newExp);
+
+  // Пересчет субподрядных допрасходов и транспорта
+  var subExp = t.rawData.extraExpensesList.filter(function(x){ return x.payer_mode === 'through_contractor'; });
+  var subDops = subExp.filter(function(x){ return x.category === 'dop'; }).reduce(function(a, b){ return a + Number(b.amount); }, 0);
+  var subTransport = subExp.filter(function(x){ return x.category === 'transport'; }).reduce(function(a, b){ return a + Number(b.amount); }, 0);
+
+  t.rawData.subExtras = subDops;
+  t.rawData.subDist = subTransport;
+
+  // Общие суммы по категориям
+  var totalDops = t.rawData.extraExpensesList.filter(function(x){ return x.category === 'dop'; }).reduce(function(a, b){ return a + Number(b.amount); }, 0);
+  var totalTransport = t.rawData.extraExpensesList.filter(function(x){ return x.category === 'transport'; }).reduce(function(a, b){ return a + Number(b.amount); }, 0);
+
+  t.extras = totalDops;
+  t.distanceKm = totalTransport;
+
+  var modal = document.getElementById('_extra_expense_modal');
+  if (modal) modal.remove();
+
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      rawData: t.rawData,
+      extras: t.extras,
+      distanceKm: t.distanceKm
+    })
+  }).then(function(){
+    if (typeof showToast === 'function') showToast('✅ Сопутствующий расход зафиксирован', 'success');
+  }).catch(function(e){
+    console.error('Error saving extra expense:', e);
+    if (typeof showToast === 'function') showToast('⚠️ Ошибка сохранения: ' + e.message, 'error');
+  });
+
+  renderApp();
+};
+
+window._removeExtraExpense = function(taskId, idx) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t || !t.rawData || !Array.isArray(t.rawData.extraExpensesList)) return;
+
+  var exp = t.rawData.extraExpensesList[idx];
+  var name = exp ? exp.title : 'расход';
+  if (!confirm('Удалить запись «' + name + '»?')) return;
+
+  t.rawData.extraExpensesList.splice(idx, 1);
+
+  // Пересчет
+  var subExp = t.rawData.extraExpensesList.filter(function(x){ return x.payer_mode === 'through_contractor'; });
+  var subDops = subExp.filter(function(x){ return x.category === 'dop'; }).reduce(function(a, b){ return a + Number(b.amount); }, 0);
+  var subTransport = subExp.filter(function(x){ return x.category === 'transport'; }).reduce(function(a, b){ return a + Number(b.amount); }, 0);
+
+  t.rawData.subExtras = subDops;
+  t.rawData.subDist = subTransport;
+
+  var totalDops = t.rawData.extraExpensesList.filter(function(x){ return x.category === 'dop'; }).reduce(function(a, b){ return a + Number(b.amount); }, 0);
+  var totalTransport = t.rawData.extraExpensesList.filter(function(x){ return x.category === 'transport'; }).reduce(function(a, b){ return a + Number(b.amount); }, 0);
+
+  t.extras = totalDops;
+  t.distanceKm = totalTransport;
+
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      rawData: t.rawData,
+      extras: t.extras,
+      distanceKm: t.distanceKm
+    })
+  }).then(function(){
+    if (typeof showToast === 'function') showToast('🗑️ Расход удален', 'info');
+  }).catch(function(e){
+    console.error('Error removing extra expense:', e);
+    if (typeof showToast === 'function') showToast('⚠️ Ошибка удаления: ' + e.message, 'error');
+  });
+
   renderApp();
 };
 

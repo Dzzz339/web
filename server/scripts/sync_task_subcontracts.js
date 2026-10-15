@@ -106,11 +106,11 @@ export async function syncSubcontractsForTasks(pool) {
     const priceAgreed = Number(t.amount) || 0;
 
     if (existingSubs.length > 0) {
-      // Update existing subcontract if contractor_id or contractor_name was missing
+      // Update existing subcontract with current contractor
       await pool.query(
         `UPDATE task_subcontracts 
-         SET contractor_id = COALESCE(contractor_id, $1),
-             contractor_name = COALESCE(contractor_name, $2)
+         SET contractor_id = $1,
+             contractor_name = $2
          WHERE id = $3`,
         [contrId, contrName, existingSubs[0].id]
       );
@@ -163,7 +163,13 @@ export async function syncSingleTaskSubcontract(pool, taskId) {
   if (!rows.length) return null;
   const t = rows[0];
   const rawContr = (t.contractor || '').trim();
-  if (!rawContr) return null;
+  if (!rawContr) {
+    await pool.query(
+      `UPDATE task_subcontracts SET contractor_id = NULL, contractor_name = NULL WHERE task_id = $1`,
+      [taskId]
+    );
+    return null;
+  }
 
   const { rows: existingSubs } = await pool.query(
     `SELECT id, contractor_id FROM task_subcontracts WHERE task_id = $1 LIMIT 1`,
@@ -245,8 +251,8 @@ export async function syncSingleTaskSubcontract(pool, taskId) {
   if (existingSubs.length > 0) {
     const { rows: updated } = await pool.query(
       `UPDATE task_subcontracts 
-       SET contractor_id = COALESCE(contractor_id, $1),
-           contractor_name = COALESCE(contractor_name, $2)
+       SET contractor_id = $1,
+           contractor_name = $2
        WHERE id = $3
        RETURNING *`,
       [contrId, contrName, existingSubs[0].id]

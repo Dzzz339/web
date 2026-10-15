@@ -176,33 +176,49 @@ router.post('/tasks', authenticateToken, requireRole('admin', 'director', 'manag
     let customerName = t.customer || null;
 
     if (!contractId) {
-      const mPrefix = String(cleanId).match(/^(\d{4}-\d{2})/);
-      if (mPrefix) {
-        const { rows: matchedC } = await pool.query('SELECT id, our_entity_name, customer_name FROM contracts WHERE internal_number = $1 LIMIT 1', [mPrefix[1]]);
-        if (matchedC.length > 0) {
-          contractId = matchedC[0].id;
-          if (!customerName) customerName = matchedC[0].customer_name;
+      // 1. Поиск по прямому номеру контракта Заказчика (например 5000...) в номере, регионе или ТЗ (Отказ от привязки по 0926-02 - скрин12)
+      const rawText = String(t.region || '') + ' ' + String(cleanId) + ' ' + String(t.comment || '');
+      const mNum = rawText.match(/\b(5000\d{7}|\d{7,12})\b/);
+      if (mNum) {
+        const { rows: matchedNum } = await pool.query(`
+          SELECT c.id, c.our_entity_name, c.customer_name, ca.id AS matched_ag_id 
+          FROM contracts c
+          LEFT JOIN contract_agreements ca ON ca.contract_id = c.id AND (ca.external_number ILIKE $1 OR ca.region ILIKE $2)
+          WHERE c.contract_number ILIKE $1 OR c.lots::text ILIKE $1 OR c.raw_data::text ILIKE $1 OR ca.external_number ILIKE $1
+          LIMIT 1
+        `, [`%${mNum[1]}%`, `%${t.region || ''}%`]);
+        if (matchedNum.length > 0) {
+          contractId = matchedNum[0].id;
+          if (matchedNum[0].matched_ag_id && !t.contract_agreement_id) {
+            t.contract_agreement_id = matchedNum[0].matched_ag_id;
+          }
+          if (!customerName) customerName = matchedNum[0].customer_name;
           if (!ownCompanyId) {
-            const ent = String(matchedC[0].our_entity_name || '').toLowerCase();
+            const ent = String(matchedNum[0].our_entity_name || '').toLowerCase();
             ownCompanyId = ent.includes('к10') ? 2 : (ent.includes('кабельн') ? 1 : 3);
           }
         }
       }
+
+      // 2. Поиск по Заказчику + Региону
       if (!contractId && t.region) {
-        const mNum = String(t.region).match(/\b(5000\d{7}|\d{7,12})\b/);
-        if (mNum) {
-          const { rows: matchedNum } = await pool.query(`
-            SELECT id, our_entity_name, customer_name FROM contracts 
-            WHERE contract_number ILIKE $1 OR lots::text ILIKE $1 OR raw_data::text ILIKE $1
-            LIMIT 1
-          `, [`%${mNum[1]}%`]);
-          if (matchedNum.length > 0) {
-            contractId = matchedNum[0].id;
-            if (!customerName) customerName = matchedNum[0].customer_name;
-            if (!ownCompanyId) {
-              const ent = String(matchedNum[0].our_entity_name || '').toLowerCase();
-              ownCompanyId = ent.includes('к10') ? 2 : (ent.includes('кабельн') ? 1 : 3);
-            }
+        const { rows: matchedReg } = await pool.query(`
+          SELECT c.id, c.our_entity_name, c.customer_name, ca.id AS matched_ag_id
+          FROM contracts c
+          JOIN contract_agreements ca ON ca.contract_id = c.id
+          WHERE (ca.region ILIKE $1 OR ca.city ILIKE $1 OR c.delivery_place ILIKE $1)
+            AND ($2::text IS NULL OR c.customer_name ILIKE $2)
+          LIMIT 1
+        `, [`%${t.region.trim()}%`, customerName ? `%${customerName}%` : null]);
+        if (matchedReg.length > 0) {
+          contractId = matchedReg[0].id;
+          if (matchedReg[0].matched_ag_id && !t.contract_agreement_id) {
+            t.contract_agreement_id = matchedReg[0].matched_ag_id;
+          }
+          if (!customerName) customerName = matchedReg[0].customer_name;
+          if (!ownCompanyId) {
+            const ent = String(matchedReg[0].our_entity_name || '').toLowerCase();
+            ownCompanyId = ent.includes('к10') ? 2 : (ent.includes('кабельн') ? 1 : 3);
           }
         }
       }
@@ -270,7 +286,7 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
           return res.status(403).json({ error: 'Доступ ограничен: данная заявка назначена другому специалисту' });
         }
 
-        const allowed = ['fact', 'dataVyhoda', 'obsledovanie', 'dostup', 'priemka', 'assignmentStatus'];
+        const allowed = ['fact', 'dataVyhoda', 'data_vyhoda', 'statusSmr', 'status_smr', 'obsledovanie', 'dostup', 'priemka', 'assignmentStatus'];
         for (const k of Object.keys(d)) {
           if (!allowed.includes(k) && k !== '_history' && k !== 'history') {
             delete d[k];
@@ -316,6 +332,54 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       d.assignmentStatus = 'pending';
     }
 
+    // Синхронизация macro_status и stage_num
+    const macroToStage = {
+      new: 0,
+      assigned: 1,
+      install: 2,
+      id_in_progress: 4,
+      id_delivered: 5,
+      accepted: 7,
+      billing: 8,
+      paid: 9
+    };
+    const stageToMacro = (sNum) => {
+      const n = parseInt(sNum, 10);
+      if (n >= 9) return 'paid';
+      if (n >= 8) return 'billing';
+      if (n >= 7) return 'accepted';
+      if (n >= 5) return 'id_delivered';
+      if (n >= 3) return 'id_in_progress';
+      if (n >= 2) return 'install';
+      if (n >= 1) return 'assigned';
+      return 'new';
+    };
+
+    let targetStageNum = d.stageNum !== undefined && d.stageNum !== null ? Number(d.stageNum) : null;
+    let targetMacroStatus = d.macroStatus || null;
+
+    if (targetMacroStatus && targetStageNum === null) {
+      targetStageNum = macroToStage[targetMacroStatus.toLowerCase()] ?? null;
+    } else if (targetStageNum !== null && !targetMacroStatus) {
+      targetMacroStatus = stageToMacro(targetStageNum);
+    }
+
+    // Если назначается подрядчик на заявку в статусе "new" — автоматически переводим в "assigned" (Этап 1)
+    if (d.contractor !== undefined) {
+      const contrTrim = String(d.contractor || '').trim();
+      if (contrTrim && (!targetMacroStatus || targetMacroStatus === 'new')) {
+        targetMacroStatus = 'assigned';
+        if (targetStageNum === null || targetStageNum === 0) targetStageNum = 1;
+      } else if (!contrTrim && targetMacroStatus === 'assigned') {
+        targetMacroStatus = 'new';
+        targetStageNum = 0;
+      }
+    }
+
+    const hasStageNum = targetStageNum !== null;
+    const hasContractor = d.contractor !== undefined;
+    const cleanContractor = hasContractor ? (d.contractor ? String(d.contractor).trim() : null) : null;
+
     await pool.query(`
       UPDATE tasks SET
         region        = COALESCE($2, region),
@@ -332,7 +396,7 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
         tech_link     = COALESCE($13, tech_link),
         fact          = COALESCE($14::integer, fact),
         overdue_days  = COALESCE($15::integer, overdue_days),
-        contractor    = COALESCE($16, contractor),
+        contractor    = CASE WHEN $53::boolean THEN $16 ELSE contractor END,
         in_order      = COALESCE($17::integer, in_order),
         amount        = COALESCE($18::numeric, amount),
         distance_km   = COALESCE($19::numeric, distance_km),
@@ -357,6 +421,7 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
         id_link               = COALESCE($38, id_link),
         stage_due             = $39,
         macro_status          = COALESCE($40, macro_status),
+        stage_num             = CASE WHEN $51::boolean THEN $52::integer ELSE stage_num END,
         active_processes      = COALESCE($41::jsonb, active_processes),
         customer_id           = COALESCE($42::integer, customer_id),
         contract_id           = CASE WHEN $46::boolean THEN $43::integer ELSE contract_id END,
@@ -364,6 +429,11 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
         raw_data              = COALESCE($45::jsonb, raw_data),
         own_company_id        = CASE WHEN $47::boolean THEN $48::integer ELSE own_company_id END,
         contract_agreement_id = CASE WHEN $49::boolean THEN $50::integer ELSE contract_agreement_id END,
+        data_vyhoda           = CASE WHEN $54::boolean THEN $55::date ELSE data_vyhoda END,
+        status_smr            = COALESCE($56, status_smr),
+        obsledovanie          = COALESCE($57, obsledovanie),
+        dostup                = COALESCE($58, dostup),
+        priemka               = COALESCE($59, priemka),
         version               = version + 1,
         updated_at    = NOW()
       WHERE id = $1
@@ -383,7 +453,7 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       d.techLink    || null,
       d.fact        !== undefined && d.fact !== null ? Math.max(0, Number(d.fact) || 0) : null,
       d.overdueDays !== undefined && d.overdueDays !== null ? Math.max(0, Number(d.overdueDays) || 0) : null,
-      d.contractor  !== undefined ? d.contractor          : null,
+      cleanContractor,
       d.inOrder     !== undefined && d.inOrder !== null ? Math.max(0, Number(d.inOrder) || 0) : null,
       d.amount      !== undefined && d.amount !== null ? Math.max(0, Number(d.amount) || 0) : null,
       d.distanceKm  !== undefined && d.distanceKm !== null ? Math.max(0, Number(d.distanceKm) || 0) : null,
@@ -407,7 +477,7 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       d.materialsLink || null,
       d.idLink || null,
       safeDate(d.stageDue),
-      d.macroStatus || null,
+      targetMacroStatus,
       d.activeProcesses ? JSON.stringify(d.activeProcesses) : null,
       d.customerId ? Number(d.customerId) : null,
       (d.contract_id || d.contractId) ? Number(d.contract_id || d.contractId) : null,
@@ -417,8 +487,64 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       (d.own_company_id !== undefined || d.ownCompanyId !== undefined),
       (d.own_company_id || d.ownCompanyId) ? Number(d.own_company_id || d.ownCompanyId) : null,
       (d.contract_agreement_id !== undefined || d.contractAgreementId !== undefined),
-      (d.contract_agreement_id || d.contractAgreementId) ? Number(d.contract_agreement_id || d.contractAgreementId) : null
+      (d.contract_agreement_id || d.contractAgreementId) ? Number(d.contract_agreement_id || d.contractAgreementId) : null,
+      hasStageNum,
+      targetStageNum,
+      hasContractor,
+      (d.dataVyhoda !== undefined || d.data_vyhoda !== undefined),
+      safeDate(d.dataVyhoda || d.data_vyhoda),
+      d.statusSmr || d.status_smr || null,
+      d.obsledovanie !== undefined ? d.obsledovanie : null,
+      d.dostup !== undefined ? d.dostup : null,
+      d.priemka !== undefined ? d.priemka : null
     ]);
+
+    // Синхронизация с таблицей contractor_subcontracts при смене или снятии подрядчика
+    if (hasContractor) {
+      if (cleanContractor) {
+        try {
+          const { rows: cRows } = await pool.query(
+            'SELECT id, inn, phone FROM contractors WHERE LOWER(TRIM(name_short)) = LOWER($1) OR LOWER(TRIM(name_full)) = LOWER($1) LIMIT 1',
+            [cleanContractor]
+          );
+          const cObj = cRows[0] || null;
+          const cId = cObj ? cObj.id : null;
+          const cInn = cObj ? cObj.inn : null;
+
+          const { rows: existingSubs } = await pool.query(
+            'SELECT id FROM contractor_subcontracts WHERE task_id = $1 ORDER BY id DESC LIMIT 1',
+            [req.params.id]
+          );
+
+          if (existingSubs.length > 0) {
+            await pool.query(
+              `UPDATE contractor_subcontracts 
+               SET contractor_name = $1, contractor_id = $2, contractor_inn = $3, status = 'active', updated_at = NOW() 
+               WHERE id = $4`,
+              [cleanContractor, cId, cInn, existingSubs[0].id]
+            );
+          } else {
+            await pool.query(
+              `INSERT INTO contractor_subcontracts (task_id, contractor_id, contractor_name, contractor_inn, work_type, status)
+               VALUES ($1, $2, $3, $4, 'Монтаж СКС', 'active')`,
+              [req.params.id, cId, cleanContractor, cInn]
+            );
+          }
+        } catch(subErr) {
+          console.error('Error auto-syncing contractor subcontract:', subErr.message);
+        }
+      } else {
+        // Подрядчик снят с заявки
+        try {
+          await pool.query(
+            `UPDATE contractor_subcontracts SET status = 'cancelled', updated_at = NOW() WHERE task_id = $1`,
+            [req.params.id]
+          );
+        } catch(subErr) {
+          console.error('Error cancelling subcontract on contractor removal:', subErr.message);
+        }
+      }
+    }
 
     // --- УВЕДОМЛЕНИЯ И EMAIL ДЛЯ ИСПОЛНИТЕЛЯ ---
     if (d.assignee) {
@@ -457,7 +583,7 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
     }
 
     // --- АВТОСИНХРОНИЗАЦИЯ СУБПОДРЯДОВ ПРИ НАЗНАЧЕНИИ ПОДРЯДЧИКА ---
-    if (d.contractor) {
+    if (d.contractor !== undefined) {
       syncSingleTaskSubcontract(pool, req.params.id).catch(err => {
         console.error('Auto-sync subcontract error:', err.message);
       });
@@ -1283,14 +1409,15 @@ router.get('/export/:type/:id', authenticateToken, async (req, res) => {
     const task = rowToTask(rows[0]);
     const type = req.params.type;
     const { contractorId, contractorName } = req.query || {};
+    const targetContractor = (contractorName && contractorName.trim()) || (task.contractor && task.contractor.trim()) || null;
 
     let wb, suffix;
     if (type === 'invoice') {
-      wb = buildInvoice(task);
-      suffix = '_Счёт';
+      wb = buildInvoice(task, targetContractor);
+      suffix = targetContractor ? `_Счёт_${targetContractor}` : '_Счёт';
     } else if (type === 'act') {
-      wb = buildAct(task);
-      suffix = '_Акт';
+      wb = buildAct(task, targetContractor);
+      suffix = targetContractor ? `_Акт_${targetContractor}` : '_Акт';
     } else {
       // Приложение №2: ищем позиции task_items
       let itemsQuery = 'SELECT * FROM task_items WHERE task_id = $1';
@@ -1298,14 +1425,14 @@ router.get('/export/:type/:id', authenticateToken, async (req, res) => {
       if (contractorId) {
         itemsQuery += ' AND contractor_id = $2';
         params.push(contractorId);
-      } else if (contractorName) {
-        itemsQuery += ' AND LOWER(contractor_name) = LOWER($2)';
-        params.push(contractorName);
+      } else if (targetContractor) {
+        itemsQuery += ' AND (LOWER(TRIM(contractor_name)) = LOWER(TRIM($2)) OR contractor_name IS NULL)';
+        params.push(targetContractor);
       }
       itemsQuery += ' ORDER BY id ASC';
       const itemsRes = await pool.query(itemsQuery, params);
-      wb = buildApp2(task, contractorName || null, itemsRes.rows);
-      suffix = contractorName ? `_Приложение_2_${contractorName}` : '_Приложение_2';
+      wb = buildApp2(task, targetContractor, itemsRes.rows);
+      suffix = targetContractor ? `_Приложение_2_${targetContractor}` : '_Приложение_2';
     }
     const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
     const filename = (task.id + suffix + '.xlsx').replace(/[/\\?%*:|"<>]/g, '-');

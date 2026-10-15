@@ -79,7 +79,7 @@
       worksAmount += cCfg.price;
     }
 
-    // Транспортные расходы: выезд свыше 10 км
+    // Транспортные расходы
     if (distanceKm > 10) {
       var billableKm = Math.round(distanceKm - 10);
       var kmTariff = 12; // 12 ₽/км по прайсу из ТЗ
@@ -92,6 +92,15 @@
         sum: kmSum
       });
       transportAmount += kmSum;
+    } else if (distanceKm > 0) {
+      lines.push({
+        name: 'Выезд внутри города (<10 км)',
+        qty: 1,
+        unit: 'выезд',
+        price: 300,
+        sum: 300
+      });
+      transportAmount += 300;
     }
 
     return {
@@ -127,6 +136,8 @@
   window.exportDoc = function(type, taskId, contrName) {
     var curSub = (window._curCardSubcontracts || [])[0] || null;
     var subId = curSub ? curSub.id : null;
+    var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+    var targetContr = (contrName && contrName.trim()) || (t.contractor && t.contractor.trim()) || (curSub && curSub.contractor_name) || '';
     var docTypeMap = {
       app2: 'order_subcontract',
       act: 'act',
@@ -137,16 +148,18 @@
     api('/tasks/' + encodeURIComponent(taskId) + '/documents/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ doc_type: dt, subcontract_id: subId })
+      body: JSON.stringify({ doc_type: dt, subcontract_id: subId, contractor_name: targetContr || undefined })
     }).then(function(res) {
       if (res && res.download_url) {
         window.open(res.download_url, '_blank');
         showToast('Документ сформирован!', 'success');
       } else {
-        showToast('Документ сформирован успешно', 'success');
+        var url = '/api/export/' + type + '/' + encodeURIComponent(taskId) + (targetContr ? ('?contractorName=' + encodeURIComponent(targetContr)) : '');
+        window.open(url, '_blank');
       }
-    }).catch(function(err) {
-      alert('Ошибка генерации документа: ' + err.message);
+    }).catch(function() {
+      var url = '/api/export/' + type + '/' + encodeURIComponent(taskId) + (targetContr ? ('?contractorName=' + encodeURIComponent(targetContr)) : '');
+      window.open(url, '_blank');
     });
   };
 
@@ -156,15 +169,37 @@
     if (old) old.remove();
 
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
-    var cName = contrName || t.contractor || '';
+    var cName = (contrName && contrName.trim()) || (t.contractor && t.contractor.trim()) || (S.cardDraft && S.cardDraft.contractor ? S.cardDraft.contractor.trim() : '');
     if (!cName) {
       alert('Сначала назначьте исполнителя СМР!');
       return;
     }
 
-    var cObj = (S.contractors || []).find(function(c){ return c.name_short === cName; });
+    var cObj = (S.contractors || []).find(function(c){
+      if (!c) return false;
+      var cShort = (c.name_short || '').trim().toLowerCase();
+      var cFull = (c.name_full || '').trim().toLowerCase();
+      var cNameLower = cName.trim().toLowerCase();
+      return cShort === cNameLower || cFull === cNameLower || cShort.includes(cNameLower) || cNameLower.includes(cShort);
+    });
     if (!cObj) {
-      alert('Подрядчик не найден в базе контрагентов: ' + cName);
+      var modal = document.createElement('div');
+      modal.id = '_contr_contracts_modal';
+      modal.className = 'modal-overlay';
+      modal.innerHTML = '<div class="modal-box" style="max-width:520px;width:95%">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;border-bottom:1.5px solid var(--border);padding-bottom:.75rem">' +
+          '<h3 style="margin:0;font-size:1.1rem">📑 Договор с подрядчиком</h3>' +
+          '<button class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_contr_contracts_modal\').remove()">✕</button>' +
+        '</div>' +
+        '<div style="padding:10px 0;font-size:.88rem;color:var(--text)">' +
+          'Исполнитель <b>' + escHtml(cName) + '</b> назначен на заявку. Зарегистрировать договор и привязать прайс-лист можно в мастере поручения.' +
+        '</div>' +
+        '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;border-top:1px solid var(--border);padding-top:10px">' +
+          '<button type="button" class="btn btn-ghost" onclick="document.getElementById(\'_contr_contracts_modal\').remove()">Закрыть</button>' +
+          '<button type="button" class="btn btn-primary" onclick="document.getElementById(\'_contr_contracts_modal\').remove();openSubcontractWizardModal(\'' + escHtml(taskId) + '\')">🪄 Настроить в мастере</button>' +
+        '</div>' +
+      '</div>';
+      document.body.appendChild(modal);
       return;
     }
 
@@ -264,19 +299,21 @@
     window.renderCardSmrCalculator(taskId);
   };
 
-  // Методы управления третьими лицами (бурильщики, спецтехника, вышка)
+  // Методы управления дополнительными расходами по объекту (проезд, проживание, бурильщики, спецтехника, инструмент)
   window._addThirdPartyLine = function(taskId, presetKey) {
     window._taskThirdPartySpec = window._taskThirdPartySpec || {};
     if (!window._taskThirdPartySpec[taskId]) window._taskThirdPartySpec[taskId] = [];
 
     var presets = {
+      travel: { name: 'Проезд / ГСМ / Транспортные расходы', performer: 'Транспортная компания / ГСМ', contract_info: 'Чеки / путевые', payment_type: 'through_contractor', amount: 5000 },
+      hotel: { name: 'Проживание в гостинице / найм жилья', performer: 'Гостиница / наймодатель', contract_info: 'Квитанции', payment_type: 'through_contractor', amount: 7500 },
       driller: { name: 'Алмазное бурение технологических отверстий', performer: 'Специалист по бурению', contract_info: 'Договор / чек', payment_type: 'through_contractor', amount: 22000 },
       lift: { name: 'Аренда автовышки с машинистом', performer: 'Оператор спецтехники', contract_info: 'Договор аренды', payment_type: 'direct', amount: 15000 },
-      scaffold: { name: 'Аренда строительных лесов', performer: 'Поставщик оборудования', contract_info: 'Счет-договор', payment_type: 'direct', amount: 8000 },
-      custom: { name: 'Специализированные работы третьего лица', performer: 'Субподрядчик', contract_info: 'Договор / чек', payment_type: 'through_contractor', amount: 10000 }
+      tools: { name: 'Аренда специнструмента / расходники', performer: 'Поставщик / Аренда', contract_info: 'Чек / накладная', payment_type: 'through_contractor', amount: 3000 },
+      custom: { name: 'Дополнительные расходы по объекту', performer: 'Исполнитель / Поставщик', contract_info: 'Договор / чек', payment_type: 'through_contractor', amount: 5000 }
     };
 
-    var item = presets[presetKey] || presets.driller;
+    var item = presets[presetKey] || presets.custom;
     window._taskThirdPartySpec[taskId].push(JSON.parse(JSON.stringify(item)));
     window._renderCardSmrTable(taskId);
   };
@@ -315,16 +352,23 @@
       (t.contractor && String(t.contractor).trim().length > 0)
     );
 
-    var curSub = (window._curCardSubcontracts || [])[0] || null;
-    var contrName = (curSub && curSub.contractor_name) || t.contractor || '';
-    var contrObj = contrName ? (S.contractors || []).find(function(c){ return c.name_short === contrName; }) : null;
+    var curSub = (window._curCardSubcontracts || []).find(function(s){ return String(s.task_id) === String(taskId); }) || null;
+    var taskContr = (t.contractor && t.contractor.trim()) || (S.cardDraft && S.cardDraft.contractor ? S.cardDraft.contractor.trim() : '');
+    var contrName = taskContr || (curSub && curSub.contractor_name) || '';
+    var contrObj = contrName ? (S.contractors || []).find(function(c){
+      if (!c) return false;
+      var cShort = (c.name_short || '').trim().toLowerCase();
+      var cFull = (c.name_full || '').trim().toLowerCase();
+      var cTarget = contrName.trim().toLowerCase();
+      return cShort === cTarget || cFull === cTarget || cShort.includes(cTarget) || cTarget.includes(cShort);
+    }) : null;
 
     // Инициализация спецификации СМР (одна работа = одна строка)
     if (!window._taskSmrSpec[taskId]) {
       if (curSub && curSub.calculation_details && Array.isArray(curSub.calculation_details.lines) && curSub.calculation_details.lines.length) {
         window._taskSmrSpec[taskId] = JSON.parse(JSON.stringify(curSub.calculation_details.lines));
       } else {
-        var defaultPorts = parseInt(t.fact || t.in_order || 1, 10) || 1;
+        var defaultPorts = parseInt(t.fact || t.in_order || t.inOrder || 1, 10) || 1;
         var isSber = (t.customer || '').toLowerCase().includes('сбер') || (t.id && String(t.id).includes('СЗБ'));
         var pPrice = defaultPorts > 3 ? 2500 : 3000;
         var defaultLineName = isSber
@@ -340,7 +384,7 @@
             sum: defaultPorts * pPrice
           }
         ];
-        var km = parseFloat(t.distance_km || 0);
+        var km = parseFloat(t.distance_km || t.distanceKm || 0);
         if (km > 10) {
           var billableKm = Math.round(km - 10);
           specLines.push({
@@ -350,12 +394,20 @@
             price: 12,
             sum: billableKm * 12
           });
+        } else if (km > 0) {
+          specLines.push({
+            name: 'Выезд внутри города (<10 км)',
+            qty: 1,
+            unit: 'выезд',
+            price: 300,
+            sum: 300
+          });
         }
         window._taskSmrSpec[taskId] = specLines;
       }
     }
 
-    // Инициализация спецификации третьих лиц (бурильщики, спецтехника)
+    // Инициализация спецификации дополнительных расходов (бурильщики, проживание, спецтехника)
     if (!window._taskThirdPartySpec[taskId]) {
       if (curSub && curSub.calculation_details && Array.isArray(curSub.calculation_details.third_party_lines)) {
         window._taskThirdPartySpec[taskId] = JSON.parse(JSON.stringify(curSub.calculation_details.third_party_lines));
@@ -438,6 +490,7 @@
             '<button type="button" class="btn btn-sm btn-ghost" onclick="window.openContractorContractPickerModal(\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')" style="font-size:.75rem;color:var(--blue);font-weight:700" title="Сменить договор с юрлицом (К10 / КС) и применить прайс-лист">📑 Сменить договор/прайс</button>' +
             '<button type="button" class="btn btn-sm btn-ghost" onclick="openContractorPicker(\'' + escHtml(taskId) + '\')" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : '') + ' style="font-size:.75rem">🔍 Сменить исполнителя</button>' +
             '<button type="button" class="btn btn-sm btn-primary" onclick="openSubcontractWizardModal(\'' + escHtml(taskId) + '\')" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : '') + ' style="font-size:.75rem">🪄 Мастер поручения</button>' +
+            '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red);border:1px solid #fca5a5;font-size:.75rem" onclick="if(window.removeContractorFromTask)window.removeContractorFromTask(\'' + escHtml(taskId) + '\')">❌ Убрать подрядчика</button>' +
           '</div>' +
         '</div>' +
         '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid #e2e8f0">' +
@@ -451,7 +504,7 @@
       '<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:8px;padding:12px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">' +
         '<div>' +
           '<div style="font-weight:700;color:#92400e;font-size:.9rem">Исполнитель СМР еще не назначен</div>' +
-          '<div style="font-size:.78rem;color:#b45309;margin-top:2px">' + (!isAccepted ? 'Назначение подрядчика станет доступно после входного контроля заявки' : 'Назначьте субподрядчика для расчета сметы и формирования заказ-наряда') + '</div>' +
+          '<div style="font-size:.78rem;color:#b45309;margin-top:2px">' + (!isAccepted ? 'Назначение подрядчика станет доступно после входного контроля заявки' : 'Назначьте подрядчика для расчета сметы и формирования заказ-наряда') + '</div>' +
         '</div>' +
         '<button type="button" class="btn btn-sm btn-primary" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="openSubcontractWizardModal(\'' + escHtml(taskId) + '\')"') + '>+ Назначить исполнителя</button>' +
       '</div>'
@@ -502,8 +555,8 @@
 
     var curOwnId = t.own_company_id || (t.customer && t.customer.toLowerCase().includes('сбер') ? 2 : 1);
     var ownList = S.ownCompanies || [];
-    var curSub = (window._curCardSubcontracts || [])[0] || null;
-    var contrName = (curSub && curSub.contractor_name) || t.contractor || '';
+    var curSub = (window._curCardSubcontracts || []).find(function(s){ return String(s.task_id) === String(taskId); }) || null;
+    var contrName = (t.contractor && t.contractor.trim()) || (curSub && curSub.contractor_name) || '';
 
     var totalSubAmount = 0;
     var rowsHtml = spec.map(function(l, idx) {
@@ -511,8 +564,12 @@
       totalSubAmount += rowSum;
       return '<tr style="border-bottom:1px solid var(--border);font-size:.82rem">' +
         '<td style="padding:6px 8px;font-weight:600;color:var(--text-3);text-align:center">' + (idx + 1) + '</td>' +
-        '<td style="padding:6px 8px;font-weight:600;color:var(--text)">' + escHtml(l.name) + '</td>' +
-        '<td style="padding:6px 8px;text-align:center;color:var(--text-2)">' + escHtml(l.unit || 'шт') + '</td>' +
+        '<td style="padding:6px 8px">' +
+          '<input type="text" value="' + escHtml(l.name || '') + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:100%;min-width:240px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;font-weight:600;font-size:.82rem" placeholder="Наименование работы / позиции" oninput="window._updateCardSmrLine(\'' + escHtml(taskId) + '\', ' + idx + ', \'name\', this.value)">' +
+        '</td>' +
+        '<td style="padding:6px 8px;text-align:center;color:var(--text-2)">' +
+          '<input type="text" value="' + escHtml(l.unit || 'шт') + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:48px;padding:3px 4px;border:1px solid var(--border);border-radius:4px;text-align:center;font-size:.8rem" oninput="window._updateCardSmrLine(\'' + escHtml(taskId) + '\', ' + idx + ', \'unit\', this.value)">' +
+        '</td>' +
         '<td style="padding:6px 8px;text-align:center">' +
           '<input type="number" min="0" step="any" value="' + l.qty + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:65px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:center;font-weight:700" oninput="window._updateCardSmrLine(\'' + escHtml(taskId) + '\', ' + idx + ', \'qty\', this.value)">' +
         '</td>' +
@@ -530,7 +587,7 @@
       rowsHtml = '<tr><td colspan="7" style="padding:14px;text-align:center;color:var(--text-3);font-size:.82rem">Спецификация пуста. Нажмите «+ Добавить позицию из прайса» ниже.</td></tr>';
     }
 
-    // Таблица третьих лиц / субсубподрядчиков (бурильщики, вышка, техника)
+    // Таблица дополнительных расходов по объекту (проезд, проживание, бурение, вышка, инструмент, расходники)
     var totalThirdPartyAmount = 0;
     var thirdPartyDirectSum = 0;
     var tpRowsHtml = thirdParty.map(function(tp, tpIdx) {
@@ -542,32 +599,32 @@
       return '<tr style="border-bottom:1px solid #e9d5ff;font-size:.82rem">' +
         '<td style="padding:6px 8px;font-weight:600;color:#7e22ce;text-align:center">' + (tpIdx + 1) + '</td>' +
         '<td style="padding:6px 8px">' +
-          '<input type="text" value="' + escHtml(tp.name || '') + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:100%;padding:3px 6px;border:1px solid #d8b4fe;border-radius:4px;font-weight:600;font-size:.8rem" placeholder="Вид работы (напр. Алмазное бурение)" oninput="window._updateThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ', \'name\', this.value)">' +
+          '<input type="text" value="' + escHtml(tp.name || '') + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:100%;padding:3px 6px;border:1px solid #d8b4fe;border-radius:4px;font-weight:600;font-size:.8rem" placeholder="Статья расхода (проезд, проживание...)" oninput="window._updateThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ', \'name\', this.value)">' +
         '</td>' +
         '<td style="padding:6px 8px">' +
-          '<input type="text" value="' + escHtml(tp.performer || '') + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:100%;padding:3px 6px;border:1px solid #d8b4fe;border-radius:4px;font-size:.8rem" placeholder="Исполнитель / Бурильщик" oninput="window._updateThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ', \'performer\', this.value)">' +
+          '<input type="text" value="' + escHtml(tp.performer || '') + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:100%;padding:3px 6px;border:1px solid #d8b4fe;border-radius:4px;font-size:.8rem" placeholder="Получатель / Исполнитель" oninput="window._updateThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ', \'performer\', this.value)">' +
         '</td>' +
         '<td style="padding:6px 8px;text-align:center">' +
           '<select ' + (!isAccepted ? 'disabled ' : '') + 'style="padding:3px 6px;border:1px solid #d8b4fe;border-radius:4px;font-size:.76rem;background:#fff" onchange="window._updateThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ', \'payment_type\', this.value)">' +
-            '<option value="through_contractor"' + (!isDirect ? ' selected' : '') + '>Через подрядчика СМР</option>' +
-            '<option value="direct"' + (isDirect ? ' selected' : '') + '>Прямой расчет от Нас (К10/КС)</option>' +
+            '<option value="through_contractor"' + (!isDirect ? ' selected' : '') + '>Подрядчик СМР (в смете)</option>' +
+            '<option value="direct"' + (isDirect ? ' selected' : '') + '>Генподрядчик напрямую («Мы»)</option>' +
           '</select>' +
         '</td>' +
         '<td style="padding:6px 8px;text-align:right">' +
           '<input type="number" min="0" step="any" value="' + (tp.amount || 0) + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:90px;padding:3px 6px;border:1px solid #d8b4fe;border-radius:4px;text-align:right;font-weight:700;color:#581c87" oninput="window._updateThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ', \'amount\', this.value)">' +
         '</td>' +
         '<td style="padding:6px 8px;text-align:center">' +
-          (!isAccepted ? '' : ('<button type="button" class="btn btn-sm btn-ghost" onclick="window._removeThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ')" style="padding:1px 6px;color:var(--red);font-size:.8rem" title="Удалить привлеченного специалиста">✕</button>')) +
+          (!isAccepted ? '' : ('<button type="button" class="btn btn-sm btn-ghost" onclick="window._removeThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ')" style="padding:1px 6px;color:var(--red);font-size:.8rem" title="Удалить расход">✕</button>')) +
         '</td>' +
       '</tr>';
     }).join('');
 
     if (!thirdParty.length) {
-      tpRowsHtml = '<tr><td colspan="6" style="padding:10px;text-align:center;color:#7e22ce;font-size:.78rem">Привлеченных третьих лиц (бурильщики, спецтехника) нет. Нажмите «+ Добавить бурильщика / третье лицо» при необходимости.</td></tr>';
+      tpRowsHtml = '<tr><td colspan="6" style="padding:10px;text-align:center;color:#7e22ce;font-size:.78rem">Дополнительных расходов по объекту нет. Нажмите кнопки ниже для добавления проезда, проживания, бурения или спецтехники.</td></tr>';
     }
 
-    // Расчет финансового баланса по строгим правилам Алексея:
-    // Заказчик (платят нам) → Расход: Подрядчик (СМР) → Расход: Субподрядчики 3-х лиц → Нам (Маржа)
+    // Расчет финансового баланса по правилам Алексея:
+    // Заказчик (платят нам) → Расход: Подрядчик (СМР) → Расход: Доп. расходы → Нам (Операционный остаток)
     var custAmount = Number(t.amount || 0);
     var totalOutflow = totalSubAmount + totalThirdPartyAmount;
     var netMargin = custAmount > 0 ? (custAmount - totalOutflow) : 0;
@@ -608,6 +665,7 @@
         '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'port_move\')">Перемещение портов (1 500 ₽)</div>' +
         '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'tksh_reterminate\')">Перешивка портов при замене ТКШ (500 ₽/порт)</div>' +
         '<div style="font-size:.72rem;font-weight:700;color:var(--text-3);padding:4px 8px;text-transform:uppercase;border-top:1px solid #f1f5f9;margin-top:4px">Транспортные и командировочные (по договору)</div>' +
+        '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'travel_city\')">🚗 Выезд внутри города (<10 км) (300 ₽)</div>' +
         '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'travel_km\')">🚗 Проезд авто свыше 10 км (12 ₽/км)</div>' +
         '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'travel_daily\')">🥪 Оплата суточных монтажника (700 ₽/день)</div>' +
         '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', \'travel_hotel\')">🏨 Проживание в гостинице / найм жилья (2 500 ₽/сут)</div>' +
@@ -645,24 +703,36 @@
       '</div>' +
     '</div>' +
 
-    // Блок привлеченных третьих лиц (бурильщики, спецтехника)
+    // Блок дополнительных расходов по объекту (проезд, проживание, бурильщики, вышка, инструмент)
     '<div style="border:1.5px solid #e9d5ff;border-radius:8px;background:#faf5ff;padding:12px;margin-bottom:14px">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">' +
         '<div>' +
           '<div style="font-weight:700;font-size:.88rem;color:#581c87;display:flex;align-items:center;gap:6px">' +
-            '<span>🚜 Дополнительные работы третьих лиц / субподрядчиков (бурильщики, спецтехника)</span>' +
-            '<span class="badge" style="background:#f3e8ff;color:#7e22ce;border:1px solid #d8b4fe;font-size:.7rem">Субсубподряд</span>' +
+            '<span>🚜 Дополнительные расходы по объекту (проезд, проживание, спецтехника, инструмент)</span>' +
+            '<span class="badge" style="background:#f3e8ff;color:#7e22ce;border:1px solid #d8b4fe;font-size:.7rem">Доп. расходы</span>' +
           '</div>' +
           '<div style="font-size:.76rem;color:#6b21a8;margin-top:2px">' +
-            'Привлечение алмазного бурения, автовышки или подрядчиков третьих лиц. Расчеты ведутся отдельно: напрямую или через исполнителя СМР.' +
+            'Затраты на проезд, проживание, алмазное бурение или автовышку. Укажите плательщика: генподрядчик напрямую («Мы») или через подрядчика СМР.' +
           '</div>' +
         '</div>' +
-        '<div style="display:flex;gap:6px;align-items:center">' +
-          '<button type="button" class="btn btn-sm btn-ghost" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="window._addThirdPartyLine(\'' + escHtml(taskId) + '\', \'driller\')"') + ' style="color:#6b21a8;border:1px solid #d8b4fe;font-size:.76rem;font-weight:700">' +
-            '+ Бурильщик (22 000 ₽)' +
+        '<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center">' +
+          '<button type="button" class="btn btn-sm btn-ghost" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="window._addThirdPartyLine(\'' + escHtml(taskId) + '\', \'travel\')"') + ' style="color:#6b21a8;border:1px solid #d8b4fe;font-size:.74rem">' +
+            '+ Проезд / ГСМ' +
           '</button>' +
-          '<button type="button" class="btn btn-sm btn-ghost" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="window._addThirdPartyLine(\'' + escHtml(taskId) + '\', \'custom\')"') + ' style="color:#6b21a8;border:1px solid #d8b4fe;font-size:.76rem">' +
-            '+ Другое 3-е лицо' +
+          '<button type="button" class="btn btn-sm btn-ghost" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="window._addThirdPartyLine(\'' + escHtml(taskId) + '\', \'hotel\')"') + ' style="color:#6b21a8;border:1px solid #d8b4fe;font-size:.74rem">' +
+            '+ Проживание' +
+          '</button>' +
+          '<button type="button" class="btn btn-sm btn-ghost" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="window._addThirdPartyLine(\'' + escHtml(taskId) + '\', \'driller\')"') + ' style="color:#6b21a8;border:1px solid #d8b4fe;font-size:.74rem;font-weight:700">' +
+            '+ Алмазное бурение (22 000 ₽)' +
+          '</button>' +
+          '<button type="button" class="btn btn-sm btn-ghost" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="window._addThirdPartyLine(\'' + escHtml(taskId) + '\', \'lift\')"') + ' style="color:#6b21a8;border:1px solid #d8b4fe;font-size:.74rem">' +
+            '+ Автовышка' +
+          '</button>' +
+          '<button type="button" class="btn btn-sm btn-ghost" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="window._addThirdPartyLine(\'' + escHtml(taskId) + '\', \'tools\')"') + ' style="color:#6b21a8;border:1px solid #d8b4fe;font-size:.74rem">' +
+            '+ Инструмент' +
+          '</button>' +
+          '<button type="button" class="btn btn-sm btn-ghost" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="window._addThirdPartyLine(\'' + escHtml(taskId) + '\', \'custom\')"') + ' style="color:#6b21a8;border:1px solid #d8b4fe;font-size:.74rem">' +
+            '+ Произвольный' +
           '</button>' +
         '</div>' +
       '</div>' +
@@ -670,9 +740,9 @@
         '<table style="width:100%;border-collapse:collapse;text-align:left">' +
           '<thead><tr style="background:#f5f3ff;font-size:.75rem;color:#6b21a8;border-bottom:1px solid #e9d5ff">' +
             '<th style="padding:6px 8px;width:30px;text-align:center">№</th>' +
-            '<th style="padding:6px 8px">Вид работы / Услуга</th>' +
-            '<th style="padding:6px 8px">Привлеченный исполнитель</th>' +
-            '<th style="padding:6px 8px;text-align:center;width:170px">Форма расчета</th>' +
+            '<th style="padding:6px 8px">Статья расхода</th>' +
+            '<th style="padding:6px 8px">Получатель / Исполнитель</th>' +
+            '<th style="padding:6px 8px;text-align:center;width:180px">Плательщик</th>' +
             '<th style="padding:6px 8px;text-align:right;width:105px">Сумма (₽)</th>' +
             '<th style="padding:6px 8px;text-align:center;width:35px"></th>' +
           '</tr></thead>' +
@@ -681,10 +751,10 @@
       '</div>' +
     '</div>' +
 
-    // Финансовый баланс по заявке (строгая терминология Алексея: Заказчик → Мы → Подрядчик)
+    // Финансовый баланс по заявке (терминология: Заказчик → Генподрядчик («Мы») → Подрядчик СМР + Доп. расходы)
     '<div style="background:#f8fafc;border:1.5px solid var(--border);border-radius:8px;padding:12px 16px">' +
       '<div style="font-size:.74rem;font-weight:700;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">' +
-        '📊 Финансовый баланс по объекту (Заказчик → Мы → Подрядчики):' +
+        '📊 Финансовый баланс по объекту (Заказчик → Мы → Подрядчик / Расходы):' +
       '</div>' +
       '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:10px;margin-bottom:12px">' +
         '<div style="background:#fff;border:1.5px solid var(--border);border-radius:6px;padding:8px 12px">' +
@@ -698,12 +768,12 @@
           '<div style="font-size:.7rem;color:var(--text-2);margin-top:1px">' + escHtml(contrName || 'Исполнитель СМР') + '</div>' +
         '</div>' +
         '<div style="background:#fff;border:1.5px solid var(--border);border-radius:6px;padding:8px 12px">' +
-          '<div style="font-size:.72rem;color:#6b21a8;font-weight:600">📤 РАСХОД: СУБПОДРЯДЧИКИ 3-Х ЛИЦ</div>' +
+          '<div style="font-size:.72rem;color:#6b21a8;font-weight:600">📤 ДОП. РАСХОДЫ ПО ОБЪЕКТУ</div>' +
           '<div style="font-size:1.1rem;font-weight:800;color:#6b21a8;margin-top:2px">' + fmtMoney(totalThirdPartyAmount) + '</div>' +
           '<div style="font-size:.7rem;color:var(--text-2);margin-top:1px">' + escHtml(thirdPartyPaymentNote) + '</div>' +
         '</div>' +
         '<div style="background:' + (netMargin >= 0 ? '#f0fdf4' : '#fef2f2') + ';border:1.5px solid ' + (netMargin >= 0 ? '#86efac' : '#fca5a5') + ';border-radius:6px;padding:8px 12px">' +
-          '<div style="font-size:.72rem;color:' + (netMargin >= 0 ? '#166534' : '#991b1b') + ';font-weight:700">💰 ОСТАЕТСЯ НАМ (МАРЖА КОМПАНИИ)</div>' +
+          '<div style="font-size:.72rem;color:' + (netMargin >= 0 ? '#166534' : '#991b1b') + ';font-weight:700">💰 ОПЕРАЦИОННЫЙ ОСТАТОК (ДО ВЫЧЕТА ТМЦ)</div>' +
           '<div style="font-size:1.15rem;font-weight:900;color:' + (netMargin >= 0 ? '#16a34a' : '#dc2626') + ';margin-top:2px">' + fmtMoney(netMargin) + ' <span style="font-size:.8rem;font-weight:700">(' + netMarginPct + '%)</span></div>' +
           '<div style="font-size:.7rem;color:' + (netMargin >= 0 ? '#15803d' : '#b91c1c') + ';margin-top:1px">' + escHtml(curOwnName) + '</div>' +
         '</div>' +
@@ -726,11 +796,17 @@
     if (!spec || !spec[idx]) return;
     if (field === 'qty') {
       spec[idx].qty = Math.max(0, parseFloat(val) || 0);
+      spec[idx].sum = Math.round(spec[idx].qty * spec[idx].price);
+      window._renderCardSmrTable(taskId);
     } else if (field === 'price') {
       spec[idx].price = Math.max(0, parseFloat(val) || 0);
+      spec[idx].sum = Math.round(spec[idx].qty * spec[idx].price);
+      window._renderCardSmrTable(taskId);
+    } else if (field === 'name') {
+      spec[idx].name = String(val || '');
+    } else if (field === 'unit') {
+      spec[idx].unit = String(val || '');
     }
-    spec[idx].sum = Math.round(spec[idx].qty * spec[idx].price);
-    window._renderCardSmrTable(taskId);
   };
 
   window._removeCardSmrLine = function(taskId, idx) {
@@ -768,6 +844,7 @@
       patch_panel: { name: 'Монтаж и расшивка патч-панели 24 порта', qty: 1, unit: 'шт', price: 2500 },
       fluke_test: { name: 'Тестирование и маркировка портов (Fluke)', qty: 10, unit: 'порт', price: 150 },
       // Транспорт и командировочные расходы (по прайсу ТЗ)
+      travel_city: { name: 'Выезд внутри города (<10 км)', qty: 1, unit: 'выезд', price: 300 },
       travel_km: { name: 'Транспортные расходы (компенсация авто свыше 10 км)', qty: Math.max(1, Math.round(parseFloat(t.distance_km || 0) > 10 ? (parseFloat(t.distance_km || 0) - 10) : 50)), unit: 'км', price: 12 },
       travel_daily: { name: 'Суточные расходы монтажника (700 ₽/день)', qty: 2, unit: 'день', price: 700 },
       travel_hotel: { name: 'Проживание в гостинице / найм жилья', qty: 2, unit: 'сут', price: 2500 },
@@ -903,7 +980,7 @@
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;border-bottom:1.5px solid var(--border);padding-bottom:.75rem">' +
         '<div>' +
           '<h3 style="margin:0;font-size:1.15rem;display:flex;align-items:center;gap:6px">' +
-            '<span>🤝 Конструктор поручения субподрядчику</span>' +
+            '<span>🤝 Конструктор поручения подрядчику</span>' +
           '</h3>' +
           '<div style="font-size:.78rem;color:var(--text-3);margin-top:2px">Заявка № <b>' + escHtml(taskId) + '</b> • ' + escHtml(t.address || t.region || '') + '</div>' +
         '</div>' +
@@ -1446,7 +1523,9 @@
       if (t) {
         t.contractor = cName;
         t.own_company_id = ownCompanyId;
-        t.amount = finalPrice;
+        t.macroStatus = 'assigned';
+        t.stageNum = 1;
+        t.stage = 'survey';
         if (!t.rawData) t.rawData = {};
         t.rawData.subRate = mRate || (ports > 0 ? Math.round(finalPrice / ports) : finalPrice);
         t.rawData.subTotal = finalPrice;

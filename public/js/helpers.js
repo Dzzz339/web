@@ -194,8 +194,8 @@ var ID_ROLES = {
 var ID_STEPS = [
   { step: 0, title: 'Монтаж начат', role: 'manager', toStage: 1, action: 'Начать монтаж' },
   { step: 1, title: 'Объект готов', role: 'manager', toStage: 2, action: 'Завершить монтаж' },
-  { step: 2, title: 'Материалы переданы', role: 'manager', toStage: 3, action: 'Передать материалы' },
-  { step: 3, title: 'Взял ИД в работу', role: 'designer', toStage: 4, action: 'Взять ИД в работу' },
+  { step: 2, title: 'Материалы переданы', role: 'manager', toStage: 3, action: 'Передать на закрытие СМР' },
+  { step: 3, title: 'Взял закрытие СМР в работу', role: 'designer', toStage: 4, action: 'Взять в работу: Закрытие СМР' },
   { step: 4, title: 'ИД готова', role: 'designer', toStage: 5, action: 'Завершить ИД' },
   { step: 5, title: 'ИД отправлена Заказчику', role: 'dispatch', toStage: 6, action: 'Отправить Заказчику' },
   { step: 6, title: 'Заказчик принял ИД', role: 'dispatch', toStage: 7, action: 'Заказчик принял ИД' },
@@ -207,7 +207,7 @@ var ID_STAGES = [
   { num: 0, name: 'Новая', icon: '📥', role: 'Специалист ТО' },
   { num: 1, name: 'В монтаже', icon: '🔧', role: 'Менеджер' },
   { num: 2, name: 'Ждёт материалов', icon: '📷', role: 'Менеджер' },
-  { num: 3, name: 'Очередь ИД', icon: '📦', role: 'Проектировщик' },
+  { num: 3, name: 'Закрытие СМР', icon: '🏁', role: 'Проектировщик' },
   { num: 4, name: 'Проектирование', icon: '📐', role: 'Проектировщик' },
   { num: 5, name: 'Готова к отправке', icon: '✉️', role: 'Отдел отправки' },
   { num: 6, name: 'Ждёт приёмки Заказчиком', icon: '⏳', role: 'Отдел отправки' },
@@ -472,6 +472,14 @@ function getTaskContractorFinance(t) {
   var customTotal = Number(raw.subTotal || raw.sub_total || t.contractor_total) || 0;
   var customDist = Number(raw.subDist || raw.sub_dist || t.contractor_transport) || 0;
   var customExtras = Number(raw.subExtras || raw.sub_extras) || 0;
+
+  if (Array.isArray(raw.extraExpensesList) && raw.extraExpensesList.length > 0) {
+    var subExps = raw.extraExpensesList.filter(function(x){ return x.payer_mode === 'through_contractor'; });
+    var expExtras = subExps.filter(function(x){ return x.category === 'dop'; }).reduce(function(a,b){ return a + (Number(b.amount)||0); }, 0);
+    var expDist = subExps.filter(function(x){ return x.category === 'transport'; }).reduce(function(a,b){ return a + (Number(b.amount)||0); }, 0);
+    if (customExtras === 0 && expExtras > 0) customExtras = expExtras;
+    if (customDist === 0 && expDist > 0) customDist = expDist;
+  }
 
   if (customRate > 0 || customTotal > 0) {
     if (customRate > 0) {

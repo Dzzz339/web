@@ -477,7 +477,10 @@ router.post('/tasks/:id/materials/calculate', authenticateToken, async (req, res
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const taskId = req.params.id;
+    // Загружаем данные задачи для точного определения объема портов
+    const { rows: tRows } = await client.query('SELECT in_order, fact, work_type FROM tasks WHERE id = $1', [taskId]);
+    const taskObj = tRows[0] || {};
+    const taskPorts = Math.max(1, parseInt(taskObj.fact, 10) || parseInt(taskObj.in_order, 10) || 1);
 
     let checklist = req.body.checklist;
     if (!checklist) {
@@ -485,7 +488,14 @@ router.post('/tasks/:id/materials/calculate', authenticateToken, async (req, res
       if (chRows.length > 0) checklist = chRows[0];
     }
     if (!checklist) {
-      checklist = { ports_install: 1, surface_type: 'Фальш-потолок(Армстронг)', ceiling_height: 2.5, socket_surface: 'в столе' };
+      checklist = { 
+        ports_install: taskPorts, 
+        surface_type: 'Фальш-потолок(Армстронг)', 
+        ceiling_height: 2.5, 
+        socket_surface: 'в столе' 
+      };
+    } else if (!checklist.ports_install && !checklist.ports_install_qty) {
+      checklist.ports_install = taskPorts;
     }
 
     const calculatedItems = calculateChecklistMaterials(checklist);
@@ -511,6 +521,37 @@ router.post('/tasks/:id/materials/calculate', authenticateToken, async (req, res
 
     await client.query('COMMIT');
     res.json({ success: true, materials: saved });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/tasks/:id/materials/save-fact
+router.post('/tasks/:id/materials/save-fact', authenticateToken, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const taskId = req.params.id;
+    const { items } = req.body;
+
+    if (Array.isArray(items)) {
+      for (const item of items) {
+        const qty = parseFloat(item.quantity);
+        if (!isNaN(qty)) {
+          await client.query(`
+            UPDATE task_materials 
+            SET fact_qty = $1 
+            WHERE task_id = $2 AND material_id = $3
+          `, [qty, taskId, item.material_id]);
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json({ success: true });
   } catch (e) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: e.message });
@@ -594,13 +635,72 @@ router.post('/tasks/:id/materials/write-off', authenticateToken, async (req, res
       `, [taskId, item.material_id, qty]);
     }
 
+    // Автоматически суммируем себестоимость списанных материалов и обновляем tasks.tmc
+    const { rows: sumRows } = await client.query(`
+      SELECT COALESCE(SUM(COALESCE(tm.fact_qty, tm.plan_qty, 0) * COALESCE(m.price_default, 0)), 0) AS total_tmc
+      FROM task_materials tm
+      JOIN materials m ON tm.material_id = m.id
+      WHERE tm.task_id = $1 AND tm.is_written_off = true
+    `, [taskId]);
+    const totalTmc = parseFloat(sumRows[0]?.total_tmc) || 0;
+    if (totalTmc > 0) {
+      await client.query('UPDATE tasks SET tmc = $1, updated_at = NOW() WHERE id = $2', [totalTmc, taskId]);
+    }
+
     await client.query('COMMIT');
-    res.json({ success: true, movement_id: movement.id, warehouse_id: warehouseId });
+    res.json({ success: true, movement_id: movement.id, warehouse_id: warehouseId, total_tmc: totalTmc });
   } catch (e) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: e.message });
   } finally {
     client.release();
+  }
+});
+
+// POST /api/tasks/:id/materials/accept-custody - электронный акцепт подотчета ТМЦ монтажником
+router.post('/tasks/:id/materials/accept-custody', authenticateToken, async (req, res) => {
+  try {
+    const taskId = req.params.id;
+    const { rows: taskRows } = await pool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
+    if (taskRows.length === 0) return res.status(404).json({ error: 'Заявка не найдена' });
+    const task = taskRows[0];
+
+    const rawData = task.raw_data || task.rawData || {};
+    const accepterName = req.user.full_name || req.user.username || task.contractor || 'Монтажник';
+    const acceptDate = new Date().toLocaleString('ru-RU');
+
+    rawData.tmcAccepted = true;
+    rawData.tmcAcceptedAt = acceptDate;
+    rawData.tmcAcceptedBy = accepterName;
+    rawData.tmcAcceptedUserId = req.user.id;
+
+    await pool.query(`
+      UPDATE tasks 
+      SET raw_data = $1, updated_at = NOW()
+      WHERE id = $2
+    `, [JSON.stringify(rawData), taskId]);
+
+    try {
+      await pool.query(`
+        INSERT INTO task_history (task_id, changed_by, changes, comment, created_at)
+        VALUES ($1, $2, $3, $4, NOW())
+      `, [
+        taskId,
+        req.user.id,
+        JSON.stringify({ tmc_custody: { accepted: true, by: accepterName, at: acceptDate } }),
+        `Электронный акцепт ТМЦ в подотчет: ${accepterName} принял материальную ответственность`
+      ]);
+    } catch (_) {}
+
+    res.json({
+      success: true,
+      tmcAccepted: true,
+      tmcAcceptedAt: acceptDate,
+      tmcAcceptedBy: accepterName
+    });
+  } catch (err) {
+    console.error('Error accepting TMC custody:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

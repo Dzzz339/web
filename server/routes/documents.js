@@ -67,17 +67,19 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
     }
     const task = taskRes.rows[0];
 
-    // Загружаем данные субподряда, если передан
+    // Загружаем данные субподряда
     let subcontract = null;
     let contractor = {};
     let generalContractor = DEFAULT_GENERAL_CONTRACTOR;
+
+    let subRes = null;
     if (subcontract_id) {
-      const subRes = await pool.query(`
+      subRes = await pool.query(`
         SELECT s.*, 
           c.name_short, c.name_full, c.inn, c.address_legal, c.director, c.phone, c.bank_name, c.bik, c.account_pay, c.account_corr,
           cc.contract_number AS linked_contract_number, cc.contract_date AS linked_contract_date, cc.title AS linked_contract_title,
           oc.id AS own_id, oc.name_short AS own_name_short, oc.name_full AS own_name_full, oc.inn AS own_inn, oc.kpp AS own_kpp,
-          oc.ogrn AS own_ogrn, oc.director AS own_director, oc.address_legal AS own_address_legal, oc.phone AS own_phone,
+          oc.ogrn AS own_ogrn, oc.director AS own_director, oc.director_title AS own_director_title, oc.address_legal AS own_address_legal, oc.phone AS own_phone,
           oc.bank_name AS own_bank_name, oc.bik AS own_bik, oc.account_pay AS own_account_pay, oc.account_corr AS own_account_corr
         FROM task_subcontracts s
         LEFT JOIN contractors c ON s.contractor_id = c.id
@@ -85,38 +87,124 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
         LEFT JOIN own_companies oc ON s.own_company_id = oc.id
         WHERE s.id = $1
       `, [subcontract_id]);
+    } else {
+      subRes = await pool.query(`
+        SELECT s.*, 
+          c.name_short, c.name_full, c.inn, c.address_legal, c.director, c.phone, c.bank_name, c.bik, c.account_pay, c.account_corr,
+          cc.contract_number AS linked_contract_number, cc.contract_date AS linked_contract_date, cc.title AS linked_contract_title,
+          oc.id AS own_id, oc.name_short AS own_name_short, oc.name_full AS own_name_full, oc.inn AS own_inn, oc.kpp AS own_kpp,
+          oc.ogrn AS own_ogrn, oc.director AS own_director, oc.director_title AS own_director_title, oc.address_legal AS own_address_legal, oc.phone AS own_phone,
+          oc.bank_name AS own_bank_name, oc.bik AS own_bik, oc.account_pay AS own_account_pay, oc.account_corr AS own_account_corr
+        FROM task_subcontracts s
+        LEFT JOIN contractors c ON s.contractor_id = c.id
+        LEFT JOIN contractor_contracts cc ON s.contractor_contract_id = cc.id
+        LEFT JOIN own_companies oc ON s.own_company_id = oc.id
+        WHERE s.task_id = $1
+        ORDER BY s.id DESC LIMIT 1
+      `, [taskId]);
+    }
 
-      if (subRes.rows.length > 0) {
-        subcontract = subRes.rows[0];
-        contractor = {
-          name_short: subcontract.name_short,
-          name_full: subcontract.name_full,
-          inn: subcontract.inn,
-          address_legal: subcontract.address_legal,
-          director: subcontract.director,
-          phone: subcontract.phone,
-          contract_number: subcontract.linked_contract_number || subcontract.contract_number,
-          contract_date: subcontract.linked_contract_date || null,
-          bank_name: subcontract.bank_name,
-          bik: subcontract.bik,
-          account_pay: subcontract.account_pay,
-          account_corr: subcontract.account_corr
+    if (subRes && subRes.rows.length > 0) {
+      subcontract = subRes.rows[0];
+      contractor = {
+        name_short: subcontract.name_short || subcontract.contractor_name,
+        name_full: subcontract.name_full,
+        inn: subcontract.inn,
+        address_legal: subcontract.address_legal,
+        director: subcontract.director,
+        phone: subcontract.phone,
+        contract_number: subcontract.linked_contract_number || subcontract.contract_number,
+        contract_date: subcontract.linked_contract_date || null,
+        bank_name: subcontract.bank_name,
+        bik: subcontract.bik,
+        account_pay: subcontract.account_pay,
+        account_corr: subcontract.account_corr
+      };
+
+      if (subcontract.own_name_full) {
+        generalContractor = {
+          name_full: subcontract.own_name_full,
+          name_short: subcontract.own_name_short,
+          inn: subcontract.own_inn,
+          kpp: subcontract.own_kpp || '',
+          ogrn: subcontract.own_ogrn || '',
+          address_legal: subcontract.own_address_legal,
+          phone: subcontract.own_phone || '',
+          director: subcontract.own_director,
+          director_title: subcontract.own_director_title || 'Директор',
+          bank_name: subcontract.own_bank_name || '',
+          bik: subcontract.own_bik || '',
+          account_pay: subcontract.own_account_pay || '',
+          account_corr: subcontract.own_account_corr || ''
         };
+      }
+    }
 
-        if (subcontract.own_name_full) {
+    // Если подрядчик все еще не найден, но указан в task.contractor:
+    if (!contractor.name_short && task.contractor) {
+      const cRes = await pool.query(`
+        SELECT * FROM contractors 
+        WHERE LOWER(TRIM(name_short)) = LOWER(TRIM($1)) OR LOWER(TRIM(name_full)) = LOWER(TRIM($1))
+        LIMIT 1
+      `, [task.contractor.trim()]);
+      if (cRes.rows.length > 0) {
+        const c = cRes.rows[0];
+        contractor = {
+          name_short: c.name_short,
+          name_full: c.name_full,
+          inn: c.inn,
+          address_legal: c.address_legal,
+          director: c.director || c.name_short,
+          phone: c.phone,
+          bank_name: c.bank_name,
+          bik: c.bik,
+          account_pay: c.account_pay,
+          account_corr: c.account_corr
+        };
+        const ccRes = await pool.query(`
+          SELECT * FROM contracts 
+          WHERE contractor_id = $1 OR contract_number ILIKE $2
+          ORDER BY id DESC LIMIT 1
+        `, [c.id, `%${c.name_short.split(' ').slice(-1)[0]}%`]);
+        if (ccRes.rows.length > 0) {
+          contractor.contract_number = ccRes.rows[0].contract_number;
+          contractor.contract_date = ccRes.rows[0].contract_date;
+        }
+      } else {
+        contractor.name_short = task.contractor;
+        contractor.director = task.contractor;
+      }
+    }
+
+    // Определяем Генерального подрядчика («Мы»), если не был назначен в субподряде:
+    if (generalContractor === DEFAULT_GENERAL_CONTRACTOR) {
+      let ownId = task.own_company_id;
+      if (!ownId && task.contract_id) {
+        const cntRes = await pool.query('SELECT own_company_id FROM contracts WHERE id = $1', [task.contract_id]);
+        if (cntRes.rows.length > 0) ownId = cntRes.rows[0].own_company_id;
+      }
+      if (!ownId && (String(task.customer || '').includes('Сбер') || String(task.id || '').includes('К10') || String(task.sheet || '').includes('Сбер'))) {
+        const k10Res = await pool.query("SELECT id FROM own_companies WHERE code = 'K10' LIMIT 1");
+        if (k10Res.rows.length > 0) ownId = k10Res.rows[0].id;
+      }
+      if (ownId) {
+        const ocRes = await pool.query('SELECT * FROM own_companies WHERE id = $1', [ownId]);
+        if (ocRes.rows.length > 0) {
+          const oc = ocRes.rows[0];
           generalContractor = {
-            name_full: subcontract.own_name_full,
-            name_short: subcontract.own_name_short,
-            inn: subcontract.own_inn,
-            kpp: subcontract.own_kpp || '',
-            ogrn: subcontract.own_ogrn || '',
-            address_legal: subcontract.own_address_legal,
-            phone: subcontract.own_phone || '',
-            director: subcontract.own_director,
-            bank_name: subcontract.own_bank_name || '',
-            bik: subcontract.own_bik || '',
-            account_pay: subcontract.own_account_pay || '',
-            account_corr: subcontract.own_account_corr || ''
+            name_full: oc.name_full,
+            name_short: oc.name_short,
+            inn: oc.inn,
+            kpp: oc.kpp || '',
+            ogrn: oc.ogrn || '',
+            address_legal: oc.address_legal,
+            phone: oc.phone || '',
+            director: oc.director,
+            director_title: oc.director_title || 'Директор',
+            bank_name: oc.bank_name || '',
+            bik: oc.bik || '',
+            account_pay: oc.account_pay || '',
+            account_corr: oc.account_corr || ''
           };
         }
       }
@@ -131,7 +219,7 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
 
     if (doc_type === 'order_subcontract') {
       docNumber = `ЗН-${task.id}-${subcontract ? subcontract.id : '1'}`;
-      title = `Заказ-наряд № ${docNumber}`;
+      title = `Заказ-наряд (Приложение №2) № ${docNumber}`;
       buffer = await generateSubcontractOrder({
         task,
         subcontract: subcontract || {},
@@ -150,7 +238,7 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
       });
     } else if (doc_type === 'completion_act') {
       docNumber = `АКТ-${task.id}-${subcontract ? subcontract.id : '1'}`;
-      title = `Акт сдачи-приемки № ${docNumber}`;
+      title = `Акт сдачи-приемки («Сдал/Принял») № ${docNumber}`;
       buffer = await generateCompletionAct({
         task,
         contractor: contractor || {},
@@ -160,31 +248,48 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
       });
 
     } else if (doc_type === 'invoice') {
-      docNumber = `СЧ-${task.id}-${subcontract ? subcontract.id : '1'}`;
+      // Поддержка нескольких счетов при поэтапной оплате
+      const cntRes = await pool.query(
+        "SELECT COUNT(*) FROM task_documents WHERE task_id = $1 AND doc_type = 'invoice'",
+        [taskId]
+      );
+      const seqNum = Number(cntRes.rows[0].count) + 1;
+      docNumber = meta.invoice_number || `СЧ-${task.id}/${seqNum}`;
       title = `Счет на оплату № ${docNumber}`;
       buffer = await generateInvoice({
         task,
         contractor: contractor || {},
         subcontract: subcontract || {},
         generalContractor,
+        invoiceNumber: docNumber,
         date: new Date()
       });
     } else if (doc_type === 'tmc_act') {
+      // Подгружаем реальные материалы по задаче из task_materials
+      const matRes = await pool.query(`
+        SELECT tm.*, m.name, m.unit, m.code, m.price_default
+        FROM task_materials tm
+        LEFT JOIN materials m ON tm.material_id = m.id
+        WHERE tm.task_id = $1
+        ORDER BY tm.id ASC
+      `, [taskId]);
+
       docNumber = `ТМЦ-${task.id}-${subcontract ? subcontract.id : '1'}`;
-      title = `Накладная ТМЦ № ${docNumber}`;
+      title = `Акт списания материалов (ТМЦ) № ${docNumber}`;
       buffer = await generateTmcAct({
         task,
         contractor: contractor || {},
         subcontract: subcontract || {},
         generalContractor,
+        materials: matRes.rows,
         date: new Date()
       });
     } else if (doc_type === 'permit_letter') {
       docNumber = `ИСХ-${task.id}-ДОП`;
-      title = `Письмо на допуск на объект (${task.vsp || task.address || ''})`;
+      title = `Письмо на допуск на объект (${task.customer || ''}, ${task.vsp || task.address || ''})`;
       // Специалисты
-      let specialists = [];
-      if (subcontract && subcontract.installer_fio) {
+      let specialists = (meta && Array.isArray(meta.specialists)) ? meta.specialists : [];
+      if (specialists.length === 0 && subcontract && subcontract.installer_fio) {
         specialists.push({
           full_name: subcontract.installer_fio,
           passport_series_number: subcontract.installer_passport,
@@ -201,7 +306,7 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
       });
     } else if (doc_type === 'power_attorney') {
       docNumber = `ДОВ-${Math.floor(1000 + Math.random() * 9000)}`;
-      title = `Доверенность на ТМЦ № ${docNumber}`;
+      title = `Доверенность на получение ТМЦ № ${docNumber}`;
       const specialist = {
         full_name: subcontract ? subcontract.installer_fio : 'Специалист СМР',
         passport_series_number: subcontract ? subcontract.installer_passport : ''
@@ -210,13 +315,23 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
         task,
         specialist,
         contractor,
+        generalContractor,
         poaNumber: docNumber
       });
     } else if (doc_type === 'id_registry') {
-      docNumber = `РИД-${task.id}`;
-      title = `Реестр передачи ИД № ${docNumber}`;
+      // Подгружаем реальные порты по задаче из task_ports
+      const portsRes = await pool.query(`
+        SELECT * FROM task_ports
+        WHERE task_id = $1
+        ORDER BY port_number ASC, id ASC
+      `, [taskId]);
+
+      docNumber = `ИД-${task.id}-СКС`;
+      title = `Альбом исполнительной документации (СКС) № ${docNumber}`;
       buffer = await generateIdRegistry({
         task,
+        ports: portsRes.rows,
+        generalContractor,
         registryNumber: docNumber
       });
     } else {

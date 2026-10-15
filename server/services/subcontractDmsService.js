@@ -24,12 +24,16 @@ export async function initSubcontractDms(pool) {
       account_pay     TEXT,
       account_corr    TEXT,
       vat_mode        TEXT DEFAULT 'with_vat',
+      vat_rate        NUMERIC(5,2) DEFAULT 0,
+      tax_system      VARCHAR(64) DEFAULT 'УСН',
       is_default      BOOLEAN DEFAULT false,
       created_at      TIMESTAMPTZ DEFAULT NOW(),
       updated_at      TIMESTAMPTZ DEFAULT NOW()
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_own_companies_code ON own_companies(code)`);
+  await pool.query(`ALTER TABLE own_companies ADD COLUMN IF NOT EXISTS vat_rate NUMERIC(5,2) DEFAULT 0`);
+  await pool.query(`ALTER TABLE own_companies ADD COLUMN IF NOT EXISTS tax_system VARCHAR(64) DEFAULT 'УСН'`);
 
   // 2. Справочник рамочных договоров с подрядчиками
   await pool.query(`
@@ -125,6 +129,8 @@ async function seedInitialData(pool) {
       account_pay: '40702810223130000540',
       account_corr: '30101810600000000774',
       vat_mode: 'with_vat',
+      vat_rate: 5.00,
+      tax_system: 'УСН с НДС 5%',
       is_default: true
     },
     {
@@ -134,7 +140,7 @@ async function seedInitialData(pool) {
       inn: '5401995659',
       kpp: '547301001',
       ogrn: '1195476081234',
-      director: 'Городович Илья Олегович',
+      director: 'Городович Милана Владимировна',
       director_title: 'Директор',
       address_legal: '630090, г. Новосибирск, пр-кт Академика Лаврентьева, д. 2/2, оф. 126',
       address_postal: '630090, г. Новосибирск, пр-кт Академика Лаврентьева, д. 2/2, оф. 126',
@@ -144,6 +150,8 @@ async function seedInitialData(pool) {
       account_pay: '40702810244050054706',
       account_corr: '30101810500000000641',
       vat_mode: 'without_vat',
+      vat_rate: 0.00,
+      tax_system: 'УСН (без НДС)',
       is_default: false
     },
     {
@@ -164,6 +172,8 @@ async function seedInitialData(pool) {
       account_pay: '40702810938000012345',
       account_corr: '30101810400000000225',
       vat_mode: 'with_vat',
+      vat_rate: 22.00,
+      tax_system: 'ОСНО (НДС 22%)',
       is_default: false
     }
   ];
@@ -173,23 +183,29 @@ async function seedInitialData(pool) {
     const res = await pool.query(`
       INSERT INTO own_companies (
         code, name_short, name_full, inn, kpp, ogrn, director, director_title,
-        address_legal, address_postal, phone, email, bank_name, bik, account_pay, account_corr, vat_mode, is_default
+        address_legal, address_postal, phone, email, bank_name, bik, account_pay, account_corr,
+        vat_mode, vat_rate, tax_system, is_default
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
       ON CONFLICT (code) DO UPDATE SET
         name_short = EXCLUDED.name_short,
         name_full = EXCLUDED.name_full,
         inn = EXCLUDED.inn,
         director = EXCLUDED.director,
+        director_title = EXCLUDED.director_title,
         address_legal = EXCLUDED.address_legal,
         bank_name = EXCLUDED.bank_name,
         bik = EXCLUDED.bik,
         account_pay = EXCLUDED.account_pay,
-        account_corr = EXCLUDED.account_corr
+        account_corr = EXCLUDED.account_corr,
+        vat_mode = EXCLUDED.vat_mode,
+        vat_rate = EXCLUDED.vat_rate,
+        tax_system = EXCLUDED.tax_system
       RETURNING id, code
     `, [
       c.code, c.name_short, c.name_full, c.inn, c.kpp, c.ogrn, c.director, c.director_title,
-      c.address_legal, c.address_postal, c.phone, c.email, c.bank_name, c.bik, c.account_pay, c.account_corr, c.vat_mode, c.is_default
+      c.address_legal, c.address_postal, c.phone, c.email, c.bank_name, c.bik, c.account_pay, c.account_corr,
+      c.vat_mode, c.vat_rate, c.tax_system, c.is_default
     ]);
     ownMap[c.code] = res.rows[0].id;
   }
@@ -275,6 +291,46 @@ async function seedInitialData(pool) {
     elaginId = ins.rows[0].id;
   }
 
+  let vdovinId = null;
+  const vdRes = await pool.query(`SELECT id FROM contractors WHERE inn = '540612345678' OR name_short ILIKE '%Вдовин%' LIMIT 1`);
+  if (vdRes.rows.length) {
+    vdovinId = vdRes.rows[0].id;
+    await pool.query(`
+      UPDATE contractors SET
+        name_short = 'СЗ Вдовин Иван Юрьевич',
+        name_full = 'Самозанятый гражданин РФ Вдовин Иван Юрьевич',
+        inn = '540612345678',
+        phone = '+7 (913) 912-34-56',
+        email = 'vdovin.ivan@mail.ru',
+        director = 'Вдовин И.Ю.',
+        address_legal = 'г. Новосибирск, ул. Ленина, д. 12, кв. 45',
+        bank_name = 'Сибирский банк ПАО Сбербанк г. Новосибирск',
+        bik = '045004641',
+        account_pay = '40817810144050012345',
+        type = 'subcontractor'
+      WHERE id = $1
+    `, [vdovinId]);
+  } else {
+    const ins = await pool.query(`
+      INSERT INTO contractors (name_short, name_full, inn, phone, email, director, address_legal, bank_name, bik, account_pay, type)
+      VALUES (
+        'СЗ Вдовин Иван Юрьевич',
+        'Самозанятый гражданин РФ Вдовин Иван Юрьевич',
+        '540612345678',
+        '+7 (913) 912-34-56',
+        'vdovin.ivan@mail.ru',
+        'Вдовин И.Ю.',
+        'г. Новосибирск, ул. Ленина, д. 12, кв. 45',
+        'Сибирский банк ПАО Сбербанк г. Новосибирск',
+        '045004641',
+        '40817810144050012345',
+        'subcontractor'
+      )
+      RETURNING id
+    `);
+    vdovinId = ins.rows[0].id;
+  }
+
   // 3. Посев договоров для Хомича:
   // А) Хомич ↔ К10 (Сбербанк)
   const khK10Contract = await ensureContract({
@@ -336,6 +392,36 @@ async function seedInitialData(pool) {
     validTo: '2027-12-31'
   });
 
+  // Д) Вдовин ↔ К10 (Сбербанк)
+  const vdK10Contract = await ensureContract({
+    pool,
+    contractorId: vdovinId,
+    ownCompanyId: ownMap['K10'],
+    contractNumber: 'СКС-Сб-Вдовин',
+    contractDate: '2026-05-15',
+    title: 'Договор подряда К10 (Сбер) - СЗ Вдовин',
+    customerTag: 'ПАО Сбербанк',
+    subject: 'Модернизация и обслуживание СКС в отделениях «Сбера»',
+    territory: 'г. Новосибирск, Новосибирская область (до 100км)',
+    validFrom: '2026-05-15',
+    validTo: '2026-12-31'
+  });
+
+  // Е) Вдовин ↔ КС (Кабельные Системы - ОСФР / Разовые)
+  const vdKsContract = await ensureContract({
+    pool,
+    contractorId: vdovinId,
+    ownCompanyId: ownMap['KS'],
+    contractNumber: '05/06/26-В',
+    contractDate: '2026-06-05',
+    title: 'Договор субподряда КС - СЗ Вдовин (ОСФР / Разовые)',
+    customerTag: 'ОСФР, коммерческие',
+    subject: 'Монтажные и пусконаладочные работы СКС на объектах',
+    territory: 'г. Новосибирск, Сибирский федеральный округ',
+    validFrom: '2026-06-05',
+    validTo: '2027-06-30'
+  });
+
   // 4. Посев прайс-листов из протоколов ТЗ (Приложение №1)
   const standardPriceItems = [
     { work_code: 'port_5e', work_name: 'Базовая стоимость работ 1(один) порт СКС 5е', unit: 'шт', tier1: 3000, tier2: 2500, threshold: 3, sort: 1 },
@@ -355,10 +441,11 @@ async function seedInitialData(pool) {
     { work_code: 'tksh_demount_simple', work_name: 'Демонтаж существующего ТКШ и смонтированного в него оборудования СКС', unit: 'шт', tier1: 2000, tier2: 2000, threshold: 1, sort: 15 },
     { work_code: 'tksh_mod_600', work_name: 'Модернизация существующего шкафа шириной 600мм', unit: 'шт', tier1: 3000, tier2: 3000, threshold: 1, sort: 16 },
     { work_code: 'tksh_mod_800', work_name: 'Модернизация существующего шкафа шириной 800мм', unit: 'шт', tier1: 3000, tier2: 3000, threshold: 1, sort: 17 },
-    { work_code: 'km_rate', work_name: 'Выезд свыше 10 км', unit: 'км', tier1: 12, tier2: 12, threshold: 1, sort: 18 },
-    { work_code: 'delivery', work_name: 'Доставка шкафов от 32U и больших объемов материалов', unit: 'по факту затрат', tier1: 0, tier2: 0, threshold: 1, is_var: true, sort: 19 },
-    { work_code: 'daily_rate', work_name: 'Оплата суточных - 700р/чел/день', unit: 'по факту затрат', tier1: 700, tier2: 700, threshold: 1, is_var: true, sort: 20 },
-    { work_code: 'hotel_rate', work_name: 'Проживание в случае командировки', unit: 'по факту затрат', tier1: 0, tier2: 0, threshold: 1, is_var: true, sort: 21 }
+    { work_code: 'km_city', work_name: 'Выезд внутри города (<10 км)', unit: 'выезд', tier1: 300, tier2: 300, threshold: 1, sort: 18 },
+    { work_code: 'km_rate', work_name: 'Выезд свыше 10 км', unit: 'км', tier1: 12, tier2: 12, threshold: 1, sort: 19 },
+    { work_code: 'delivery', work_name: 'Доставка шкафов от 32U и больших объемов материалов', unit: 'по факту затрат', tier1: 0, tier2: 0, threshold: 1, is_var: true, sort: 20 },
+    { work_code: 'daily_rate', work_name: 'Оплата суточных - 700р/чел/день', unit: 'по факту затрат', tier1: 700, tier2: 700, threshold: 1, is_var: true, sort: 21 },
+    { work_code: 'hotel_rate', work_name: 'Проживание в случае командировки', unit: 'по факту затрат', tier1: 0, tier2: 0, threshold: 1, is_var: true, sort: 22 }
   ];
 
   if (khK10Contract) {
@@ -369,6 +456,12 @@ async function seedInitialData(pool) {
   }
   if (elKsContract) {
     await seedPriceList(pool, elKsContract.id, 'Приложение №1 (Протокол согласования цены - КС / Общий)', 'Росприроднадзор / СФР / Коммерческие', standardPriceItems);
+  }
+  if (vdK10Contract) {
+    await seedPriceList(pool, vdK10Contract.id, 'Приложение №1 (Протокол согласования цены для Сбера)', 'ПАО Сбербанк', standardPriceItems);
+  }
+  if (vdKsContract) {
+    await seedPriceList(pool, vdKsContract.id, 'Приложение №1 (Протокол согласования цены - КС / Общий)', 'Росприроднадзор / СФР / Коммерческие', standardPriceItems);
   }
 }
 

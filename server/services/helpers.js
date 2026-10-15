@@ -68,6 +68,8 @@ export function rowToTask(r) {
     contract_id:   r.contract_id ? Number(r.contract_id) : null,
     contractLot:   r.contract_lot ? Number(r.contract_lot) : null,
     contract_lot:  r.contract_lot ? Number(r.contract_lot) : null,
+    contractAgreementId:   r.contract_agreement_id ? Number(r.contract_agreement_id) : null,
+    contract_agreement_id: r.contract_agreement_id ? Number(r.contract_agreement_id) : null,
     importSource:  r.import_source || null,
     createdAt:       r.created_at ? new Date(r.created_at).toISOString() : null,
     firstImportedAt: r.first_imported_at ? new Date(r.first_imported_at).toISOString() : (r.created_at ? new Date(r.created_at).toISOString() : null),
@@ -187,7 +189,7 @@ export function buildApp2(task, contractorName = null, items = []) {
   const ppp = rawRate > 0 ? rawRate : calcPricePerPort(ports);
   const fallbackTotal = (task.rawData && Number(task.rawData.subTotal)) || (tr + ppp * ports);
 
-  const executor = contractorName || task.assignee || task.contractor || '—';
+  const executor = contractorName || task.contractor || task.assignee || '—';
 
   let data = [
     ['Приложение №2'],
@@ -204,7 +206,7 @@ export function buildApp2(task, contractorName = null, items = []) {
     ['Срок выполнения', task.deadline || '—'],
     ['Кол-во дней просрочки', task.overdueDays || 0],
     ['Адрес выполнения работ', task.address || '—'],
-    ['Контакт / сопровождающий', task.contact || task.contractor || '—'],
+    ['Контакт / сопровождающий', task.contact || '—'],
     ['Ссылка на Тех.Информацию', task.techLink || '—'],
     ['Комментарий', task.comment || '']
   ];
@@ -244,7 +246,7 @@ export function buildApp2(task, contractorName = null, items = []) {
   data.push(['Транспортные расходы, руб.', tr]);
   data.push(['ИТОГО к оплате Подрядчику, руб.', grandTotal]);
   data.push([]);
-  data.push(['От Заказчика', '', '', 'Директор __________________ /И.О. Городович/']);
+  data.push(['От Заказчика', '', '', 'Директор __________________ /М.В. Городович/']);
   data.push(['От Подрядчика', '', '', `${executor} _________________ / ___________________ /`]);
 
   const ws = XLSX.utils.aoa_to_sheet(data);
@@ -253,7 +255,7 @@ export function buildApp2(task, contractorName = null, items = []) {
   return wb;
 }
 
-export function buildInvoice(task) {
+export function buildInvoice(task, contractorName = null) {
   const wb=XLSX.utils.book_new(),ports=task.fact||task.inOrder||0,km=Number(task.distanceKm)||0;
   const tr = (task.rawData && task.rawData.subDist !== undefined) ? Number(task.rawData.subDist) : calcTransport(km);
   const rawRate = task.rawData && (Number(task.rawData.subRate) || Number(task.rawData.sub_rate));
@@ -261,19 +263,20 @@ export function buildInvoice(task) {
   const total = (task.rawData && Number(task.rawData.subTotal)) || (tr + ppp * ports);
   const custName = task.customer || 'ПАО Сбербанк России';
   const desc=`Работы по заявке ${task.id} ${task.address||''} ${task.workType||''}, цена ${ppp} рублей, ${tr} руб. компенсация транспортных расходов.`;
+  const executor = contractorName || task.contractor || task.assignee || '—';
   const data=[
-    ['Подрядчик','','Заказчик'],[task.contractor||task.assignee||'—','',custName],
+    ['Подрядчик','','Заказчик'],[executor,'',custName],
     [],[],[],[],[],
     ['Счёт на оплату №',task.id,'от',fmtDate(task.deadline)],
     ['№','Товары и услуги','Кол-во','Цена, руб.','Сумма, руб.'],[1,desc,1,total,total],
     ['Всего наименований 1 на сумму','',total,'',''],[numToWords(total)],[],[],
-    ['От Подрядчика','','','','гр. РФ _________________ / ___________________ /'],
+    ['От Подрядчика','','','',`${executor} _________________ / ___________________ /`],
   ];
   const ws=XLSX.utils.aoa_to_sheet(data); ws['!cols']=[{wch:5},{wch:70},{wch:8},{wch:14},{wch:14}];
   XLSX.utils.book_append_sheet(wb,ws,'Счёт'); return wb;
 }
 
-export function buildAct(task) {
+export function buildAct(task, contractorName = null) {
   const wb=XLSX.utils.book_new(),ports=task.fact||task.inOrder||0,km=Number(task.distanceKm)||0;
   const tr = (task.rawData && task.rawData.subDist !== undefined) ? Number(task.rawData.subDist) : calcTransport(km);
   const rawRate = task.rawData && (Number(task.rawData.subRate) || Number(task.rawData.sub_rate));
@@ -281,15 +284,16 @@ export function buildAct(task) {
   const total = (task.rawData && Number(task.rawData.subTotal)) || (tr + ppp * ports);
   const custName = task.customer || 'ПАО Сбербанк России';
   const desc=`Работы по заявке ${task.id} ${task.address||''} ${task.workType||''}, цена ${ppp} рублей, ${tr} руб. компенсация транспортных расходов.`;
+  const executor = contractorName || task.contractor || task.assignee || '—';
   const actRows=[
     [`АКТ № ${task.id}`,'','','от',fmtDate(task.deadline)],['','приёмки выполненных работ'],
     ['','к Договору № _____ от "__" _______ 202_г.'],['Заказчик'],['',custName],
-    ['Исполнитель'],['',task.contractor||task.assignee||'—'],
+    ['Исполнитель'],['',executor],
     ['Основание',`Договор №_____  от ${fmtDate(task.deadline)}`],[],
     ['№','Товары и услуги','Кол-во','Цена, руб.','Сумма, руб.'],[1,desc,1,total,total],
     ['Всего наименований 1 на сумму','',total],[numToWords(total)],[],
-    ['От Заказчика','','','','Директор __________________ /И.О. Городович/'],
-    ['От Подрядчика','','','','гр. РФ _________________ / ___________________ /'],[],[],
+    ['От Заказчика','','','','Директор __________________ /М.В. Городович/'],
+    ['От Подрядчика','','','',`${executor} _________________ / ___________________ /`],[],[],
   ];
   const data=[...actRows,['─────────────────────── линия отреза ───────────────────────'],[],[...actRows]];
   const ws=XLSX.utils.aoa_to_sheet(data); ws['!cols']=[{wch:12},{wch:60},{wch:8},{wch:14},{wch:14}];

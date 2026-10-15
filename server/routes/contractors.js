@@ -15,15 +15,25 @@ router.get('/contractors', authenticateToken, async (req, res) => {
     const { type } = req.query;
     let query = `
       SELECT c.*, 
-        (SELECT COUNT(*) FROM specialists s WHERE s.contractor_id = c.id) AS specialists_count
+        oc.vat_rate, oc.tax_system, oc.code AS own_company_code,
+        (SELECT COUNT(*) FROM specialists s WHERE s.contractor_id = c.id) AS specialists_count,
+        (SELECT COUNT(*) FROM contractor_contracts cc WHERE cc.contractor_id = c.id) AS subcontracts_count
       FROM contractors c
+      LEFT JOIN own_companies oc ON c.own_company_id = oc.id
     `;
     const params = [];
     if (type && type !== 'all') {
-      query += ' WHERE c.type = $1';
-      params.push(type);
+      if (type === 'own') {
+        query += ' WHERE (c.type = $1 OR c.is_own = true)';
+        params.push('own');
+      } else if (type === 'subcontractor') {
+        query += " WHERE (c.type = 'subcontractor' OR c.type = 'executor' OR c.type = 'internal' OR c.type IS NULL) AND (c.is_own IS NOT TRUE)";
+      } else {
+        query += " WHERE c.type = $1 AND (c.is_own IS NOT TRUE OR $1 = 'own')";
+        params.push(type);
+      }
     }
-    query += ' ORDER BY c.name_short ASC';
+    query += ' ORDER BY c.is_own DESC, c.name_short ASC';
     const { rows } = await pool.query(query, params);
     res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -69,7 +79,10 @@ router.post('/contractors/:id/specialists', authenticateToken, async (req, res) 
       passportIssuedBy, 
       passportIssueDate, 
       passportCode, 
-      position 
+      position,
+      autoNumber,
+      employmentType,
+      actingBasis
     } = req.body;
     
     if (!fullName && !specialistId) {
@@ -108,8 +121,11 @@ router.post('/contractors/:id/specialists', authenticateToken, async (req, res) 
             passport_issued_by = COALESCE(NULLIF($7, ''), passport_issued_by),
             passport_issue_date = COALESCE(NULLIF($8, ''), passport_issue_date),
             passport_code = COALESCE(NULLIF($9, ''), passport_code),
-            position = COALESCE(NULLIF($10, ''), position)
-        WHERE id = $11
+            position = COALESCE(NULLIF($10, ''), position),
+            auto_number = COALESCE(NULLIF($11, ''), auto_number),
+            employment_type = COALESCE(NULLIF($12, ''), employment_type),
+            acting_basis = COALESCE(NULLIF($13, ''), acting_basis)
+        WHERE id = $14
         RETURNING *
       `, [
         contractorId,
@@ -122,6 +138,9 @@ router.post('/contractors/:id/specialists', authenticateToken, async (req, res) 
         passportIssueDate || null,
         passportCode || null,
         position || null,
+        autoNumber || null,
+        employmentType || null,
+        actingBasis || null,
         targetId
       ]);
       resultRow = rows[0];
@@ -130,8 +149,9 @@ router.post('/contractors/:id/specialists', authenticateToken, async (req, res) 
       const { rows } = await pool.query(`
         INSERT INTO specialists (
           full_name, phone, passport_raw, passport_series_number, passport_issued_by,
-          passport_issue_date, passport_code, position, contractor_id, organization
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          passport_issue_date, passport_code, position, contractor_id, organization,
+          auto_number, employment_type, acting_basis
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         RETURNING *
       `, [
         fullName.trim(),
@@ -143,12 +163,32 @@ router.post('/contractors/:id/specialists', authenticateToken, async (req, res) 
         passportCode || null,
         position || 'Монтажник СКС',
         contractorId,
-        contractorOrgName
+        contractorOrgName,
+        autoNumber || null,
+        employmentType || 'subcontractor_worker',
+        actingBasis || null
       ]);
       resultRow = rows[0];
     }
 
     res.json(resultRow);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Получить подробную карточку конкретного контрагента
+router.get('/contractors/:id', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT c.*, 
+        oc.vat_rate, oc.tax_system, oc.code AS own_company_code,
+        (SELECT COUNT(*) FROM specialists s WHERE s.contractor_id = c.id) AS specialists_count,
+        (SELECT COUNT(*) FROM contractor_contracts cc WHERE cc.contractor_id = c.id) AS subcontracts_count
+      FROM contractors c
+      LEFT JOIN own_companies oc ON c.own_company_id = oc.id
+      WHERE c.id = $1
+    `, [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'Контрагент не найден' });
+    res.json(rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -162,16 +202,23 @@ router.post('/contractors', authenticateToken, async (req, res) => {
     const d = req.body;
     const { rows } = await pool.query(`
       INSERT INTO contractors (
-        inn, kpp, name_short, name_full, address_legal, director, 
-        bank_name, bik, account_corr, account_pay, phone, email, type,
-        contract_number, contract_date, curator_name, curator_phone, curator_email, comment
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+        inn, kpp, ogrn, name_short, name_full, legal_form, address_legal, address_postal, director, 
+        signer_name, signer_position, acting_basis, bank_name, bik, account_corr, account_pay, phone, email, type,
+        contract_number, contract_date, curator_name, curator_phone, curator_email, comment, is_own
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, 
+        $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
+        $20, $21, $22, $23, $24, $25, $26
+      )
       RETURNING *
     `, [
-      d.inn, d.kpp || null, d.name_short, d.name_full || null, d.address_legal || null, d.director || null,
+      d.inn, d.kpp || null, d.ogrn || null, d.name_short, d.name_full || null, d.legal_form || null, 
+      d.address_legal || null, d.address_postal || null, d.director || null,
+      d.signer_name || d.director || null, d.signer_position || 'Директор', d.acting_basis || 'Устава',
       d.bank_name || null, d.bik || null, d.account_corr || null, d.account_pay || null, d.phone || null, d.email || null,
       d.type || 'subcontractor',
-      d.contract_number || null, d.contract_date || null, d.curator_name || null, d.curator_phone || null, d.curator_email || null, d.comment || null
+      d.contract_number || null, d.contract_date || null, d.curator_name || null, d.curator_phone || null, d.curator_email || null, 
+      d.comment || null, d.is_own === true || d.is_own === 'true'
     ]);
     res.json(rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -207,12 +254,21 @@ router.put('/contractors/:id', authenticateToken, async (req, res) => {
         curator_phone = COALESCE($19, curator_phone),
         curator_email = COALESCE($20, curator_email),
         comment = COALESCE($21, comment),
+        ogrn = COALESCE($22, ogrn),
+        legal_form = COALESCE($23, legal_form),
+        address_postal = COALESCE($24, address_postal),
+        acting_basis = COALESCE($25, acting_basis),
+        signer_name = COALESCE($26, signer_name),
+        signer_position = COALESCE($27, signer_position),
+        is_own = COALESCE($28, is_own),
         updated_at = NOW()
       WHERE id = $1
     `, [
       req.params.id, d.inn, d.kpp, d.name_short, d.name_full, d.address_legal, d.director,
       d.bank_name, d.bik, d.account_corr, d.account_pay, d.phone, d.email, d.status, d.type,
-      d.contract_number, d.contract_date, d.curator_name, d.curator_phone, d.curator_email, d.comment
+      d.contract_number, d.contract_date, d.curator_name, d.curator_phone, d.curator_email, d.comment,
+      d.ogrn, d.legal_form, d.address_postal, d.acting_basis, d.signer_name, d.signer_position,
+      d.is_own != null ? (d.is_own === true || d.is_own === 'true') : null
     ]);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -251,13 +307,26 @@ router.get('/dadata/party', authenticateToken, async (req, res) => {
     const result = await response.json();
     if (result && result.suggestions && result.suggestions[0]) {
       const s = result.suggestions[0].data;
+      const opfType = (s.opf && s.opf.type) || '';
+      const isIp = opfType === 'INDIVIDUAL' || s.inn?.length === 12;
+      const legalForm = (s.opf && (s.opf.short || s.opf.type)) || (isIp ? 'ИП' : 'ООО');
+      const directorName = s.management ? s.management.name : (isIp ? (s.name.full || result.suggestions[0].value) : '');
+      const signerPos = s.management ? (s.management.post || 'Директор') : (isIp ? 'Индивидуальный предприниматель' : 'Директор');
+      const actingBasis = isIp ? 'Свидетельства о гос. регистрации' : 'Устава';
+
       res.json({
         inn: s.inn,
         kpp: s.kpp || '',
+        ogrn: s.ogrn || '',
+        legal_form: legalForm,
         name_short: s.name.short_with_opf || s.name.short || result.suggestions[0].value,
         name_full: s.name.full_with_opf || s.name.full || '',
         address_legal: s.address ? s.address.value : '',
-        director: s.management ? s.management.name : ''
+        address_postal: s.address ? s.address.value : '',
+        director: directorName,
+        signer_name: directorName,
+        signer_position: signerPos,
+        acting_basis: actingBasis
       });
     } else {
       res.json(null);
@@ -324,14 +393,27 @@ router.get('/dadata/suggest-party', authenticateToken, async (req, res) => {
     const result = await response.json();
     const suggestions = (result.suggestions || []).map(s => {
       const d = s.data || {};
+      const opfType = (d.opf && d.opf.type) || '';
+      const isIp = opfType === 'INDIVIDUAL' || d.inn?.length === 12;
+      const legalForm = (d.opf && (d.opf.short || d.opf.type)) || (isIp ? 'ИП' : 'ООО');
+      const directorName = d.management ? d.management.name : (isIp ? (d.name?.full || s.value) : '');
+      const signerPos = d.management ? (d.management.post || 'Директор') : (isIp ? 'Индивидуальный предприниматель' : 'Директор');
+      const actingBasis = isIp ? 'Свидетельства о гос. регистрации' : 'Устава';
+
       return {
         value: s.value,
         inn: d.inn || '',
         kpp: d.kpp || '',
+        ogrn: d.ogrn || '',
+        legal_form: legalForm,
         name_short: (d.name && (d.name.short_with_opf || d.name.short)) || s.value,
         name_full: (d.name && (d.name.full_with_opf || d.name.full)) || '',
         address_legal: d.address ? d.address.value : '',
-        director: d.management ? d.management.name : ''
+        address_postal: d.address ? d.address.value : '',
+        director: directorName,
+        signer_name: directorName,
+        signer_position: signerPos,
+        acting_basis: actingBasis
       };
     });
 

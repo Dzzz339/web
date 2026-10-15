@@ -5,7 +5,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { initDB } from './config/db.js';
+import { initDB, pool } from './config/db.js';
 import { ROOT, UPLOADS_DIR } from './middleware/upload.js';
 import { runBackgroundGeocoding } from './services/geoWorker.js';
 import { ensureGeneralChat, setupChatSocket } from './sockets/chat.js';
@@ -28,6 +28,7 @@ import subcontractsRoutes from './routes/subcontracts.js';
 import documentsRoutes from './routes/documents.js';
 import contractsRoutes from './routes/contracts.js';
 import subcontractDmsRoutes from './routes/subcontractDms.js';
+import adminRoutes from './routes/admin.js';
 
 const app = express();
 const server = createServer(app);
@@ -45,6 +46,10 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self)');
+  if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
   next();
 });
 
@@ -101,9 +106,26 @@ app.use('/api', subcontractsRoutes);
 app.use('/api', documentsRoutes);
 app.use('/api', contractsRoutes);
 app.use('/api', subcontractDmsRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Инициализация WebSockets чата
 setupChatSocket(io);
+
+// 404 для неизвестных маршрутов API
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: `Эндпоинт ${req.method} ${req.path} не найден` });
+});
+
+// Централизованный обработчик ошибок (предотвращает утечку stack trace в production)
+app.use((err, req, res, next) => {
+  console.error('⚠️ [API UNCAUGHT ERROR]:', err);
+  if (res.headersSent) return next(err);
+  const isProd = process.env.NODE_ENV === 'production';
+  res.status(err.status || 500).json({
+    error: err.message || 'Внутренняя ошибка сервера',
+    ...(isProd ? {} : { stack: err.stack })
+  });
+});
 
 // Запуск сервера
 initDB().then(async () => {
@@ -114,3 +136,25 @@ initDB().then(async () => {
   console.error('DB init failed:', err);
   process.exit(1);
 });
+
+// Корректное завершение работы (Graceful Shutdown)
+function gracefulShutdown(signal) {
+  console.log(`\n🛑 Получен сигнал ${signal}. Завершение работы сервера StockEasy...`);
+  server.close(async () => {
+    console.log('✓ HTTP-сервер и WebSockets остановлены');
+    try {
+      await pool.end();
+      console.log('✓ Пул соединений PostgreSQL закрыт');
+    } catch (e) {
+      console.error('Ошибка при закрытии пула БД:', e.message);
+    }
+    process.exit(0);
+  });
+  setTimeout(() => {
+    console.error('⚠️ Принудительный выход по таймауту (10 сек)');
+    process.exit(1);
+  }, 10000).unref();
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

@@ -1252,6 +1252,35 @@ function renderContractTabAgreements(c, agreements) {
 
 window._openContractAgreements = window._openContractAgreements || new Set();
 
+window.viewAgreementTasks = function(agreementId, agCode, regCity, contractId) {
+  S.taskContractId = contractId;
+  S.taskAgreementId = agreementId;
+  var c = (S.contracts || []).find(function(x) { return Number(x.id) === Number(contractId); });
+  if (c) {
+    S.taskContractTitle = 'Вн. № ' + (c.internal_number || c.id);
+  }
+  S.taskAgreementTitle = (agCode || 'ДС') + (regCity ? (' (' + regCity + ')') : '');
+  if (typeof setPage === 'function') {
+    setPage('tasks');
+  } else {
+    S.page = 'tasks';
+    if (typeof renderApp === 'function') renderApp();
+  }
+};
+
+window.viewContractTasks = function(contractId, internalNum) {
+  S.taskContractId = contractId;
+  S.taskContractTitle = internalNum ? ('Вн. № ' + internalNum) : ('Договор #' + contractId);
+  S.taskAgreementId = null;
+  S.taskAgreementTitle = null;
+  if (typeof setPage === 'function') {
+    setPage('tasks');
+  } else {
+    S.page = 'tasks';
+    if (typeof renderApp === 'function') renderApp();
+  }
+};
+
 function toggleContractAgreements(contractId) {
   var row = document.getElementById('contract_agreements_row_' + contractId);
   var icon = document.getElementById('icon_toggle_ag_' + contractId);
@@ -1293,21 +1322,30 @@ function renderContractAgreementsSubTable(c) {
     var agCode = ag.agreement_code || ('ДС-' + ag.agreement_number);
     var regCity = ag.city || ag.region || '—';
     var extNum = ag.external_number ? ('№ ' + escHtml(ag.external_number)) : '<span style="color:var(--text-3)">—</span>';
+
+    // Форматирование даты ДС и дедлайна (Замечания Алексея: скрин8, скрин9)
+    var dateFormatted = ag.agreement_date ? new Date(ag.agreement_date).toLocaleDateString('ru-RU') : (ag.created_at ? new Date(ag.created_at).toLocaleDateString('ru-RU') : (c.contract_date ? new Date(c.contract_date).toLocaleDateString('ru-RU') : '—'));
+    var deadlineFormatted = ag.deadline ? new Date(ag.deadline).toLocaleDateString('ru-RU') : '';
+
     var priceDisplay = (ag.price_unit && Number(ag.price_unit) > 0)
       ? `<span style="font-weight:700; color:var(--green)">${fmtMoney(ag.price_unit)}</span>` 
       : `<span style="color:var(--text-3); font-size:.75rem">Не задана</span>`;
     var amountDisplay = (ag.amount && Number(ag.amount) > 0) ? fmtMoney(ag.amount) : '<span style="color:var(--text-3)">—</span>';
     var tasksCount = ag.linked_tasks_count || 0;
     var tasksBadge = tasksCount > 0 
-      ? `<button class="badge b-blue" onclick="openContractModal(${c.id}, 'tasks')" style="border:none; cursor:pointer; font-size:.72rem" title="Просмотреть заявки договора">📋 ${tasksCount}</button>`
-      : `<span style="color:var(--text-3); font-size:.75rem">0</span>`;
+      ? `<button class="badge b-blue" onclick="viewAgreementTasks(${ag.id}, '${escHtml(agCode)}', '${escHtml(regCity).replace(/'/g, "\\'")}', ${c.id})" style="border:none; cursor:pointer; font-size:.72rem; font-weight:700" title="Перейти в реестр заявок по этому ДС">📋 ${tasksCount}</button>`
+      : `<button class="btn btn-xs btn-ghost" onclick="viewAgreementTasks(${ag.id}, '${escHtml(agCode)}', '${escHtml(regCity).replace(/'/g, "\\'")}', ${c.id})" style="padding:1px 6px; font-size:.72rem; color:var(--text-3); border:none" title="Открыть заявки по этому ДС">0</button>`;
 
-    var searchData = ((agCode + ' ' + regCity + ' ' + (ag.external_number || '') + ' ' + (ag.comment || '')).toLowerCase());
+    var searchData = ((agCode + ' ' + regCity + ' ' + (ag.external_number || '') + ' ' + (dateFormatted || '') + ' ' + (ag.comment || '')).toLowerCase());
 
     return `
       <tr class="ag-subrow-item" data-search="${escHtml(searchData)}" style="border-bottom:1px solid #e2e8f0; transition:background .1s" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='transparent'">
         <td style="padding:8px 10px; font-weight:700; font-family:monospace; color:var(--blue); font-size:.82rem; white-space:nowrap">${escHtml(agCode)}</td>
         <td style="padding:8px 10px; font-size:.84rem; font-weight:600; color:var(--text)">📍 ${escHtml(regCity)}</td>
+        <td style="padding:8px 10px; font-size:.78rem; white-space:nowrap">
+          <div style="font-weight:700; color:var(--text)">📅 ${dateFormatted}</div>
+          ${deadlineFormatted ? `<div style="font-size:.70rem; color:var(--text-3); margin-top:2px">⏳ до ${deadlineFormatted}</div>` : ''}
+        </td>
         <td style="padding:8px 10px; font-size:.78rem; font-family:monospace; color:var(--text-2); font-weight:600; white-space:nowrap">${extNum}</td>
         <td style="padding:8px 10px; font-size:.82rem; white-space:nowrap">
           <div style="display:flex; align-items:center; gap:6px">
@@ -1356,13 +1394,14 @@ function renderContractAgreementsSubTable(c) {
         <table style="width:100%; border-collapse:collapse">
           <thead>
             <tr style="background:#f8fafc; border-bottom:1.5px solid #e2e8f0; text-align:left; font-size:.72rem; text-transform:uppercase; color:var(--text-3); letter-spacing:.5px">
-              <th style="padding:6px 10px; width:80px">№ ДС</th>
-              <th style="padding:6px 10px; min-width:140px">Регион / Город</th>
-              <th style="padding:6px 10px; width:150px">Номер Сбербанка</th>
-              <th style="padding:6px 10px; width:140px">Региональная цена</th>
-              <th style="padding:6px 10px; width:120px">Лимит по ДС</th>
-              <th style="padding:6px 10px; width:90px; text-align:center">Заявки</th>
-              <th style="padding:6px 10px; width:90px; text-align:center">Статус</th>
+              <th style="padding:6px 10px; width:75px">№ ДС</th>
+              <th style="padding:6px 10px; min-width:130px">Регион / Город</th>
+              <th style="padding:6px 10px; width:125px">Дата ДС</th>
+              <th style="padding:6px 10px; width:140px">Номер Сбербанка</th>
+              <th style="padding:6px 10px; width:145px">Тариф / Порт (Пр. 1)</th>
+              <th style="padding:6px 10px; width:115px">Лимит по ДС</th>
+              <th style="padding:6px 10px; width:80px; text-align:center">Заявки</th>
+              <th style="padding:6px 10px; width:85px; text-align:center">Статус</th>
               <th style="padding:6px 10px; width:140px; text-align:right">Действия</th>
             </tr>
           </thead>
@@ -1398,34 +1437,47 @@ function openEditAgreementModal(contractId, agreementId) {
       <div style="display:flex; flex-direction:column; gap:12px">
         <div style="display:grid; grid-template-columns:1fr 2fr; gap:12px">
           <div>
-            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Код ДС</label>
-            <input type="text" id="ag_field_code" value="${escHtml(ag.agreement_code || '')}" style="width:100%" required>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Номер / Код ДС (Лот)</label>
+            <input type="text" id="ag_field_code" value="${escHtml(ag.agreement_code || '')}" placeholder="Например: ДС-1 или Лот 34 (осн)" style="width:100%" required>
           </div>
           <div>
-            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Регион / Город</label>
-            <input type="text" id="ag_field_region" value="${escHtml(ag.city || ag.region || '')}" style="width:100%" required>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Регион / Город (ГОСБ / ТБ)</label>
+            <input type="text" id="ag_field_region" value="${escHtml(ag.city || ag.region || '')}" placeholder="Например: Архангельск (Северо-Западный банк)" style="width:100%" required>
           </div>
-        </div>
-
-        <div>
-          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Номер Сбербанка (внешний № контракта)</label>
-          <input type="text" id="ag_field_ext_num" value="${escHtml(ag.external_number || '')}" placeholder="Например: 50005595376" style="width:100%; font-family:monospace">
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
           <div>
-            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Региональная цена / тариф (₽)</label>
-            <input type="number" id="ag_field_price_unit" step="0.01" value="${ag.price_unit || ''}" placeholder="0.00" style="width:100%; font-weight:700; color:var(--green)">
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">📅 Дата ДС (заключения)</label>
+            <input type="date" id="ag_field_date" value="${ag.agreement_date ? String(ag.agreement_date).split('T')[0] : ''}" style="width:100%">
           </div>
           <div>
-            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Лимит по ДС (₽)</label>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">⏳ Срок действия (дедлайн)</label>
+            <input type="date" id="ag_field_deadline" value="${ag.deadline ? String(ag.deadline).split('T')[0] : ''}" style="width:100%">
+          </div>
+        </div>
+
+        <div>
+          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Номер Сбербанка (внешний № договора/ДС)</label>
+          <input type="text" id="ag_field_ext_num" value="${escHtml(ag.external_number || '')}" placeholder="Например: 50005273313" style="width:100%; font-family:monospace">
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:2px">Тариф за порт СКС / Базовая ставка (₽, Приложение №1)</label>
+            <div style="font-size:.70rem; color:var(--text-3); margin-bottom:4px">Ставка по смете лота (12 375 ₽ кат. 5е / 24 255 ₽ оптика)</div>
+            <input type="number" id="ag_field_price_unit" step="0.01" value="${ag.price_unit || ''}" placeholder="12375.00" style="width:100%; font-weight:700; color:var(--green)">
+          </div>
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:2px">Предельный лимит по ДС (₽)</label>
+            <div style="font-size:.70rem; color:var(--text-3); margin-bottom:4px">Максимальный объем финансирования по лоту</div>
             <input type="number" id="ag_field_amount" step="0.01" value="${ag.amount || ''}" placeholder="0.00" style="width:100%">
           </div>
         </div>
 
         <div>
-          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Примечание по региону</label>
-          <textarea id="ag_field_comment" rows="2" style="width:100%">${escHtml(ag.comment || '')}</textarea>
+          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Предмет, специфика лота и регламент сроков (Приложения №2 и №3)</label>
+          <textarea id="ag_field_comment" rows="2" placeholder="Лот №..., ТБ/ГОСБ, нормативные сроки: 14 дней в городе / 23 дня >50 км / 90 дней сложные объекты" style="width:100%">${escHtml(ag.comment || '')}</textarea>
         </div>
       </div>
 
@@ -1449,6 +1501,8 @@ function openEditAgreementModal(contractId, agreementId) {
 function submitEditAgreement(contractId, agreementId) {
   var code = (document.getElementById('ag_field_code').value || '').trim();
   var region = (document.getElementById('ag_field_region').value || '').trim();
+  var agDate = document.getElementById('ag_field_date').value || null;
+  var agDeadline = document.getElementById('ag_field_deadline').value || null;
   var extNum = (document.getElementById('ag_field_ext_num').value || '').trim();
   var priceUnit = document.getElementById('ag_field_price_unit').value;
   var amount = document.getElementById('ag_field_amount').value;
@@ -1461,6 +1515,8 @@ function submitEditAgreement(contractId, agreementId) {
       agreement_code: code,
       region: region,
       city: region,
+      agreement_date: agDate,
+      deadline: agDeadline,
       external_number: extNum,
       price_unit: priceUnit,
       amount: amount,
@@ -1515,30 +1571,49 @@ function openAddAgreementModal(contractId) {
 
     <form id="add_agreement_form" onsubmit="event.preventDefault(); submitAddAgreement(${contractId})" style="padding:20px">
       <div style="display:flex; flex-direction:column; gap:12px">
-        <div>
-          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Регион / Город *</label>
-          <input type="text" id="add_ag_region" placeholder="Например: Иркутск" style="width:100%" required>
-        </div>
-
-        <div>
-          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Номер Сбербанка (внешний № контракта)</label>
-          <input type="text" id="add_ag_ext_num" placeholder="Например: 50005595399" style="width:100%; font-family:monospace">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Номер / Код ДС (Лот)</label>
+            <input type="text" id="add_ag_code" placeholder="Например: ДС-1 или Лот 34 (осн)" style="width:100%">
+          </div>
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Регион / Город (ГОСБ / ТБ) *</label>
+            <input type="text" id="add_ag_region" placeholder="Например: Архангельск (Северо-Западный банк)" style="width:100%" required>
+          </div>
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
           <div>
-            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Региональная цена (₽)</label>
-            <input type="number" id="add_ag_price_unit" step="0.01" placeholder="0.00" style="width:100%; font-weight:700; color:var(--green)">
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">📅 Дата ДС (заключения)</label>
+            <input type="date" id="add_ag_date" style="width:100%">
           </div>
           <div>
-            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Лимит по ДС (₽)</label>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">⏳ Срок действия (дедлайн)</label>
+            <input type="date" id="add_ag_deadline" style="width:100%">
+          </div>
+        </div>
+
+        <div>
+          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Номер Сбербанка (внешний № договора/ДС)</label>
+          <input type="text" id="add_ag_ext_num" placeholder="Например: 50005273313" style="width:100%; font-family:monospace">
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:2px">Тариф за порт СКС / Базовая ставка (₽, Приложение №1)</label>
+            <div style="font-size:.70rem; color:var(--text-3); margin-bottom:4px">Ставка по смете лота (12 375 ₽ кат. 5е / 24 255 ₽ оптика)</div>
+            <input type="number" id="add_ag_price_unit" step="0.01" placeholder="12375.00" style="width:100%; font-weight:700; color:var(--green)">
+          </div>
+          <div>
+            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:2px">Предельный лимит по ДС (₽)</label>
+            <div style="font-size:.70rem; color:var(--text-3); margin-bottom:4px">Максимальный объем финансирования по лоту</div>
             <input type="number" id="add_ag_amount" step="0.01" placeholder="0.00" style="width:100%">
           </div>
         </div>
 
         <div>
-          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Примечание</label>
-          <textarea id="add_ag_comment" rows="2" style="width:100%"></textarea>
+          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Предмет, специфика лота и регламент сроков (Приложения №2 и №3)</label>
+          <textarea id="add_ag_comment" rows="2" placeholder="Лот №..., ТБ/ГОСБ, нормативные сроки: 14 дней в городе / 23 дня >50 км / 90 дней сложные объекты" style="width:100%"></textarea>
         </div>
       </div>
 
@@ -1553,7 +1628,10 @@ function openAddAgreementModal(contractId) {
 }
 
 function submitAddAgreement(contractId) {
+  var code = (document.getElementById('add_ag_code') ? document.getElementById('add_ag_code').value : '').trim();
   var region = (document.getElementById('add_ag_region').value || '').trim();
+  var agDate = document.getElementById('add_ag_date').value || null;
+  var agDeadline = document.getElementById('add_ag_deadline').value || null;
   var extNum = (document.getElementById('add_ag_ext_num').value || '').trim();
   var priceUnit = document.getElementById('add_ag_price_unit').value;
   var amount = document.getElementById('add_ag_amount').value;
@@ -1563,8 +1641,11 @@ function submitAddAgreement(contractId) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      agreement_code: code,
       region: region,
       city: region,
+      agreement_date: agDate,
+      deadline: agDeadline,
       external_number: extNum,
       price_unit: priceUnit,
       amount: amount,
@@ -1619,6 +1700,7 @@ function deleteAgreement(contractId, agreementId) {
 }
 
 function renderContractTabTasks(c, tasks) {
+  var hasAgreements = c.agreements && c.agreements.length > 0;
   var headerHtml = `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px">
       <div style="display:flex; align-items:center; gap:8px">
@@ -1626,6 +1708,9 @@ function renderContractTabTasks(c, tasks) {
         <span class="badge ${tasks.length ? 'b-blue' : 'b-gray'}" style="font-size:.75rem">${tasks.length}</span>
       </div>
       <div style="display:flex; gap:8px; flex-wrap:wrap">
+        <button class="btn btn-sm btn-outline" onclick="closeContractModal(); viewContractTasks(${c.id}, '${escHtml(c.internal_number || '')}')" style="display:inline-flex; align-items:center; gap:5px; font-weight:600" title="Перейти в полноэкранный реестр заявок с фильтром по этому договору">
+          🔍 В реестр заявок
+        </button>
         <button class="btn btn-sm btn-outline" onclick="openLinkTaskToContractModal(${c.id})" style="display:inline-flex; align-items:center; gap:5px; font-weight:600" title="Выбрать и привязать существующую в системе заявку к этому договору">
           🔗 Привязать заявку
         </button>
@@ -1661,9 +1746,19 @@ function renderContractTabTasks(c, tasks) {
   }
 
   var rows = tasks.map(function(t) {
+    var agCell = '';
+    if (hasAgreements) {
+      var agItem = (c.agreements || []).find(function(a) { return Number(a.id) === Number(t.contract_agreement_id); });
+      var agBadge = agItem 
+        ? `<span class="badge b-blue" style="font-size:.70rem" title="${escHtml(agItem.city || agItem.region || '')}">${escHtml(agItem.agreement_code || ('ДС-' + agItem.agreement_number))}</span>` 
+        : '<span style="color:var(--text-3); font-size:.75rem">—</span>';
+      agCell = `<td style="padding:10px 12px; white-space:nowrap">${agBadge}</td>`;
+    }
+
     return `
       <tr style="border-bottom:1px solid var(--border); cursor:pointer" onclick="closeContractModal(); openCard('${t.id}')">
         <td style="padding:10px 12px; font-weight:700; font-family:monospace; color:var(--blue)">${escHtml(t.id)}</td>
+        ${agCell}
         <td style="padding:10px 12px">${escHtml(t.region || '—')}</td>
         <td style="padding:10px 12px; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" title="${escHtml(t.address || '')}">${escHtml(t.address || '—')}</td>
         <td style="padding:10px 12px">${escHtml(t.work_type || '—')}</td>
@@ -1688,6 +1783,7 @@ function renderContractTabTasks(c, tasks) {
         <thead>
           <tr style="background:var(--bg)">
             <th>ID Заявки</th>
+            ${hasAgreements ? '<th>Доп. соглашение (Лот)</th>' : ''}
             <th>Регион</th>
             <th>Адрес объекта</th>
             <th>Вид работ</th>
