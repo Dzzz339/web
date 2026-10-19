@@ -766,7 +766,16 @@ function bindEvents() {
       if (!t) return;
       var origVal = t[el.name];
       var isBool = typeof newVal === 'boolean';
-      var same = isBool ? (!!origVal === newVal) : (String(origVal||'') === String(newVal));
+      var same = false;
+      if (isBool) {
+        same = (!!origVal === newVal);
+      } else if (el.type === 'date') {
+        var oStr = origVal ? String(origVal).slice(0, 10) : '';
+        var nStr = newVal ? String(newVal).slice(0, 10) : '';
+        same = (oStr === nStr);
+      } else {
+        same = (String(origVal||'') === String(newVal));
+      }
       if (same) {
         delete S.cardDraft[el.name];
       } else {

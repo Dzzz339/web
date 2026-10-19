@@ -296,6 +296,10 @@ window.selectCardContract = function(cId) {
   } else {
     var matchedC = (S.contracts || []).find(function(x){ return Number(x.id) === numVal; });
     if (matchedC) {
+      if (matchedC.customer_name) {
+        S.cardDraft.customer = matchedC.customer_name;
+        if (t) t.customer = matchedC.customer_name;
+      }
       if (matchedC.our_entity_name) {
         var foundOwn = (S.ownCompanies || []).find(function(oc){ return oc.name_short === matchedC.our_entity_name; });
         if (foundOwn) {
@@ -524,7 +528,22 @@ function pageCard() {
     return '<option value="' + escHtml(u.full_name) + '"' + (curAssignee === u.full_name ? ' selected' : '') + '>#' + u.id + ' — ' + escHtml(u.full_name) + ' (' + roleLabel + phoneLabel + ')</option>';
   }).join('');
 
-  var taskCustomer = String(t.customer || '').trim();
+  var curContractId = Object.prototype.hasOwnProperty.call(S.cardDraft, 'contract_id') 
+    ? S.cardDraft.contract_id 
+    : (t.contract_id != null ? t.contract_id : t.contractId);
+
+  var linkedPreContract = curContractId ? (S.contracts || []).find(function(c){ return String(c.id) === String(curContractId); }) : null;
+  if (linkedPreContract && linkedPreContract.customer_name) {
+    var cPreLow = linkedPreContract.customer_name.toLowerCase();
+    var tPreLow = String(t.customer || '').toLowerCase();
+    if (!t.customer || (tPreLow.includes('сбер') && !cPreLow.includes('сбер'))) {
+      t.customer = linkedPreContract.customer_name;
+    }
+  }
+
+  var taskCustomer = Object.prototype.hasOwnProperty.call(S.cardDraft, 'customer')
+    ? String(S.cardDraft.customer || '').trim()
+    : String(t.customer || '').trim();
   var isSber = !taskCustomer || taskCustomer.toLowerCase().includes('сбер');
 
   var controllerOpts = (function() {
@@ -558,10 +577,6 @@ function pageCard() {
   if (t.contractor && !(S.contractors || []).filter(function(c){ return c.type !== 'customer'; }).some(function(c){ return c.name_short === t.contractor.trim(); })) {
     contractorOpts += '<option value="' + t.contractor + '" selected>⚠️ ' + t.contractor + ' (из Excel)</option>';
   }
-
-  var curContractId = Object.prototype.hasOwnProperty.call(S.cardDraft, 'contract_id') 
-    ? S.cardDraft.contract_id 
-    : (t.contract_id != null ? t.contract_id : t.contractId);
 
   // Привязка к генеральному контракту по реальным реквизитам: номер контракта, Заказчик и регион (Отказ от слепой привязки по 0926-02 - замечание Алексея, скрин12)
   if (!curContractId) {
@@ -611,6 +626,21 @@ function pageCard() {
     }
   }
 
+  if (curContractId) {
+    var curAutoC = (S.contracts || []).find(function(c){ return String(c.id) === String(curContractId); });
+    if (curAutoC && curAutoC.customer_name) {
+      var autoLow = curAutoC.customer_name.toLowerCase();
+      var tCustLow = String(t.customer || '').toLowerCase();
+      if (!t.customer || (tCustLow.includes('сбер') && !autoLow.includes('сбер'))) {
+        t.customer = curAutoC.customer_name;
+        if (!Object.prototype.hasOwnProperty.call(S.cardDraft, 'customer')) {
+          taskCustomer = curAutoC.customer_name;
+          isSber = false;
+        }
+      }
+    }
+  }
+
   var allContracts = (S.contracts || []).slice().sort(function(a, b) {
     return getContractSortKey(b) - getContractSortKey(a);
   });
@@ -644,12 +674,24 @@ function pageCard() {
   function field(lbl, key, type, compact) {
     var isDirty = Object.prototype.hasOwnProperty.call(S.cardDraft, key);
     var val = isDirty ? S.cardDraft[key] : (t[key] || '');
+    if (key === 'customer' && !isDirty) {
+      var cid = Object.prototype.hasOwnProperty.call(S.cardDraft, 'contract_id') ? S.cardDraft.contract_id : (t.contract_id != null ? t.contract_id : t.contractId);
+      var curC = cid ? (S.contracts || []).find(function(x){ return String(x.id) === String(cid); }) : null;
+      if (curC && curC.customer_name) {
+        var cLow = curC.customer_name.toLowerCase();
+        var tLow = String(val || '').toLowerCase();
+        if (!val || (tLow.includes('сбер') && !cLow.includes('сбер'))) {
+          val = curC.customer_name;
+          t.customer = curC.customer_name;
+        }
+      }
+    }
     var hintHtml = (typeof getHintIcon === 'function') ? getHintIcon(key) : '';
     var ph = (typeof getFieldPlaceholder === 'function') ? getFieldPlaceholder(key) : '';
 
     var isViewLocked = (t.assignmentStatus === 'accepted' && !S._taskEditUnlocked);
     var canEdit = canUserEditField(S.user, key);
-    if (!canEdit || (isViewLocked && !['status', 'fact', 'dataVyhoda', 'obsledovanie', 'dostup', 'priemka'].includes(key))) {
+    if (!canEdit || (isViewLocked && !['status', 'fact', 'dataVyhoda', 'obsledovanie', 'dostup', 'priemka', 'deadline'].includes(key))) {
       var displayVal = val;
       if (type === 'checkbox') {
         displayVal = val ? '✅ Да' : '❌ Нет';
@@ -933,6 +975,10 @@ function pageCard() {
     }
     else if (type === 'textarea') inp = '<textarea name="'+key+'" data-key="'+key+'"' + (ph ? (' placeholder="' + escHtml(ph) + '"') : '') + ' style="width:100%;font-size:.82rem;min-height:54px;transition:min-height .2s ease" onfocus="this.style.minHeight=\'110px\'" onblur="if(this.value.length < 120) this.style.minHeight=\'54px\'">'+val+'</textarea>';
     else if (type === 'checkbox') inp = '<input type="checkbox" name="'+key+'" data-key="'+key+'"'+(val ? ' checked' : '')+'>';
+    else if (type === 'date') {
+      var dVal = val ? String(val).slice(0, 10) : '';
+      inp = '<input type="date" name="'+key+'" data-key="'+key+'" value="'+dVal+'" style="width:100%">';
+    }
     else inp = '<input type="'+(type||'text')+'" name="'+key+'" data-key="'+key+'"' + (ph ? (' placeholder="' + escHtml(ph) + '"') : '') + ' value="'+String(val).replace(/"/g,'&quot;')+'">';
     var dirtyMark = isDirty ? ' <span class="badge b-orange" style="font-size:10px;padding:1px 5px">изменено</span>' : '';
     if (compact) {
@@ -1111,11 +1157,12 @@ function pageCard() {
   var datePpStr = t.currentDate
     ? (String(t.currentDate).slice(0, 10).includes('-') ? String(t.currentDate).slice(0, 10).split('-').reverse().join('.') : String(t.currentDate).slice(0, 10))
     : ((t.rawData && (t.rawData['текущая дата'] || t.rawData['текущяя дата'] || t.rawData['дата с пп'] || t.rawData['дата_внесения'])) || '—');
-  var deadlineStr = t.deadline ? t.deadline.slice(0, 10).split('-').reverse().join('.') : '—';
+  var curDeadlineVal = Object.prototype.hasOwnProperty.call(S.cardDraft, 'deadline') ? S.cardDraft.deadline : t.deadline;
+  var deadlineStr = curDeadlineVal ? String(curDeadlineVal).slice(0, 10).split('-').reverse().join('.') : '—';
 
   var overdueBadge = '';
-  if (t.deadline) {
-    var dl = new Date(t.deadline);
+  if (curDeadlineVal) {
+    var dl = new Date(curDeadlineVal);
     var now = new Date();
     var isDone = ['accepted', 'billing', 'paid', 'archived', 'done'].includes((t.macroStatus || t.status || '').toLowerCase());
     if (!isDone && dl < now) {
@@ -1535,9 +1582,11 @@ function pageCard() {
             field('Регион', 'region', 'text', true) +
             field('Адрес объекта', 'address', 'text', true) +
           '</div>' +
-          '<div style="display:grid;grid-template-columns:' + (isWorker ? '1fr' : 'repeat(4, 1fr)') + ';gap:6px;margin-bottom:6px">' +
+          '<div style="display:grid;grid-template-columns:' + (isWorker ? '1fr' : '1fr 1fr') + ';gap:8px;margin-bottom:6px">' +
             (isWorker ? '' : field('№ ГОСБ', 'gosb', 'text', true)) +
             (isWorker ? '' : field('№ ВСП', 'vsp', 'text', true)) +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:' + (isWorker ? '1fr' : '1fr 1fr') + ';gap:8px;margin-bottom:6px">' +
             (isWorker ? '' : field('Тип объекта', 'tipObj', 'text', true)) +
             field('Тип работ', 'workType', 'text', true) +
           '</div>' +
@@ -1578,12 +1627,15 @@ function pageCard() {
           '</div>' +
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">' +
             field('Дата распределения', 'distributedAt', 'date', true) +
-            field('Дата выхода (факт)', 'dataVyhoda', 'date', true) +
+            field('Дедлайн (план)', 'deadline', 'date', true) +
           '</div>' +
-          '<div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:6px;margin-bottom:6px">' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">' +
+            field('Дата выхода (факт)', 'dataVyhoda', 'date', true) +
+            field('Приёмка (фото)', 'priemka', 'text', true) +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">' +
             field('Обследование', 'obsledovanie', 'text', true) +
             field('Доступ', 'dostup', 'text', true) +
-            field('Приёмка (фото)', 'priemka', 'text', true) +
           '</div>' +
           (isWorker ? '' : 
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;padding-top:6px;border-top:1px dashed var(--border)">' +
@@ -2778,6 +2830,7 @@ function deletePortRow(rowId, taskId) {
 
 var fieldLabels = {
   status:'Статус', priority:'Приоритет', stage:'Этап', assignee:'Проект-менеджер (наш)',
+  customer:'Заказчик',
   contract_id:'Генеральный договор',
   controller:'Контролёр (Держатель контракта)', comment:'Комментарий', distributedAt:'Дата распределения',
   contact:'Контакт на объекте', techLink:'Ссылка', deadline:'Дата окончания работ',

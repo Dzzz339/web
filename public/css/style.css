@@ -17,7 +17,7 @@
       --shadow: 0 1px 8px rgba(0,0,0,0.06);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Golos Text', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
+    body { font-family: 'Golos Text', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; overscroll-behavior-x: none; }
 
     /* APP LAYOUT */
     .app-layout {
@@ -25,6 +25,7 @@
       min-height: 100vh;
       width: 100%;
       background: var(--bg);
+      overscroll-behavior-x: none;
     }
 
     /* SIDEBAR */
@@ -622,7 +623,8 @@
     .field-val { font-size:.875rem;color:var(--text); }
     .field-val input,.field-val select,.field-val textarea { width:100%;padding:5px 9px;font-size:.875rem; }
     .field-val textarea { resize:vertical;min-height:80px; }
-    .card-info-dashboard { display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start; }
+    .card-info-dashboard { display:grid;grid-template-columns:minmax(0, 1fr) minmax(0, 1fr);gap:1rem;align-items:start; }
+    .card-tab-pane, .page-content { overscroll-behavior-x: none; }
     .field-compact { display:flex;flex-direction:column;gap:3px;min-width:0; }
     .field-compact .field-lbl { font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-3);padding:0;line-height:1.2;display:flex;align-items:center;gap:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
     .field-compact .field-val { font-size:.84rem;color:var(--text);min-width:0; }

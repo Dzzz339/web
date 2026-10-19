@@ -23,24 +23,74 @@ function pageDash(subSection) {
   // 1. ПОДРАЗДЕЛ: ЗАКАЗЧИКИ
   if (subSection === 'customers') {
     var custMap = {};
-    S.tasks.forEach(function(t) {
-      var c = t.customer || 'ПАО Сбербанк';
-      if (!custMap[c]) custMap[c] = { name: c, total: 0, done: 0, overdue: 0, inWork: 0, amount: 0 };
+
+    // 1. Инициализируем всеми действующими контрактами
+    (S.contracts || []).forEach(function(ct) {
+      if (!ct.customer_name) return;
+      var cName = ct.customer_name.trim();
+      if (!cName) return;
+      if (!custMap[cName]) {
+        custMap[cName] = {
+          name: cName,
+          total: 0,
+          done: 0,
+          overdue: 0,
+          inWork: 0,
+          amount: Number(ct.amount || 0),
+          contractsCount: 1
+        };
+      } else {
+        custMap[cName].amount += Number(ct.amount || 0);
+        custMap[cName].contractsCount = (custMap[cName].contractsCount || 1) + 1;
+      }
+    });
+
+    // 2. Дополняем и агрегируем заявки с авто-резолвом Заказчика по контракту
+    var tasksSumByCust = {};
+    (S.tasks || []).forEach(function(t) {
+      var c = t.customer;
+      var cid = t.contract_id != null ? t.contract_id : t.contractId;
+      if ((!c || c.toLowerCase().includes('сбер')) && cid) {
+        var linkedC = (S.contracts || []).find(function(x){ return String(x.id) === String(cid); });
+        if (linkedC && linkedC.customer_name && !linkedC.customer_name.toLowerCase().includes('сбер')) {
+          c = linkedC.customer_name;
+        }
+      }
+      c = (c && c.trim()) || 'ПАО Сбербанк';
+
+      if (!custMap[c]) {
+        custMap[c] = { name: c, total: 0, done: 0, overdue: 0, inWork: 0, amount: 0, contractsCount: 0 };
+      }
       custMap[c].total++;
-      if (t.status === 'done') custMap[c].done++;
+      if (t.status === 'done' || t.macroStatus === 'paid' || t.macroStatus === 'billing') custMap[c].done++;
       else custMap[c].inWork++;
       if (t.overdueDays > 0) custMap[c].overdue++;
-      custMap[c].amount += Number(t.amount || 0);
+
+      tasksSumByCust[c] = (tasksSumByCust[c] || 0) + Number(t.amount || 0);
     });
-    var custList = Object.values(custMap).sort(function(a,b){ return b.total - a.total; });
+
+    // Если у заказчика есть заявки с суммами, берем сумму заявок (если она больше или контракт не имел суммы)
+    Object.keys(custMap).forEach(function(cName) {
+      if (tasksSumByCust[cName] && tasksSumByCust[cName] > 0) {
+        if (!custMap[cName].amount || tasksSumByCust[cName] > custMap[cName].amount) {
+          custMap[cName].amount = tasksSumByCust[cName];
+        }
+      }
+    });
+
+    var custList = Object.values(custMap).sort(function(a, b) {
+      if (b.total !== a.total) return b.total - a.total;
+      return b.amount - a.amount;
+    });
 
     var cardsHtml = custList.map(function(c) {
-      var p = pct(c.done, c.total);
+      var p = c.total > 0 ? pct(c.done, c.total) : 0;
+      var contractsBadge = c.contractsCount > 0 ? ('<span class="badge b-gray" style="font-size:.7rem;margin-left:6px">' + c.contractsCount + ' дог.</span>') : '';
       return `
         <div class="card p" style="cursor:pointer; transition:transform 0.12s, box-shadow 0.12s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'" onclick="filterAndGoTasks({customer:'${escHtml(c.name)}'})">
           <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:.75rem">
             <div>
-              <span class="badge b-customer" style="margin-bottom:4px; display:inline-block">Заказчик</span>
+              <div style="display:flex;align-items:center"><span class="badge b-customer" style="margin-bottom:4px; display:inline-block">Заказчик</span>${contractsBadge}</div>
               <div style="font-weight:700; font-size:1.1rem">${escHtml(c.name)}</div>
             </div>
             <div style="font-weight:700; font-size:1.15rem; color:var(--blue)">${fmtMoney(c.amount)}</div>
@@ -50,8 +100,8 @@ function pageDash(subSection) {
             <div style="background:var(--bg); padding:6px 8px; border-radius:6px; color:var(--green)">Готово: <b>${fmtN(c.done)}</b></div>
             <div style="background:var(--bg); padding:6px 8px; border-radius:6px; color:${c.overdue>0?'var(--red)':'var(--text-3)'}">Просрочено: <b>${fmtN(c.overdue)}</b></div>
           </div>
-          ${bar(c.done, c.total)}
-          <div style="text-align:right; font-size:.75rem; color:var(--text-3); margin-top:4px">${p}% завершено (клик для перехода к заявкам) ➔</div>
+          ${c.total > 0 ? bar(c.done, c.total) : '<div class="t3" style="font-size:.78rem;margin:8px 0;text-align:center;background:#f8fafc;padding:4px;border-radius:4px;border:1px dashed #cbd5e1">Договор подписан · Заявки формируются</div>'}
+          <div style="text-align:right; font-size:.75rem; color:var(--text-3); margin-top:4px">${c.total > 0 ? (p + '% завершено (клик для перехода к заявкам) ➔') : 'Активный контракт (клик для перехода к заявкам) ➔'}</div>
         </div>
       `;
     }).join('');

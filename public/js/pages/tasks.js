@@ -208,9 +208,18 @@ function pageTasks() {
     if (pr  && t.priority !== pr)  return false;
     if (reg && t.region   !== reg) return false;
     if (mgr && t.manager  !== mgr) return false;
-    if (yr  && t.sheet    !== yr)  return false;
-    if (cust && (t.customer || 'ПАО Сбербанк') !== cust) return false;
-    if (ovd==='yes' && !(t.overdueDays>0)) return false;
+    if (cust) {
+      var effCust = t.customer;
+      var tCid = t.contract_id != null ? t.contract_id : t.contractId;
+      if ((!effCust || effCust.toLowerCase().includes('сбер')) && tCid) {
+        var linkedContract = (S.contracts || []).find(function(c){ return String(c.id) === String(tCid); });
+        if (linkedContract && linkedContract.customer_name && !linkedContract.customer_name.toLowerCase().includes('сбер')) {
+          effCust = linkedContract.customer_name;
+        }
+      }
+      effCust = (effCust && effCust.trim()) || 'ПАО Сбербанк';
+      if (effCust.toLowerCase() !== cust.toLowerCase()) return false;
+    }
     if (ovd==='no'  && t.overdueDays>0)    return false;
     if (S.taskArch === 'no' && t.archived) return false;
     if (S.taskStage && !isTaskMatchingStage(t, S.taskStage, latestInfo)) return false;
@@ -244,9 +253,22 @@ function pageTasks() {
   }, 0);
 
   var regions   = Array.from(new Set(S.tasks.map(function(t){return t.region||'';}).filter(Boolean))).sort();
-  var managers  = Array.from(new Set(S.tasks.map(function(t){return t.manager||'';}).filter(Boolean))).sort();
-  var customers = Array.from(new Set(S.tasks.map(function(t){return t.customer||'ПАО Сбербанк';}).filter(Boolean))).sort();
-  var years     = Array.from(new Set(S.tasks.map(function(t){return t.sheet||'';}).filter(Boolean))).sort();
+  var customerSet = new Set();
+  (S.tasks || []).forEach(function(t) {
+    var c = t.customer;
+    var cid = t.contract_id != null ? t.contract_id : t.contractId;
+    if ((!c || c.toLowerCase().includes('сбер')) && cid) {
+      var linkedC = (S.contracts || []).find(function(x){ return String(x.id) === String(cid); });
+      if (linkedC && linkedC.customer_name && !linkedC.customer_name.toLowerCase().includes('сбер')) {
+        c = linkedC.customer_name;
+      }
+    }
+    customerSet.add((c && c.trim()) || 'ПАО Сбербанк');
+  });
+  (S.contracts || []).forEach(function(c) {
+    if (c.customer_name && c.customer_name.trim()) customerSet.add(c.customer_name.trim());
+  });
+  var customers = Array.from(customerSet).sort();
 
   var contractorSet = new Set();
   var hasUnassignedContr = false;
