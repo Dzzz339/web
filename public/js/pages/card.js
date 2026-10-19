@@ -66,7 +66,7 @@ window.approveTaskEntry = function(taskId) {
   }
 
   var isSber = !(t.customer) || String(t.customer).toLowerCase().includes('сбер');
-  var defaultCtrl = isSber ? 'Городович М.В.' : 'Овсянников Д.В.';
+  var defaultCtrl = isSber ? 'Городович И.О.' : 'Городович М.В.';
   var controllerVal = (S.cardDraft && S.cardDraft.controller !== undefined) ? S.cardDraft.controller : (t.controller || defaultCtrl);
 
   var payload = {
@@ -120,21 +120,50 @@ window.editCardTechLink = function(taskId) {
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
   if (!t) return;
   var curLink = t.tech_link || t.techLink || '';
-  var newLink = prompt('Укажите или вставьте ссылку на Яндекс.Диск / папку с ТЗ Заказчика:', curLink);
-  if (newLink === null) return;
-  newLink = newLink.trim();
-  api('/tasks/' + encodeURIComponent(taskId), {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tech_link: newLink, techLink: newLink })
-  }).then(function() {
-    t.tech_link = newLink;
-    t.techLink = newLink;
-    showToast('Ссылка на тех. документацию обновлена', 'success');
-    renderApp();
-  }).catch(function(err) {
-    alert('Ошибка обновления ссылки: ' + err.message);
-  });
+
+  var old = document.getElementById('_tech_link_modal');
+  if (old) old.remove();
+
+  var modal = document.createElement('div');
+  modal.id = '_tech_link_modal';
+  modal.className = 'modal-overlay';
+  modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;';
+  modal.innerHTML = '<div style="background:#fff;border-radius:12px;padding:20px 24px;max-width:540px;width:92%;box-shadow:0 12px 32px rgba(0,0,0,0.25)">' +
+    '<h3 style="margin-top:0;font-size:1.1rem;display:flex;align-items:center;gap:6px">📁 Ссылка на Яндекс.Диск / Облако ТЗ</h3>' +
+    '<div style="font-size:.82rem;color:var(--text-3);margin-bottom:12px">Укажите прямую ссылку на папку с технической документацией и проектом объекта для субподрядчика:</div>' +
+    '<input type="url" id="_tech_link_inp" value="' + escHtml(curLink) + '" placeholder="https://disk.yandex.ru/d/..." style="width:100%;padding:8px 12px;font-size:.88rem;border:1.5px solid var(--border);border-radius:6px;box-sizing:border-box;margin-bottom:16px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center">' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_tech_link_modal\').remove()">Отмена</button>' +
+      '<button type="button" id="_tech_link_save_btn" class="btn btn-sm btn-primary" style="padding:6px 16px;font-weight:700">✓ Сохранить ссылку</button>' +
+    '</div>' +
+  '</div>';
+
+  document.body.appendChild(modal);
+  var inp = document.getElementById('_tech_link_inp');
+  if (inp) { inp.focus(); inp.select(); }
+
+  document.getElementById('_tech_link_save_btn').onclick = function() {
+    var newLink = (inp ? inp.value : '').trim();
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = 'Сохранение...';
+
+    api('/tasks/' + encodeURIComponent(taskId), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tech_link: newLink, techLink: newLink })
+    }).then(function() {
+      t.tech_link = newLink;
+      t.techLink = newLink;
+      modal.remove();
+      showToast('Ссылка на тех. документацию обновлена', 'success');
+      renderApp();
+    }).catch(function(err) {
+      btn.disabled = false;
+      btn.textContent = '✓ Сохранить ссылку';
+      alert('Ошибка обновления ссылки: ' + err.message);
+    });
+  };
 };
 
 window.shareTechLinkWithContractor = function(taskId) {
@@ -478,21 +507,32 @@ function pageCard() {
     return '<option value="'+v+'"'+(curPriority===v?' selected':'')+'>'+labels[v]+'</option>';
   }).join('');
 
-  var assigneeOpts = '<option value="">— (Не назначен) —</option>' + (S.users || []).map(function(u) {
-    var curAssignee = Object.prototype.hasOwnProperty.call(S.cardDraft,'assignee') ? S.cardDraft.assignee : t.assignee;
+  var curAssignee = Object.prototype.hasOwnProperty.call(S.cardDraft,'assignee') ? S.cardDraft.assignee : t.assignee;
+  var pmUsers = (S.users || []).filter(function(u) {
+    var r = String(u.role || '').toLowerCase();
+    return r === 'manager' || r === 'admin' || r === 'director';
+  });
+  var hasCurInPm = pmUsers.some(function(u) { return u.full_name === curAssignee; });
+  var assigneeOpts = '<option value="">— (Не назначен) —</option>';
+  if (curAssignee && !hasCurInPm) {
+    assigneeOpts += '<option value="' + escHtml(curAssignee) + '" selected>⚠️ ' + escHtml(curAssignee) + ' (текущий)</option>';
+  }
+  assigneeOpts += pmUsers.map(function(u) {
     if (!u.full_name) return '';
-    return '<option value="' + u.full_name + '"' + (curAssignee === u.full_name ? ' selected' : '') + '>#' + u.id + ' — ' + u.full_name + '</option>';
+    var roleLabel = u.role === 'manager' ? 'ПМ' : (u.role === 'director' ? 'Руководитель' : 'Админ');
+    var phoneLabel = u.phone ? (' · 📞 ' + u.phone) : '';
+    return '<option value="' + escHtml(u.full_name) + '"' + (curAssignee === u.full_name ? ' selected' : '') + '>#' + u.id + ' — ' + escHtml(u.full_name) + ' (' + roleLabel + phoneLabel + ')</option>';
   }).join('');
 
   var taskCustomer = String(t.customer || '').trim();
   var isSber = !taskCustomer || taskCustomer.toLowerCase().includes('сбер');
 
   var controllerOpts = (function() {
-    var curCtrl = Object.prototype.hasOwnProperty.call(S.cardDraft, 'controller') ? S.cardDraft.controller : (t.controller || (isSber ? 'Городович М.В.' : 'Овсянников Д.В.'));
-    if (curCtrl === 'Городович И.О.' || curCtrl === 'Городович Илья Олегович') curCtrl = 'Городович М.В.';
+    var curCtrl = Object.prototype.hasOwnProperty.call(S.cardDraft, 'controller') ? S.cardDraft.controller : (t.controller || (isSber ? 'Городович И.О.' : 'Городович М.В.'));
     var presets = [
-      { v: 'Городович М.В.', l: 'Городович М.В. (Директор ООО «К10»)' },
-      { v: 'Овсянников Д.В.', l: 'Овсянников Д.В. (Директор ООО «Кабельные Системы»)' }
+      { v: 'Городович И.О.', l: 'Городович И.О. (Директор ООО «К10»)' },
+      { v: 'Городович М.В.', l: 'Городович М.В. (Директор ООО «Кабельные Системы»)' },
+      { v: 'Бондаренко Ф.А.', l: 'Бондаренко Ф.А. (Директор ООО «Ультима»)' }
     ];
     (S.users || []).filter(function(u){ return u.role === 'director' || u.role === 'admin'; }).forEach(function(u){
       if (!presets.some(function(p){ return p.v === u.full_name; })) {
@@ -819,9 +859,10 @@ function pageCard() {
               '<div style="font-weight:700;font-size:.85rem;color:var(--text)">🏢 ' + escHtml(curContrName) + '</div>' +
               (contrObj && contrObj.inn ? '<div style="font-size:.74rem;color:var(--text-3)">ИНН: ' + escHtml(contrObj.inn) + '</div>' : '') +
             '</div>' +
-            '<div style="display:flex;gap:4px">' +
+            '<div style="display:flex;gap:4px;flex-wrap:wrap">' +
               '<button type="button" class="btn btn-sm btn-ghost" onclick="openContractorPicker(\'' + eid + '\')" style="font-size:.74rem;padding:2px 7px" title="Выбрать другого подрядчика">🔍 Сменить</button>' +
-              '<button type="button" class="btn btn-sm btn-ghost" onclick="openSubcontractModal(\'' + eid + '\')" style="font-size:.74rem;padding:2px 7px;color:var(--primary)" title="Перейти к поручению и заказ-наряду">👷 В исполнение →</button>' +
+              '<button type="button" class="btn btn-sm btn-ghost" onclick="openSubcontractModal(\'' + eid + '\')" style="font-size:.74rem;padding:2px 7px;color:var(--primary)" title="Редактировать параметры заказ-наряда и поручения">📋 Заказ-наряд</button>' +
+              (curStageNum === 0 ? ('<button type="button" class="btn btn-sm btn-primary" onclick="window._takeTaskToStage(\'' + eid + '\', 1)" style="font-size:.74rem;padding:2px 8px;background:#16a34a;border-color:#16a34a;font-weight:700" title="Перевести заявку на Этап 1 (В монтаже)">👷 В монтаж →</button>') : '') +
             '</div>' +
           '</div>' +
         '</div>'
@@ -1386,9 +1427,9 @@ function pageCard() {
   var curOwnCompanyId = t.own_company_id || (defaultOurEntity.includes('К10') ? 2 : (defaultOurEntity.includes('Ультима') ? 3 : 1));
 
   var ownOpts = (S.ownCompanies || [
-    { id: 2, name_short: 'ООО «К10»', director: 'Городович М.В.', tax_system: 'УСН (без НДС)', vat_rate: 0 },
-    { id: 1, name_short: 'ООО "Кабельные Системы"', director: 'Овсянников Д.В.', tax_system: 'УСН с НДС 5%', vat_rate: 5 },
-    { id: 3, name_short: 'ООО "Ультима"', director: 'Чайка А.В.', tax_system: 'ОСНО (НДС 22%)', vat_rate: 22 }
+    { id: 2, name_short: 'ООО «К10»', director: 'Городович И.О.', tax_system: 'УСН (без НДС)', vat_rate: 0 },
+    { id: 1, name_short: 'ООО "Кабельные Системы"', director: 'Городович М.В.', tax_system: 'УСН с НДС 5%', vat_rate: 5 },
+    { id: 3, name_short: 'ООО "Ультима"', director: 'Бондаренко Ф.А.', tax_system: 'ОСНО (НДС 22%)', vat_rate: 22 }
   ]).map(function(oc) {
     var isSel = (Number(curOwnCompanyId) === Number(oc.id) || oc.name_short === defaultOurEntity) ? ' selected' : '';
     var taxInfo = oc.tax_system ? (' · ' + oc.tax_system) : (Number(oc.vat_rate) > 0 ? (' · НДС ' + oc.vat_rate + '%') : ' · без НДС');
@@ -1529,14 +1570,11 @@ function pageCard() {
           '</div>' +
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">' +
             field('Проект-менеджер (ПМ)', 'assignee', 'select', true) +
-            (isWorker ? '' : field('Держатель контракта (Контролёр)', 'controller', 'select', true)) +
-          '</div>' +
-          '<div style="display:grid;grid-template-columns:' + (isWorker ? '1fr' : '1fr 1fr') + ';gap:8px;margin-bottom:6px">' +
             (isWorker ? '' : field('Ответственное лицо (Заказчик)', 'manager', 'text', true)) +
-            '<div>' +
-              field('Субподрядчик (наш)', 'contractor', 'text', true) +
-              renderContrPhoneHtml(true) +
-            '</div>' +
+          '</div>' +
+          '<div style="margin-bottom:6px">' +
+            field('Субподрядчик (наш)', 'contractor', 'text', true) +
+            renderContrPhoneHtml(true) +
           '</div>' +
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">' +
             field('Дата распределения', 'distributedAt', 'date', true) +
@@ -2571,49 +2609,114 @@ function deleteItemModal(taskId, itemId) {
 }
 
 
+function openAttachment(id, fromContract, contractId) {
+  var url = fromContract
+    ? ('/api/contracts/' + encodeURIComponent(contractId) + '/attachments/' + encodeURIComponent(id) + '/download')
+    : ('/api/attachments/' + encodeURIComponent(id) + '/file');
+  fetch(url, { headers: { 'Authorization': 'Bearer ' + S.token } })
+    .then(function(r){ 
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.blob(); 
+    })
+    .then(function(blob){ window.open(URL.createObjectURL(blob), '_blank'); })
+    .catch(function(err){ alert('Не удалось открыть файл: ' + err.message); });
+}
+
+window.approveTaskPhotoReport = function(taskId) {
+  if (!confirm('Подтвердить приемку фотоотчета с объекта?')) return;
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ photoReportAccepted: true, priemka: 'Принято (фото)' })
+  }).then(function() {
+    window._curPhotoReportAccepted = true;
+    showToast('✓ Фотоотчет успешно принят куратором', 'success');
+    var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+    if (t) {
+      t.priemka = 'Принято (фото)';
+      if (!t.rawData) t.rawData = {};
+      t.rawData.photoReportAccepted = true;
+    }
+    if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
+  }).catch(function(err) {
+    alert('Ошибка приемки фотоотчета: ' + err.message);
+  });
+};
+
 function refreshAttachmentsList(taskId) {
   var el = document.getElementById('attachmentsList');
   if (!el) return;
   loadAttachments(taskId).then(function(list) {
-    var photoCount = Array.isArray(list) ? list.filter(function(a){ return a.type === 'photo_report' || a.type === 'scheme'; }).length : 0;
+    list = Array.isArray(list) ? list : [];
+    var photoList = list.filter(function(a){ return a.type === 'photo_report' || a.type === 'scheme' || (a.mime_type && a.mime_type.startsWith('image/')); });
+    var docList = list.filter(function(a){ return !photoList.includes(a); });
+
+    var photoCount = photoList.length;
     if (!window._curTaskPhotos) window._curTaskPhotos = {};
     window._curTaskPhotos[taskId] = photoCount;
     window._curPhotoReportsCount = photoCount;
     if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
 
-    if (!Array.isArray(list) || !list.length) {
+    if (!list.length) {
       el.innerHTML = '<span class="t3">Пока ничего не загружено</span>';
       return;
     }
-    var typeLabels = { photo_report: '📷 Фото', scheme: '🗺️ Схема', act: '📄 Акт', receipt: '🧾 Чек', pi_excel: '📊 Excel ПИ', order_pdf: '📑 Заказ (PDF)', checklist: '📋 Чек-лист' };
-    el.innerHTML = list.map(function(a) {
-      var cleanName = (typeof fixMojibake === 'function' ? fixMojibake(a.original_name) : a.original_name) || 'файл';
-      return '<div class="field-row">' +
-        '<div class="field-lbl">' + (typeLabels[a.type] || a.type) + '</div>' +
-        '<div class="field-val"><a href="/api/attachments/' + a.id + '/file?token=' + '' + '" onclick="event.preventDefault();openAttachment(' + a.id + ')">' + escHtml(cleanName) + '</a>' +
-        ' <button class="btn btn-sm btn-ghost" onclick="handleAttachmentDelete(' + a.id + ',\'' + taskId + '\')" title="Удалить">✖</button></div>' +
+
+    var typeLabels = { photo_report: '📷 Фото', scheme: '🗺️ Схема', act: '📄 Акт', receipt: '🧾 Чек', pi_excel: '📊 Excel ПИ', order_pdf: '📑 Заказ (PDF)', checklist: '📋 Чек-лист', tz: '📑 ТЗ', project: '📐 Проект', estimate: '💰 Смета' };
+
+    var html = '';
+
+    // 1. Сетка фотоотчетов (Grid Gallery)
+    if (photoList.length > 0) {
+      html += '<div style="margin-bottom:12px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+          '<div style="font-weight:700;font-size:.82rem;color:var(--text)">📷 Фотоотчет и схемы с объекта (' + photoList.length + ' шт.)</div>' +
+          '<button type="button" class="btn btn-xs btn-outline" onclick="window.approveTaskPhotoReport(\'' + escHtml(taskId) + '\')" style="color:#16a34a;border-color:#86efac;font-size:.72rem;font-weight:700" title="Подтвердить приемку фотоотчета куратором">✓ Принять фотоотчет</button>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(110px, 1fr));gap:8px">' +
+        photoList.map(function(a) {
+          var cleanName = (typeof fixMojibake === 'function' ? fixMojibake(a.original_name) : a.original_name) || 'фото';
+          var isFromContract = Boolean(a.from_contract);
+          var downloadCall = 'openAttachment(' + a.id + ', ' + isFromContract + ', ' + (a.contract_id || 'null') + ')';
+          var deleteBtn = isFromContract ? '' : ('<button type="button" class="btn btn-xs btn-ghost" onclick="handleAttachmentDelete(' + a.id + ',\'' + escHtml(taskId) + '\')" style="color:var(--red);padding:0 3px;font-size:.72rem;line-height:1" title="Удалить">&times;</button>');
+          var isImg = a.mime_type && a.mime_type.startsWith('image/');
+          return '<div style="background:#fff;border:1.5px solid var(--border);border-radius:6px;padding:6px;display:flex;flex-direction:column;justify-content:space-between;font-size:.75rem;min-height:75px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+              '<span style="font-size:.7rem;font-weight:700;color:var(--blue)">' + (isImg ? '📷 Фото' : '🗺️ Схема') + '</span>' +
+              deleteBtn +
+            '</div>' +
+            '<a href="javascript:void(0)" onclick="' + downloadCall + '" style="font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.2;font-size:.74rem" title="' + escHtml(cleanName) + '">' + escHtml(cleanName) + '</a>' +
+            '<div style="margin-top:4px;display:flex;justify-content:space-between;align-items:center">' +
+              '<span style="font-size:.65rem;color:var(--text-3)">' + (a.size_bytes ? Math.round(a.size_bytes/1024) + ' КБ' : '') + '</span>' +
+              '<button type="button" onclick="' + downloadCall + '" class="btn btn-xs btn-ghost" style="padding:1px 4px;font-size:.68rem;color:var(--blue)">Открыть ↗</button>' +
+            '</div>' +
+          '</div>';
+        }).join('') +
+        '</div>' +
       '</div>';
-    }).join('');
+    }
+
+    // 2. Список документов (акты, спецификации, документы из договора)
+    if (docList.length > 0) {
+      html += '<div>' +
+        '<div style="font-weight:700;font-size:.82rem;color:var(--text);margin-bottom:6px">📑 Документы и материалы Заказчика (' + docList.length + ' шт.)</div>' +
+        docList.map(function(a) {
+          var cleanName = (typeof fixMojibake === 'function' ? fixMojibake(a.original_name) : a.original_name) || 'документ';
+          var isFromContract = Boolean(a.from_contract);
+          var downloadCall = 'openAttachment(' + a.id + ', ' + isFromContract + ', ' + (a.contract_id || 'null') + ')';
+          var contractBadge = isFromContract ? ' <span class="badge b-purple" style="font-size:.66rem;padding:1px 5px">📑 Из договора</span>' : '';
+          var deleteBtn = isFromContract ? '' : (' <button class="btn btn-sm btn-ghost" onclick="handleAttachmentDelete(' + a.id + ',\'' + escHtml(taskId) + '\')" title="Удалить">✖</button>');
+
+          return '<div class="field-row" style="padding:4px 0">' +
+            '<div class="field-lbl">' + (typeLabels[a.type] || a.type) + contractBadge + '</div>' +
+            '<div class="field-val"><a href="javascript:void(0)" onclick="' + downloadCall + '" style="font-weight:600">' + escHtml(cleanName) + '</a>' + deleteBtn + '</div>' +
+          '</div>';
+        }).join('') +
+      '</div>';
+    }
+
+    el.innerHTML = html;
   });
-}
-var typeLabels = { photo_report: '📷 Фото', scheme: '🗺️ Схема', act: '📄 Акт', receipt: '🧾 Чек', pi_excel: '📊 Excel ПИ', order_pdf: '📑 Заказ (PDF)', checklist: '📋 Чек-лист' };
-
-function openAttachment(id) {
-  fetch('/api/attachments/' + id + '/file', { headers: { 'Authorization': 'Bearer ' + S.token } })
-    .then(function(r){ return r.blob(); })
-    .then(function(blob){ window.open(URL.createObjectURL(blob), '_blank'); });
-}
-
-function handleAttachmentUpload(taskId, type, files) {
-  if (!files || !files.length) return;
-  uploadAttachments(taskId, type, files).then(function() {
-    refreshAttachmentsList(taskId);
-  });
-}
-
-function handleAttachmentDelete(attId, taskId) {
-  if (!confirm('Удалить файл?')) return;
-  deleteAttachment(attId).then(function() { refreshAttachmentsList(taskId); });
 }
 
 function refreshPortsList(taskId) {
@@ -3321,15 +3424,49 @@ function renderSmrChecklist(taskId) {
 
   var factVal = (t.fact != null && t.fact !== '') ? Number(t.fact) : null;
   var inOrderVal = Number(t.inOrder || t.ports || 0);
-  var checkPorts = (factVal !== null && factVal > 0) || (inOrderVal > 0);
+  var checkPorts = (factVal !== null && factVal > 0);
 
   var rawDate = t.dataVyhoda || t.data_vyhoda || (t.rawData && (t.rawData.dataVyhoda || t.rawData.data_vyhoda));
   var checkDate = Boolean(rawDate);
+  var deadlineVal = t.deadline || (t.rawData && t.rawData.deadline);
+  var dateDesc = '';
+  if (rawDate) {
+    var dOut = new Date(rawDate);
+    var dOutStr = String(rawDate).slice(0, 10).split('-').reverse().join('.');
+    if (deadlineVal) {
+      var dDl = new Date(deadlineVal);
+      var diffDays = Math.round((dOut - dDl) / (1000 * 60 * 60 * 24));
+      if (diffDays > 0) {
+        dateDesc = 'Дата выхода: ' + dOutStr + ' (⚠️ сдача позже дедлайна на ' + diffDays + ' дн.)';
+      } else if (diffDays < 0) {
+        dateDesc = 'Дата выхода: ' + dOutStr + ' (✓ с опережением дедлайна на ' + Math.abs(diffDays) + ' дн.)';
+      } else {
+        dateDesc = 'Дата выхода: ' + dOutStr + ' (✓ в день дедлайна)';
+      }
+    } else {
+      dateDesc = 'Дата выхода: ' + dOutStr;
+    }
+  } else {
+    if (deadlineVal) {
+      var dDl = new Date(deadlineVal);
+      var today = new Date();
+      var diffDays = Math.round((today - dDl) / (1000 * 60 * 60 * 24));
+      if (diffDays > 0) {
+        dateDesc = '⚠️ Просрочен дедлайн СМР (' + String(deadlineVal).slice(0, 10).split('-').reverse().join('.') + ') на ' + diffDays + ' дн.';
+      } else {
+        dateDesc = 'В графике (дедлайн: ' + String(deadlineVal).slice(0, 10).split('-').reverse().join('.') + ', осталось ' + Math.abs(diffDays) + ' дн.)';
+      }
+    } else {
+      dateDesc = 'Дата не заполнена в карточке';
+    }
+  }
 
   var portsCount = (window._curTaskPorts && window._curTaskPorts[taskId] !== undefined) ? window._curTaskPorts[taskId] : (window._curPortsCount || 0);
   var checkKj = (portsCount > 0);
+  var kjPct = (inOrderVal > 0 && portsCount > 0) ? Math.min(100, Math.round((portsCount / inOrderVal) * 100)) : (portsCount > 0 ? 100 : 0);
 
   var photosCount = (window._curTaskPhotos && window._curTaskPhotos[taskId] !== undefined) ? window._curTaskPhotos[taskId] : (window._curPhotoReportsCount || 0);
+  var photoReportAccepted = Boolean(window._curPhotoReportAccepted || (t.rawData && t.rawData.photoReportAccepted) || (t.priemka && t.priemka.includes('Принято')));
   var checkPhotos = (photosCount > 0);
 
   var tmcAccepted = Boolean((t.rawData && t.rawData.tmcAccepted) || (t.raw_data && t.raw_data.tmcAccepted) || t.tmcAccepted);
@@ -3340,28 +3477,30 @@ function renderSmrChecklist(taskId) {
     {
       id: 'ports',
       title: '1. Смонтированный объем портов',
-      desc: factVal !== null ? ('Смонтировано: ' + factVal + ' шт.') : (inOrderVal ? ('План: ' + inOrderVal + ' шт. (факт не подтвержден)') : 'Количество не указано'),
+      desc: (factVal !== null && factVal > 0)
+        ? ('Смонтировано: ' + factVal + (inOrderVal ? ' из ' + inOrderVal + ' шт. (' + Math.round((factVal / inOrderVal) * 100) + '%)' : ' шт.'))
+        : (inOrderVal ? ('План: ' + inOrderVal + ' шт. (факт: 0 шт., работы не завершены)') : 'Факт монтажа не указан'),
       passed: checkPorts,
       action: '<button type="button" class="btn btn-xs btn-ghost" onclick="var inp=document.querySelector(\'#smrClosingBlock input[type=number]\');if(inp){inp.focus();inp.select();}" style="font-size:.7rem;padding:2px 6px">Указать факт</button>'
     },
     {
       id: 'date',
       title: '2. Фактическая дата завершения СМР',
-      desc: rawDate ? ('Дата выхода: ' + String(rawDate).slice(0, 10).split('-').reverse().join('.')) : 'Дата не заполнена в карточке',
+      desc: dateDesc,
       passed: checkDate,
       action: '<button type="button" class="btn btn-xs btn-ghost" onclick="var inp=document.getElementById(\'cardDataVyhoda\');if(inp){inp.focus();}" style="font-size:.7rem;padding:2px 6px">Указать дату</button>'
     },
     {
       id: 'kj',
-      title: '3. Кабельный журнал (КЖ) / Прозвонка',
-      desc: portsCount > 0 ? (portsCount + ' линий/портов с маркировкой') : 'КЖ не заполнен монтажником',
+      title: '3. Кабельный журнал (КЖ) / Схема портов',
+      desc: portsCount > 0 ? (portsCount + ' линий/портов с маркировкой (' + kjPct + '% от плана)') : 'КЖ не заполнен монтажником',
       passed: checkKj,
       action: '<button type="button" class="btn btn-xs btn-ghost" onclick="addPortRow(\'' + encodeURIComponent(taskId) + '\')" style="font-size:.7rem;padding:2px 6px">+ Добавить порт</button>'
     },
     {
       id: 'photos',
       title: '4. Фотоотчет с объекта (до/после монтажа)',
-      desc: photosCount > 0 ? (photosCount + ' фото загружено') : 'Фотоотчет монтажника не прикреплен',
+      desc: photosCount > 0 ? (photosCount + ' фото загружено' + (photoReportAccepted ? ' (✓ фотоотчет принят куратором)' : ' (ожидает приемки)')) : 'Фотоотчет монтажника не прикреплен',
       passed: checkPhotos,
       action: '<label class="btn btn-xs btn-ghost" style="cursor:pointer;font-size:.7rem;padding:2px 6px;margin:0">📷 Загрузить фото<input type="file" multiple accept="image/*" style="display:none" onchange="handleAttachmentUpload(\'' + taskId + '\',\'photo_report\',this.files)"></label>'
     },

@@ -227,9 +227,9 @@ router.get('/contracts/:id', authenticateToken, async (req, res) => {
     // Загружаем связанные заявки/объекты
     const { rows: tasks } = await pool.query(`
       SELECT 
-        t.id, t.region, t.address, t.work_type, t.status, t.stage, t.amount,
-        t.date_zayavki, t.deadline, t.assignee, t.macro_status, t.contract_lot,
-        t.contract_agreement_id,
+        t.id, t.region, t.address, t.work_type, t.status, t.stage, t.stage_num, t.amount,
+        t.date_zayavki, t.deadline, t.assignee, t.contractor, t.in_order, t.fact, t.contact,
+        t.macro_status, t.contract_lot, t.contract_agreement_id,
         ca.agreement_code, ca.external_number AS agreement_ext_num
       FROM tasks t
       LEFT JOIN contract_agreements ca ON ca.id = t.contract_agreement_id
@@ -718,7 +718,7 @@ router.get('/contracts/:id/available-tasks', authenticateToken, async (req, res)
     let query = `
       SELECT 
         t.id, t.region, t.address, t.work_type, t.customer, t.status, t.stage, t.amount,
-        t.date_zayavki, t.deadline, t.assignee, t.contract_id,
+        t.date_zayavki, t.deadline, t.assignee, t.contractor, t.contract_id,
         c.internal_number AS linked_contract_num,
         c.contract_number AS linked_contract_official_num
       FROM tasks t

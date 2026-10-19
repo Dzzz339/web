@@ -622,7 +622,7 @@
     .field-val { font-size:.875rem;color:var(--text); }
     .field-val input,.field-val select,.field-val textarea { width:100%;padding:5px 9px;font-size:.875rem; }
     .field-val textarea { resize:vertical;min-height:80px; }
-    .card-info-dashboard { display:grid;grid-template-columns:1.08fr 0.92fr;gap:1rem;align-items:start; }
+    .card-info-dashboard { display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start; }
     .field-compact { display:flex;flex-direction:column;gap:3px;min-width:0; }
     .field-compact .field-lbl { font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-3);padding:0;line-height:1.2;display:flex;align-items:center;gap:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
     .field-compact .field-val { font-size:.84rem;color:var(--text);min-width:0; }
@@ -669,6 +669,7 @@
     tbody tr:hover td { background: var(--orange-bg); }
     tbody tr:last-child td { border-bottom: none; }
     .tasks-table th { padding: 9px 8px; font-size: .72rem; letter-spacing: .2px; }
+    .tasks-table th[onclick]:hover { background: #e2e8f0; color: var(--text); }
     .tasks-table td { padding: 8px 8px; font-size: .8rem; line-height: 1.35; }
     .tasks-table tr:hover td { background: #fff7ed; }
 

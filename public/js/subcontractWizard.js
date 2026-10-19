@@ -307,7 +307,7 @@
     var presets = {
       travel: { name: 'Проезд / ГСМ / Транспортные расходы', performer: 'Транспортная компания / ГСМ', contract_info: 'Чеки / путевые', payment_type: 'through_contractor', amount: 5000 },
       hotel: { name: 'Проживание в гостинице / найм жилья', performer: 'Гостиница / наймодатель', contract_info: 'Квитанции', payment_type: 'through_contractor', amount: 7500 },
-      driller: { name: 'Алмазное бурение технологических отверстий', performer: 'Специалист по бурению', contract_info: 'Договор / чек', payment_type: 'through_contractor', amount: 22000 },
+      driller: { name: 'Алмазное бурение технологических отверстий', performer: 'Специалист по бурению', contract_info: 'Договор / чек', payment_type: 'through_contractor', amount: 0 },
       lift: { name: 'Аренда автовышки с машинистом', performer: 'Оператор спецтехники', contract_info: 'Договор аренды', payment_type: 'direct', amount: 15000 },
       tools: { name: 'Аренда специнструмента / расходники', performer: 'Поставщик / Аренда', contract_info: 'Чек / накладная', payment_type: 'through_contractor', amount: 3000 },
       custom: { name: 'Дополнительные расходы по объекту', performer: 'Исполнитель / Поставщик', contract_info: 'Договор / чек', payment_type: 'through_contractor', amount: 5000 }
@@ -680,27 +680,32 @@
       ? (thirdPartyDirectSum > 0 ? ('В т.ч. напрямую от Нас: ' + fmtMoney(thirdPartyDirectSum)) : 'Через основного подрядчика')
       : 'Нет затрат';
 
-    box.innerHTML = '<div style="overflow-x:auto;border:1.5px solid var(--border);border-radius:6px;margin-bottom:10px">' +
+    box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+        priceListPickerHtml +
+        '<button type="button" class="btn btn-sm btn-ghost" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="window._addCustomCardSmrLine(\'' + escHtml(taskId) + '\')"') + ' style="font-size:.78rem;font-weight:600;border:1.5px dashed var(--border);padding:4px 10px">' +
+          '+ Произвольная работа' +
+        '</button>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:8px">' +
+        '<span style="font-size:.78rem;color:var(--text-2);font-weight:600">Генподрядчик («Мы»):</span>' +
+        ownSelectHtml +
+      '</div>' +
+    '</div>' +
+
+    '<div style="overflow-x:auto;border:1.5px solid var(--border);border-radius:6px;margin-bottom:14px">' +
       '<table style="width:100%;border-collapse:collapse;text-align:left">' +
         '<thead><tr style="background:var(--bg);font-size:.76rem;color:var(--text-3);border-bottom:1px solid var(--border)">' +
           '<th style="padding:6px 8px;width:35px;text-align:center">№</th>' +
           '<th style="padding:6px 8px">Наименование работы / позиции прайс-листа</th>' +
           '<th style="padding:6px 8px;text-align:center;width:60px">Ед.</th>' +
           '<th style="padding:6px 8px;text-align:center;width:80px">Кол-во</th>' +
-          '<th style="padding:6px 8px;text-align:right;width:100px">Тариф (₽)</th>' +
-          '<th style="padding:6px 8px;text-align:right;width:110px">Сумма (₽)</th>' +
+          '<th style="padding:6px 8px;text-align:right;width:100px">Цена (₽)</th>' +
+          '<th style="padding:6px 8px;text-align:right;width:110px">Стоимость (₽)</th>' +
           '<th style="padding:6px 8px;text-align:center;width:40px"></th>' +
         '</tr></thead>' +
         '<tbody>' + rowsHtml + '</tbody>' +
       '</table>' +
-    '</div>' +
-
-    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">' +
-      '<div>' + priceListPickerHtml + '</div>' +
-      '<div style="display:flex;align-items:center;gap:8px">' +
-        '<span style="font-size:.78rem;color:var(--text-2)">Генподрядчик («Мы»):</span>' +
-        ownSelectHtml +
-      '</div>' +
     '</div>' +
 
     // Блок дополнительных расходов по объекту (проезд, проживание, бурильщики, вышка, инструмент)
@@ -723,7 +728,7 @@
             '+ Проживание' +
           '</button>' +
           '<button type="button" class="btn btn-sm btn-ghost" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="window._addThirdPartyLine(\'' + escHtml(taskId) + '\', \'driller\')"') + ' style="color:#6b21a8;border:1px solid #d8b4fe;font-size:.74rem;font-weight:700">' +
-            '+ Алмазное бурение (22 000 ₽)' +
+            '+ Алмазное бурение' +
           '</button>' +
           '<button type="button" class="btn btn-sm btn-ghost" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="window._addThirdPartyLine(\'' + escHtml(taskId) + '\', \'lift\')"') + ' style="color:#6b21a8;border:1px solid #d8b4fe;font-size:.74rem">' +
             '+ Автовышка' +
@@ -796,6 +801,13 @@
     if (!spec || !spec[idx]) return;
     if (field === 'qty') {
       spec[idx].qty = Math.max(0, parseFloat(val) || 0);
+
+      // Динамический пересчет тарифа для портов СКС 5е (1-3 шт -> 3000 ₽, >3 шт -> 2500 ₽)
+      var lineName = (spec[idx].name || '').toLowerCase();
+      if (lineName.includes('порт') && (lineName.includes('5e') || lineName.includes('5е') || lineName.includes('скс'))) {
+        spec[idx].price = spec[idx].qty > 3 ? 2500 : 3000;
+      }
+
       spec[idx].sum = Math.round(spec[idx].qty * spec[idx].price);
       window._renderCardSmrTable(taskId);
     } else if (field === 'price') {
@@ -807,6 +819,19 @@
     } else if (field === 'unit') {
       spec[idx].unit = String(val || '');
     }
+  };
+
+  window._addCustomCardSmrLine = function(taskId) {
+    window._taskSmrSpec = window._taskSmrSpec || {};
+    if (!window._taskSmrSpec[taskId]) window._taskSmrSpec[taskId] = [];
+    window._taskSmrSpec[taskId].push({
+      name: '',
+      unit: 'шт',
+      qty: 1,
+      price: 0,
+      sum: 0
+    });
+    window._renderCardSmrTable(taskId);
   };
 
   window._removeCardSmrLine = function(taskId, idx) {
@@ -833,7 +858,7 @@
       tksh_demount_18u: { name: 'Демонтаж навесного ТКШ до 22U', qty: 1, unit: 'шт', price: 5000 },
       tksh_mod_600: { name: 'Модернизация шкафа 600мм', qty: 1, unit: 'шт', price: 3000 },
       // СКС и Оптика
-      port_5e: { name: 'Монтаж порта СКС кат. 5е', qty: 1, unit: 'порт', price: 2500 },
+      port_5e: { name: 'Монтаж порта СКС кат. 5е', qty: 1, unit: 'порт', price: 3000 },
       port_6: { name: 'Монтаж порта СКС кат. 6/6А', qty: 1, unit: 'порт', price: 3000 },
       port_optics: { name: 'Монтаж оптического порта (дуплекс) OS2/OM3', qty: 2, unit: 'порт', price: 3000 },
       port_reinstall: { name: 'Демонтаж с последующим монтажом за порт', qty: 1, unit: 'порт', price: 1000 },

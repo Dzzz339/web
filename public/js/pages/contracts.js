@@ -714,11 +714,12 @@ function renderContractsTable() {
       <div style="font-weight:700; font-size:.88rem; color:var(--text); white-space:nowrap">
         ${fmtMoney(c.amount)}
       </div>
+      ${c.payment_status ? `<span class="badge ${c.payment_status === 'paid' ? 'b-green' : 'b-yellow'}" style="font-size:.68rem; margin-top:2px; display:inline-block">${c.payment_status === 'paid' ? '✓ Оплачен' : 'Ожидает оплаты'}</span>` : ''}
       ${c.platform ? `<div style="font-size:.7rem; color:var(--text-3); margin-top:2px">${escHtml(c.platform)}</div>` : ''}
     `;
 
-    // Обеспечение
-    var securityHtml = c.security_amount > 0 ? `
+    // Обеспечение (если 0 — выводим прочерк без лишнего визуального шума)
+    var securityHtml = Number(c.security_amount) > 0 ? `
       <div style="font-size:.82rem; font-weight:600; color:#3b82f6; white-space:nowrap">
         ${fmtMoney(c.security_amount)}
       </div>
@@ -1763,7 +1764,10 @@ function renderContractTabTasks(c, tasks) {
         <td style="padding:10px 12px; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" title="${escHtml(t.address || '')}">${escHtml(t.address || '—')}</td>
         <td style="padding:10px 12px">${escHtml(t.work_type || '—')}</td>
         <td style="padding:10px 12px; font-size:.82rem">
-          ${t.assignee ? `<span style="font-weight:600; color:var(--text)">👷 ${escHtml(t.assignee)}</span>` : `<span style="color:var(--text-3); font-style:italic">Не назначен</span>`}
+          ${t.contractor 
+            ? `<span style="font-weight:600; color:var(--text)">🔨 ${escHtml(t.contractor)}</span>${t.assignee ? `<div style="font-size:.72rem; color:var(--text-3); margin-top:2px">ПМ: ${escHtml(t.assignee)}</div>` : ''}` 
+            : (t.assignee ? `<span style="color:var(--text-2)">ПМ: ${escHtml(t.assignee)}</span><div style="font-size:.72rem; color:var(--text-3); font-style:italic">Субподрядчик не назначен</div>` : `<span style="color:var(--text-3); font-style:italic">Не назначен</span>`)
+          }
         </td>
         <td style="padding:10px 12px">${stBadge(t.status)}</td>
         <td style="padding:10px 12px; font-weight:700; text-align:right">${fmtMoney(t.amount)}</td>
@@ -2995,6 +2999,13 @@ var CONTRACT_DEFAULT_CHECKLIST_ITEMS = [
   { key: 'acts_ks', label: 'Акты КС-2, КС-3 / УПД подписанные' }
 ];
 
+var CLOSING_DOC_STATUSES = {
+  required: { label: 'Требуется', icon: '⏳', badgeClass: 'b-gray', color: '#64748b', bg: '#f8fafc', border: '#e2e8f0' },
+  prepared: { label: 'Подготовлен', icon: '📝', badgeClass: 'b-yellow', color: '#b45309', bg: '#fefce8', border: '#fef08a' },
+  sent:     { label: 'Отправлен', icon: '📤', badgeClass: 'b-blue', color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe' },
+  accepted: { label: 'Принят Заказчиком', icon: '✅', badgeClass: 'b-green', color: '#15803d', bg: '#f0fdf4', border: '#86efac' }
+};
+
 function renderContractChecklistSection(c) {
   var cl = {};
   if (c && c.checklist) {
@@ -3007,32 +3018,38 @@ function renderContractChecklistSection(c) {
   var allItems = CONTRACT_DEFAULT_CHECKLIST_ITEMS.concat(customItems);
   var totalCount = allItems.length;
 
-  var checkedCount = 0;
+  var acceptedCount = 0;
   allItems.forEach(function(item) {
-    if (cl[item.key]) checkedCount++;
+    var rawVal = cl[item.key];
+    var status = (rawVal === true || rawVal === 'accepted') ? 'accepted' : ((rawVal === false || !rawVal) ? 'required' : rawVal);
+    if (status === 'accepted') acceptedCount++;
   });
 
-  var percent = totalCount > 0 ? Math.round((checkedCount / totalCount) * 100) : 0;
-  var isAllDone = totalCount > 0 && checkedCount === totalCount;
+  var percent = totalCount > 0 ? Math.round((acceptedCount / totalCount) * 100) : 0;
+  var isAllDone = totalCount > 0 && acceptedCount === totalCount;
 
   var itemsHtml = allItems.map(function(item) {
-    var isChecked = !!cl[item.key];
+    var rawVal = cl[item.key];
+    var status = (rawVal === true || rawVal === 'accepted') ? 'accepted' : ((rawVal === false || !rawVal) ? 'required' : rawVal);
+    var stCfg = CLOSING_DOC_STATUSES[status] || CLOSING_DOC_STATUSES.required;
+    var isAccepted = (status === 'accepted');
     var isCustom = !CONTRACT_DEFAULT_CHECKLIST_ITEMS.some(function(d) { return d.key === item.key; });
 
     return `
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 12px; border-radius:8px; background:${isChecked ? '#f0fdf4' : '#fff'}; border:${isChecked ? '1.5px solid #86efac' : '1px solid var(--border)'}; transition:all .15s">
-        <label style="display:flex; align-items:center; gap:10px; cursor:pointer; flex:1; margin:0; user-select:none">
-          <input type="checkbox" style="width:17px; height:17px; cursor:pointer; accent-color:#16a34a" ${isChecked ? 'checked' : ''} onchange="toggleContractChecklistItem(${c.id}, '${item.key}', this.checked)">
-          <span style="font-size:.85rem; font-weight:${isChecked ? '600' : '500'}; color:${isChecked ? '#15803d' : 'var(--text)'}">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 12px; border-radius:8px; background:${stCfg.bg}; border:1.5px solid ${stCfg.border}; transition:all .15s">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; flex:1; margin:0; user-select:none" title="Быстро отметить как принятый">
+          <input type="checkbox" style="width:16px; height:16px; cursor:pointer; accent-color:#16a34a" ${isAccepted ? 'checked' : ''} onchange="updateContractDocStatus(${c.id}, '${item.key}', this.checked ? 'accepted' : 'required')">
+          <span style="font-size:.84rem; font-weight:${isAccepted ? '700' : '500'}; color:${isAccepted ? '#15803d' : 'var(--text)'}">
             ${escHtml(item.label)}
           </span>
         </label>
         <div style="display:flex; align-items:center; gap:6px">
-          ${isChecked ? `
-            <span class="badge b-green" style="font-size:.7rem; padding:2px 8px">✓ Готово</span>
-          ` : `
-            <span class="badge b-gray" style="font-size:.7rem; padding:2px 8px; opacity:.7">Ожидается</span>
-          `}
+          <select onchange="updateContractDocStatus(${c.id}, '${item.key}', this.value)" style="padding:2px 6px; font-size:.74rem; font-weight:700; border-radius:6px; border:1px solid ${stCfg.border}; background:#fff; color:${stCfg.color}; cursor:pointer">
+            <option value="required" ${status === 'required' ? 'selected' : ''}>⏳ Требуется</option>
+            <option value="prepared" ${status === 'prepared' ? 'selected' : ''}>📝 Подготовлен</option>
+            <option value="sent" ${status === 'sent' ? 'selected' : ''}>📤 Отправлен</option>
+            <option value="accepted" ${status === 'accepted' ? 'selected' : ''}>✅ Принят</option>
+          </select>
           ${isCustom ? `
             <button class="btn btn-xs btn-ghost" onclick="removeContractChecklistItem(${c.id}, '${item.key}')" title="Удалить это требование" style="color:var(--red); font-size:1rem; padding:0 4px; line-height:1">&times;</button>
           ` : ''}
@@ -3048,13 +3065,13 @@ function renderContractChecklistSection(c) {
         <div>
           <div style="display:flex; align-items:center; gap:8px">
             <span style="font-size:1.15rem">📋</span>
-            <span style="font-weight:700; font-size:.95rem">Чек-лист закрывающих требований и документов</span>
-            <span class="badge ${isAllDone ? 'b-green' : (checkedCount > 0 ? 'b-blue' : 'b-gray')}" style="font-size:.78rem; font-weight:700">
-              ${checkedCount} из ${totalCount} выполнено (${percent}%)
+            <span style="font-weight:700; font-size:.95rem">Чек-лист закрывающих документов и требований (4 этапа)</span>
+            <span class="badge ${isAllDone ? 'b-green' : (acceptedCount > 0 ? 'b-blue' : 'b-gray')}" style="font-size:.78rem; font-weight:700">
+              ${acceptedCount} из ${totalCount} принято (${percent}%)
             </span>
           </div>
           <div style="font-size:.78rem; color:var(--text-3); margin-top:2px">
-            Контроль наличия исполнительной документации, сертификатов и подписанных актов для сдачи договора
+            Контроль 4 этапов каждого документа: ⏳ Требуется → 📝 Подготовлен → 📤 Отправлен Заказчику → ✅ Принят Заказчиком
           </div>
         </div>
         <button class="btn btn-sm btn-ghost" onclick="promptAddContractChecklistItem(${c.id})" style="border:1px dashed var(--border); font-size:.8rem; font-weight:600">
@@ -3069,7 +3086,7 @@ function renderContractChecklistSection(c) {
 
       ${isAllDone ? `
         <div style="padding:8px 12px; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:6px; color:#065f46; font-size:.82rem; font-weight:600; margin-bottom:12px; display:flex; align-items:center; gap:6px">
-          <span>🎉</span> Все закрывающие требования и документы по договору закрыты!
+          <span>🎉</span> Все закрывающие требования и документы по договору закрыты и приняты Заказчиком!
         </div>
       ` : ''}
 
@@ -3081,7 +3098,7 @@ function renderContractChecklistSection(c) {
   `;
 }
 
-function toggleContractChecklistItem(contractId, key, isChecked) {
+function updateContractDocStatus(contractId, key, newStatus) {
   var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
   var cl = {};
   if (c && c.checklist) {
@@ -3090,7 +3107,7 @@ function toggleContractChecklistItem(contractId, key, isChecked) {
     } catch(e) { cl = {}; }
   }
 
-  cl[key] = isChecked;
+  cl[key] = newStatus;
 
   api('/contracts/' + contractId + '/checklist', {
     method: 'PATCH',
@@ -3105,6 +3122,10 @@ function toggleContractChecklistItem(contractId, key, isChecked) {
   }).catch(function(err) {
     showToast('Ошибка: ' + err.message, 'error');
   });
+}
+
+function toggleContractChecklistItem(contractId, key, isChecked) {
+  updateContractDocStatus(contractId, key, isChecked ? 'accepted' : 'required');
 }
 
 function promptAddContractChecklistItem(contractId) {
@@ -3262,19 +3283,21 @@ function openCreateTaskForContractModal(contractId, agreementId) {
   var todayStr = new Date().toISOString().slice(0, 10);
   var deadlineStr = c.deadline_date ? String(c.deadline_date).slice(0, 10) : '';
 
-  var defaultRegion = selectedAg ? (selectedAg.city || selectedAg.region) : (c.our_entity_region || '');
+  var defaultRegion = selectedAg ? (selectedAg.city || selectedAg.region) : (c.region || c.our_entity_region || '');
   var defaultAddress = selectedAg ? (selectedAg.city || selectedAg.region) : (c.delivery_place || '');
-  var defaultAmount = selectedAg && Number(selectedAg.price_unit) > 0 ? Number(selectedAg.price_unit) : 0;
+  var defaultAmount = (selectedAg && Number(selectedAg.price_unit) > 0)
+    ? Number(selectedAg.price_unit)
+    : (Number(c.amount) > 0 ? Number(c.amount) : 0);
 
-  // Опции заказчиков
-  var custOptions = ['ПАО Сбербанк'];
+  // Опции заказчиков: Заказчик контракта строго первый и выбран по умолчанию
+  var defaultCust = (c.customer_name || '').trim();
+  var custOptions = [];
+  if (defaultCust) custOptions.push(defaultCust);
+  if (!custOptions.includes('ПАО Сбербанк')) custOptions.push('ПАО Сбербанк');
   if (Array.isArray(S.contractors)) {
     S.contractors.filter(function(x){ return x.type === 'customer'; }).forEach(function(x){
       if (!custOptions.includes(x.name_short)) custOptions.push(x.name_short);
     });
-  }
-  if (c.customer_name && !custOptions.includes(c.customer_name)) {
-    custOptions.unshift(c.customer_name);
   }
 
   modal.innerHTML = `
@@ -3319,7 +3342,7 @@ function openCreateTaskForContractModal(contractId, agreementId) {
             <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Заказчик (Организация) ${(typeof getHintIcon === 'function') ? getHintIcon('customer') : ''}</label>
             <select id="ct_customer" style="width:100%">
               ${custOptions.map(function(opt) {
-                var isSel = (opt.toLowerCase().trim() === (c.customer_name || '').toLowerCase().trim()) ? 'selected' : '';
+                var isSel = (opt.toLowerCase().trim() === defaultCust.toLowerCase().trim() || (!defaultCust && opt === 'ПАО Сбербанк')) ? 'selected' : '';
                 return `<option value="${escHtml(opt)}" ${isSel}>${escHtml(opt)}</option>`;
               }).join('')}
             </select>
@@ -3409,14 +3432,18 @@ function submitCreateTaskForContract(contractId) {
   var agIdEl = document.getElementById('ct_agreement_id');
   var agId = (agIdEl && agIdEl.value) ? parseInt(agIdEl.value, 10) : null;
 
+  var c = (window._activeContract && window._activeContract.id === contractId) ? window._activeContract : {};
+  var ownCoId = c.own_company_id || (c.our_entity_name && c.our_entity_name.includes('К10') ? 2 : (c.our_entity_name && c.our_entity_name.includes('Кабельн') ? 1 : 3));
+
   var data = {
     id:                   idEl.value.trim(),
     contractId:           contractId,
     contract_id:          contractId,
     contractAgreementId:  agId,
     contract_agreement_id: agId,
+    own_company_id:       ownCoId,
     vsp:                  document.getElementById('ct_vsp').value.trim(),
-    customer:             document.getElementById('ct_customer').value,
+    customer:             document.getElementById('ct_customer').value || c.customer_name,
     region:               document.getElementById('ct_region').value.trim(),
     address:              document.getElementById('ct_address').value.trim(),
     workType:             document.getElementById('ct_work_type').value.trim(),
@@ -3673,7 +3700,7 @@ function renderLinkTaskModalList(c, tasks, filterQuery) {
             ${t.customer ? '<span>🏛️ <b>' + escHtml(t.customer) + '</b></span>' : ''}
             ${t.region ? '<span>🌍 ' + escHtml(t.region) + '</span>' : ''}
             ${dDateStr ? '<span>📅 от ' + escHtml(dDateStr) + '</span>' : ''}
-            <span style="color:var(--text); font-weight:700">💰 ' + fmtMoney(t.amount) + '</span>
+            <span style="color:var(--text); font-weight:700">💰 ${fmtMoney(t.amount)}</span>
           </div>
         </div>
 

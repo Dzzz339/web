@@ -12,7 +12,7 @@ var S = {
   taskCustomer: '',
   taskContractor: '',
   taskArch: 'no',
-  taskStage: '', taskSort: '', taskView: 'all',
+  taskStage: '', taskSort: 'date_desc', taskView: 'all',
   taskFinanceMode: 'customer', taskDistanceFilter: '',
   kanbanQ: '', kanbanReg: '', kanbanMgr: '', kanbanCustomer: '', kanbanQuick: 'all',
   kanbanPhase: 'all', kanbanAutoCollapseEmpty: true, kanbanCollapsedCols: {},

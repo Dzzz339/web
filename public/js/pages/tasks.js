@@ -1,11 +1,24 @@
 function clearFilters() {
   S.taskQ=''; S.taskSt=''; S.taskPr=''; S.taskReg=''; S.taskMgr=''; S.taskPm=''; S.taskYear=''; S.taskOverdue='';
   S.taskCustomer=''; S.taskContractor=''; S.taskDistanceFilter='';
-  S.taskArch='no'; S.taskStage=''; S.taskSort=''; S.taskView='all'; // Сбрасываем фильтры
+  S.taskArch='no'; S.taskStage=''; S.taskSort='date_desc'; S.taskView='all'; // Сбрасываем фильтры на дефолт (новые сверху)
   S.taskContractId = null; S.taskContractTitle = null;
   S.taskAgreementId = null; S.taskAgreementTitle = null;
   renderApp();
 }
+
+window.sortTasksBy = function(field) {
+  if (S.taskSort && S.taskSort.startsWith(field + '_')) {
+    S.taskSort = S.taskSort.endsWith('_desc') ? (field + '_asc') : (field + '_desc');
+  } else {
+    if (field === 'date' || field === 'amount' || field === 'id' || field === 'deadline') {
+      S.taskSort = field + '_desc';
+    } else {
+      S.taskSort = field + '_asc';
+    }
+  }
+  renderApp();
+};
 
 function toggleTasksFilters() {
   S.tasksFiltersOpen = !S.tasksFiltersOpen;
@@ -25,7 +38,7 @@ function applyTasksFilters() {
   S.taskYear = v('tyr');
   S.taskContractor = v('tcontr');
   S.taskDistanceFilter = v('tdist');
-  S.taskSort = v('tsort');
+  S.taskSort = v('tsort') || 'date_desc';
   S.taskArch = v('tarch') || 'no';
   var qEl = document.getElementById('tq');
   if (qEl) S.taskQ = qEl.value.trim();
@@ -46,7 +59,7 @@ function removeTaskFilter(key) {
   else if (key === 'contr') S.taskContractor = '';
   else if (key === 'yr') S.taskYear = '';
   else if (key === 'arch') S.taskArch = 'no';
-  else if (key === 'sort') S.taskSort = '';
+  else if (key === 'sort') S.taskSort = 'date_desc';
   else if (key === 'contract') { S.taskContractId = null; S.taskContractTitle = null; }
   else if (key === 'agreement') { S.taskAgreementId = null; S.taskAgreementTitle = null; }
   renderApp();
@@ -89,6 +102,11 @@ function statBox(lbl, val, sub, color) {
 }
 
 function pageTasks() {
+  S.taskSort = S.taskSort || 'date_desc';
+  function taskSortIndicator(field) {
+    if (!S.taskSort || !S.taskSort.startsWith(field + '_')) return '';
+    return S.taskSort.endsWith('_asc') ? ' ▲' : ' ▼';
+  }
   var q=S.taskQ, st=S.taskSt, pr=S.taskPr, reg=S.taskReg, mgr=S.taskMgr, pm=S.taskPm, yr=S.taskYear, ovd=S.taskOverdue, cust=S.taskCustomer, contr=S.taskContractor, distFilter=S.taskDistanceFilter;
   var isWorker = S.user && (S.user.role === 'worker' || S.user.role === 'installer' || S.user.role === 'contractor');
   var defaultModeForRole = (function() {
@@ -256,15 +274,53 @@ function pageTasks() {
   var pms = Array.from(pmSet).filter(Boolean).sort();
   if (hasUnassignedPm) pms.push('Не назначен');
 
-  // Сортировка — dateZayavki хранится в YYYY-MM-DD, localeCompare даёт правильный порядок
+  // Сортировка по выбранной колонке (по умолчанию — свежие даты сверху date_desc)
   if (S.taskSort) {
+    var sortParts = S.taskSort.split('_');
+    var sortDir = sortParts.pop(); // 'asc' или 'desc'
+    var sortField = sortParts.join('_');
+
     filtered = filtered.slice().sort(function(a, b) {
+      if (sortField === 'id') {
+        var ia = String(a.id || '');
+        var ib = String(b.id || '');
+        return sortDir === 'asc' ? ia.localeCompare(ib, undefined, { numeric: true }) : ib.localeCompare(ia, undefined, { numeric: true });
+      }
+      if (sortField === 'deadline') {
+        var dla = a.deadline || '';
+        var dlb = b.deadline || '';
+        if (!dla && !dlb) return 0;
+        if (!dla) return 1;
+        if (!dlb) return -1;
+        return sortDir === 'asc' ? dla.localeCompare(dlb) : dlb.localeCompare(dla);
+      }
+      if (sortField === 'amount') {
+        var aa = Number(a.amount || 0);
+        var ab = Number(b.amount || 0);
+        return sortDir === 'asc' ? (aa - ab) : (ab - aa);
+      }
+      if (sortField === 'contractor') {
+        var ca = (a.contractor || '').toLowerCase();
+        var cb = (b.contractor || '').toLowerCase();
+        return sortDir === 'asc' ? ca.localeCompare(cb) : cb.localeCompare(ca);
+      }
+      if (sortField === 'status') {
+        var sa = (a.status || '').toLowerCase();
+        var sb = (b.status || '').toLowerCase();
+        return sortDir === 'asc' ? sa.localeCompare(sb) : sb.localeCompare(sa);
+      }
+      if (sortField === 'address') {
+        var ada = (a.address || a.title || '').toLowerCase();
+        var adb = (b.address || b.title || '').toLowerCase();
+        return sortDir === 'asc' ? ada.localeCompare(adb) : adb.localeCompare(ada);
+      }
+      // По умолчанию (date) — сортировка по дате поступления заявки
       var da = a.dateZayavki || '';
       var db = b.dateZayavki || '';
       if (!da && !db) return 0;
       if (!da) return 1;
       if (!db) return -1;
-      return S.taskSort === 'date_asc' ? da.localeCompare(db) : db.localeCompare(da);
+      return sortDir === 'asc' ? da.localeCompare(db) : db.localeCompare(da);
     });
   }
   
@@ -315,8 +371,22 @@ function pageTasks() {
   if (contr) activeFilters.push({ key: 'contr', label: '👤 ' + contr });
   if (yr) activeFilters.push({ key: 'yr', label: '📅 ' + yr });
   if (S.taskArch === 'yes') activeFilters.push({ key: 'arch', label: '📦 Архив' });
-  if (S.taskSort === 'date_desc') activeFilters.push({ key: 'sort', label: '↓ Свежие сначала' });
-  if (S.taskSort === 'date_asc') activeFilters.push({ key: 'sort', label: '↑ Старые сначала' });
+  if (S.taskSort && S.taskSort !== 'date_desc') {
+    var sortLabels = {
+      'date_asc': '↑ Старые сначала',
+      'id_desc': '↓ Номер (убыв.)',
+      'id_asc': '↑ Номер (возр.)',
+      'deadline_asc': '↑ Дедлайн (ближайшие)',
+      'deadline_desc': '↓ Дедлайн (дальние)',
+      'amount_desc': '↓ Стоимость (убыв.)',
+      'amount_asc': '↑ Стоимость (возр.)',
+      'contractor_asc': '↑ Подрядчик (А-Я)',
+      'contractor_desc': '↓ Подрядчик (Я-А)',
+      'address_asc': '↑ Адрес (А-Я)',
+      'address_desc': '↓ Адрес (Я-А)'
+    };
+    activeFilters.push({ key: 'sort', label: sortLabels[S.taskSort] || ('Сортировка: ' + S.taskSort) });
+  }
   if (S.taskContractId) activeFilters.push({ key: 'contract', label: '📑 ' + (S.taskContractTitle || ('Договор #' + S.taskContractId)) });
   if (S.taskAgreementId) activeFilters.push({ key: 'agreement', label: '📑 ' + (S.taskAgreementTitle || ('ДС #' + S.taskAgreementId)) });
 
@@ -432,9 +502,14 @@ function pageTasks() {
             '</div>' +
             '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Сортировка</label>' +
               '<select id="tsort" style="width:100%">' +
-                '<option value=""' + (S.taskSort===''?' selected':'') + '>Порядок по умолчанию</option>' +
-                '<option value="date_desc"' + (S.taskSort==='date_desc'?' selected':'') + '>📅 Свежие сначала</option>' +
-                '<option value="date_asc"' + (S.taskSort==='date_asc'?' selected':'') + '>📅 Старые сначала</option>' +
+                '<option value="date_desc"' + (S.taskSort==='date_desc' || !S.taskSort ? ' selected' : '') + '>📅 Свежие сначала (по умолчанию)</option>' +
+                '<option value="date_asc"' + (S.taskSort==='date_asc' ? ' selected' : '') + '>📅 Старые сначала</option>' +
+                '<option value="id_desc"' + (S.taskSort==='id_desc' ? ' selected' : '') + '>🔢 Номер (убывание)</option>' +
+                '<option value="id_asc"' + (S.taskSort==='id_asc' ? ' selected' : '') + '>🔢 Номер (возрастание)</option>' +
+                '<option value="amount_desc"' + (S.taskSort==='amount_desc' ? ' selected' : '') + '>💰 Стоимость (по убыванию)</option>' +
+                '<option value="amount_asc"' + (S.taskSort==='amount_asc' ? ' selected' : '') + '>💰 Стоимость (по возрастанию)</option>' +
+                '<option value="deadline_asc"' + (S.taskSort==='deadline_asc' ? ' selected' : '') + '>⏳ Дедлайн (ближайшие)</option>' +
+                '<option value="contractor_asc"' + (S.taskSort==='contractor_asc' ? ' selected' : '') + '>👤 Подрядчик (А-Я)</option>' +
               '</select>' +
             '</div>' +
             '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Архив</label>' +
@@ -772,19 +847,19 @@ function pageTasks() {
     totals +
     '<div class="card tbl-wrap">' +
       '<table class="tasks-table"><thead><tr>' +
-        '<th style="width:120px">Номер / ЭДО</th>' +
-        '<th style="width:90px" title="Дата заявки и дата ПП (внесения)">Дата / ПП</th>' +
-        '<th style="width:85px">Дедлайн</th>' +
-        '<th style="width:190px">Адрес объекта</th>' +
+        '<th style="width:120px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'id\')" title="Сортировать по номеру заявки">Номер / ЭДО' + taskSortIndicator('id') + '</th>' +
+        '<th style="width:90px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'date\')" title="Сортировать по дате поступления">Дата / ПП' + taskSortIndicator('date') + '</th>' +
+        '<th style="width:85px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'deadline\')" title="Сортировать по дедлайну">Дедлайн' + taskSortIndicator('deadline') + '</th>' +
+        '<th style="width:190px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'address\')" title="Сортировать по адресу">Адрес объекта' + taskSortIndicator('address') + '</th>' +
         '<th style="width:105px">Что делать</th>' +
         '<th style="width:85px">Сколько</th>' +
-        '<th style="width:130px">Исполнитель / ПМ</th>' +
+        '<th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'contractor\')" title="Сортировать по подрядчику">Исполнитель / ПМ' + taskSortIndicator('contractor') + '</th>' +
         (function() {
-          if (appMode === 'customer') return '<th style="width:90px">Цена (Вход)</th><th style="width:125px">Стоимость</th>';
-          if (appMode === 'contractor') return '<th style="width:90px">Цена (Подряд)</th><th style="width:130px">Стоимость</th>';
+          if (appMode === 'customer') return '<th style="width:90px">Цена (Вход)</th><th style="width:125px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'amount\')" title="Сортировать по стоимости">Стоимость' + taskSortIndicator('amount') + '</th>';
+          if (appMode === 'contractor') return '<th style="width:90px">Цена (Подряд)</th><th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'amount\')" title="Сортировать по стоимости">Стоимость' + taskSortIndicator('amount') + '</th>';
           if (appMode === 'supply') return '<th style="width:90px">Статус ТМЦ</th><th style="width:130px">Склад / Трек</th>';
           if (appMode === 'docs') return '<th style="width:90px">Статус ИД</th><th style="width:130px">Портал</th>';
-          if (appMode === 'finance') return '<th style="width:90px">Счета / Акты</th><th style="width:130px">Фин. итог (Маржа)</th>';
+          if (appMode === 'finance') return '<th style="width:90px">Счета / Акты</th><th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'amount\')" title="Сортировать по марже">Фин. итог (Маржа)' + taskSortIndicator('amount') + '</th>';
           return '';
         })() +
         '<th style="width:36px"></th>' +

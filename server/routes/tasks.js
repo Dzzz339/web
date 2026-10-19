@@ -175,7 +175,38 @@ router.post('/tasks', authenticateToken, requireRole('admin', 'director', 'manag
     let ownCompanyId = (t.ownCompanyId || t.own_company_id) ? Number(t.ownCompanyId || t.own_company_id) : null;
     let customerName = t.customer || null;
 
-    if (!contractId) {
+    if (contractId) {
+      const { rows: cRows } = await pool.query(
+        `SELECT id, customer_name, our_entity_name, own_company_id, amount, contact_person, customer_contact, region, delivery_place 
+         FROM contracts WHERE id = $1`, [contractId]
+      );
+      if (cRows.length > 0) {
+        const c = cRows[0];
+        if (!customerName || customerName === 'ПАО Сбербанк' || customerName.trim() === '') {
+          customerName = c.customer_name || customerName;
+        }
+        if (!ownCompanyId) {
+          if (c.own_company_id) {
+            ownCompanyId = c.own_company_id;
+          } else if (c.our_entity_name) {
+            const ent = String(c.our_entity_name).toLowerCase();
+            ownCompanyId = ent.includes('к10') ? 2 : (ent.includes('кабельн') ? 1 : 3);
+          }
+        }
+        if ((!t.amount || Number(t.amount) === 0) && c.amount && Number(c.amount) > 0) {
+          t.amount = c.amount;
+        }
+        if (!t.contact && (c.contact_person || c.customer_contact)) {
+          t.contact = [c.contact_person, c.customer_contact].filter(Boolean).join(', ');
+        }
+        if (!t.region && c.region) {
+          t.region = c.region;
+        }
+        if (!t.address && c.delivery_place) {
+          t.address = c.delivery_place;
+        }
+      }
+    } else {
       // 1. Поиск по прямому номеру контракта Заказчика (например 5000...) в номере, регионе или ТЗ (Отказ от привязки по 0926-02 - скрин12)
       const rawText = String(t.region || '') + ' ' + String(cleanId) + ' ' + String(t.comment || '');
       const mNum = rawText.match(/\b(5000\d{7}|\d{7,12})\b/);
@@ -223,19 +254,24 @@ router.post('/tasks', authenticateToken, requireRole('admin', 'director', 'manag
         }
       }
     }
+
     if (!customerName && (cleanId.startsWith('СЗБ-') || cleanId.startsWith('ВВБ-') || cleanId.startsWith('СИБ-') || String(t.sheet || '').includes('Сбер'))) {
       customerName = 'ПАО Сбербанк';
       if (!ownCompanyId) ownCompanyId = 2; // ООО «К10»
     }
     const contractLot = (t.contractLot || t.contract_lot) ? Number(t.contractLot || t.contract_lot) : null;
     const contractAgreementId = (t.contractAgreementId || t.contract_agreement_id) ? Number(t.contractAgreementId || t.contract_agreement_id) : null;
+    const effectiveCustomer = customerName || t.customer || (cleanId.startsWith('СЗБ-') || cleanId.startsWith('ВВБ-') || cleanId.startsWith('СИБ-') ? 'ПАО Сбербанк' : '—');
+    const contractorVal = t.contractor || null;
+    const assigneeVal = t.assignee || null;
 
     await pool.query(`
       INSERT INTO tasks (
         id, vsp, manager, contact, region, address, work_type, amount, price_per_unit,
         in_order, fact, date_zayavki, deadline, tech_link, invoice_info, comment,
-        status, priority, archived, stage, customer, contract_id, contract_lot, own_company_id, contract_agreement_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', 'medium', false, 'request', $17, $18, $19, $20, $21)
+        status, priority, archived, stage, customer, contract_id, contract_lot, own_company_id, contract_agreement_id,
+        contractor, assignee
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', 'medium', false, 'request', $17, $18, $19, $20, $21, $22, $23)
     `, [
       cleanId, 
       t.vsp || null, 
@@ -253,11 +289,13 @@ router.post('/tasks', authenticateToken, requireRole('admin', 'director', 'manag
       t.techLink || null, 
       t.invoiceInfo || null, 
       t.comment || null,
-      t.customer || 'ПАО Сбербанк',
+      effectiveCustomer,
       contractId,
       contractLot,
       ownCompanyId,
-      contractAgreementId
+      contractAgreementId,
+      contractorVal,
+      assigneeVal
     ]);
 
     // Сразу после создания пробуем найти координаты в фоне
@@ -318,8 +356,8 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
         delete d.pricePerUnit;
       }
     }
-    // Если меняется исполнитель — подтягиваем организацию, к которой он привязан
-    if (d.assignee !== undefined && d.assignee) {
+    // Если меняется исполнитель — подтягиваем организацию только если подрядчик еще не был назначен
+    if (!d.contractor && d.assignee !== undefined && d.assignee) {
       try {
         const { rows: workerRows } = await pool.query(
           `SELECT c.name_short FROM users u JOIN contractors c ON c.id = u.contractor_id WHERE u.full_name = $1 AND u.role = 'worker' LIMIT 1`,
@@ -1113,12 +1151,12 @@ async function canAccessTaskAttachments(user, taskId) {
 router.get('/tasks/:id/attachments', authenticateToken, async (req, res) => {
   try {
     if (!(await canAccessTaskAttachments(req.user, req.params.id))) {
-      return res.status(403).json({ error: 'Нет доступа к этой заявке' })
+      return res.status(403).json({ error: 'Нет доступа к этой заявке' });
     }
     const { rows } = await pool.query(
-      'SELECT id, type, original_name, mime_type, size_bytes, comment, created_at FROM task_attachments WHERE task_id = $1 ORDER BY created_at DESC',
+      'SELECT id, type, original_name, mime_type, size_bytes, comment, created_at, false AS from_contract, NULL::integer AS contract_id FROM task_attachments WHERE task_id = $1 ORDER BY created_at DESC',
       [req.params.id]
-    )
+    );
     for (const a of rows) {
       const fixedName = fixUtf8Filename(a.original_name);
       if (fixedName && fixedName !== a.original_name) {
@@ -1126,8 +1164,25 @@ router.get('/tasks/:id/attachments', authenticateToken, async (req, res) => {
         pool.query('UPDATE task_attachments SET original_name = $1 WHERE id = $2', [fixedName, a.id]).catch(() => {});
       }
     }
-    res.json(rows)
-  } catch(e) { res.status(500).json({ error: e.message }) }
+
+    // Подтягиваем вложения Генерального контракта (ТЗ, проект, смета)
+    const { rows: tRows } = await pool.query('SELECT contract_id FROM tasks WHERE id = $1', [req.params.id]);
+    if (tRows.length && tRows[0].contract_id) {
+      const cId = tRows[0].contract_id;
+      const { rows: cAtts } = await pool.query(`
+        SELECT id, attachment_type AS type, original_name, mime_type, file_size AS size_bytes, comment, created_at, true AS from_contract, contract_id
+        FROM contract_attachments
+        WHERE contract_id = $1
+        ORDER BY created_at DESC
+      `, [cId]);
+      for (const ca of cAtts) {
+        ca.original_name = fixUtf8Filename(ca.original_name);
+        rows.push(ca);
+      }
+    }
+
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 router.post('/tasks/:id/attachments', authenticateToken, uploadAttachment.array('files', 10), async (req, res) => {
