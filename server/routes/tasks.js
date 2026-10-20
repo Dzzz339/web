@@ -262,16 +262,19 @@ router.post('/tasks', authenticateToken, requireRole('admin', 'director', 'manag
     const contractLot = (t.contractLot || t.contract_lot) ? Number(t.contractLot || t.contract_lot) : null;
     const contractAgreementId = (t.contractAgreementId || t.contract_agreement_id) ? Number(t.contractAgreementId || t.contract_agreement_id) : null;
     const effectiveCustomer = customerName || t.customer || (cleanId.startsWith('СЗБ-') || cleanId.startsWith('ВВБ-') || cleanId.startsWith('СИБ-') ? 'ПАО Сбербанк' : '—');
-    const contractorVal = t.contractor || null;
-    const assigneeVal = t.assignee || null;
+    const contractorVal = t.contractor ? String(t.contractor).trim() : null;
+    const assigneeVal = t.assignee ? String(t.assignee).trim() : null;
+    const initStatus = (contractorVal || assigneeVal) ? 'progress' : (t.status || 'pending');
+    const initMacro = contractorVal ? 'assigned' : 'new';
+    const initStageNum = contractorVal ? 1 : 0;
 
     await pool.query(`
       INSERT INTO tasks (
         id, vsp, manager, contact, region, address, work_type, amount, price_per_unit,
         in_order, fact, date_zayavki, deadline, tech_link, invoice_info, comment,
         status, priority, archived, stage, customer, contract_id, contract_lot, own_company_id, contract_agreement_id,
-        contractor, assignee
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', 'medium', false, 'request', $17, $18, $19, $20, $21, $22, $23)
+        contractor, assignee, macro_status, stage_num
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'medium', false, 'request', $18, $19, $20, $21, $22, $23, $24, $25, $26)
     `, [
       cleanId, 
       t.vsp || null, 
@@ -289,13 +292,16 @@ router.post('/tasks', authenticateToken, requireRole('admin', 'director', 'manag
       t.techLink || null, 
       t.invoiceInfo || null, 
       t.comment || null,
+      initStatus,
       effectiveCustomer,
       contractId,
       contractLot,
       ownCompanyId,
       contractAgreementId,
       contractorVal,
-      assigneeVal
+      assigneeVal,
+      initMacro,
+      initStageNum
     ]);
 
     // Сразу после создания пробуем найти координаты в фоне
@@ -404,21 +410,34 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       targetMacroStatus = stageToMacro(targetStageNum);
     }
 
-    // Если назначается подрядчик на заявку в статусе "new" — автоматически переводим в "assigned" (Этап 1)
-    if (d.contractor !== undefined) {
-      const contrTrim = String(d.contractor || '').trim();
-      if (contrTrim && (!targetMacroStatus || targetMacroStatus === 'new')) {
-        targetMacroStatus = 'assigned';
-        if (targetStageNum === null || targetStageNum === 0) targetStageNum = 1;
-      } else if (!contrTrim && targetMacroStatus === 'assigned') {
+    const currentContractor = currentTask && currentTask.contractor ? String(currentTask.contractor).trim() : '';
+    const hasContractor = d.contractor !== undefined;
+    const cleanContractor = hasContractor ? (d.contractor ? String(d.contractor).trim() : null) : null;
+    const effectiveContractor = hasContractor ? cleanContractor : (currentContractor || null);
+
+    const currentAssignee = currentTask && currentTask.assignee ? String(currentTask.assignee).trim() : '';
+    const hasAssignee = d.assignee !== undefined;
+    const cleanAssignee = hasAssignee ? (d.assignee ? String(d.assignee).trim() : null) : null;
+    const effectiveAssignee = hasAssignee ? cleanAssignee : (currentAssignee || null);
+
+    // Если на заявке есть подрядчик, а макростатус еще new — автоматически переводим в assigned (Этап 1)
+    if (effectiveContractor) {
+      if (!targetMacroStatus || targetMacroStatus === 'new') {
+        const curMacro = currentTask.macro_status || 'new';
+        if (curMacro === 'new') {
+          targetMacroStatus = 'assigned';
+          if (targetStageNum === null || targetStageNum === 0) targetStageNum = 1;
+        }
+      }
+    } else if (hasContractor && !cleanContractor) {
+      // Подрядчик был явно снят с заявки
+      if (targetMacroStatus === 'assigned' || (!targetMacroStatus && currentTask.macro_status === 'assigned')) {
         targetMacroStatus = 'new';
         targetStageNum = 0;
       }
     }
 
     const hasStageNum = targetStageNum !== null;
-    const hasContractor = d.contractor !== undefined;
-    const cleanContractor = hasContractor ? (d.contractor ? String(d.contractor).trim() : null) : null;
 
     // Синхронизация основного статуса задачи (status: pending / progress / done / paid)
     let targetStatus = d.status || null;
@@ -430,11 +449,22 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
         } else if (['assigned', 'install', 'review', 'id_in_progress', 'id_delivered'].includes(msLow)) {
           targetStatus = 'progress';
         } else if (msLow === 'new') {
-          targetStatus = cleanContractor ? 'progress' : 'pending';
+          targetStatus = (effectiveContractor || effectiveAssignee) ? 'progress' : 'pending';
         }
-      } else if (cleanContractor) {
-        targetStatus = 'progress';
+      } else if (effectiveContractor || effectiveAssignee) {
+        if (currentTask.status === 'pending') {
+          targetStatus = 'progress';
+        }
+      } else if (hasContractor && !cleanContractor && !effectiveAssignee) {
+        if (currentTask.status === 'progress' && (!currentTask.macro_status || currentTask.macro_status === 'assigned' || currentTask.macro_status === 'new')) {
+          targetStatus = 'pending';
+        }
       }
+    }
+
+    // Защита от рассинхрона: если у заявки есть подрядчик или ПМ, она не должна висеть в "pending"
+    if ((effectiveContractor || effectiveAssignee) && (targetStatus === 'pending' || (!targetStatus && currentTask.status === 'pending'))) {
+      targetStatus = 'progress';
     }
 
     // --- АВТОМАТИЧЕСКАЯ ФИКСАЦИЯ ВСЕХ ИЗМЕНЕНИЙ В ЖУРНАЛ ИСТОРИИ ---

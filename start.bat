@@ -35,7 +35,7 @@ start "" cmd /c "timeout /t 2 >nul && start http://localhost:3005"
 set PORT=3005
 
 :: 2. База данных PostgreSQL (авто-определение: Docker на 5433 или Windows-служба на 5432)
-netstat -ano | findstr :5433 >nul 2>&1
+netstat -ano | findstr /C:":5433 " | findstr "LISTENING" >nul 2>&1
 if %errorlevel% equ 0 (
     echo [DB] Обнаружен Docker-контейнер PostgreSQL на порту 5433
     set PGPORT=5433

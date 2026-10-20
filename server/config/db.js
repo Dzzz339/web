@@ -997,6 +997,19 @@ export async function initDB() {
       END
       WHERE macro_status IS NULL OR macro_status = 'new';
     `);
+
+    // Исправление рассинхрона: если подрядчик или ПМ назначен, задача не может быть в 'pending' ("Не распределено")
+    await pool.query(`
+      UPDATE tasks 
+      SET status = 'progress',
+          macro_status = CASE WHEN macro_status IS NULL OR macro_status = 'new' THEN 'assigned' ELSE macro_status END,
+          stage_num = CASE WHEN stage_num IS NULL OR stage_num = 0 THEN 1 ELSE stage_num END
+      WHERE status = 'pending' 
+        AND (
+          (contractor IS NOT NULL AND TRIM(contractor) != '')
+          OR (assignee IS NOT NULL AND TRIM(assignee) != '')
+        );
+    `);
   } catch(err) {
     console.error('Stage/macro_status backfill migration error:', err.message);
   }

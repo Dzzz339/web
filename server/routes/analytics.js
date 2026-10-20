@@ -261,7 +261,7 @@ router.post('/excel/import-rows', authenticateToken, requireRole('admin', 'direc
             tech_link, edo_number, invoice_info, vedo_status, excel_comment,
             status, priority, overdue_days, stage, archived, raw_data,
             import_source, first_imported_at, last_imported_at, import_batch_id,
-            customer, contract_id, own_company_id
+            customer, contract_id, own_company_id, macro_status, stage_num
           ) VALUES (
             $1,$2,$3,$4,$5,$6,$7,$8,
             $9,$10,$11,$12,$13,$14,
@@ -270,7 +270,7 @@ router.post('/excel/import-rows', authenticateToken, requireRole('admin', 'direc
             $26,$27,$28,$29,$30,
             $31,$32,$33,$34,false,$35,
             $36, NOW(), NOW(), $37,
-            $38, $39, $40
+            $38, $39, $40, $41, $42
           )
           ON CONFLICT (id) DO UPDATE SET
             import_source = COALESCE(tasks.import_source, EXCLUDED.import_source),
@@ -305,7 +305,21 @@ router.post('/excel/import-rows', authenticateToken, requireRole('admin', 'direc
             invoice_info  = EXCLUDED.invoice_info,
             vedo_status   = EXCLUDED.vedo_status,
             excel_comment = EXCLUDED.excel_comment,
-            status        = CASE WHEN tasks.status IN ('done', 'paid', 'cancelled') THEN tasks.status ELSE EXCLUDED.status END,
+            status        = CASE 
+                              WHEN tasks.status IN ('done', 'paid', 'cancelled') THEN tasks.status 
+                              WHEN COALESCE(NULLIF(EXCLUDED.contractor, ''), NULLIF(tasks.contractor, '')) IS NOT NULL THEN 'progress' 
+                              ELSE EXCLUDED.status 
+                            END,
+            macro_status  = CASE
+                              WHEN tasks.macro_status IS NOT NULL AND tasks.macro_status != 'new' THEN tasks.macro_status
+                              WHEN COALESCE(NULLIF(EXCLUDED.contractor, ''), NULLIF(tasks.contractor, '')) IS NOT NULL THEN 'assigned'
+                              ELSE COALESCE(tasks.macro_status, 'new')
+                            END,
+            stage_num     = CASE
+                              WHEN tasks.stage_num IS NOT NULL AND tasks.stage_num > 0 THEN tasks.stage_num
+                              WHEN COALESCE(NULLIF(EXCLUDED.contractor, ''), NULLIF(tasks.contractor, '')) IS NOT NULL THEN 1
+                              ELSE COALESCE(tasks.stage_num, 0)
+                            END,
             priority      = EXCLUDED.priority,
             overdue_days  = EXCLUDED.overdue_days,
             archived      = false,
@@ -329,14 +343,17 @@ router.post('/excel/import-rows', authenticateToken, requireRole('admin', 'direc
           safeDate(t.dataVyhoda), t.priemka, t.oplata,
           t.idStatus, Number(t.amount)||0, Number(t.distanceKm)||0, Number(t.pricePerUnit)||0,
           t.techLink, t.edoNumber, t.invoiceInfo, t.vedoStatus, t.excelComment,
-          t.status||'progress', t.priority||'low', Number(t.overdueDays)||0,
+          (t.contractor && String(t.contractor).trim()) ? 'progress' : (t.status||'progress'), 
+          t.priority||'low', Number(t.overdueDays)||0,
           t.stage || getInitialStage(t.status, t),
           JSON.stringify(t.rawData || {}),
           name || 'Реестр.xlsx',
           currentBatchId,
           resolvedCustomer,
           resolvedContractId,
-          resolvedOwnCompanyId
+          resolvedOwnCompanyId,
+          (t.contractor && String(t.contractor).trim()) ? 'assigned' : 'new',
+          (t.contractor && String(t.contractor).trim()) ? 1 : 0
         ]);
 
         if (Array.isArray(t.items) && t.items.length > 0) {

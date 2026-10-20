@@ -731,7 +731,11 @@ function pageTasks() {
     // 1. Номер + статус + маркер высокого приоритета + номер ЭДО
     var isHighPr = (t.priority === 'high');
     var prMark = isHighPr ? '<span title="Высокий приоритет" style="color:var(--red);font-size:.85rem;margin-right:3px">🔴</span>' : '';
-    var stBdg = '<div style="margin-top:3px">' + stBadge(t.status) + (Number(t.openRemarksCount) > 0 ? ' <span class="badge b-red" style="font-size:.65rem;padding:1px 4px" title="Замечания">⚠️ ' + t.openRemarksCount + '</span>' : '') + '</div>';
+    var effStatus = t.status;
+    if (effStatus === 'pending' && ((t.contractor && String(t.contractor).trim()) || (t.assignee && String(t.assignee).trim()))) {
+      effStatus = 'progress';
+    }
+    var stBdg = '<div style="margin-top:3px">' + stBadge(effStatus) + (Number(t.openRemarksCount) > 0 ? ' <span class="badge b-red" style="font-size:.65rem;padding:1px 4px" title="Замечания">⚠️ ' + t.openRemarksCount + '</span>' : '') + '</div>';
     var edoBadge = t.edoNumber
       ? '<div class="t3" style="font-size:.68rem;color:var(--blue);margin-top:2px;font-family:monospace" title="Номер документа в ЭДО Заказчика">ЭДО: ' + highlight(t.edoNumber, q) + '</div>'
       : '';

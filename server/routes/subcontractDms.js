@@ -329,6 +329,9 @@ router.post('/tasks/:taskId/subcontract-wizard', authenticateToken, async (req, 
         contractor = $1,
         own_company_id = COALESCE($2, own_company_id),
         amount = CASE WHEN (amount IS NULL OR amount = 0) THEN $3 ELSE amount END,
+        status = CASE WHEN status IN ('pending', 'new', 'cancelled') THEN 'progress' ELSE status END,
+        macro_status = CASE WHEN (macro_status IS NULL OR macro_status = 'new') THEN 'assigned' ELSE macro_status END,
+        stage_num = CASE WHEN (stage_num IS NULL OR stage_num = 0) THEN 1 ELSE stage_num END,
         history = $5::jsonb,
         updated_at = NOW()
       WHERE id = $4
