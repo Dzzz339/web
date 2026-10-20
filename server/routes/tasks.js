@@ -314,17 +314,19 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
     const role = req.user ? String(req.user.role || '').toLowerCase() : '';
     const isAdminOrDirector = role === 'admin' || role === 'director';
 
+    const { rows: currentRows } = await pool.query('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
+    if (!currentRows.length) return res.status(404).json({ error: 'Заявка не найдена' });
+    const currentTask = currentRows[0];
+
     // Защита полей от несанкционированного изменения по ролям
     if (!isAdminOrDirector) {
       if (role === 'worker' || role === 'installer' || role === 'contractor') {
         // Защита от BOLA/IDOR: монтажник может обновлять только свою назначенную задачу
-        const { rows: tRows } = await pool.query('SELECT assignee FROM tasks WHERE id = $1', [req.params.id]);
-        if (!tRows.length) return res.status(404).json({ error: 'Заявка не найдена' });
-        if (tRows[0].assignee && tRows[0].assignee !== req.user.fullName) {
+        if (currentTask.assignee && currentTask.assignee !== req.user.fullName) {
           return res.status(403).json({ error: 'Доступ ограничен: данная заявка назначена другому специалисту' });
         }
 
-        const allowed = ['fact', 'dataVyhoda', 'data_vyhoda', 'statusSmr', 'status_smr', 'obsledovanie', 'dostup', 'priemka', 'assignmentStatus'];
+        const allowed = ['fact', 'dataVyhoda', 'data_vyhoda', 'smrActualEndDate', 'smr_actual_end_date', 'statusSmr', 'status_smr', 'obsledovanie', 'dostup', 'priemka', 'assignmentStatus'];
         for (const k of Object.keys(d)) {
           if (!allowed.includes(k) && k !== '_history' && k !== 'history') {
             delete d[k];
@@ -418,6 +420,125 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
     const hasContractor = d.contractor !== undefined;
     const cleanContractor = hasContractor ? (d.contractor ? String(d.contractor).trim() : null) : null;
 
+    // Синхронизация основного статуса задачи (status: pending / progress / done / paid)
+    let targetStatus = d.status || null;
+    if (!targetStatus) {
+      if (targetMacroStatus) {
+        const msLow = targetMacroStatus.toLowerCase();
+        if (['paid', 'billing', 'accepted', 'done'].includes(msLow)) {
+          targetStatus = 'done';
+        } else if (['assigned', 'install', 'review', 'id_in_progress', 'id_delivered'].includes(msLow)) {
+          targetStatus = 'progress';
+        } else if (msLow === 'new') {
+          targetStatus = cleanContractor ? 'progress' : 'pending';
+        }
+      } else if (cleanContractor) {
+        targetStatus = 'progress';
+      }
+    }
+
+    // --- АВТОМАТИЧЕСКАЯ ФИКСАЦИЯ ВСЕХ ИЗМЕНЕНИЙ В ЖУРНАЛ ИСТОРИИ ---
+    function formatHistoryValue(val) {
+      if (val === null || val === undefined || val === '') return '—';
+      if (typeof val === 'boolean') return val ? 'Да' : 'Нет';
+      if (val instanceof Date) return val.toLocaleDateString('ru-RU');
+      if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) {
+        return val.slice(0, 10).split('-').reverse().join('.');
+      }
+      const str = String(val).trim();
+      const DICT = {
+        pending: 'Не распределено',
+        progress: 'В работе',
+        done: 'Завершено',
+        paid: 'Оплачено',
+        cancelled: 'Отменено',
+        new: 'Новая заявка',
+        assigned: 'Назначен подрядчик',
+        install: 'В монтаже (выход на объект)',
+        review: 'Проверка СМР',
+        id_in_progress: 'Подготовка ИД',
+        id_delivered: 'ИД передана заказчику',
+        accepted: 'Принято заказчиком',
+        billing: 'Выставлен счёт',
+        in_progress: 'В процессе монтажа',
+        issues: 'Есть замечания'
+      };
+      return DICT[str.toLowerCase()] || str;
+    }
+
+    const newHistoryEntries = [];
+    const nowRu = new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
+    const authorName = (req.user && (req.user.fullName || req.user.username)) || 'Система';
+
+    const checkChange = (label, oldVal, newVal) => {
+      const oldFmt = formatHistoryValue(oldVal);
+      const newFmt = formatHistoryValue(newVal);
+      if (oldFmt !== newFmt) {
+        newHistoryEntries.push({
+          date: nowRu,
+          author: authorName,
+          field: label,
+          old: oldFmt,
+          new: newFmt
+        });
+      }
+    };
+
+    if (targetStatus !== null && targetStatus !== undefined) checkChange('Статус заявки', currentTask.status, targetStatus);
+    if (targetMacroStatus !== null && targetMacroStatus !== undefined) checkChange('Макростатус / Этап', currentTask.macro_status, targetMacroStatus);
+    if (targetStageNum !== null && targetStageNum !== undefined) checkChange('Номер этапа', currentTask.stage_num, targetStageNum);
+    if (hasContractor) checkChange('Подрядчик', currentTask.contractor, cleanContractor);
+    if (d.assignee !== undefined) checkChange('Исполнитель (ПМ)', currentTask.assignee, d.assignee);
+    if (d.controller !== undefined) checkChange('Контролёр', currentTask.controller, d.controller);
+    if (d.dataVyhoda !== undefined || d.data_vyhoda !== undefined) checkChange('Дата выхода на объект', currentTask.data_vyhoda, safeDate(d.dataVyhoda || d.data_vyhoda));
+    if (d.smrActualEndDate !== undefined || d.smr_actual_end_date !== undefined) checkChange('Фактическая дата завершения СМР', currentTask.smr_actual_end_date, safeDate(d.smrActualEndDate || d.smr_actual_end_date));
+    if (d.statusSmr !== undefined || d.status_smr !== undefined) checkChange('Статус СМР', currentTask.status_smr, d.statusSmr || d.status_smr);
+    if (d.fact !== undefined && d.fact !== null) checkChange('Факт (портов)', currentTask.fact, d.fact !== '' ? Number(d.fact) : null);
+    if (d.inOrder !== undefined && d.inOrder !== null) checkChange('В заказе (портов)', currentTask.in_order, d.inOrder !== '' ? Number(d.inOrder) : null);
+    if (d.deadline !== undefined) checkChange('Срок окончания работ', currentTask.deadline, safeDate(d.deadline));
+    if (d.amount !== undefined && d.amount !== null) checkChange('Сумма договора', currentTask.amount, d.amount !== '' ? Number(d.amount) : null);
+    if (d.pricePerUnit !== undefined && d.pricePerUnit !== null) checkChange('Цена за ед.', currentTask.price_per_unit, d.pricePerUnit !== '' ? Number(d.pricePerUnit) : null);
+    if (d.kmRate !== undefined && d.kmRate !== null) checkChange('Ставка за км', currentTask.km_rate, d.kmRate !== '' ? Number(d.kmRate) : null);
+    if (d.distanceKm !== undefined && d.distanceKm !== null) checkChange('Удалённость (км)', currentTask.distance_km, d.distanceKm !== '' ? Number(d.distanceKm) : null);
+    if (d.tmc !== undefined && d.tmc !== null) checkChange('Сумма ТМЦ', currentTask.tmc, d.tmc !== '' ? Number(d.tmc) : null);
+    if (d.extras !== undefined && d.extras !== null) checkChange('Дополнительные расходы', currentTask.extras, d.extras !== '' ? Number(d.extras) : null);
+    if (d.region !== undefined) checkChange('Регион', currentTask.region, d.region);
+    if (d.address !== undefined) checkChange('Адрес объекта', currentTask.address, d.address);
+    if (d.workType !== undefined || d.work_type !== undefined) checkChange('Тип работ', currentTask.work_type, d.workType || d.work_type);
+    if (d.priority !== undefined) checkChange('Приоритет', currentTask.priority, d.priority);
+    if (d.contact !== undefined) checkChange('Контакт на объекте', currentTask.contact, d.contact);
+    if (d.comment !== undefined) checkChange('Комментарий', currentTask.comment, d.comment);
+    if (d.techLink !== undefined || d.tech_link !== undefined) checkChange('Ссылка на документацию', currentTask.tech_link, d.techLink || d.tech_link);
+    if (d.obsledovanie !== undefined) checkChange('Обследование', currentTask.obsledovanie, d.obsledovanie);
+    if (d.dostup !== undefined) checkChange('Доступ', currentTask.dostup, d.dostup);
+    if (d.priemka !== undefined) checkChange('Приёмка', currentTask.priemka, d.priemka);
+    if (d.oplata !== undefined) checkChange('Оплата подрядчику', currentTask.oplata, d.oplata);
+    if (d.edoNumber !== undefined || d.edo_number !== undefined) checkChange('№ в ЭДО', currentTask.edo_number, d.edoNumber || d.edo_number);
+    if (d.invoiceInfo !== undefined || d.invoice_info !== undefined) checkChange('№ счёта/сумма', currentTask.invoice_info, d.invoiceInfo || d.invoice_info);
+    if (d.vedoStatus !== undefined || d.vedo_status !== undefined) checkChange('В ЭДО', currentTask.vedo_status, d.vedoStatus || d.vedo_status);
+    if (d.idStatus !== undefined || d.id_status !== undefined) checkChange('Статус ИД', currentTask.id_status, d.idStatus || d.id_status);
+    if (d.customer !== undefined) checkChange('Заказчик', currentTask.customer, d.customer);
+    if (d.contractId !== undefined || d.contract_id !== undefined) checkChange('Генеральный договор', currentTask.contract_id, d.contractId || d.contract_id);
+    if (d.contractAgreementId !== undefined || d.contract_agreement_id !== undefined) checkChange('Доп. соглашение (Лот)', currentTask.contract_agreement_id, d.contractAgreementId || d.contract_agreement_id);
+    if (d.ownCompanyId !== undefined || d.own_company_id !== undefined) checkChange('Наше юрлицо', currentTask.own_company_id, d.ownCompanyId || d.own_company_id);
+    if (d.materialsLink !== undefined || d.materials_link !== undefined) checkChange('Ссылка на материалы', currentTask.materials_link, d.materialsLink || d.materials_link);
+    if (d.idLink !== undefined || d.id_link !== undefined) checkChange('Ссылка на готовую ИД', currentTask.id_link, d.idLink || d.id_link);
+    if (d.overdueReason !== undefined) checkChange('Причина просрочки', currentTask.overdue_reason, d.overdueReason);
+    if (d.assignmentStatus !== undefined || d.assignment_status !== undefined) checkChange('Статус назначения', currentTask.assignment_status, d.assignmentStatus || d.assignment_status);
+
+    let finalHistory = Array.isArray(currentTask.history) ? [...currentTask.history] : [];
+    const clientHist = Array.isArray(d._history) ? d._history : (Array.isArray(d.history) ? d.history : []);
+    for (const ch of clientHist) {
+      if (ch && ch.field && !finalHistory.some(eh => eh.field === ch.field && eh.date === ch.date)) {
+        if (!newHistoryEntries.some(nh => nh.field === ch.field)) {
+          finalHistory.push(ch);
+        }
+      }
+    }
+    if (newHistoryEntries.length > 0) {
+      finalHistory = finalHistory.concat(newHistoryEntries);
+    }
+
     await pool.query(`
       UPDATE tasks SET
         region        = COALESCE($2, region),
@@ -472,6 +593,8 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
         obsledovanie          = COALESCE($57, obsledovanie),
         dostup                = COALESCE($58, dostup),
         priemka               = COALESCE($59, priemka),
+        smr_actual_end_date   = CASE WHEN $60::boolean THEN $61::date ELSE smr_actual_end_date END,
+        status                = COALESCE($62, status),
         version               = version + 1,
         updated_at    = NOW()
       WHERE id = $1
@@ -501,7 +624,7 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       d.edoNumber   || null,
       d.invoiceInfo || null,
       d.vedoStatus  || null,
-      d.history     ? JSON.stringify(d.history) : null,
+      JSON.stringify(finalHistory.slice(-500)),
       d.kmRate      !== undefined && d.kmRate !== null ? Math.max(0, Number(d.kmRate) || 0) : null,
       d.tmc         !== undefined && d.tmc !== null ? Math.max(0, Number(d.tmc) || 0) : null,
       d.extras      !== undefined && d.extras !== null ? Math.max(0, Number(d.extras) || 0) : null,
@@ -534,7 +657,10 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       d.statusSmr || d.status_smr || null,
       d.obsledovanie !== undefined ? d.obsledovanie : null,
       d.dostup !== undefined ? d.dostup : null,
-      d.priemka !== undefined ? d.priemka : null
+      d.priemka !== undefined ? d.priemka : null,
+      (d.smrActualEndDate !== undefined || d.smr_actual_end_date !== undefined),
+      safeDate(d.smrActualEndDate || d.smr_actual_end_date),
+      targetStatus
     ]);
 
     // Синхронизация с таблицей contractor_subcontracts при смене или снятии подрядчика
@@ -627,14 +753,21 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       });
     }
 
-    res.json({ success: true });
+    const { rows: updatedRows } = await pool.query(`
+      SELECT t.*,
+        (SELECT COUNT(*) FROM remarks rm WHERE rm.task_id = t.id AND rm.resolved_at IS NULL)::integer AS open_remarks_count
+      FROM tasks t WHERE t.id = $1
+    `, [req.params.id]);
+
+    const fullTask = updatedRows[0] ? rowToTask(updatedRows[0]) : null;
+    res.json({ success: true, task: fullTask });
   } catch(e) { console.error('PUT task error:', e.message); res.status(500).json({ error: e.message }) }
 });
 
 // ─── ПРИНЯЛ / ОТКАЗАЛСЯ (ВХОДНОЙ КОНТРОЛЬ) ───────────────────────────────────
 router.post('/tasks/:id/accept', authenticateToken, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT assignee, assignment_status FROM tasks WHERE id=$1', [req.params.id]);
+    const { rows } = await pool.query('SELECT assignee, assignment_status, history FROM tasks WHERE id=$1', [req.params.id]);
     const task = rows[0];
     if (!task) return res.status(404).json({ error: 'Заявка не найдена' });
     const isManager = ['admin', 'director', 'manager', 'to_engineer'].includes(req.user.role);
@@ -643,6 +776,16 @@ router.post('/tasks/:id/accept', authenticateToken, async (req, res) => {
     }
 
     const { assignee, controller, own_company_id, tech_link } = req.body || {};
+    const nowRu = new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
+    const authorName = (req.user && (req.user.fullName || req.user.username)) || 'Система';
+    let hist = Array.isArray(task.history) ? [...task.history] : [];
+    hist.push({
+      date: nowRu,
+      author: authorName,
+      field: 'Входной контроль',
+      old: task.assignment_status || 'Ожидает входного контроля',
+      new: `Принято в работу (ПМ: ${assignee || task.assignee || authorName})`
+    });
 
     await pool.query(`
       UPDATE tasks 
@@ -654,6 +797,7 @@ router.post('/tasks/:id/accept', authenticateToken, async (req, res) => {
         tech_link         = COALESCE(NULLIF($5, ''), tech_link),
         status            = CASE WHEN status IN ('new', 'pending', 'cancelled') THEN 'progress' ELSE status END,
         stage_num         = CASE WHEN stage_num = 0 THEN 1 ELSE stage_num END,
+        history           = $6::jsonb,
         updated_at        = NOW()
       WHERE id = $1
     `, [
@@ -661,20 +805,28 @@ router.post('/tasks/:id/accept', authenticateToken, async (req, res) => {
       assignee,
       controller,
       own_company_id ? Number(own_company_id) : null,
-      tech_link
+      tech_link,
+      JSON.stringify(hist.slice(-500))
     ]);
 
     pool.query('SELECT id FROM users WHERE role=$1', ['admin']).then(({ rows: admins }) => {
       admins.forEach(a => createNotification(a.id, `✅ Заявка принята: ${req.params.id}`, `${req.user.fullName} принял заявку в работу`, req.params.id));
     }).catch(err => console.error('Admin notify error:', err.message));
 
-    res.json({ success: true });
+    const { rows: updatedRows } = await pool.query(`
+      SELECT t.*,
+        (SELECT COUNT(*) FROM remarks rm WHERE rm.task_id = t.id AND rm.resolved_at IS NULL)::integer AS open_remarks_count
+      FROM tasks t WHERE t.id = $1
+    `, [req.params.id]);
+
+    const fullTask = updatedRows[0] ? rowToTask(updatedRows[0]) : null;
+    res.json({ success: true, task: fullTask });
   } catch(e) { res.status(500).json({ error: e.message }) }
 });
 
 router.post('/tasks/:id/decline', authenticateToken, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT assignee FROM tasks WHERE id=$1', [req.params.id]);
+    const { rows } = await pool.query('SELECT assignee, history, assignment_status FROM tasks WHERE id=$1', [req.params.id]);
     const task = rows[0];
     if (!task) return res.status(404).json({ error: 'Заявка не найдена' });
     const isManager = ['admin', 'director', 'manager', 'to_engineer'].includes(req.user.role);
@@ -683,17 +835,34 @@ router.post('/tasks/:id/decline', authenticateToken, async (req, res) => {
     }
 
     const reason = req.body && req.body.reason ? String(req.body.reason).trim() : '';
+    const nowRu = new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
+    const authorName = (req.user && (req.user.fullName || req.user.username)) || 'Система';
+    let hist = Array.isArray(task.history) ? [...task.history] : [];
+    hist.push({
+      date: nowRu,
+      author: authorName,
+      field: 'Входной контроль',
+      old: task.assignment_status || 'Ожидает входного контроля',
+      new: 'Отклонено' + (reason ? ': ' + reason : '')
+    });
 
     await pool.query(
-      `UPDATE tasks SET assignment_status='declined', overdue_reason = COALESCE(NULLIF($2, ''), overdue_reason), status = 'cancelled' WHERE id=$1`,
-      [req.params.id, reason]
+      `UPDATE tasks SET assignment_status='declined', overdue_reason = COALESCE(NULLIF($2, ''), overdue_reason), status = 'cancelled', history = $3::jsonb, updated_at = NOW() WHERE id=$1`,
+      [req.params.id, reason, JSON.stringify(hist.slice(-500))]
     );
 
     pool.query('SELECT id FROM users WHERE role=$1', ['admin']).then(({ rows: admins }) => {
       admins.forEach(a => createNotification(a.id, `❌ Заявка отклонена: ${req.params.id}`, `${req.user.fullName} отклонил заявку${reason ? ': ' + reason : ''}`, req.params.id));
     }).catch(err => console.error('Admin notify error:', err.message));
 
-    res.json({ success: true });
+    const { rows: updatedRows } = await pool.query(`
+      SELECT t.*,
+        (SELECT COUNT(*) FROM remarks rm WHERE rm.task_id = t.id AND rm.resolved_at IS NULL)::integer AS open_remarks_count
+      FROM tasks t WHERE t.id = $1
+    `, [req.params.id]);
+
+    const fullTask = updatedRows[0] ? rowToTask(updatedRows[0]) : null;
+    res.json({ success: true, task: fullTask });
   } catch(e) { res.status(500).json({ error: e.message }) }
 });
 
@@ -800,12 +969,23 @@ router.post('/tasks/:id/id/review', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM tasks WHERE id=$1', [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: 'Заявка не найдена' });
-    
+    const nowRu = new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
+    const authorName = (req.user && (req.user.fullName || req.user.username)) || 'Система';
+    let hist = Array.isArray(rows[0].history) ? [...rows[0].history] : [];
+    hist.push({ date: nowRu, author: authorName, field: 'Статус ИД', old: rows[0].status_id || '—', new: 'На согласовании (review)' });
+
     await pool.query(
-      "UPDATE tasks SET status_id = 'review', macro_status = 'review' WHERE id = $1",
-      [req.params.id]
+      "UPDATE tasks SET status_id = 'review', macro_status = 'review', history = $2::jsonb, updated_at = NOW() WHERE id = $1",
+      [req.params.id, JSON.stringify(hist.slice(-500))]
     );
-    res.json({ success: true });
+    const { rows: updatedRows } = await pool.query(`
+      SELECT t.*,
+        (SELECT COUNT(*) FROM remarks rm WHERE rm.task_id = t.id AND rm.resolved_at IS NULL)::integer AS open_remarks_count
+      FROM tasks t WHERE t.id = $1
+    `, [req.params.id]);
+
+    const fullTask = updatedRows[0] ? rowToTask(updatedRows[0]) : null;
+    res.json({ success: true, task: fullTask });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -813,12 +993,23 @@ router.post('/tasks/:id/finance/paid', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM tasks WHERE id=$1', [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: 'Заявка не найдена' });
-    
+    const nowRu = new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
+    const authorName = (req.user && (req.user.fullName || req.user.username)) || 'Система';
+    let hist = Array.isArray(rows[0].history) ? [...rows[0].history] : [];
+    hist.push({ date: nowRu, author: authorName, field: 'Финансы / Оплата', old: 'В процессе', new: 'Оплачено Заказчиком и подрядчику' });
+
     await pool.query(
-      "UPDATE tasks SET status_payment_customer = 'paid', status_payment_sub = 'paid', macro_status = 'paid' WHERE id = $1",
-      [req.params.id]
+      "UPDATE tasks SET status_payment_customer = 'paid', status_payment_sub = 'paid', macro_status = 'paid', history = $2::jsonb, updated_at = NOW() WHERE id = $1",
+      [req.params.id, JSON.stringify(hist.slice(-500))]
     );
-    res.json({ success: true });
+    const { rows: updatedRows } = await pool.query(`
+      SELECT t.*,
+        (SELECT COUNT(*) FROM remarks rm WHERE rm.task_id = t.id AND rm.resolved_at IS NULL)::integer AS open_remarks_count
+      FROM tasks t WHERE t.id = $1
+    `, [req.params.id]);
+
+    const fullTask = updatedRows[0] ? rowToTask(updatedRows[0]) : null;
+    res.json({ success: true, task: fullTask });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1258,14 +1449,61 @@ router.post('/tasks/:id/ports', authenticateToken, async (req, res) => {
     if (!(await canAccessTaskAttachments(req.user, req.params.id))) {
       return res.status(403).json({ error: 'Нет доступа к этой заявке' })
     }
-    const { portNumber, patchPanel, room, marking, cableLength } = req.body;
+    const { portNumber, patchPanel, room, marking, cableLength, cabinet, unit, crimping, testingStatus } = req.body;
     const { rows } = await pool.query(
-      `INSERT INTO task_ports (task_id, port_number, patch_panel, room, marking, cable_length)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [req.params.id, portNumber || null, patchPanel || null, room || null, marking || null, cableLength || null]
+      `INSERT INTO task_ports (task_id, port_number, patch_panel, room, marking, cable_length, cabinet, unit, crimping, testing_status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [
+        req.params.id,
+        portNumber || null,
+        patchPanel || null,
+        room || null,
+        marking || null,
+        cableLength !== undefined && cableLength !== '' ? Number(cableLength) : null,
+        cabinet || null,
+        unit || null,
+        crimping || null,
+        testingStatus || null
+      ]
     )
     res.json(rows[0])
   } catch(e) { res.status(500).json({ error: e.message }) }
+});
+
+router.post('/tasks/:id/ports/batch', authenticateToken, async (req, res) => {
+  try {
+    if (!(await canAccessTaskAttachments(req.user, req.params.id))) {
+      return res.status(403).json({ error: 'Нет доступа к этой заявке' });
+    }
+    const { ports, replaceExisting } = req.body;
+    if (!Array.isArray(ports)) return res.status(400).json({ error: 'ports must be an array' });
+
+    if (replaceExisting) {
+      await pool.query('DELETE FROM task_ports WHERE task_id = $1', [req.params.id]);
+    }
+
+    const inserted = [];
+    for (const p of ports) {
+      const { rows } = await pool.query(
+        `INSERT INTO task_ports (task_id, port_number, patch_panel, room, marking, cable_length, cabinet, unit, crimping, testing_status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+        [
+          req.params.id,
+          p.portNumber || p.port_number || null,
+          p.patchPanel || p.patch_panel || null,
+          p.room || null,
+          p.marking || null,
+          (p.cableLength != null && p.cableLength !== '') ? Number(p.cableLength) : ((p.cable_length != null && p.cable_length !== '') ? Number(p.cable_length) : null),
+          p.cabinet || null,
+          p.unit || null,
+          p.crimping || null,
+          p.testingStatus || p.testing_status || null
+        ]
+      );
+      if (rows[0]) inserted.push(rows[0]);
+    }
+    res.json({ success: true, count: inserted.length, rows: inserted });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 router.put('/ports/:rowId', authenticateToken, async (req, res) => {
@@ -1275,16 +1513,31 @@ router.put('/ports/:rowId', authenticateToken, async (req, res) => {
     if (!(await canAccessTaskAttachments(req.user, existing[0].task_id))) {
       return res.status(403).json({ error: 'Нет доступа' })
     }
-    const { portNumber, patchPanel, room, marking, cableLength } = req.body;
+    const { portNumber, patchPanel, room, marking, cableLength, cabinet, unit, crimping, testingStatus } = req.body;
     const { rows } = await pool.query(
       `UPDATE task_ports SET
-        port_number = COALESCE($2, port_number),
-        patch_panel = COALESCE($3, patch_panel),
-        room = COALESCE($4, room),
-        marking = COALESCE($5, marking),
-        cable_length = COALESCE($6, cable_length)
+        port_number   = CASE WHEN $2::boolean THEN $3 ELSE port_number END,
+        patch_panel   = CASE WHEN $4::boolean THEN $5 ELSE patch_panel END,
+        room          = CASE WHEN $6::boolean THEN $7 ELSE room END,
+        marking       = CASE WHEN $8::boolean THEN $9 ELSE marking END,
+        cable_length  = CASE WHEN $10::boolean THEN $11::numeric ELSE cable_length END,
+        cabinet       = CASE WHEN $12::boolean THEN $13 ELSE cabinet END,
+        unit          = CASE WHEN $14::boolean THEN $15 ELSE unit END,
+        crimping      = CASE WHEN $16::boolean THEN $17 ELSE crimping END,
+        testing_status= CASE WHEN $18::boolean THEN $19 ELSE testing_status END
        WHERE id=$1 RETURNING *`,
-      [req.params.rowId, portNumber, patchPanel, room, marking, cableLength]
+      [
+        req.params.rowId,
+        portNumber !== undefined, portNumber || null,
+        patchPanel !== undefined, patchPanel || null,
+        room !== undefined, room || null,
+        marking !== undefined, marking || null,
+        cableLength !== undefined, (cableLength !== '' && cableLength !== null) ? Number(cableLength) : null,
+        cabinet !== undefined, cabinet || null,
+        unit !== undefined, unit || null,
+        crimping !== undefined, crimping || null,
+        testingStatus !== undefined, testingStatus || null
+      ]
     )
     res.json(rows[0])
   } catch(e) { res.status(500).json({ error: e.message }) }
@@ -1298,7 +1551,14 @@ router.delete('/ports/:rowId', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Нет доступа' })
     }
     await pool.query('DELETE FROM task_ports WHERE id=$1', [req.params.rowId]);
-    res.json({ success: true });
+    const { rows: updatedRows } = await pool.query(`
+      SELECT t.*,
+        (SELECT COUNT(*) FROM remarks rm WHERE rm.task_id = t.id AND rm.resolved_at IS NULL)::integer AS open_remarks_count
+      FROM tasks t WHERE t.id = $1
+    `, [req.params.id]);
+
+    const fullTask = updatedRows[0] ? rowToTask(updatedRows[0]) : null;
+    res.json({ success: true, task: fullTask });
   } catch(e) { res.status(500).json({ error: e.message }) }
 });
 
@@ -1528,7 +1788,9 @@ router.post('/tasks/:id/items', authenticateToken, requireRole('admin', 'directo
       amount_contractor = 0,
       distance_km = 0,
       status = 'pending',
-      comment = null
+      comment = null,
+      article = null,
+      supplier = null
     } = req.body;
 
     if (!work_type || !work_type.trim()) {
@@ -1544,15 +1806,17 @@ router.post('/tasks/:id/items', authenticateToken, requireRole('admin', 'directo
         price_customer, amount_customer,
         contractor_id, contractor_name,
         price_contractor, amount_contractor,
-        distance_km, status, comment
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        distance_km, status, comment,
+        article, supplier
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
       RETURNING *`,
       [
         req.params.id, work_type.trim(), Number(quantity) || 1, unit || 'шт.',
         Number(price_customer) || 0, calcAmountCust,
         contractor_id ? parseInt(contractor_id, 10) : null, contractor_name ? contractor_name.trim() : null,
         Number(price_contractor) || 0, calcAmountCont,
-        Number(distance_km) || 0, status || 'pending', comment || null
+        Number(distance_km) || 0, status || 'pending', comment || null,
+        article ? String(article).trim() : null, supplier ? String(supplier).trim() : null
       ]
     );
 
@@ -1563,6 +1827,59 @@ router.post('/tasks/:id/items', authenticateToken, requireRole('admin', 'directo
     );
 
     res.json(rows[0]);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/tasks/:id/items/batch', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
+  try {
+    const { items, replaceExisting } = req.body;
+    if (!Array.isArray(items)) return res.status(400).json({ error: 'items must be an array' });
+
+    if (replaceExisting) {
+      await pool.query('DELETE FROM task_items WHERE task_id = $1', [req.params.id]);
+    }
+
+    const inserted = [];
+    for (const it of items) {
+      const name = String(it.work_type || it.name || '').trim();
+      if (!name) continue;
+      const qty = Number(it.quantity || it.qty || 1) || 1;
+      const unit = it.unit || 'шт.';
+      const priceCust = Number(it.price_customer || it.priceCustomer || 0) || 0;
+      const amountCust = Number(it.amount_customer || it.amountCustomer || (qty * priceCust)) || 0;
+      const priceCont = Number(it.price_contractor || it.priceContractor || 0) || 0;
+      const amountCont = Number(it.amount_contractor || it.amountContractor || (qty * priceCont)) || 0;
+      const article = it.article ? String(it.article).trim() : null;
+      const supplier = it.supplier ? String(it.supplier).trim() : null;
+
+      const { rows } = await pool.query(
+        `INSERT INTO task_items (
+          task_id, work_type, quantity, unit,
+          price_customer, amount_customer,
+          contractor_id, contractor_name,
+          price_contractor, amount_contractor,
+          article, supplier, status
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending')
+        RETURNING *`,
+        [
+          req.params.id, name, qty, unit,
+          priceCust, amountCust,
+          it.contractor_id || null, it.contractor_name || null,
+          priceCont, amountCont,
+          article, supplier
+        ]
+      );
+      if (rows[0]) inserted.push(rows[0]);
+    }
+
+    await pool.query(
+      `UPDATE tasks SET amount = COALESCE((SELECT SUM(amount_customer) FROM task_items WHERE task_id = $1), amount) WHERE id = $1`,
+      [req.params.id]
+    );
+
+    res.json({ success: true, count: inserted.length, rows: inserted });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1582,7 +1899,9 @@ router.put('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', '
       amount_contractor,
       distance_km,
       status,
-      comment
+      comment,
+      article,
+      supplier
     } = req.body;
 
     const calcAmountCust = amount_customer !== undefined ? Number(amount_customer) : undefined;
@@ -1602,8 +1921,10 @@ router.put('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', '
         distance_km       = COALESCE($10, distance_km),
         status            = COALESCE($11, status),
         comment           = COALESCE($12, comment),
+        article           = CASE WHEN $15::boolean THEN $13 ELSE article END,
+        supplier          = CASE WHEN $16::boolean THEN $14 ELSE supplier END,
         updated_at        = NOW()
-      WHERE id = $13 AND task_id = $14
+      WHERE id = $17 AND task_id = $18
       RETURNING *`,
       [
         work_type ? work_type.trim() : null,
@@ -1618,6 +1939,10 @@ router.put('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', '
         distance_km !== undefined ? Number(distance_km) : null,
         status || null,
         comment !== undefined ? comment : null,
+        article ? String(article).trim() : null,
+        supplier ? String(supplier).trim() : null,
+        article !== undefined,
+        supplier !== undefined,
         req.params.itemId,
         req.params.id
       ]
@@ -1645,7 +1970,14 @@ router.delete('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin'
       `UPDATE tasks SET amount = COALESCE((SELECT SUM(amount_customer) FROM task_items WHERE task_id = $1), 0) WHERE id = $1`,
       [req.params.id]
     );
-    res.json({ success: true });
+    const { rows: updatedRows } = await pool.query(`
+      SELECT t.*,
+        (SELECT COUNT(*) FROM remarks rm WHERE rm.task_id = t.id AND rm.resolved_at IS NULL)::integer AS open_remarks_count
+      FROM tasks t WHERE t.id = $1
+    `, [req.params.id]);
+
+    const fullTask = updatedRows[0] ? rowToTask(updatedRows[0]) : null;
+    res.json({ success: true, task: fullTask });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

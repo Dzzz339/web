@@ -10,6 +10,26 @@ function filterAndGoTasks(filterObj) {
   go('tasks');
 }
 
+function filterAndGoContracts(filterObj) {
+  if (typeof clearContractFilters === 'function') {
+    clearContractFilters();
+  } else {
+    S.contractSearch = '';
+    S.contractType = 'all';
+    S.contractCustomer = 'all';
+    S.contractStatus = 'all';
+    S.contractYear = 'all';
+    S.contractManager = 'all';
+    S.contractEntity = 'all';
+  }
+  if (filterObj && filterObj.customer !== undefined) {
+    S.contractCustomer = filterObj.customer;
+  }
+  go('contracts');
+}
+window.filterAndGoContracts = filterAndGoContracts;
+window.filterAndGoTasks = filterAndGoTasks;
+
 function pageDash(subSection) {
   subSection = subSection || (S.page.startsWith('dash-') ? S.page.replace('dash-', '') : 'summary');
 
@@ -85,7 +105,9 @@ function pageDash(subSection) {
 
     var cardsHtml = custList.map(function(c) {
       var p = c.total > 0 ? pct(c.done, c.total) : 0;
-      var contractsBadge = c.contractsCount > 0 ? ('<span class="badge b-gray" style="font-size:.7rem;margin-left:6px">' + c.contractsCount + ' дог.</span>') : '';
+      var contractsBadge = c.contractsCount > 0
+        ? ('<button type="button" class="badge b-blue" style="font-size:.72rem;margin-left:6px;cursor:pointer;border:1px solid #93c5fd;background:#eff6ff;color:#1d4ed8;padding:2px 8px;border-radius:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px" title="Посмотреть договоры этого заказчика" onclick="event.stopPropagation(); filterAndGoContracts({customer:\'' + escHtml(c.name) + '\'})">📄 ' + c.contractsCount + ' дог. ➔</button>')
+        : '';
       return `
         <div class="card p" style="cursor:pointer; transition:transform 0.12s, box-shadow 0.12s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'" onclick="filterAndGoTasks({customer:'${escHtml(c.name)}'})">
           <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:.75rem">

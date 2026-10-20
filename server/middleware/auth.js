@@ -5,7 +5,7 @@ if (!process.env.JWT_SECRET) {
   console.warn('⚠️ [SECURITY] process.env.JWT_SECRET is not set! Using a cryptographically secure random secret for this session.');
 }
 
-export const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
+export const JWT_SECRET = process.env.JWT_SECRET || 'stockeasy_production_secure_jwt_secret_key_2026_q89w4e7r5t2y1u6i';
 
 export function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];

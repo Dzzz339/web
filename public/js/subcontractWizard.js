@@ -299,6 +299,479 @@
     window.renderCardSmrCalculator(taskId);
   };
 
+  // Калькулятор расчета налогов и сметы (НДС 20%, 10%, 5%, 7%, УСН, Самозанятые 6%, ГПХ 13%)
+  window._calculateSmrTaxes = function(baseSum, mode) {
+    baseSum = Math.round((Number(baseSum) || 0) * 100) / 100;
+    mode = mode || 'usn';
+
+    var res = {
+      mode: mode,
+      baseSum: baseSum,
+      sumWithoutTax: baseSum,
+      taxAmount: 0,
+      totalWithTax: baseSum,
+      taxTitle: 'НДС / Налог',
+      taxRateNote: 'Не облагается (УСН / патент)',
+      baseNote: 'Базовая стоимость работ'
+    };
+
+    switch (mode) {
+      case 'usn':
+        res.sumWithoutTax = baseSum;
+        res.taxAmount = 0;
+        res.totalWithTax = baseSum;
+        res.taxTitle = 'НДС / Налог';
+        res.taxRateNote = 'Не облагается (УСН / патент)';
+        res.baseNote = 'Полная сумма без налога';
+        break;
+
+      case 'osno_20_inc':
+        res.totalWithTax = baseSum;
+        res.sumWithoutTax = Math.round((baseSum / 1.20) * 100) / 100;
+        res.taxAmount = Math.round((baseSum - res.sumWithoutTax) * 100) / 100;
+        res.taxTitle = 'НДС (20%) в т.ч.';
+        res.taxRateNote = 'Расчетная ставка 20/120 (выделен из стоимости)';
+        res.baseNote = 'Базовая стоимость без НДС';
+        break;
+
+      case 'osno_20_plus':
+        res.sumWithoutTax = baseSum;
+        res.taxAmount = Math.round((baseSum * 0.20) * 100) / 100;
+        res.totalWithTax = Math.round((baseSum + res.taxAmount) * 100) / 100;
+        res.taxTitle = 'НДС (20%) сверху';
+        res.taxRateNote = 'Прямая ставка 20% (начислен сверху)';
+        res.baseNote = 'Базовая стоимость до начисления НДС';
+        break;
+
+      case 'osno_10_inc':
+        res.totalWithTax = baseSum;
+        res.sumWithoutTax = Math.round((baseSum / 1.10) * 100) / 100;
+        res.taxAmount = Math.round((baseSum - res.sumWithoutTax) * 100) / 100;
+        res.taxTitle = 'НДС (10%) в т.ч.';
+        res.taxRateNote = 'Расчетная ставка 10/110 (выделен из стоимости)';
+        res.baseNote = 'Базовая стоимость без НДС';
+        break;
+
+      case 'osno_10_plus':
+        res.sumWithoutTax = baseSum;
+        res.taxAmount = Math.round((baseSum * 0.10) * 100) / 100;
+        res.totalWithTax = Math.round((baseSum + res.taxAmount) * 100) / 100;
+        res.taxTitle = 'НДС (10%) сверху';
+        res.taxRateNote = 'Прямая ставка 10% (начислен сверху)';
+        res.baseNote = 'Базовая стоимость до начисления НДС';
+        break;
+
+      case 'usn_5_inc':
+        res.totalWithTax = baseSum;
+        res.sumWithoutTax = Math.round((baseSum / 1.05) * 100) / 100;
+        res.taxAmount = Math.round((baseSum - res.sumWithoutTax) * 100) / 100;
+        res.taxTitle = 'НДС (5%) в т.ч. (УСН 2025)';
+        res.taxRateNote = 'Расчетная ставка 5/105 (выделен из стоимости)';
+        res.baseNote = 'Базовая стоимость без НДС';
+        break;
+
+      case 'usn_5_plus':
+        res.sumWithoutTax = baseSum;
+        res.taxAmount = Math.round((baseSum * 0.05) * 100) / 100;
+        res.totalWithTax = Math.round((baseSum + res.taxAmount) * 100) / 100;
+        res.taxTitle = 'НДС (5%) сверху (УСН 2025)';
+        res.taxRateNote = 'Прямая ставка 5% (начислен сверху)';
+        res.baseNote = 'Базовая стоимость до начисления НДС';
+        break;
+
+      case 'usn_7_inc':
+        res.totalWithTax = baseSum;
+        res.sumWithoutTax = Math.round((baseSum / 1.07) * 100) / 100;
+        res.taxAmount = Math.round((baseSum - res.sumWithoutTax) * 100) / 100;
+        res.taxTitle = 'НДС (7%) в т.ч. (УСН 2025)';
+        res.taxRateNote = 'Расчетная ставка 7/107 (выделен из стоимости)';
+        res.baseNote = 'Базовая стоимость без НДС';
+        break;
+
+      case 'usn_7_plus':
+        res.sumWithoutTax = baseSum;
+        res.taxAmount = Math.round((baseSum * 0.07) * 100) / 100;
+        res.totalWithTax = Math.round((baseSum + res.taxAmount) * 100) / 100;
+        res.taxTitle = 'НДС (7%) сверху (УСН 2025)';
+        res.taxRateNote = 'Прямая ставка 7% (начислен сверху)';
+        res.baseNote = 'Базовая стоимость до начисления НДС';
+        break;
+
+      case 'npd_6':
+        res.totalWithTax = baseSum;
+        res.taxAmount = Math.round((baseSum * 0.06) * 100) / 100;
+        res.sumWithoutTax = Math.round((baseSum - res.taxAmount) * 100) / 100;
+        res.taxTitle = 'НПД (6%) налог самозанятого';
+        res.taxRateNote = 'Уплачивается исполнителем (НПД 6%)';
+        res.baseNote = 'Сумма за вычетом налога (на руки)';
+        break;
+
+      case 'gph_13':
+        res.totalWithTax = baseSum;
+        res.taxAmount = Math.round((baseSum * 0.13) * 100) / 100;
+        res.sumWithoutTax = Math.round((baseSum - res.taxAmount) * 100) / 100;
+        res.taxTitle = 'НДФЛ (13%) налоговый агент';
+        res.taxRateNote = 'Удерживается налоговым агентом при выплате';
+        res.baseNote = 'Сумма к выплате на руки';
+        break;
+
+      default:
+        res.sumWithoutTax = baseSum;
+        res.taxAmount = 0;
+        res.totalWithTax = baseSum;
+        break;
+    }
+    return res;
+  };
+
+  window.fmtMoneyPrecise = function(n) {
+    var num = Number(n);
+    if (isNaN(num)) return '0 ₽';
+    if (num === 0) return '0 ₽';
+    var hasDecimals = Math.abs(num - Math.round(num)) >= 0.005;
+    if (hasDecimals) {
+      return num.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽';
+    } else {
+      return Math.round(num).toLocaleString('ru-RU') + ' ₽';
+    }
+  };
+
+  window._evalMathExpression = function(expr) {
+    if (expr === undefined || expr === null) return 0;
+    if (typeof expr === 'number') return isFinite(expr) ? (Math.round(expr * 100) / 100) : 0;
+    var s = String(expr).trim();
+    if (!s) return 0;
+
+    // Убираем пробелы, неразрывные пробелы
+    s = s.replace(/[\s\u00A0]/g, '');
+    // Заменяем запятые на точки
+    s = s.replace(/,/g, '.');
+
+    // Функция для преобразования конструкций с процентами (+ Y% или - Y%)
+    // Например: 12500 - 15% -> (12500 * (1 - (15 / 100)))
+    // Или: (14963 / 1.2) - 10% -> ((14963 / 1.2) * (1 - (10 / 100)))
+    function replacePercentOps(str) {
+      var guard = 0;
+      while (guard++ < 20) {
+        var m = str.match(/([+\-*/])([0-9.]+)%/);
+        if (!m) break;
+        var op = m[1];
+        var pctVal = m[2];
+        var matchIdx = m.index;
+
+        if (op === '*' || op === '/') {
+          str = str.slice(0, matchIdx + 1) + '(' + pctVal + '/100)' + str.slice(matchIdx + m[0].length);
+          continue;
+        }
+
+        var leftIdx = matchIdx - 1;
+        if (leftIdx < 0) {
+          str = str.slice(0, matchIdx) + '(' + op + '(' + pctVal + '/100))' + str.slice(matchIdx + m[0].length);
+          continue;
+        }
+
+        var leftExpr = '';
+        if (str[leftIdx] === ')') {
+          var depth = 1;
+          var p = leftIdx - 1;
+          while (p >= 0 && depth > 0) {
+            if (str[p] === ')') depth++;
+            else if (str[p] === '(') depth--;
+            p--;
+          }
+          var startIdx = p + 1;
+          leftExpr = str.slice(startIdx, leftIdx + 1);
+          var signFactor = op === '+' ? '+' : '-';
+          var replacement = '(' + leftExpr + '*(1' + signFactor + '(' + pctVal + '/100)))';
+          str = str.slice(0, startIdx) + replacement + str.slice(matchIdx + m[0].length);
+        } else {
+          var p = leftIdx;
+          while (p >= 0 && /[0-9.]/.test(str[p])) {
+            p--;
+          }
+          var startIdx = p + 1;
+          leftExpr = str.slice(startIdx, leftIdx + 1);
+          if (!leftExpr) {
+            str = str.slice(0, matchIdx + 1) + '(' + pctVal + '/100)' + str.slice(matchIdx + m[0].length);
+          } else {
+            var signFactor = op === '+' ? '+' : '-';
+            var replacement = '(' + leftExpr + '*(1' + signFactor + '(' + pctVal + '/100)))';
+            str = str.slice(0, startIdx) + replacement + str.slice(matchIdx + m[0].length);
+          }
+        }
+      }
+      str = str.replace(/([0-9.]+)%/g, '($1/100)');
+      return str;
+    }
+
+    s = replacePercentOps(s);
+
+    if (!/^[0-9+\-*/.()]+$/.test(s)) {
+      return null;
+    }
+
+    try {
+      var fn = new Function('return (' + s + ');');
+      var res = fn();
+      if (typeof res !== 'number' || isNaN(res) || !isFinite(res)) {
+        return null;
+      }
+      return Math.round(res * 100) / 100;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  window._taskSmrCalc = window._taskSmrCalc || {};
+
+  window._getSmrCalcVal = function(taskId) {
+    if (window._taskSmrCalc && window._taskSmrCalc[taskId] && window._taskSmrCalc[taskId].expr !== undefined) {
+      return window._taskSmrCalc[taskId];
+    }
+    var spec = (window._taskSmrSpec && window._taskSmrSpec[taskId]) || [];
+    var sum = 0;
+    spec.forEach(function(l){ sum += (Number(l.qty) || 0) * (Number(l.price) || 0); });
+    sum = Math.round(sum * 100) / 100;
+    var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+    if (sum <= 0 && t.amount > 0) {
+      sum = Math.round(Number(t.amount) * 0.85 * 100) / 100;
+    }
+    var initExpr = sum > 0 ? String(sum) : '';
+    window._taskSmrCalc = window._taskSmrCalc || {};
+    window._taskSmrCalc[taskId] = {
+      expr: initExpr,
+      val: window._evalMathExpression(initExpr) || 0
+    };
+    return window._taskSmrCalc[taskId];
+  };
+
+  window._onSmrCalcInput = function(taskId, expr) {
+    window._taskSmrCalc = window._taskSmrCalc || {};
+    var val = window._evalMathExpression(expr);
+    window._taskSmrCalc[taskId] = {
+      expr: expr,
+      val: val
+    };
+
+    var resPill = document.getElementById('smr_calc_result_pill_' + taskId);
+    if (resPill) {
+      if (val === null) {
+        resPill.textContent = 'Ошибка выражения';
+        resPill.style.color = '#dc2626';
+        resPill.style.background = '#fef2f2';
+        resPill.style.borderColor = '#fca5a5';
+      } else {
+        resPill.textContent = '= ' + window.fmtMoneyPrecise(val);
+        resPill.style.color = '#15803d';
+        resPill.style.background = '#f0fdf4';
+        resPill.style.borderColor = '#86efac';
+      }
+    }
+
+    var scenCont = document.getElementById('smr_scenarios_table_container_' + taskId);
+    if (scenCont && val !== null && val >= 0) {
+      scenCont.innerHTML = window._renderSmrScenariosTableHtml(taskId, val);
+    }
+  };
+
+  window._smrCalcSetVal = function(taskId, type) {
+    var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+    var spec = (window._taskSmrSpec && window._taskSmrSpec[taskId]) || [];
+    var specSum = 0;
+    spec.forEach(function(l){ specSum += (Number(l.qty) || 0) * (Number(l.price) || 0); });
+    specSum = Math.round(specSum * 100) / 100;
+
+    var newExpr = '';
+    if (type === 'spec') {
+      newExpr = specSum > 0 ? String(specSum) : '0';
+    } else if (type === 'customer') {
+      var cust = Number(t.amount || 0);
+      newExpr = cust > 0 ? String(cust) : '0';
+    } else if (type === 'clear') {
+      newExpr = '';
+    }
+
+    var inp = document.getElementById('smr_calc_input_' + taskId);
+    if (inp) {
+      inp.value = newExpr;
+      window._onSmrCalcInput(taskId, newExpr);
+      inp.focus();
+    }
+  };
+
+  window._smrCalcApplyOp = function(taskId, op) {
+    var inp = document.getElementById('smr_calc_input_' + taskId);
+    if (!inp) return;
+    var cur = inp.value.trim();
+    if (!cur) {
+      var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+      var spec = (window._taskSmrSpec && window._taskSmrSpec[taskId]) || [];
+      var specSum = 0;
+      spec.forEach(function(l){ specSum += (Number(l.qty) || 0) * (Number(l.price) || 0); });
+      cur = specSum > 0 ? String(specSum) : (t.amount > 0 ? String(t.amount) : '0');
+    }
+
+    var newExpr = '';
+    if (op === '+20%') {
+      newExpr = '(' + cur + ') + 20%';
+    } else if (op === '/1.2') {
+      newExpr = '(' + cur + ') / 1.2';
+    } else if (op === '-10%') {
+      newExpr = '(' + cur + ') - 10%';
+    } else if (op === '-15%') {
+      newExpr = '(' + cur + ') - 15%';
+    } else if (op === '-20%') {
+      newExpr = '(' + cur + ') - 20%';
+    } else if (op === '-6%') {
+      newExpr = '(' + cur + ') - 6%';
+    } else if (op === '-13%') {
+      newExpr = '(' + cur + ') - 13%';
+    } else if (op === '/1.05') {
+      newExpr = '(' + cur + ') / 1.05';
+    } else if (op === '/1.07') {
+      newExpr = '(' + cur + ') / 1.07';
+    } else {
+      newExpr = cur + ' ' + op;
+    }
+
+    inp.value = newExpr;
+    window._onSmrCalcInput(taskId, newExpr);
+    inp.focus();
+  };
+
+  window._applyCalcToSpec = function(taskId) {
+    var inp = document.getElementById('smr_calc_input_' + taskId);
+    var expr = inp ? inp.value : '';
+    var val = window._evalMathExpression(expr);
+    if (val === null || val <= 0) {
+      if (typeof showToast === 'function') {
+        showToast('Укажите корректную сумму в калькуляторе больше нуля', 'warning');
+      } else {
+        alert('Укажите корректную сумму в калькуляторе больше нуля');
+      }
+      return;
+    }
+
+    window._taskSmrSpec = window._taskSmrSpec || {};
+    var spec = window._taskSmrSpec[taskId] || [];
+
+    if (spec.length === 0) {
+      var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+      spec.push({
+        name: t.work_type || 'Монтаж СКС и линий связи',
+        unit: 'усл',
+        qty: 1,
+        price: val,
+        sum: val
+      });
+      window._taskSmrSpec[taskId] = spec;
+    } else if (spec.length === 1) {
+      var line = spec[0];
+      line.sum = val;
+      var q = Number(line.qty) || 1;
+      line.price = Math.round((val / q) * 100) / 100;
+    } else {
+      var curTotal = 0;
+      spec.forEach(function(l){ curTotal += (Number(l.qty) || 0) * (Number(l.price) || 0); });
+      if (curTotal > 0) {
+        var ratio = val / curTotal;
+        spec.forEach(function(l){
+          l.price = Math.round((Number(l.price) || 0) * ratio * 100) / 100;
+          l.sum = Math.round((Number(l.qty) || 0) * l.price * 100) / 100;
+        });
+      } else {
+        spec[0].sum = val;
+        spec[0].price = Math.round((val / (Number(spec[0].qty) || 1)) * 100) / 100;
+      }
+    }
+
+    window._renderCardSmrTable(taskId);
+    window._refreshSmrCalculations(taskId);
+
+    if (typeof showToast === 'function') {
+      showToast('Сумма ' + window.fmtMoneyPrecise(val) + ' успешно перенесена в смету СМР', 'success');
+    }
+  };
+
+  window._renderSmrScenariosTableHtml = function(taskId, baseAmount) {
+    baseAmount = baseAmount !== undefined && baseAmount !== null ? Number(baseAmount) : 0;
+    if (baseAmount <= 0) {
+      var spec = (window._taskSmrSpec && window._taskSmrSpec[taskId]) || [];
+      baseAmount = spec.reduce(function(acc, l){ return acc + ((Number(l.qty) || 0) * (Number(l.price) || 0)); }, 0);
+    }
+    baseAmount = Math.round(baseAmount * 100) / 100;
+
+    var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+    var custAmount = Number(t.amount || 0);
+
+    var thirdParty = (window._taskThirdPartySpec && window._taskThirdPartySpec[taskId]) || [];
+    var totalTp = thirdParty.reduce(function(acc, tp){ return acc + (Number(tp.amount) || 0); }, 0);
+
+    var curTaxMode = (window._taskSmrTax && window._taskSmrTax[taskId]) || 'usn';
+
+    var scenarios = [
+      { mode: 'usn',          name: 'Без НДС (УСН / патент)',  type: 'УСН',       badgeBg: '#f1f5f9', badgeCol: '#475569' },
+      { mode: 'osno_20_inc',  name: 'В т.ч. НДС 20% (ОСНО)',    type: 'ОСНО 20%',  badgeBg: '#ede9fe', badgeCol: '#6d28d9' },
+      { mode: 'osno_20_plus', name: '+ НДС 20% сверху (ОСНО)',  type: 'ОСНО +20%', badgeBg: '#fae8ff', badgeCol: '#86198f' },
+      { mode: 'usn_5_inc',    name: 'В т.ч. НДС 5% (УСН 2025)', type: 'УСН 5%',   badgeBg: '#e0f2fe', badgeCol: '#0369a1' },
+      { mode: 'usn_7_inc',    name: 'В т.ч. НДС 7% (УСН 2025)', type: 'УСН 7%',   badgeBg: '#e0f2fe', badgeCol: '#075985' },
+      { mode: 'npd_6',        name: 'Самозанятый (НПД 6%)',    type: 'НПД 6%',    badgeBg: '#dcfce7', badgeCol: '#15803d' },
+      { mode: 'gph_13',       name: 'Физлицо ГПХ (НДФЛ 13%)',   type: 'ГПХ 13%',   badgeBg: '#fef3c7', badgeCol: '#b45309' }
+    ];
+
+    var rows = scenarios.map(function(sc) {
+      var c = window._calculateSmrTaxes(baseAmount, sc.mode);
+      var outflow = c.totalWithTax + totalTp;
+      var margin = custAmount > 0 ? (custAmount - outflow) : 0;
+      var marginPct = custAmount > 0 ? Math.round((margin / custAmount) * 100) : 0;
+      var isCurrent = curTaxMode === sc.mode;
+      var marginColor = margin >= 0 ? '#15803d' : '#dc2626';
+
+      return '<tr style="border-bottom:1px solid var(--border);' + (isCurrent ? 'background:#f0fdf4;font-weight:700;' : '') + '">' +
+        '<td style="padding:6px 8px;font-size:.78rem">' +
+          '<span class="badge" style="background:' + sc.badgeBg + ';color:' + sc.badgeCol + ';font-weight:700;font-size:.7rem;margin-right:6px">' + sc.type + '</span>' +
+          escHtml(sc.name) +
+        '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-size:.8rem;color:var(--text-2)">' + window.fmtMoneyPrecise(c.sumWithoutTax) + '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-size:.8rem;color:#7c3aed;font-weight:600">' + (c.taxAmount > 0 ? window.fmtMoneyPrecise(c.taxAmount) : '—') + '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-size:.84rem;font-weight:700;color:var(--text)">' + window.fmtMoneyPrecise(c.totalWithTax) + '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-size:.8rem;color:' + marginColor + ';font-weight:700">' +
+          (custAmount > 0 ? (window.fmtMoneyPrecise(margin) + ' <span style="font-size:.72rem">(' + marginPct + '%)</span>') : '—') +
+        '</td>' +
+        '<td style="padding:6px 8px;text-align:center">' +
+          (isCurrent 
+            ? '<span style="color:#15803d;font-size:.72rem;font-weight:800;background:#dcfce7;padding:2px 6px;border-radius:4px;border:1px solid #86efac">✓ Выбран</span>'
+            : '<button type="button" class="btn btn-xs btn-ghost" onclick="window._selectTaxScenario(\'' + escHtml(taskId) + '\', \'' + sc.mode + '\')" style="font-size:.72rem;padding:2px 8px;border:1px solid var(--border)">Выбрать</button>'
+          ) +
+        '</td>' +
+      '</tr>';
+    }).join('');
+
+    return '<table style="width:100%;border-collapse:collapse;text-align:left;font-size:.78rem">' +
+      '<thead><tr style="background:#f8fafc;color:var(--text-3);border-bottom:1.5px solid var(--border);font-size:.72rem;text-transform:uppercase">' +
+        '<th style="padding:5px 8px">Сценарий / Налоговый режим</th>' +
+        '<th style="padding:5px 8px;text-align:right">База (без налога)</th>' +
+        '<th style="padding:5px 8px;text-align:right">Налог / НДС</th>' +
+        '<th style="padding:5px 8px;text-align:right">К выплате подрядчику</th>' +
+        '<th style="padding:5px 8px;text-align:right">Маржа компании</th>' +
+        '<th style="padding:5px 8px;text-align:center;width:80px">Действие</th>' +
+      '</tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+    '</table>';
+  };
+
+  window._selectTaxScenario = function(taskId, mode) {
+    var sel = document.getElementById('smr_tax_mode_' + taskId);
+    if (sel) sel.value = mode;
+    window._onSmrTaxModeChange(taskId, mode);
+  };
+
+  window._onSmrTaxModeChange = function(taskId, mode) {
+    window._taskSmrTax = window._taskSmrTax || {};
+    window._taskSmrTax[taskId] = mode;
+    window._refreshSmrCalculations(taskId);
+  };
+
   // Методы управления дополнительными расходами по объекту (проезд, проживание, бурильщики, спецтехника, инструмент)
   window._addThirdPartyLine = function(taskId, presetKey) {
     window._taskThirdPartySpec = window._taskThirdPartySpec || {};
@@ -323,10 +796,13 @@
     if (!list || !list[idx]) return;
     if (field === 'amount') {
       list[idx].amount = Math.max(0, parseFloat(val) || 0);
+      window._refreshSmrCalculations(taskId);
     } else {
       list[idx][field] = val;
+      if (field === 'payment_type') {
+        window._refreshSmrCalculations(taskId);
+      }
     }
-    window._renderCardSmrTable(taskId);
   };
 
   window._removeThirdPartyLine = function(taskId, idx) {
@@ -413,6 +889,31 @@
         window._taskThirdPartySpec[taskId] = JSON.parse(JSON.stringify(curSub.calculation_details.third_party_lines));
       } else {
         window._taskThirdPartySpec[taskId] = [];
+      }
+    }
+
+    // Инициализация налогового режима сметы СМР (1С)
+    window._taskSmrTax = window._taskSmrTax || {};
+    if (!window._taskSmrTax[taskId]) {
+      var savedTax = (curSub && curSub.calculation_details && curSub.calculation_details.tax_details && curSub.calculation_details.tax_details.mode) ||
+                     (t.rawData && t.rawData.smrTaxDetails && t.rawData.smrTaxDetails.mode);
+      if (savedTax) {
+        window._taskSmrTax[taskId] = savedTax;
+      } else {
+        var cTax = contrObj && contrObj.tax_system ? String(contrObj.tax_system).toLowerCase() : 'usn';
+        if (cTax === 'osno' || cTax.includes('20')) {
+          window._taskSmrTax[taskId] = 'osno_20_inc';
+        } else if (cTax === 'npd' || cTax.includes('самозан') || cTax === 'npd_6') {
+          window._taskSmrTax[taskId] = 'npd_6';
+        } else if (cTax === 'usn_5') {
+          window._taskSmrTax[taskId] = 'usn_5_inc';
+        } else if (cTax === 'usn_7') {
+          window._taskSmrTax[taskId] = 'usn_7_inc';
+        } else if (cTax === 'gph' || cTax.includes('13')) {
+          window._taskSmrTax[taskId] = 'gph_13';
+        } else {
+          window._taskSmrTax[taskId] = 'usn';
+        }
       }
     }
 
@@ -558,9 +1059,45 @@
     var curSub = (window._curCardSubcontracts || []).find(function(s){ return String(s.task_id) === String(taskId); }) || null;
     var contrName = (t.contractor && t.contractor.trim()) || (curSub && curSub.contractor_name) || '';
 
+    var contrObj = contrName ? (S.contractors || []).find(function(c){
+      if (!c) return false;
+      var cShort = (c.name_short || '').trim().toLowerCase();
+      var cFull = (c.name_full || '').trim().toLowerCase();
+      var cTarget = contrName.trim().toLowerCase();
+      return cShort === cTarget || cFull === cTarget || cShort.includes(cTarget) || cTarget.includes(cShort);
+    }) : null;
+
+    var cTax = contrObj && contrObj.tax_system ? String(contrObj.tax_system).toLowerCase() : 'usn';
+    var cTaxLabelsMap = {
+      usn: 'УСН (Без НДС)',
+      osno: 'ОСНО (НДС 20%)',
+      npd: 'Самозанятый (НПД 6%)',
+      usn_5: 'УСН (НДС 5%)',
+      usn_7: 'УСН (НДС 7%)',
+      gph: 'Физлицо (ГПХ 13%)'
+    };
+    var cTaxLabel = cTaxLabelsMap[cTax] || 'УСН (Без НДС)';
+    var contrTaxHint = contrName ? (contrName + ' (по профилю: ' + cTaxLabel + ')') : 'Исполнитель еще не назначен (по умолч. УСН)';
+
+    var curTaxMode = (window._taskSmrTax && window._taskSmrTax[taskId]) || 'usn';
+
+    var taxOptions = [
+      { v: 'usn',          l: 'Без НДС (УСН / патент)' },
+      { v: 'osno_20_inc',  l: 'В т.ч. НДС 20%' },
+      { v: 'osno_20_plus', l: '+ НДС 20% сверху' },
+      { v: 'osno_10_inc',  l: 'В т.ч. НДС 10%' },
+      { v: 'osno_10_plus', l: '+ НДС 10% сверху' },
+      { v: 'usn_5_inc',    l: 'В т.ч. НДС 5% (УСН 2025)' },
+      { v: 'usn_5_plus',   l: '+ НДС 5% сверху (УСН 2025)' },
+      { v: 'usn_7_inc',    l: 'В т.ч. НДС 7% (УСН 2025)' },
+      { v: 'usn_7_plus',   l: '+ НДС 7% сверху (УСН 2025)' },
+      { v: 'npd_6',        l: 'Самозанятый (НПД 6%)' },
+      { v: 'gph_13',       l: 'Физлицо ГПХ (НДФЛ 13%)' }
+    ];
+
     var totalSubAmount = 0;
     var rowsHtml = spec.map(function(l, idx) {
-      var rowSum = Math.round((Number(l.qty) || 0) * (Number(l.price) || 0));
+      var rowSum = Math.round((Number(l.qty) || 0) * (Number(l.price) || 0) * 100) / 100;
       totalSubAmount += rowSum;
       return '<tr style="border-bottom:1px solid var(--border);font-size:.82rem">' +
         '<td style="padding:6px 8px;font-weight:600;color:var(--text-3);text-align:center">' + (idx + 1) + '</td>' +
@@ -574,14 +1111,15 @@
           '<input type="number" min="0" step="any" value="' + l.qty + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:65px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:center;font-weight:700" oninput="window._updateCardSmrLine(\'' + escHtml(taskId) + '\', ' + idx + ', \'qty\', this.value)">' +
         '</td>' +
         '<td style="padding:6px 8px;text-align:right">' +
-          '<input type="number" min="0" step="any" value="' + l.price + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:85px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:right;font-weight:600" oninput="window._updateCardSmrLine(\'' + escHtml(taskId) + '\', ' + idx + ', \'price\', this.value)">' +
+          '<input type="number" id="smr_row_price_inp_' + escHtml(taskId) + '_' + idx + '" min="0" step="any" value="' + l.price + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:85px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:right;font-weight:600" oninput="window._updateCardSmrLine(\'' + escHtml(taskId) + '\', ' + idx + ', \'price\', this.value)">' +
         '</td>' +
-        '<td style="padding:6px 8px;text-align:right;font-weight:700;color:var(--text)">' + fmtMoney(rowSum) + '</td>' +
+        '<td id="smr_row_sum_' + escHtml(taskId) + '_' + idx + '" style="padding:6px 8px;text-align:right;font-weight:700;color:var(--text)">' + window.fmtMoneyPrecise(rowSum) + '</td>' +
         '<td style="padding:6px 8px;text-align:center">' +
           (!isAccepted ? '' : ('<button type="button" class="btn btn-sm btn-ghost" onclick="window._removeCardSmrLine(\'' + escHtml(taskId) + '\', ' + idx + ')" style="padding:1px 6px;color:var(--red);font-size:.8rem" title="Удалить позицию">✕</button>')) +
         '</td>' +
       '</tr>';
     }).join('');
+    totalSubAmount = Math.round(totalSubAmount * 100) / 100;
 
     if (!spec.length) {
       rowsHtml = '<tr><td colspan="7" style="padding:14px;text-align:center;color:var(--text-3);font-size:.82rem">Спецификация пуста. Нажмите «+ Добавить позицию из прайса» ниже.</td></tr>';
@@ -610,7 +1148,7 @@
             '<option value="direct"' + (isDirect ? ' selected' : '') + '>Генподрядчик напрямую («Мы»)</option>' +
           '</select>' +
         '</td>' +
-        '<td style="padding:6px 8px;text-align:right">' +
+        '<td id="tp_row_sum_' + escHtml(taskId) + '_' + tpIdx + '" style="padding:6px 8px;text-align:right">' +
           '<input type="number" min="0" step="any" value="' + (tp.amount || 0) + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:90px;padding:3px 6px;border:1px solid #d8b4fe;border-radius:4px;text-align:right;font-weight:700;color:#581c87" oninput="window._updateThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ', \'amount\', this.value)">' +
         '</td>' +
         '<td style="padding:6px 8px;text-align:center">' +
@@ -623,10 +1161,11 @@
       tpRowsHtml = '<tr><td colspan="6" style="padding:10px;text-align:center;color:#7e22ce;font-size:.78rem">Дополнительных расходов по объекту нет. Нажмите кнопки ниже для добавления проезда, проживания, бурения или спецтехники.</td></tr>';
     }
 
-    // Расчет финансового баланса по правилам Алексея:
+    // Расчет финансового баланса:
     // Заказчик (платят нам) → Расход: Подрядчик (СМР) → Расход: Доп. расходы → Нам (Операционный остаток)
     var custAmount = Number(t.amount || 0);
-    var totalOutflow = totalSubAmount + totalThirdPartyAmount;
+    var taxCalc = window._calculateSmrTaxes(totalSubAmount, curTaxMode);
+    var totalOutflow = taxCalc.totalWithTax + totalThirdPartyAmount;
     var netMargin = custAmount > 0 ? (custAmount - totalOutflow) : 0;
     var netMarginPct = custAmount > 0 ? Math.round((netMargin / custAmount) * 100) : 0;
     var curOwnObj = ownList.find(function(oc){ return oc.id === curOwnId; }) || {};
@@ -680,6 +1219,8 @@
       ? (thirdPartyDirectSum > 0 ? ('В т.ч. напрямую от Нас: ' + fmtMoney(thirdPartyDirectSum)) : 'Через основного подрядчика')
       : 'Нет затрат';
 
+    var calcState = window._getSmrCalcVal(taskId);
+
     box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">' +
       '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
         priceListPickerHtml +
@@ -705,7 +1246,109 @@
           '<th style="padding:6px 8px;text-align:center;width:40px"></th>' +
         '</tr></thead>' +
         '<tbody>' + rowsHtml + '</tbody>' +
+        '<tfoot><tr style="background:var(--bg);font-size:.82rem;font-weight:700;border-top:2px solid var(--border)">' +
+          '<td colspan="5" style="padding:8px 10px;text-align:right;color:var(--text-2)">ИТОГО ПО РАБОТАМ:</td>' +
+          '<td id="smr_spec_total_' + escHtml(taskId) + '" style="padding:8px;text-align:right;color:var(--text);font-size:.92rem">' + window.fmtMoneyPrecise(taxCalc.totalWithTax) + '</td>' +
+          '<td></td>' +
+        '</tr></tfoot>' +
       '</table>' +
+    '</div>' +
+
+    // Интерактивный калькулятор налогов и сметы
+    '<div id="smr_tax_calc_box_' + escHtml(taskId) + '" style="border:1.5px solid var(--border);border-radius:8px;background:var(--bg);padding:12px 14px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,0.03)">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;border-bottom:1px solid var(--border);padding-bottom:10px">' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="font-size:1.25rem">🧮</span>' +
+          '<div>' +
+            '<div style="font-weight:700;font-size:.88rem;color:var(--text);display:flex;align-items:center;gap:6px">' +
+              '<span>Калькулятор налогов и сметы СМР</span>' +
+            '</div>' +
+            '<div id="smr_tax_contractor_hint_' + escHtml(taskId) + '" style="font-size:.74rem;color:var(--text-3);margin-top:1px">' +
+              'По подрядчику: <b>' + escHtml(contrTaxHint) + '</b>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="font-size:.78rem;font-weight:600;color:var(--text-2)">Режим налогообложения:</span>' +
+          '<select id="smr_tax_mode_' + escHtml(taskId) + '" ' + (!isAccepted ? 'disabled ' : '') + 'onchange="window._onSmrTaxModeChange(\'' + escHtml(taskId) + '\', this.value)" style="padding:4px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.82rem;font-weight:700;background:#fff;color:var(--text)">' +
+            taxOptions.map(function(opt){
+              return '<option value="' + opt.v + '"' + (curTaxMode === opt.v ? ' selected' : '') + '>' + opt.l + '</option>';
+            }).join('') +
+          '</select>' +
+        '</div>' +
+      '</div>' +
+
+      // Блок живого расчета и формул
+      '<div style="background:#fff;border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px">' +
+          '<div style="font-size:.76rem;font-weight:700;color:var(--text-2);display:flex;align-items:center;gap:6px">' +
+            '<span>📐 Живой расчет сметы и формулы (дробные числа, проценты, коэффициенты):</span>' +
+          '</div>' +
+          '<div style="display:flex;align-items:center;gap:6px;font-size:.72rem;color:var(--text-3)">' +
+            '<span>Быстрый ввод:</span>' +
+            '<button type="button" class="btn btn-xs btn-ghost" onclick="window._smrCalcSetVal(\'' + escHtml(taskId) + '\', \'spec\')" style="padding:2px 6px;font-size:.72rem" title="Затянуть сумму из текущей сметы">📥 Из сметы (' + window.fmtMoneyPrecise(totalSubAmount) + ')</button>' +
+            '<button type="button" class="btn btn-xs btn-ghost" onclick="window._smrCalcSetVal(\'' + escHtml(taskId) + '\', \'customer\')" style="padding:2px 6px;font-size:.72rem" title="Затянуть сумму от Заказчика">📥 От Заказчика (' + window.fmtMoneyPrecise(custAmount) + ')</button>' +
+            '<button type="button" class="btn btn-xs btn-ghost" onclick="window._smrCalcSetVal(\'' + escHtml(taskId) + '\', \'clear\')" style="padding:2px 6px;font-size:.72rem" title="Очистить поле ввода">✕ Очистить</button>' +
+          '</div>' +
+        '</div>' +
+
+        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+          '<div style="flex:1;min-width:240px">' +
+            '<input type="text" id="smr_calc_input_' + escHtml(taskId) + '" value="' + escHtml(calcState.expr || '') + '" oninput="window._onSmrCalcInput(\'' + escHtml(taskId) + '\', this.value)" placeholder="Например: 2500 * 4.5 или 14963 / 1.2 или 12500 - 15%" style="width:100%;padding:6px 12px;font-size:.92rem;font-family:monospace;font-weight:700;border:1.5px solid var(--border);border-radius:6px;background:#f8fafc;color:var(--text)" />' +
+          '</div>' +
+          '<div id="smr_calc_result_pill_' + escHtml(taskId) + '" style="padding:6px 14px;border-radius:6px;font-weight:800;font-size:.95rem;background:#f0fdf4;border:1.5px solid #86efac;color:#15803d;white-space:nowrap;min-width:140px;text-align:center">' +
+            '= ' + window.fmtMoneyPrecise(calcState.val !== null ? calcState.val : 0) +
+          '</div>' +
+          '<button type="button" class="btn btn-sm btn-primary" ' + (!isAccepted ? 'disabled ' : '') + 'onclick="window._applyCalcToSpec(\'' + escHtml(taskId) + '\')" style="white-space:nowrap;font-weight:700;padding:6px 14px" title="Перенести результат калькулятора в спецификацию сметы">' +
+            '✓ Применить в смету' +
+          '</button>' +
+        '</div>' +
+
+        '<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)">' +
+          '<span style="font-size:.72rem;font-weight:700;color:var(--text-3);margin-right:2px">Быстрые действия:</span>' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="window._smrCalcApplyOp(\'' + escHtml(taskId) + '\', \'+20%\')" style="font-size:.72rem;padding:2px 6px">+20% сверху</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="window._smrCalcApplyOp(\'' + escHtml(taskId) + '\', \'/1.2\')" style="font-size:.72rem;padding:2px 6px">В т.ч. 20% (/1.2)</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="window._smrCalcApplyOp(\'' + escHtml(taskId) + '\', \'-10%\')" style="font-size:.72rem;padding:2px 6px">-10% Генподряд</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="window._smrCalcApplyOp(\'' + escHtml(taskId) + '\', \'-15%\')" style="font-size:.72rem;font-weight:700;padding:2px 6px">-15% Генподряд</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="window._smrCalcApplyOp(\'' + escHtml(taskId) + '\', \'-20%\')" style="font-size:.72rem;padding:2px 6px">-20% Генподряд</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="window._smrCalcApplyOp(\'' + escHtml(taskId) + '\', \'-6%\')" style="font-size:.72rem;padding:2px 6px">НПД 6% (Самозанятый)</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="window._smrCalcApplyOp(\'' + escHtml(taskId) + '\', \'-13%\')" style="font-size:.72rem;padding:2px 6px">ГПХ 13% (НДФЛ)</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="window._smrCalcApplyOp(\'' + escHtml(taskId) + '\', \'/1.05\')" style="font-size:.72rem;padding:2px 6px">В т.ч. УСН 5%</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="window._smrCalcApplyOp(\'' + escHtml(taskId) + '\', \'/1.07\')" style="font-size:.72rem;padding:2px 6px">В т.ч. УСН 7%</button>' +
+        '</div>' +
+      '</div>' +
+
+      // Сценарный блок сравнения налоговых режимов
+      '<div style="margin-bottom:12px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+          '<span style="font-weight:700;font-size:.75rem;color:var(--text-2);text-transform:uppercase">Сравнение сценариев налогообложения для рассчитанной суммы:</span>' +
+          '<span style="font-size:.72rem;color:var(--text-3)">Кликните «Выбрать» в строке для переключения режима</span>' +
+        '</div>' +
+        '<div id="smr_scenarios_table_container_' + escHtml(taskId) + '" style="border:1px solid var(--border);border-radius:6px;overflow-x:auto;background:#fff">' +
+          window._renderSmrScenariosTableHtml(taskId, calcState.val !== null ? calcState.val : totalSubAmount) +
+        '</div>' +
+      '</div>' +
+
+      // Карточки итогов по активному режиму
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:10px;align-items:center">' +
+        '<div style="background:#fff;padding:8px 12px;border:1px solid var(--border);border-radius:6px">' +
+          '<div style="font-size:.72rem;color:var(--text-3);font-weight:600;text-transform:uppercase">Сумма без налога</div>' +
+          '<div id="smr_tax_sum_without_' + escHtml(taskId) + '" style="font-size:1.05rem;font-weight:700;color:var(--text);margin-top:2px">' + window.fmtMoneyPrecise(taxCalc.sumWithoutTax) + '</div>' +
+          '<div id="smr_tax_sub_label_' + escHtml(taskId) + '" style="font-size:.68rem;color:var(--text-3)">' + taxCalc.baseNote + '</div>' +
+        '</div>' +
+
+        '<div style="background:#fff;padding:8px 12px;border:1px solid var(--border);border-radius:6px">' +
+          '<div id="smr_tax_vat_title_' + escHtml(taskId) + '" style="font-size:.72rem;color:var(--text-3);font-weight:600;text-transform:uppercase">' + taxCalc.taxTitle + '</div>' +
+          '<div id="smr_tax_vat_amount_' + escHtml(taskId) + '" style="font-size:1.05rem;font-weight:700;color:#7c3aed;margin-top:2px">' + (taxCalc.taxAmount > 0 ? window.fmtMoneyPrecise(taxCalc.taxAmount) : 'Без налога (0 ₽)') + '</div>' +
+          '<div id="smr_tax_vat_note_' + escHtml(taskId) + '" style="font-size:.68rem;color:var(--text-3)">' + taxCalc.taxRateNote + '</div>' +
+        '</div>' +
+
+        '<div style="background:#f8fafc;padding:8px 12px;border:1.5px solid #cbd5e1;border-radius:6px">' +
+          '<div style="font-size:.72rem;color:var(--text-2);font-weight:700;text-transform:uppercase">ИТОГО К ВЫПЛАТЕ ПО РАБОТАМ</div>' +
+          '<div id="smr_tax_total_with_' + escHtml(taskId) + '" style="font-size:1.15rem;font-weight:800;color:var(--primary);margin-top:2px">' + window.fmtMoneyPrecise(taxCalc.totalWithTax) + '</div>' +
+          '<div style="font-size:.68rem;color:var(--text-3)">с учетом налога / к перечислению</div>' +
+        '</div>' +
+      '</div>' +
     '</div>' +
 
     // Блок дополнительных расходов по объекту (проезд, проживание, бурильщики, вышка, инструмент)
@@ -752,6 +1395,11 @@
             '<th style="padding:6px 8px;text-align:center;width:35px"></th>' +
           '</tr></thead>' +
           '<tbody>' + tpRowsHtml + '</tbody>' +
+          '<tfoot><tr style="background:#f5f3ff;font-size:.8rem;font-weight:700;border-top:1.5px solid #d8b4fe">' +
+            '<td colspan="4" style="padding:6px 10px;text-align:right;color:#6b21a8">ИТОГО ДОП. РАСХОДЫ:</td>' +
+            '<td id="tp_spec_total_' + escHtml(taskId) + '" style="padding:6px 8px;text-align:right;color:#581c87;font-size:.88rem">' + window.fmtMoneyPrecise(totalThirdPartyAmount) + '</td>' +
+            '<td></td>' +
+          '</tr></tfoot>' +
         '</table>' +
       '</div>' +
     '</div>' +
@@ -764,22 +1412,22 @@
       '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:10px;margin-bottom:12px">' +
         '<div style="background:#fff;border:1.5px solid var(--border);border-radius:6px;padding:8px 12px">' +
           '<div style="font-size:.72rem;color:var(--text-3);font-weight:600">📥 ВХОД ОТ ЗАКАЗЧИКА (Платят нам)</div>' +
-          '<div style="font-size:1.1rem;font-weight:800;color:var(--text);margin-top:2px">' + fmtMoney(custAmount) + '</div>' +
+          '<div id="smr_balance_cust_' + escHtml(taskId) + '" style="font-size:1.1rem;font-weight:800;color:var(--text);margin-top:2px">' + window.fmtMoneyPrecise(custAmount) + '</div>' +
           '<div style="font-size:.7rem;color:var(--text-2);margin-top:1px">' + escHtml(t.customer || 'Заказчик') + '</div>' +
         '</div>' +
         '<div style="background:#fff;border:1.5px solid var(--border);border-radius:6px;padding:8px 12px">' +
           '<div style="font-size:.72rem;color:#b45309;font-weight:600">📤 РАСХОД: ПОДРЯДЧИК (СМР)</div>' +
-          '<div style="font-size:1.1rem;font-weight:800;color:#b45309;margin-top:2px">' + fmtMoney(totalSubAmount) + '</div>' +
-          '<div style="font-size:.7rem;color:var(--text-2);margin-top:1px">' + escHtml(contrName || 'Исполнитель СМР') + '</div>' +
+          '<div id="smr_balance_sub_' + escHtml(taskId) + '" style="font-size:1.1rem;font-weight:800;color:#b45309;margin-top:2px">' + window.fmtMoneyPrecise(taxCalc.totalWithTax) + '</div>' +
+          '<div id="smr_balance_sub_note_' + escHtml(taskId) + '" style="font-size:.7rem;color:var(--text-2);margin-top:1px">' + escHtml(contrName || 'Исполнитель СМР') + (taxCalc.taxAmount > 0 ? (' · ' + taxCalc.taxTitle + ': ' + window.fmtMoneyPrecise(taxCalc.taxAmount)) : ' · Без НДС') + '</div>' +
         '</div>' +
         '<div style="background:#fff;border:1.5px solid var(--border);border-radius:6px;padding:8px 12px">' +
           '<div style="font-size:.72rem;color:#6b21a8;font-weight:600">📤 ДОП. РАСХОДЫ ПО ОБЪЕКТУ</div>' +
-          '<div style="font-size:1.1rem;font-weight:800;color:#6b21a8;margin-top:2px">' + fmtMoney(totalThirdPartyAmount) + '</div>' +
-          '<div style="font-size:.7rem;color:var(--text-2);margin-top:1px">' + escHtml(thirdPartyPaymentNote) + '</div>' +
+          '<div id="smr_balance_tp_' + escHtml(taskId) + '" style="font-size:1.1rem;font-weight:800;color:#6b21a8;margin-top:2px">' + window.fmtMoneyPrecise(totalThirdPartyAmount) + '</div>' +
+          '<div id="smr_balance_tp_note_' + escHtml(taskId) + '" style="font-size:.7rem;color:var(--text-2);margin-top:1px">' + escHtml(thirdPartyPaymentNote) + '</div>' +
         '</div>' +
-        '<div style="background:' + (netMargin >= 0 ? '#f0fdf4' : '#fef2f2') + ';border:1.5px solid ' + (netMargin >= 0 ? '#86efac' : '#fca5a5') + ';border-radius:6px;padding:8px 12px">' +
+        '<div id="smr_balance_margin_box_' + escHtml(taskId) + '" style="background:' + (netMargin >= 0 ? '#f0fdf4' : '#fef2f2') + ';border:1.5px solid ' + (netMargin >= 0 ? '#86efac' : '#fca5a5') + ';border-radius:6px;padding:8px 12px">' +
           '<div style="font-size:.72rem;color:' + (netMargin >= 0 ? '#166534' : '#991b1b') + ';font-weight:700">💰 ОПЕРАЦИОННЫЙ ОСТАТОК (ДО ВЫЧЕТА ТМЦ)</div>' +
-          '<div style="font-size:1.15rem;font-weight:900;color:' + (netMargin >= 0 ? '#16a34a' : '#dc2626') + ';margin-top:2px">' + fmtMoney(netMargin) + ' <span style="font-size:.8rem;font-weight:700">(' + netMarginPct + '%)</span></div>' +
+          '<div id="smr_balance_margin_' + escHtml(taskId) + '" style="font-size:1.15rem;font-weight:900;color:' + (netMargin >= 0 ? '#16a34a' : '#dc2626') + ';margin-top:2px">' + window.fmtMoneyPrecise(netMargin) + ' <span style="font-size:.8rem;font-weight:700">(' + netMarginPct + '%)</span></div>' +
           '<div style="font-size:.7rem;color:' + (netMargin >= 0 ? '#15803d' : '#b91c1c') + ';margin-top:1px">' + escHtml(curOwnName) + '</div>' +
         '</div>' +
       '</div>' +
@@ -789,6 +1437,103 @@
         '</button>' +
       '</div>' +
     '</div>';
+  };
+
+  // Мгновенный пересчет сумм и финансового баланса без перерисовки DOM (сохраняет фокус ввода)
+  window._refreshSmrCalculations = function(taskId) {
+    var spec = (window._taskSmrSpec && window._taskSmrSpec[taskId]) || [];
+    var thirdParty = (window._taskThirdPartySpec && window._taskThirdPartySpec[taskId]) || [];
+    var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+
+    var totalSubAmount = 0;
+    spec.forEach(function(l) {
+      totalSubAmount += Math.round((Number(l.qty) || 0) * (Number(l.price) || 0) * 100) / 100;
+    });
+    totalSubAmount = Math.round(totalSubAmount * 100) / 100;
+
+    var totalThirdPartyAmount = 0;
+    var thirdPartyDirectSum = 0;
+    thirdParty.forEach(function(tp) {
+      var s = Math.round((Number(tp.amount) || 0) * 100) / 100;
+      totalThirdPartyAmount += s;
+      if (tp.payment_type === 'direct') thirdPartyDirectSum += s;
+    });
+    totalThirdPartyAmount = Math.round(totalThirdPartyAmount * 100) / 100;
+    thirdPartyDirectSum = Math.round(thirdPartyDirectSum * 100) / 100;
+
+    var curTaxMode = (window._taskSmrTax && window._taskSmrTax[taskId]) || 'usn';
+    var taxCalc = window._calculateSmrTaxes(totalSubAmount, curTaxMode);
+
+    var custAmount = Number(t.amount || 0);
+    var totalOutflow = Math.round((taxCalc.totalWithTax + totalThirdPartyAmount) * 100) / 100;
+    var netMargin = custAmount > 0 ? (Math.round((custAmount - totalOutflow) * 100) / 100) : 0;
+    var netMarginPct = custAmount > 0 ? Math.round((netMargin / custAmount) * 100) : 0;
+
+    var curSub = (window._curCardSubcontracts || []).find(function(s){ return String(s.task_id) === String(taskId); }) || null;
+    var contrName = (t.contractor && t.contractor.trim()) || (curSub && curSub.contractor_name) || '';
+
+    var elSubTotal = document.getElementById('smr_spec_total_' + taskId);
+    if (elSubTotal) elSubTotal.textContent = window.fmtMoneyPrecise(taxCalc.totalWithTax);
+
+    var elTaxWithout = document.getElementById('smr_tax_sum_without_' + taskId);
+    if (elTaxWithout) elTaxWithout.textContent = window.fmtMoneyPrecise(taxCalc.sumWithoutTax);
+
+    var elTaxVatTitle = document.getElementById('smr_tax_vat_title_' + taskId);
+    if (elTaxVatTitle) elTaxVatTitle.textContent = taxCalc.taxTitle;
+
+    var elTaxVatAmount = document.getElementById('smr_tax_vat_amount_' + taskId);
+    if (elTaxVatAmount) elTaxVatAmount.textContent = taxCalc.taxAmount > 0 ? window.fmtMoneyPrecise(taxCalc.taxAmount) : 'Без налога (0 ₽)';
+
+    var elTaxVatNote = document.getElementById('smr_tax_vat_note_' + taskId);
+    if (elTaxVatNote) elTaxVatNote.textContent = taxCalc.taxRateNote;
+
+    var elTaxBaseNote = document.getElementById('smr_tax_sub_label_' + taskId);
+    if (elTaxBaseNote) elTaxBaseNote.textContent = taxCalc.baseNote;
+
+    var elTaxTotalWith = document.getElementById('smr_tax_total_with_' + taskId);
+    if (elTaxTotalWith) elTaxTotalWith.textContent = window.fmtMoneyPrecise(taxCalc.totalWithTax);
+
+    var elTpTotal = document.getElementById('tp_spec_total_' + taskId);
+    if (elTpTotal) elTpTotal.textContent = window.fmtMoneyPrecise(totalThirdPartyAmount);
+
+    var elBalSub = document.getElementById('smr_balance_sub_' + taskId);
+    if (elBalSub) elBalSub.textContent = window.fmtMoneyPrecise(taxCalc.totalWithTax);
+
+    var elBalSubNote = document.getElementById('smr_balance_sub_note_' + taskId);
+    if (elBalSubNote) {
+      elBalSubNote.textContent = (contrName || 'Исполнитель СМР') + (taxCalc.taxAmount > 0 ? (' · ' + taxCalc.taxTitle + ': ' + window.fmtMoneyPrecise(taxCalc.taxAmount)) : ' · Без НДС');
+    }
+
+    var elBalTp = document.getElementById('smr_balance_tp_' + taskId);
+    if (elBalTp) elBalTp.textContent = window.fmtMoneyPrecise(totalThirdPartyAmount);
+
+    var elBalTpNote = document.getElementById('smr_balance_tp_note_' + taskId);
+    if (elBalTpNote) {
+      elBalTpNote.textContent = totalThirdPartyAmount > 0
+        ? (thirdPartyDirectSum > 0 ? ('В т.ч. напрямую от Нас: ' + window.fmtMoneyPrecise(thirdPartyDirectSum)) : 'Через основного подрядчика')
+        : 'Нет затрат';
+    }
+
+    var elBalMargin = document.getElementById('smr_balance_margin_' + taskId);
+    if (elBalMargin) {
+      elBalMargin.innerHTML = window.fmtMoneyPrecise(netMargin) + ' <span style="font-size:.8rem;font-weight:700">(' + netMarginPct + '%)</span>';
+      elBalMargin.style.color = netMargin >= 0 ? '#16a34a' : '#dc2626';
+    }
+
+    var elBalBox = document.getElementById('smr_balance_margin_box_' + taskId);
+    if (elBalBox) {
+      elBalBox.style.background = netMargin >= 0 ? '#f0fdf4' : '#fef2f2';
+      elBalBox.style.borderColor = netMargin >= 0 ? '#86efac' : '#fca5a5';
+    }
+
+    // Обновляем сценарную таблицу, если пользователь не вводит формулу прямо сейчас в инпут
+    var scenCont = document.getElementById('smr_scenarios_table_container_' + taskId);
+    var calcInp = document.getElementById('smr_calc_input_' + taskId);
+    if (scenCont && document.activeElement !== calcInp) {
+      var calcState = window._taskSmrCalc && window._taskSmrCalc[taskId];
+      var baseVal = (calcState && calcState.val !== null && calcState.val > 0) ? calcState.val : totalSubAmount;
+      scenCont.innerHTML = window._renderSmrScenariosTableHtml(taskId, baseVal);
+    }
   };
 
   window._toggleSmrAddMenu = function(taskId) {
@@ -805,15 +1550,22 @@
       // Динамический пересчет тарифа для портов СКС 5е (1-3 шт -> 3000 ₽, >3 шт -> 2500 ₽)
       var lineName = (spec[idx].name || '').toLowerCase();
       if (lineName.includes('порт') && (lineName.includes('5e') || lineName.includes('5е') || lineName.includes('скс'))) {
-        spec[idx].price = spec[idx].qty > 3 ? 2500 : 3000;
+        var newPrice = spec[idx].qty > 3 ? 2500 : 3000;
+        spec[idx].price = newPrice;
+        var pInp = document.getElementById('smr_row_price_inp_' + taskId + '_' + idx);
+        if (pInp && document.activeElement !== pInp) pInp.value = newPrice;
       }
 
-      spec[idx].sum = Math.round(spec[idx].qty * spec[idx].price);
-      window._renderCardSmrTable(taskId);
+      spec[idx].sum = Math.round(spec[idx].qty * spec[idx].price * 100) / 100;
+      var sumEl = document.getElementById('smr_row_sum_' + taskId + '_' + idx);
+      if (sumEl) sumEl.textContent = window.fmtMoneyPrecise(spec[idx].sum);
+      window._refreshSmrCalculations(taskId);
     } else if (field === 'price') {
       spec[idx].price = Math.max(0, parseFloat(val) || 0);
-      spec[idx].sum = Math.round(spec[idx].qty * spec[idx].price);
-      window._renderCardSmrTable(taskId);
+      spec[idx].sum = Math.round(spec[idx].qty * spec[idx].price * 100) / 100;
+      var sumEl = document.getElementById('smr_row_sum_' + taskId + '_' + idx);
+      if (sumEl) sumEl.textContent = window.fmtMoneyPrecise(spec[idx].sum);
+      window._refreshSmrCalculations(taskId);
     } else if (field === 'name') {
       spec[idx].name = String(val || '');
     } else if (field === 'unit') {
@@ -901,8 +1653,11 @@
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); });
     if (!t) return;
     var spec = window._taskSmrSpec && window._taskSmrSpec[taskId] ? window._taskSmrSpec[taskId] : [];
-    var totalAmount = spec.reduce(function(acc, l){ return acc + (Number(l.sum) || 0); }, 0);
+    var totalBaseAmount = spec.reduce(function(acc, l){ return acc + (Number(l.sum) || 0); }, 0);
     var thirdParty = window._taskThirdPartySpec && window._taskThirdPartySpec[taskId] ? window._taskThirdPartySpec[taskId] : [];
+
+    var curTaxMode = (window._taskSmrTax && window._taskSmrTax[taskId]) || 'usn';
+    var taxCalc = window._calculateSmrTaxes(totalBaseAmount, curTaxMode);
 
     var curSub = (window._curCardSubcontracts || [])[0] || null;
     var cName = (curSub && curSub.contractor_name) || t.contractor || '';
@@ -925,11 +1680,12 @@
       contractor_contract_id: (curSub && curSub.contractor_contract_id) || null,
       price_list_id: (curSub && curSub.price_list_id) || null,
       work_type: t.work_type || 'Монтаж СКС',
-      price_agreed: totalAmount,
+      price_agreed: taxCalc.totalWithTax,
       deadline: t.deadline || null,
       calculation_details: { 
         lines: spec,
-        third_party_lines: thirdParty
+        third_party_lines: thirdParty,
+        tax_details: taxCalc
       },
       ports_count: ports || parseInt(t.fact || t.in_order || 0, 10),
       distance_km: parseFloat(t.distance_km || 0)
@@ -945,6 +1701,9 @@
     })
     .then(function(res) {
       showToast('✅ Спецификация и расчет СМР сохранены!', 'success');
+      t.price_agreed = taxCalc.totalWithTax;
+      t.rawData = t.rawData || {};
+      t.rawData.smrTaxDetails = taxCalc;
       if (typeof window.loadCardSubcontracts === 'function') {
         window.loadCardSubcontracts(taskId);
       }
@@ -1560,6 +2319,7 @@
       if (modalEl) modalEl.remove();
 
       // Обновляем блоки на карточке
+      if (window._taskSmrTax) delete window._taskSmrTax[taskId];
       if (typeof window.loadCardSubcontracts === 'function') {
         window.loadCardSubcontracts(taskId);
       }

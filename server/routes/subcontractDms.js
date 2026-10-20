@@ -310,15 +310,29 @@ router.post('/tasks/:taskId/subcontract-wizard', authenticateToken, async (req, 
       subcontractId = insRes.rows[0].id;
     }
 
-    // Синхронизируем подрядчика и собственное юрлицо в таблице tasks
+    // Синхронизируем подрядчика, собственное юрлицо и историю в таблице tasks
+    const curTaskRes = await pool.query('SELECT history, contractor, amount FROM tasks WHERE id = $1', [taskId]);
+    let tHist = (curTaskRes.rows[0] && Array.isArray(curTaskRes.rows[0].history)) ? [...curTaskRes.rows[0].history] : [];
+    const nowRu = new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
+    const authorName = (req.user && (req.user.fullName || req.user.username)) || 'Система';
+
+    tHist.push({
+      date: nowRu,
+      author: authorName,
+      field: 'Смета СМР и поручение подрядчику',
+      old: curTaskRes.rows[0] && curTaskRes.rows[0].contractor ? curTaskRes.rows[0].contractor : '—',
+      new: `${cName} (Согласовано по смете: ${Math.round(price_agreed || 0).toLocaleString('ru-RU')} ₽)`
+    });
+
     await pool.query(`
       UPDATE tasks SET
         contractor = $1,
         own_company_id = COALESCE($2, own_company_id),
         amount = CASE WHEN (amount IS NULL OR amount = 0) THEN $3 ELSE amount END,
+        history = $5::jsonb,
         updated_at = NOW()
       WHERE id = $4
-    `, [cName, own_company_id || null, price_agreed || 0, taskId]);
+    `, [cName, own_company_id || null, price_agreed || 0, taskId, JSON.stringify(tHist.slice(-500))]);
 
     // Возвращаем полный объект субподряда
     const fullRes = await pool.query(`

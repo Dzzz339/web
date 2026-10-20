@@ -57,16 +57,29 @@ export async function syncSubcontractsForTasks(pool) {
 
     // If still no contractor in contractors table, insert one
     if (!contrId) {
-      const syntheticInn = 'SUB-' + Math.abs(hashCode(rawContr)).toString().slice(0, 10);
+      const innMatch = rawContr.match(/\b(\d{10}|\d{12})\b/);
+      const realInn = innMatch ? innMatch[1] : null;
       try {
-        const { rows: newContr } = await pool.query(
-          `INSERT INTO contractors (name_short, name_full, inn, type, status)
-           VALUES ($1, $1, $2, 'subcontractor', 'active')
-           ON CONFLICT (inn) DO UPDATE SET name_short = EXCLUDED.name_short
-           RETURNING id, name_short`,
-          [rawContr, syntheticInn]
-        );
-        if (newContr.length > 0) {
+        let newContr;
+        if (realInn) {
+          const res = await pool.query(
+            `INSERT INTO contractors (name_short, name_full, inn, type, status)
+             VALUES ($1, $1, $2, 'subcontractor', 'active')
+             ON CONFLICT (inn) DO UPDATE SET name_short = EXCLUDED.name_short
+             RETURNING id, name_short`,
+            [rawContr, realInn]
+          );
+          newContr = res.rows;
+        } else {
+          const res = await pool.query(
+            `INSERT INTO contractors (name_short, name_full, inn, type, status)
+             VALUES ($1, $1, NULL, 'subcontractor', 'active')
+             RETURNING id, name_short`,
+            [rawContr]
+          );
+          newContr = res.rows;
+        }
+        if (newContr && newContr.length > 0) {
           contrId = newContr[0].id;
           contrName = newContr[0].name_short;
         }
@@ -206,16 +219,29 @@ export async function syncSingleTaskSubcontract(pool, taskId) {
   }
 
   if (!contrId) {
-    const syntheticInn = 'SUB-' + Math.abs(hashCode(rawContr)).toString().slice(0, 10);
+    const innMatch = rawContr.match(/\b(\d{10}|\d{12})\b/);
+    const realInn = innMatch ? innMatch[1] : null;
     try {
-      const { rows: newContr } = await pool.query(
-        `INSERT INTO contractors (name_short, name_full, inn, type, status)
-         VALUES ($1, $1, $2, 'subcontractor', 'active')
-         ON CONFLICT (inn) DO UPDATE SET name_short = EXCLUDED.name_short
-         RETURNING id, name_short`,
-        [rawContr, syntheticInn]
-      );
-      if (newContr.length > 0) {
+      let newContr;
+      if (realInn) {
+        const res = await pool.query(
+          `INSERT INTO contractors (name_short, name_full, inn, type, status)
+           VALUES ($1, $1, $2, 'subcontractor', 'active')
+           ON CONFLICT (inn) DO UPDATE SET name_short = EXCLUDED.name_short
+           RETURNING id, name_short`,
+          [rawContr, realInn]
+        );
+        newContr = res.rows;
+      } else {
+        const res = await pool.query(
+          `INSERT INTO contractors (name_short, name_full, inn, type, status)
+           VALUES ($1, $1, NULL, 'subcontractor', 'active')
+           RETURNING id, name_short`,
+          [rawContr]
+        );
+        newContr = res.rows;
+      }
+      if (newContr && newContr.length > 0) {
         contrId = newContr[0].id;
         contrName = newContr[0].name_short;
       }

@@ -46,6 +46,7 @@ export function rowToTask(r) {
     comment:      r.comment,
     distributedAt: r.distributed_at ? new Date(r.distributed_at).toLocaleDateString('en-CA') : null,
     _history:     r.history || [],
+    history:      r.history || [],
     rawData:      r.raw_data || {},
     tmc:          Number(r.tmc) || 0,
     extras:       Number(r.extras) || 0,

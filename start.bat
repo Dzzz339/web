@@ -49,6 +49,7 @@ if %errorlevel% equ 0 (
 )
 set DADATA_API_KEY=5312de9ffa05f9a68cc381ddbb8484385f032bd8
 set DADATA_SECRET_KEY=710ce98120d857761c5d1843eac9c04fa6944ee7
+set JWT_SECRET=stockeasy_production_secure_jwt_secret_key_2026_q89w4e7r5t2y1u6i
 set AI_MODEL=qwen-cpu:latest
 set AI_BASE_URL=http://127.0.0.1:11434/v1
 set OLLAMA_NUM_GPU=0

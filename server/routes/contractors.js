@@ -15,7 +15,7 @@ router.get('/contractors', authenticateToken, async (req, res) => {
     const { type } = req.query;
     let query = `
       SELECT c.*, 
-        oc.vat_rate, oc.tax_system, oc.code AS own_company_code,
+        oc.vat_rate AS own_vat_rate, oc.tax_system AS own_tax_system, oc.code AS own_company_code,
         (SELECT COUNT(*) FROM specialists s WHERE s.contractor_id = c.id) AS specialists_count,
         (SELECT COUNT(*) FROM contractor_contracts cc WHERE cc.contractor_id = c.id) AS subcontracts_count
       FROM contractors c
@@ -180,7 +180,7 @@ router.get('/contractors/:id', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT c.*, 
-        oc.vat_rate, oc.tax_system, oc.code AS own_company_code,
+        oc.vat_rate AS own_vat_rate, oc.tax_system AS own_tax_system, oc.code AS own_company_code,
         (SELECT COUNT(*) FROM specialists s WHERE s.contractor_id = c.id) AS specialists_count,
         (SELECT COUNT(*) FROM contractor_contracts cc WHERE cc.contractor_id = c.id) AS subcontracts_count
       FROM contractors c
@@ -204,21 +204,22 @@ router.post('/contractors', authenticateToken, async (req, res) => {
       INSERT INTO contractors (
         inn, kpp, ogrn, name_short, name_full, legal_form, address_legal, address_postal, director, 
         signer_name, signer_position, acting_basis, bank_name, bik, account_corr, account_pay, phone, email, type,
-        contract_number, contract_date, curator_name, curator_phone, curator_email, comment, is_own
+        contract_number, contract_date, curator_name, curator_phone, curator_email, comment, is_own, tax_system
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, 
         $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
-        $20, $21, $22, $23, $24, $25, $26
+        $20, $21, $22, $23, $24, $25, $26, $27
       )
       RETURNING *
     `, [
-      d.inn, d.kpp || null, d.ogrn || null, d.name_short, d.name_full || null, d.legal_form || null, 
+      (d.inn && d.inn.trim()) ? d.inn.trim() : null, d.kpp || null, d.ogrn || null, d.name_short, d.name_full || null, d.legal_form || null, 
       d.address_legal || null, d.address_postal || null, d.director || null,
       d.signer_name || d.director || null, d.signer_position || 'Директор', d.acting_basis || 'Устава',
       d.bank_name || null, d.bik || null, d.account_corr || null, d.account_pay || null, d.phone || null, d.email || null,
       d.type || 'subcontractor',
       d.contract_number || null, d.contract_date || null, d.curator_name || null, d.curator_phone || null, d.curator_email || null, 
-      d.comment || null, d.is_own === true || d.is_own === 'true'
+      d.comment || null, d.is_own === true || d.is_own === 'true',
+      d.tax_system || d.taxSystem || 'usn'
     ]);
     res.json(rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -261,6 +262,7 @@ router.put('/contractors/:id', authenticateToken, async (req, res) => {
         signer_name = COALESCE($26, signer_name),
         signer_position = COALESCE($27, signer_position),
         is_own = COALESCE($28, is_own),
+        tax_system = COALESCE($29, tax_system),
         updated_at = NOW()
       WHERE id = $1
     `, [
@@ -268,7 +270,8 @@ router.put('/contractors/:id', authenticateToken, async (req, res) => {
       d.bank_name, d.bik, d.account_corr, d.account_pay, d.phone, d.email, d.status, d.type,
       d.contract_number, d.contract_date, d.curator_name, d.curator_phone, d.curator_email, d.comment,
       d.ogrn, d.legal_form, d.address_postal, d.acting_basis, d.signer_name, d.signer_position,
-      d.is_own != null ? (d.is_own === true || d.is_own === 'true') : null
+      d.is_own != null ? (d.is_own === true || d.is_own === 'true') : null,
+      d.tax_system || d.taxSystem || null
     ]);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }

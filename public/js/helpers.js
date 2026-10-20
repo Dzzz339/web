@@ -257,13 +257,22 @@ function changeTaskMacroStatus(taskId, newStatus, callback) {
   var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
   var targetId = (typeof S !== 'undefined' && S.page === 'kanban') ? ('kcard_' + taskId) : ('task_row_' + taskId);
   if (window.savePageScroll) window.savePageScroll(targetId);
+
+  var targetStatus = 'progress';
+  var ns = String(newStatus).toLowerCase();
+  if (['paid', 'billing', 'accepted', 'done'].includes(ns)) targetStatus = 'done';
+  else if (ns === 'new') targetStatus = (t && t.contractor) ? 'progress' : 'pending';
+
   return api('/tasks/' + encodeURIComponent(taskId), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ macroStatus: newStatus })
+    body: JSON.stringify({ macroStatus: newStatus, status: targetStatus })
   })
   .then(function() {
-    if (t) t.macroStatus = newStatus;
+    if (t) {
+      t.macroStatus = newStatus;
+      t.status = targetStatus;
+    }
     if (typeof callback === 'function') callback(null, newStatus);
     else {
       renderApp();

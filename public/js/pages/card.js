@@ -412,6 +412,9 @@ function exportTask(id) {
 
 
 function setCardTab(tabName) {
+  if (S.cardDraft && Object.keys(S.cardDraft).length > 0) {
+    if (typeof window.saveCard === 'function') window.saveCard(true);
+  }
   S.cardTab = tabName;
   var btns = document.querySelectorAll('.card-tab-btn');
   for (var i = 0; i < btns.length; i++) {
@@ -447,6 +450,9 @@ function setCardTab(tabName) {
   if (tabName === 'chat' && S.cardId) {
     loadTaskChat(S.cardId);
   }
+  if (tabName === 'history' && S.cardId) {
+    if (window.refreshCardHistory) window.refreshCardHistory(S.cardId);
+  }
 }
 window.setCardTab = setCardTab;
 
@@ -479,9 +485,38 @@ function openCard(id) {
   if (S.cardTab === 'chat' || S.taskChatDrawerOpen) {
     loadTaskChat(id);
   }
+  if (S.cardTab === 'history' && window.refreshCardHistory) {
+    window.refreshCardHistory(id);
+  }
+
+  // Принудительно запрашиваем свежие актуальные данные заявки с сервера,
+  // чтобы исключить рассинхрон при совместной работе нескольких пользователей
+  api('/tasks/' + encodeURIComponent(id)).then(function(freshTask) {
+    if (freshTask && !freshTask.error) {
+      if (!Array.isArray(S.tasks)) S.tasks = [];
+      var idx = S.tasks.findIndex(function(x) { return String(x.id) === String(id); });
+      if (idx !== -1) {
+        S.tasks[idx] = freshTask;
+      } else {
+        S.tasks.push(freshTask);
+      }
+      if (S.page === 'card' && String(S.cardId) === String(id)) {
+        if (!S.cardDraft || Object.keys(S.cardDraft).length === 0) {
+          renderApp();
+          if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(id);
+          if (window.renderSmrChecklist) window.renderSmrChecklist(id);
+        }
+      }
+    }
+  }).catch(function(e) {
+    console.warn('Could not refresh card from server:', e);
+  });
 }
 
 function returnFromCard() {
+  if (S.cardDraft && Object.keys(S.cardDraft).length > 0) {
+    if (typeof window.saveCard === 'function') window.saveCard(true);
+  }
   var orig = S._cardOriginPage || 'tasks';
   var targetId = (orig === 'kanban') ? ('kcard_' + S.cardId) : ('task_row_' + S.cardId);
   go(orig);
@@ -689,7 +724,8 @@ function pageCard() {
     var hintHtml = (typeof getHintIcon === 'function') ? getHintIcon(key) : '';
     var ph = (typeof getFieldPlaceholder === 'function') ? getFieldPlaceholder(key) : '';
 
-    var isViewLocked = (t.assignmentStatus === 'accepted' && !S._taskEditUnlocked);
+    var isAdminOrDirector = S.user && (S.user.role === 'admin' || S.user.role === 'director');
+    var isViewLocked = !isAdminOrDirector && (t.assignmentStatus === 'accepted' && !S._taskEditUnlocked);
     var canEdit = canUserEditField(S.user, key);
     if (!canEdit || (isViewLocked && !['status', 'fact', 'dataVyhoda', 'obsledovanie', 'dostup', 'priemka', 'deadline'].includes(key))) {
       var displayVal = val;
@@ -991,10 +1027,10 @@ function pageCard() {
   }
 
   // История изменений
-  var hist = (t._history || []).slice().reverse();
+  var hist = ((t.history || t._history || [])).slice().reverse();
   var histHtml = hist.length ? hist.map(function(h){
-  var authorHtml = h.author ? ' <span class="badge b-gray" style="font-size:10px;padding:1px 5px;margin-left:5px">' + h.author + '</span>' : '';
-  return '<div class="hist-item">' + h.date + authorHtml + '<br><span class="t3">' + h.field + ':</span> <span style="text-decoration:line-through;color:var(--red);opacity:0.8">' + (h.old||'—') + '</span> &rarr; <b>' + (h.new||'—') + '</b></div>';
+    var authorHtml = h.author ? ' <span class="badge b-gray" style="font-size:10px;padding:1px 5px;margin-left:5px">' + h.author + '</span>' : '';
+    return '<div class="hist-item" style="padding:6px 0;border-bottom:1px solid var(--border)">' + (h.date || '—') + authorHtml + '<br><span class="t3">' + (h.field || 'Поле') + ':</span> <span style="text-decoration:line-through;color:var(--red);opacity:0.8">' + (h.old||'—') + '</span> &rarr; <b style="color:var(--text)">' + (h.new||'—') + '</b></div>';
   }).join('') : '<div class="t3" style="font-size:.78rem;padding:.5rem 0">Изменений не было</div>';
   // Карта — Leaflet + Nominatim с умным геокодированием
   var mapRegion = (t.region||'').trim();
@@ -1190,6 +1226,7 @@ function pageCard() {
       '<h1 style="margin:0;font-size:1.2rem;display:inline-block;white-space:nowrap">' + t.id + '</h1>' +
       edoBadge +
       macroStatusHtml +
+      '<span id="card_autosave_indicator" style="font-size:.76rem;font-weight:600;margin-left:6px"></span>' +
     '</div>' +
     '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
       datesBlock +
@@ -1678,7 +1715,13 @@ function pageCard() {
         '<span id="cardItemsCountBadge" class="badge b-gray" style="font-size:.74rem">0 позиций</span>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:6px">' +
-        (!isLocked && S.user && ['admin','director','manager','to_engineer'].includes(String(S.user.role||'').toLowerCase()) ? '<button class="btn btn-sm" onclick="addItemPrompt(\'' + eid + '\')">+ Добавить работу / ТМЦ</button>' : '') +
+        (!isLocked && S.user && ['admin','director','manager','to_engineer'].includes(String(S.user.role||'').toLowerCase())
+          ? ('<label class="btn btn-sm btn-ghost" style="cursor:pointer" title="Загрузить спецификацию материалов из Excel">' +
+               '📥 Загрузить из Excel' +
+               '<input type="file" accept=".xlsx,.xls" style="display:none" onchange="uploadMaterialsExcel(this.files[0], \'' + eid + '\')">' +
+             '</label>' +
+             '<button class="btn btn-sm btn-primary" onclick="openAddItemModal(\'' + eid + '\')">+ Добавить работу / ТМЦ</button>')
+          : '') +
       '</div>' +
     '</div>' +
     '<div id="cardItemsSummaryBar" style="display:flex;gap:16px;background:var(--bg);padding:8px 12px;border-radius:6px;margin-bottom:.75rem;font-size:.8rem;flex-wrap:wrap;align-items:center">' +
@@ -1759,7 +1802,7 @@ function pageCard() {
   '</div>';
 
   var smrClosingBlock = (function() {
-    var rawDate = t.dataVyhoda || t.data_vyhoda || '';
+    var rawDate = t.smrActualEndDate || t.smr_actual_end_date || '';
     var formattedDate = rawDate ? String(rawDate).slice(0, 10) : '';
     var curStage = Number(t.stage_num !== undefined ? t.stage_num : t.stageNum) || 0;
     var stageTitle = (ID_STAGES[curStage] && ID_STAGES[curStage].name) || ('Этап ' + curStage);
@@ -1785,7 +1828,7 @@ function pageCard() {
       '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:12px;margin-bottom:1rem;background:var(--bg,#f8fafc);padding:10px 12px;border-radius:6px;border:1px solid var(--border)">' +
         '<div>' +
           '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">📅 Фактическая дата завершения СМР:</label>' +
-          '<input type="date" class="inp" id="cardDataVyhoda" value="' + escHtml(formattedDate) + '" onchange="updateField(\'' + eid + '\', \'dataVyhoda\', this.value)" style="padding:4px 8px;font-size:.84rem;width:100%">' +
+          '<input type="date" class="inp" id="cardSmrActualEndDate" value="' + escHtml(formattedDate) + '" onchange="updateField(\'' + eid + '\', \'smrActualEndDate\', this.value)" style="padding:4px 8px;font-size:.84rem;width:100%">' +
         '</div>' +
         '<div>' +
           '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">🔌 Фактически смонтировано (портов):</label>' +
@@ -1801,12 +1844,17 @@ function pageCard() {
         '</div>' +
       '</div>' +
       '<div id="portsBlock">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;flex-wrap:wrap;gap:8px">' +
           '<div class="sec-title" style="margin:0;font-size:.95rem;display:flex;align-items:center;gap:6px">' +
-            '<span>📊 КЖ / Протокол измерений портов</span>' +
+            '<span>📊 КЖ / Кабельный журнал и протокол измерений портов</span>' +
+            '<span id="portsCountBadge" class="badge b-gray" style="font-size:.72rem">0 портов</span>' +
           '</div>' +
-          '<div style="display:flex;gap:6px">' +
-            '<button type="button" class="btn btn-sm btn-ghost" onclick="addPortRow(\'' + eid + '\')">+ Добавить порт</button>' +
+          '<div style="display:flex;gap:6px;align-items:center">' +
+            '<label class="btn btn-sm btn-ghost" style="cursor:pointer" title="Загрузить кабельный журнал из Excel">' +
+              '📥 Загрузить КЖ из Excel' +
+              '<input type="file" accept=".xlsx,.xls" style="display:none" onchange="uploadCableJournalExcel(this.files[0], \'' + eid + '\')">' +
+            '</label>' +
+            '<button type="button" class="btn btn-sm btn-primary" onclick="addPortRow(\'' + eid + '\')">+ Добавить порт</button>' +
           '</div>' +
         '</div>' +
         '<div id="portsList" class="t3">Загрузка…</div>' +
@@ -2317,8 +2365,11 @@ function pageCard() {
 
   var paneHistory = '<div id="cardTabPane-history" class="card-tab-pane" style="display:' + (curTab === 'history' ? 'block' : 'none') + '">' +
     '<div class="card p">' +
-      '<div class="sec-title" style="margin-bottom:.5rem">История изменений заявки</div>' +
-      histHtml +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">' +
+        '<div class="sec-title" style="margin:0">История изменений заявки</div>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="refreshCardHistory(\'' + eid + '\')" title="Обновить журнал истории">🔄 Обновить</button>' +
+      '</div>' +
+      '<div id="cardHistoryContainer">' + histHtml + '</div>' +
     '</div>' +
   '</div>';
 
@@ -2433,10 +2484,19 @@ function refreshTaskItemsList(taskId) {
         var margin = (Number(it.amount_customer) || 0) - (Number(it.amount_contractor) || 0);
         var selectDisabled = isLocked ? ' disabled' : '';
 
+        var metaBadges = '';
+        if (it.article || it.supplier) {
+          metaBadges = '<div style="font-size:.68rem;margin-top:2px;display:flex;gap:4px;flex-wrap:wrap">' +
+            (it.article ? '<span class="badge" style="background:#f1f5f9;color:var(--text);font-size:.68rem;padding:1px 5px;border:1px solid var(--border)">Арт: <b>' + escHtml(it.article) + '</b></span>' : '') +
+            (it.supplier ? '<span class="badge" style="background:#f0fdf4;color:#166534;font-size:.68rem;padding:1px 5px;border:1px solid #bbf7d0">Поставщик: <b>' + escHtml(it.supplier) + '</b></span>' : '') +
+          '</div>';
+        }
+
         return '<tr style="border-bottom:1px solid var(--border);font-size:.78rem">' +
           '<td style="padding:4px 6px;font-weight:600;color:var(--text-3);text-align:center">' + (idx + 1) + '</td>' +
           '<td style="padding:4px 6px;max-width:240px">' +
             '<div style="font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(it.work_type) + '">' + escHtml(it.work_type) + '</div>' +
+            metaBadges +
             (it.comment ? '<div style="font-size:.7rem;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(it.comment) + '</div>' : '') +
           '</td>' +
           '<td style="padding:4px 6px;white-space:nowrap;font-weight:600">' + (it.quantity || 1) + ' ' + escHtml(it.unit || 'шт.') + '</td>' +
@@ -2452,7 +2512,7 @@ function refreshTaskItemsList(taskId) {
             '<span style="font-size:.72rem;color:' + statusColor + ';font-weight:600">' + statusLabel + '</span>' +
           '</td>' +
           '<td style="padding:4px 6px;text-align:right;white-space:nowrap">' +
-            (!isLocked ? '<button class="btn btn-xs btn-ghost" onclick="editItemModal(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ')" title="Редактировать">✏️</button>' : '') +
+            (!isLocked ? '<button class="btn btn-xs btn-ghost" onclick="openEditItemModal(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ')" title="Редактировать">✏️</button>' : '') +
             (!isLocked ? '<button class="btn btn-xs btn-ghost" style="color:var(--red)" onclick="deleteItemModal(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ')" title="Удалить">✕</button>' : '') +
           '</td>' +
         '</tr>';
@@ -2536,115 +2596,337 @@ function updateItemsSummary(taskId, items) {
   }
 }
 
-function addItemPrompt(taskId) {
-  var work = prompt('Введите наименование работы или материала (ТМЦ):');
-  if (work === null) return;
-  if (!work.trim()) return alert('Наименование работы обязательно!');
-
-  var qtyStr = prompt('Количество (например, 15):', '1');
-  var qty = parseFloat((qtyStr || '1').replace(',', '.')) || 1;
-
-  var unit = prompt('Единица измерения:', 'шт.') || 'шт.';
-
-  var priceCustStr = prompt('Стоимость от Заказчика за ед., руб.:', '0');
-  var priceCust = parseFloat((priceCustStr || '0').replace(',', '.')) || 0;
-
-  var priceContStr = prompt('Ставка Подрядчику за ед., руб. (необязательно):', '0');
-  var priceCont = parseFloat((priceContStr || '0').replace(',', '.')) || 0;
-
+function openAddItemModal(taskId) {
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  var contractors = S.contractors || [];
   var defContr = t ? (t.contractor || (t.subcontract && t.subcontract.contractor_name) || '') : '';
-  var defContrObj = defContr ? (S.contractors || []).find(function(c){ return c.name_short === defContr || c.name === defContr; }) : null;
+  var defContrObj = defContr ? contractors.find(function(c){ return (c.name_short||'').toLowerCase() === defContr.toLowerCase() || (c.name||'').toLowerCase() === defContr.toLowerCase(); }) : null;
+  var defContrId = defContrObj ? defContrObj.id : '';
 
-  api('/tasks/' + encodeURIComponent(taskId) + '/items', {
-    method: 'POST',
+  var contrOptions = '<option value="">(Не назначен)</option>' +
+    contractors.map(function(c) {
+      return '<option value="' + c.id + '"' + (String(c.id) === String(defContrId) ? ' selected' : '') + '>' + escHtml(c.name_short) + '</option>';
+    }).join('');
+
+  var modalId = 'modal_item_add';
+  var oldM = document.getElementById(modalId);
+  if (oldM) oldM.remove();
+
+  var html = '<div class="modal-overlay" id="' + modalId + '" onclick="if(event.target===this)this.remove()">' +
+    '<div class="modal-box" style="max-width:540px;width:95%;padding:20px;border-radius:10px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
+        '<div style="font-weight:700;font-size:1.1rem">📦 Добавить позицию (Работа / ТМЦ)</div>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'' + modalId + '\').remove()">✕</button>' +
+      '</div>' +
+      '<form id="form_add_task_item" onsubmit="submitTaskItemForm(event, \'' + escHtml(taskId) + '\')">' +
+        '<div style="margin-bottom:10px">' +
+          '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Наименование работы или материала (ТМЦ) *</label>' +
+          '<input type="text" id="m_item_name" required placeholder="Например: Патч-корд UTP кат 6 или Монтаж лотка" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">' +
+          '<div>' +
+            '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Артикул / Код</label>' +
+            '<input type="text" id="m_item_article" placeholder="Например: CS1-1C6AU-11" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+          '</div>' +
+          '<div>' +
+            '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Поставщик</label>' +
+            '<input list="suppliersListDL" id="m_item_supplier" placeholder="Инсистем, Склад, Анлан..." style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+            '<datalist id="suppliersListDL">' +
+              '<option value="Инсистем">' +
+              '<option value="Склад">' +
+              '<option value="Анлан">' +
+              '<option value="Линдекс">' +
+              '<option value="ЭТМ">' +
+            '</datalist>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">' +
+          '<div>' +
+            '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Количество *</label>' +
+            '<input type="number" id="m_item_qty" step="any" min="0" value="1" required style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+          '</div>' +
+          '<div>' +
+            '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Единица изм.</label>' +
+            '<input type="text" id="m_item_unit" value="шт." list="unitsListDL" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+            '<datalist id="unitsListDL"><option value="шт."><option value="м"><option value="компл."><option value="уп."><option value="порт"></datalist>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">' +
+          '<div>' +
+            '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Цена Заказчика (₽)</label>' +
+            '<input type="number" id="m_item_price_cust" step="any" min="0" value="0" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+          '</div>' +
+          '<div>' +
+            '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Ставка Подрядчику (₽)</label>' +
+            '<input type="number" id="m_item_price_cont" step="any" min="0" value="0" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+          '</div>' +
+        '</div>' +
+        '<div style="margin-bottom:14px">' +
+          '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Подрядчик (исполнитель)</label>' +
+          '<select id="m_item_contractor" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+            contrOptions +
+          '</select>' +
+        '</div>' +
+        '<div style="display:flex;justify-content:flex-end;gap:8px">' +
+          '<button type="button" class="btn btn-ghost" onclick="document.getElementById(\'' + modalId + '\').remove()">Отмена</button>' +
+          '<button type="submit" class="btn btn-primary">✓ Добавить в спецификацию</button>' +
+        '</div>' +
+      '</form>' +
+    '</div>' +
+  '</div>';
+
+  document.body.insertAdjacentHTML('beforeend', html);
+  setTimeout(function(){ var inp = document.getElementById('m_item_name'); if (inp) inp.focus(); }, 50);
+}
+
+function submitTaskItemForm(e, taskId, itemId) {
+  e.preventDefault();
+  var name = (document.getElementById('m_item_name').value || '').trim();
+  if (!name) return alert('Наименование позиции обязательно');
+
+  var article = (document.getElementById('m_item_article').value || '').trim();
+  var supplier = (document.getElementById('m_item_supplier').value || '').trim();
+  var qty = parseFloat(document.getElementById('m_item_qty').value) || 1;
+  var unit = (document.getElementById('m_item_unit').value || 'шт.').trim();
+  var priceCust = parseFloat(document.getElementById('m_item_price_cust').value) || 0;
+  var priceCont = parseFloat(document.getElementById('m_item_price_cont').value) || 0;
+  var cSelect = document.getElementById('m_item_contractor');
+  var contrId = cSelect && cSelect.value ? parseInt(cSelect.value, 10) : null;
+  var contrName = cSelect && cSelect.selectedIndex > 0 ? cSelect.options[cSelect.selectedIndex].text : null;
+
+  var payload = {
+    work_type: name,
+    article: article || null,
+    supplier: supplier || null,
+    quantity: qty,
+    unit: unit,
+    price_customer: priceCust,
+    amount_customer: qty * priceCust,
+    price_contractor: priceCont,
+    amount_contractor: qty * priceCont,
+    contractor_id: contrId,
+    contractor_name: contrName
+  };
+
+  var url = itemId
+    ? ('/tasks/' + encodeURIComponent(taskId) + '/items/' + itemId)
+    : ('/tasks/' + encodeURIComponent(taskId) + '/items');
+  var method = itemId ? 'PUT' : 'POST';
+
+  api(url, {
+    method: method,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      work_type: work.trim(),
-      quantity: qty,
-      unit: unit.trim(),
-      price_customer: priceCust,
-      amount_customer: qty * priceCust,
-      price_contractor: priceCont,
-      amount_contractor: qty * priceCont,
-      contractor_id: defContrObj ? defContrObj.id : null,
-      contractor_name: defContrObj ? defContrObj.name_short : (defContr || null)
-    })
+    body: JSON.stringify(payload)
   })
   .then(function(res) {
-    if (res.error) return alert('Ошибка: ' + res.error);
+    if (res && res.error) return alert('Ошибка сохранения: ' + res.error);
+    var m = document.getElementById('modal_item_add') || document.getElementById('modal_item_edit');
+    if (m) m.remove();
     refreshTaskItemsList(taskId);
-    var tTask = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
-    if (tTask) {
-      tTask.amount = (tTask.amount || 0) + (qty * priceCust);
-    }
+    if (typeof showToast === 'function') showToast(itemId ? '✓ Позиция обновлена' : '✓ Позиция добавлена');
   })
   .catch(function(err) {
-    alert('Ошибка добавления позиции: ' + (err.message || err));
+    alert('Ошибка: ' + (err.message || err));
   });
 }
 
-function updateItemContractor(taskId, itemId, contractorId) {
-  var cObj = (S.contractors || []).find(function(c) { return String(c.id) === String(contractorId); });
-  var cName = cObj ? cObj.name_short : null;
-
-  api('/tasks/' + encodeURIComponent(taskId) + '/items/' + itemId, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contractor_id: contractorId ? parseInt(contractorId, 10) : null,
-      contractor_name: cName
-    })
-  })
-  .then(function(res) {
-    if (res.error) return alert('Ошибка: ' + res.error);
-    refreshTaskItemsList(taskId);
-  })
-  .catch(function(err) {
-    alert('Ошибка назначения подрядчика: ' + (err.message || err));
-  });
-}
-
-function editItemModal(taskId, itemId) {
+function openEditItemModal(taskId, itemId) {
   api('/tasks/' + encodeURIComponent(taskId) + '/items')
     .then(function(list) {
-      var item = (list || []).find(function(x) { return x.id === itemId; });
-      if (!item) return alert('Позиция не найдена');
+      var it = (list || []).find(function(x) { return x.id === itemId; });
+      if (!it) return alert('Позиция не найдена');
 
-      var newWork = prompt('Наименование работы:', item.work_type);
-      if (newWork === null) return;
-      if (!newWork.trim()) return alert('Наименование обязательно');
+      var contractors = S.contractors || [];
+      var curContrId = it.contractor_id || '';
 
-      var newQtyStr = prompt('Количество:', String(item.quantity || 1));
-      var newQty = parseFloat((newQtyStr || '1').replace(',', '.')) || 1;
+      var contrOptions = '<option value="">(Не назначен)</option>' +
+        contractors.map(function(c) {
+          return '<option value="' + c.id + '"' + (String(c.id) === String(curContrId) ? ' selected' : '') + '>' + escHtml(c.name_short) + '</option>';
+        }).join('');
 
-      var newPriceCustStr = prompt('Цена Заказчика за ед., руб.:', String(item.price_customer || 0));
-      var newPriceCust = parseFloat((newPriceCustStr || '0').replace(',', '.')) || 0;
+      var modalId = 'modal_item_edit';
+      var oldM = document.getElementById(modalId);
+      if (oldM) oldM.remove();
 
-      var newPriceContStr = prompt('Ставка подрядчику за ед., руб.:', String(item.price_contractor || 0));
-      var newPriceCont = parseFloat((newPriceContStr || '0').replace(',', '.')) || 0;
+      var html = '<div class="modal-overlay" id="' + modalId + '" onclick="if(event.target===this)this.remove()">' +
+        '<div class="modal-box" style="max-width:540px;width:95%;padding:20px;border-radius:10px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
+            '<div style="font-weight:700;font-size:1.1rem">✏️ Редактировать позицию (Работа / ТМЦ)</div>' +
+            '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'' + modalId + '\').remove()">✕</button>' +
+          '</div>' +
+          '<form id="form_edit_task_item" onsubmit="submitTaskItemForm(event, \'' + escHtml(taskId) + '\', ' + itemId + ')">' +
+            '<div style="margin-bottom:10px">' +
+              '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Наименование работы или материала (ТМЦ) *</label>' +
+              '<input type="text" id="m_item_name" required value="' + escHtml(it.work_type || '') + '" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+            '</div>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">' +
+              '<div>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Артикул / Код</label>' +
+                '<input type="text" id="m_item_article" value="' + escHtml(it.article || '') + '" placeholder="Например: CS1-1C6AU-11" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+              '</div>' +
+              '<div>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Поставщик</label>' +
+                '<input list="suppliersListDL" id="m_item_supplier" value="' + escHtml(it.supplier || '') + '" placeholder="Инсистем, Склад, Анлан..." style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+                '<datalist id="suppliersListDL">' +
+                  '<option value="Инсистем">' +
+                  '<option value="Склад">' +
+                  '<option value="Анлан">' +
+                  '<option value="Линдекс">' +
+                  '<option value="ЭТМ">' +
+                '</datalist>' +
+              '</div>' +
+            '</div>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">' +
+              '<div>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Количество *</label>' +
+                '<input type="number" id="m_item_qty" step="any" min="0" value="' + (it.quantity || 1) + '" required style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+              '</div>' +
+              '<div>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Единица изм.</label>' +
+                '<input type="text" id="m_item_unit" value="' + escHtml(it.unit || 'шт.') + '" list="unitsListDL" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+              '</div>' +
+            '</div>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">' +
+              '<div>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Цена Заказчика (₽)</label>' +
+                '<input type="number" id="m_item_price_cust" step="any" min="0" value="' + (it.price_customer || 0) + '" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+              '</div>' +
+              '<div>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Ставка Подрядчику (₽)</label>' +
+                '<input type="number" id="m_item_price_cont" step="any" min="0" value="' + (it.price_contractor || 0) + '" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+              '</div>' +
+            '</div>' +
+            '<div style="margin-bottom:14px">' +
+              '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Подрядчик (исполнитель)</label>' +
+              '<select id="m_item_contractor" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+                contrOptions +
+              '</select>' +
+            '</div>' +
+            '<div style="display:flex;justify-content:flex-end;gap:8px">' +
+              '<button type="button" class="btn btn-ghost" onclick="document.getElementById(\'' + modalId + '\').remove()">Отмена</button>' +
+              '<button type="submit" class="btn btn-primary">✓ Сохранить изменения</button>' +
+            '</div>' +
+          '</form>' +
+        '</div>' +
+      '</div>';
 
-      api('/tasks/' + encodeURIComponent(taskId) + '/items/' + itemId, {
-        method: 'PUT',
+      document.body.insertAdjacentHTML('beforeend', html);
+    })
+    .catch(function(err) {
+      alert('Ошибка загрузки позиции: ' + (err.message || err));
+    });
+}
+
+function uploadMaterialsExcel(file, taskId) {
+  if (!file) return;
+  if (!window.XLSX) {
+    return alert('Библиотека XLSX еще не загрузилась. Подождите 1-2 секунды и попробуйте снова.');
+  }
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var data = new Uint8Array(e.target.result);
+      var wb = XLSX.read(data, { type: 'array' });
+      var firstSheet = wb.Sheets[wb.SheetNames[0]];
+      var rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+      if (!rows || rows.length < 2) return alert('Файл пуст или содержит только заголовки');
+
+      var headerIdx = 0;
+      for (var i = 0; i < Math.min(10, rows.length); i++) {
+        var rStr = (rows[i] || []).join(' ').toLowerCase();
+        if (rStr.includes('наименование') || rStr.includes('кол-во') || rStr.includes('артикул')) {
+          headerIdx = i;
+          break;
+        }
+      }
+
+      var headers = (rows[headerIdx] || []).map(function(h) { return String(h || '').trim(); });
+      var findCol = function(pattern) {
+        return headers.findIndex(function(h) { return pattern.test(h.toLowerCase()); });
+      };
+
+      var colName = findCol(/наименование|материал|товар|номенклатур|оборудован/);
+      var colUnit = findCol(/ед\.\s*изм|ед|единиц/);
+      var colQty = findCol(/кол-во|количество|qty/);
+      var colArt = findCol(/артикул|код|марк/);
+      var colSupp = findCol(/поставщик|склад|источник/);
+
+      var supplierCols = [];
+      headers.forEach(function(h, cIdx) {
+        var hl = h.toLowerCase();
+        if (hl.includes('инсистем') || hl.includes('склад') || hl.includes('анлан') || hl.includes('линдекс') || hl.includes('этм')) {
+          supplierCols.push({ idx: cIdx, name: h.replace(/\s*\?.*$/, '').trim() });
+        }
+      });
+
+      var parsedItems = [];
+      for (var r = headerIdx + 1; r < rows.length; r++) {
+        var row = rows[r];
+        if (!row || !row.length) continue;
+        var name = colName !== -1 ? String(row[colName] || '').trim() : '';
+        if (!name || name === 'Итого' || name === 'ИТОГО') continue;
+
+        var unit = colUnit !== -1 ? String(row[colUnit] || 'шт.').trim() : 'шт.';
+        var qty = colQty !== -1 ? (parseFloat(String(row[colQty] || '1').replace(',', '.')) || 1) : 1;
+        var art = colArt !== -1 ? String(row[colArt] || '').trim() : '';
+
+        var supp = colSupp !== -1 ? String(row[colSupp] || '').trim() : '';
+        if (!supp && supplierCols.length > 0) {
+          for (var s = 0; s < supplierCols.length; s++) {
+            var val = parseFloat(String(row[supplierCols[s].idx] || '0').replace(',', '.')) || 0;
+            if (val > 0) {
+              supp = supplierCols[s].name;
+              break;
+            }
+          }
+        }
+
+        parsedItems.push({
+          work_type: name,
+          unit: unit || 'шт.',
+          quantity: qty,
+          article: art || null,
+          supplier: supp || null,
+          price_customer: 0,
+          amount_customer: 0,
+          price_contractor: 0,
+          amount_contractor: 0
+        });
+      }
+
+      if (!parsedItems.length) {
+        return alert('Не удалось распознать позиции материалов в файле. Проверьте колонки (Наименование, Ед. изм., Кол-во, Артикул).');
+      }
+
+      var replaceExisting = confirm('Найдено позиций материалов: ' + parsedItems.length + '.\nЗаменить текущую спецификацию? Нажмите «OK» для полной замены или «Отмена» для добавления в конец.');
+
+      api('/tasks/' + encodeURIComponent(taskId) + '/items/batch', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          work_type: newWork.trim(),
-          quantity: newQty,
-          price_customer: newPriceCust,
-          amount_customer: newQty * newPriceCust,
-          price_contractor: newPriceCont,
-          amount_contractor: newQty * newPriceCont
-        })
+        body: JSON.stringify({ items: parsedItems, replaceExisting: replaceExisting })
       })
       .then(function(res) {
-        if (res.error) return alert('Ошибка: ' + res.error);
+        if (res.error) return alert('Ошибка загрузки спецификации: ' + res.error);
+        if (typeof showToast === 'function') showToast('✓ Загружено материалов: ' + (res.count || parsedItems.length));
         refreshTaskItemsList(taskId);
       })
       .catch(function(err) {
-        alert('Ошибка сохранения позиции: ' + (err.message || err));
+        alert('Ошибка импорта материалов: ' + (err.message || err));
       });
-    });
+    } catch(err) {
+      alert('Ошибка чтения файла Excel: ' + (err.message || err));
+    }
+  };
+  reader.readAsArrayBuffer(file);
 }
+
+// Алиасы обратной совместимости
+window.addItemPrompt = openAddItemModal;
+window.editItemModal = openEditItemModal;
+window.openAddItemModal = openAddItemModal;
+window.openEditItemModal = openEditItemModal;
+window.uploadMaterialsExcel = uploadMaterialsExcel;
+window.submitTaskItemForm = submitTaskItemForm;
 
 function deleteItemModal(taskId, itemId) {
   if (!confirm('Удалить эту позицию из спецификации?')) return;
@@ -2781,82 +3063,423 @@ function refreshPortsList(taskId) {
     window._curPortsCount = pCount;
     if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
 
+    var totalLen = 0;
+    var passCount = 0;
+    var failCount = 0;
+    (rows || []).forEach(function(r) {
+      if (r.cable_length) totalLen += Number(r.cable_length) || 0;
+      var st = String(r.testing_status || '').toLowerCase();
+      if (st === 'pass' || st === 'ok' || st === 'годен' || st === '+') passCount++;
+      else if (st === 'fail' || st === 'ошибка' || st === 'брак' || st === '-') failCount++;
+    });
+
+    var badgeEl = document.getElementById('portsCountBadge');
+    if (badgeEl) {
+      badgeEl.textContent = pCount + ' портов' + (totalLen > 0 ? (' · ' + totalLen.toFixed(1) + ' м') : '');
+      badgeEl.className = pCount > 0 ? 'badge b-blue' : 'badge b-gray';
+    }
+
     if (!Array.isArray(rows) || !rows.length) {
-      el.innerHTML = '<span class="t3">Строк пока нет</span>';
+      el.innerHTML = '<div style="padding:16px;text-align:center;border:1.5px dashed var(--border);border-radius:6px;background:var(--bg)">' +
+        '<div style="font-size:1.4rem;margin-bottom:4px">📊</div>' +
+        '<div style="font-weight:600;font-size:.85rem;color:var(--text)">Кабельный журнал пуст</div>' +
+        '<div style="font-size:.75rem;color:var(--text-3);margin-top:2px">Добавьте порты вручную или загрузите готовую таблицу из Excel</div>' +
+      '</div>';
       return;
     }
-    el.innerHTML = '<table style="width:100%;font-size:.8rem"><thead><tr>' +
-      '<th style="text-align:left">Порт</th><th style="text-align:left">Патч-панель</th><th style="text-align:left">Помещение</th><th style="text-align:left">Маркировка</th><th style="text-align:left">Длина, м</th><th></th>' +
-    '</tr></thead><tbody>' +
-    rows.map(function(r) {
-      return '<tr>' +
-        '<td><input value="' + (r.port_number||'').replace(/"/g,'&quot;') + '" onchange="savePortRow(' + r.id + ',\'' + taskId + '\')" data-field="portNumber" id="pr_' + r.id + '_port" style="width:60px"></td>' +
-        '<td><input value="' + (r.patch_panel||'').replace(/"/g,'&quot;') + '" onchange="savePortRow(' + r.id + ',\'' + taskId + '\')" id="pr_' + r.id + '_patch" style="width:80px"></td>' +
-        '<td><input value="' + (r.room||'').replace(/"/g,'&quot;') + '" onchange="savePortRow(' + r.id + ',\'' + taskId + '\')" id="pr_' + r.id + '_room" style="width:100px"></td>' +
-        '<td><input value="' + (r.marking||'').replace(/"/g,'&quot;') + '" onchange="savePortRow(' + r.id + ',\'' + taskId + '\')" id="pr_' + r.id + '_marking" style="width:100px"></td>' +
-        '<td><input type="number" value="' + (r.cable_length||'') + '" onchange="savePortRow(' + r.id + ',\'' + taskId + '\')" id="pr_' + r.id + '_len" style="width:70px"></td>' +
-        '<td><button class="btn btn-sm btn-ghost" onclick="deletePortRow(' + r.id + ',\'' + taskId + '\')">✖</button></td>' +
+
+    var rowsHtml = rows.map(function(r, idx) {
+      var st = String(r.testing_status || '').toLowerCase();
+      var isPass = (st === 'pass' || st === 'ok' || st === 'годен' || st === '+');
+      var isFail = (st === 'fail' || st === 'ошибка' || st === 'брак' || st === '-');
+
+      return '<tr style="border-bottom:1px solid var(--border);font-size:.8rem" data-port-id="' + r.id + '">' +
+        '<td style="padding:4px 6px;text-align:center;color:var(--text-3);font-size:.74rem">' + (idx + 1) + '</td>' +
+        '<td style="padding:4px 6px">' +
+          '<input type="text" class="input input-sm" style="width:100%;padding:3px 5px;font-size:.78rem;font-weight:600" value="' + (r.port_number || '').replace(/"/g, '&quot;') + '" placeholder="1" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'portNumber\',this.value)">' +
+        '</td>' +
+        '<td style="padding:4px 6px">' +
+          '<input type="text" class="input input-sm" style="width:100%;padding:3px 5px;font-size:.78rem" value="' + (r.marking || '').replace(/"/g, '&quot;') + '" placeholder="1.01" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'marking\',this.value)">' +
+        '</td>' +
+        '<td style="padding:4px 6px">' +
+          '<input type="text" class="input input-sm" style="width:100%;padding:3px 5px;font-size:.78rem" value="' + (r.room || '').replace(/"/g, '&quot;') + '" placeholder="Каб. 101" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'room\',this.value)">' +
+        '</td>' +
+        '<td style="padding:4px 6px">' +
+          '<input type="text" class="input input-sm" style="width:100%;padding:3px 5px;font-size:.78rem" value="' + (r.cabinet || '').replace(/"/g, '&quot;') + '" placeholder="ТКШ-1" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'cabinet\',this.value)">' +
+        '</td>' +
+        '<td style="padding:4px 6px">' +
+          '<input type="text" class="input input-sm" style="width:100%;padding:3px 5px;font-size:.78rem" value="' + (r.unit || '').replace(/"/g, '&quot;') + '" placeholder="24U" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'unit\',this.value)">' +
+        '</td>' +
+        '<td style="padding:4px 6px">' +
+          '<input type="text" class="input input-sm" style="width:100%;padding:3px 5px;font-size:.78rem" value="' + (r.patch_panel || '').replace(/"/g, '&quot;') + '" placeholder="ПП-1" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'patchPanel\',this.value)">' +
+        '</td>' +
+        '<td style="padding:4px 6px">' +
+          '<input type="number" step="0.1" class="input input-sm port-len-input" data-field="cableLength" style="width:100%;padding:3px 5px;font-size:.78rem;text-align:right" value="' + (r.cable_length != null ? r.cable_length : '') + '" placeholder="0" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'cableLength\',this.value)">' +
+        '</td>' +
+        '<td style="padding:4px 6px">' +
+          '<input type="text" list="crimpingOptionsList" class="input input-sm" style="width:100%;padding:3px 5px;font-size:.78rem" value="' + (r.crimping || 'T568B').replace(/"/g, '&quot;') + '" placeholder="T568B" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'crimping\',this.value)">' +
+        '</td>' +
+        '<td style="padding:4px 6px">' +
+          '<select class="input input-sm" style="width:100%;padding:2px 4px;font-size:.75rem;font-weight:600;color:' + (isPass ? 'var(--green)' : (isFail ? 'var(--red)' : 'var(--text)')) + '" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'testingStatus\',this.value); this.style.color = (this.value===\'pass\'?\'var(--green)\':(this.value===\'fail\'?\'var(--red)\':\'var(--text)\'))">' +
+            '<option value="pass"' + (isPass ? ' selected' : '') + ' style="color:var(--green)">✓ Годен (PASS)</option>' +
+            '<option value="fail"' + (isFail ? ' selected' : '') + ' style="color:var(--red)">✗ Ошибка (FAIL)</option>' +
+            '<option value="untested"' + (!isPass && !isFail ? ' selected' : '') + ' style="color:var(--text-3)">○ Не тестирован</option>' +
+          '</select>' +
+        '</td>' +
+        '<td style="padding:4px 6px;text-align:center">' +
+          '<button type="button" class="btn btn-sm btn-ghost" style="padding:2px 6px;color:var(--red);opacity:.7" title="Удалить строку" onclick="deletePortRow(' + r.id + ',\'' + taskId + '\')">✖</button>' +
+        '</td>' +
       '</tr>';
-    }).join('') +
-    '</tbody></table>';
+    }).join('');
+
+    el.innerHTML = '<datalist id="crimpingOptionsList">' +
+        '<option value="T568B">' +
+        '<option value="T568A">' +
+        '<option value="Прямой (Straight)">' +
+        '<option value="Кроссовер (Cross)">' +
+      '</datalist>' +
+      '<div style="overflow-x:auto;border:1.5px solid var(--border);border-radius:6px;margin-bottom:10px;background:var(--card)">' +
+        '<table style="width:100%;border-collapse:collapse;text-align:left;font-size:.82rem">' +
+          '<thead><tr style="background:var(--bg);font-size:.76rem;color:var(--text-3);border-bottom:1px solid var(--border)">' +
+            '<th style="padding:6px 8px;width:30px;text-align:center">№</th>' +
+            '<th style="padding:6px 8px;width:75px">Порт</th>' +
+            '<th style="padding:6px 8px;width:95px">Маркировка</th>' +
+            '<th style="padding:6px 8px;min-width:110px">Помещение</th>' +
+            '<th style="padding:6px 8px;width:85px">Шкаф</th>' +
+            '<th style="padding:6px 8px;width:65px">Юнит</th>' +
+            '<th style="padding:6px 8px;width:95px">Кросс (ПП)</th>' +
+            '<th style="padding:6px 8px;width:75px;text-align:right">Длина, м</th>' +
+            '<th style="padding:6px 8px;width:80px">Обжим</th>' +
+            '<th style="padding:6px 8px;width:115px">Правильность</th>' +
+            '<th style="padding:6px 8px;width:36px;text-align:center"></th>' +
+          '</tr></thead>' +
+          '<tbody id="portsTableBody">' + rowsHtml + '</tbody>' +
+          '<tfoot><tr style="background:var(--bg);font-size:.82rem;font-weight:700;border-top:2px solid var(--border)">' +
+            '<td colspan="7" style="padding:8px 10px;text-align:right;color:var(--text-2)">' +
+              'ИТОГО ПОРТОВ: <span id="portsTotalCount" style="color:var(--text)">' + pCount + '</span> шт.' +
+            '</td>' +
+            '<td id="portsTotalLen" style="padding:8px 6px;text-align:right;color:var(--text);font-size:.85rem">' +
+              (totalLen > 0 ? (totalLen.toFixed(1) + ' м') : '—') +
+            '</td>' +
+            '<td colspan="3" id="portsTotalStats" style="padding:8px 10px;font-size:.78rem;color:var(--text-3)">' +
+              'Годных: <b style="color:var(--green)">' + passCount + '</b> · ' +
+              'С ошибкой: <b style="color:var(--red)">' + failCount + '</b>' +
+            '</td>' +
+          '</tr></tfoot>' +
+        '</table>' +
+      '</div>';
   });
+}
+
+function savePortField(rowId, taskId, field, value) {
+  var data = {};
+  data[field] = value;
+  api('/ports/' + rowId, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  }).then(function() {
+    _updatePortsTotalsUI(taskId);
+    if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
+  }).catch(function(err) {
+    console.error('Ошибка сохранения ячейки порта:', err);
+  });
+}
+
+function _updatePortsTotalsUI(taskId) {
+  var rows = document.querySelectorAll('#portsTableBody tr');
+  var pCount = rows.length;
+  var totalLen = 0;
+  var passCount = 0;
+  var failCount = 0;
+
+  rows.forEach(function(r) {
+    var lenInp = r.querySelector('.port-len-input');
+    if (lenInp && lenInp.value) totalLen += Number(lenInp.value) || 0;
+    var sel = r.querySelector('select');
+    if (sel) {
+      if (sel.value === 'pass') passCount++;
+      else if (sel.value === 'fail') failCount++;
+    }
+  });
+
+  var totalCountEl = document.getElementById('portsTotalCount');
+  if (totalCountEl) totalCountEl.textContent = pCount;
+  var totalLenEl = document.getElementById('portsTotalLen');
+  if (totalLenEl) totalLenEl.textContent = totalLen > 0 ? (totalLen.toFixed(1) + ' м') : '—';
+  var totalStatsEl = document.getElementById('portsTotalStats');
+  if (totalStatsEl) {
+    totalStatsEl.innerHTML = 'Годных: <b style="color:var(--green)">' + passCount + '</b> · С ошибкой: <b style="color:var(--red)">' + failCount + '</b>';
+  }
+  var badgeEl = document.getElementById('portsCountBadge');
+  if (badgeEl) {
+    badgeEl.textContent = pCount + ' портов' + (totalLen > 0 ? (' · ' + totalLen.toFixed(1) + ' м') : '');
+    badgeEl.className = pCount > 0 ? 'badge b-blue' : 'badge b-gray';
+  }
 }
 
 function addPortRow(taskId) {
   api('/tasks/' + taskId + '/ports', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ portNumber:'', patchPanel:'', room:'', marking:'', cableLength:null })
-  }).then(function() { refreshPortsList(taskId); });
-}
-
-function savePortRow(rowId, taskId) {
-  var data = {
-    portNumber: document.getElementById('pr_' + rowId + '_port').value,
-    patchPanel: document.getElementById('pr_' + rowId + '_patch').value,
-    room:       document.getElementById('pr_' + rowId + '_room').value,
-    marking:    document.getElementById('pr_' + rowId + '_marking').value,
-    cableLength: document.getElementById('pr_' + rowId + '_len').value || null
-  };
-  api('/ports/' + rowId, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) })
-    .then(function() {
-      if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
-    });
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      portNumber: '',
+      marking: '',
+      room: '',
+      cabinet: '',
+      unit: '',
+      patchPanel: '',
+      cableLength: null,
+      crimping: 'T568B',
+      testingStatus: 'pass'
+    })
+  }).then(function() {
+    refreshPortsList(taskId);
+  });
 }
 
 function deletePortRow(rowId, taskId) {
-  if (!confirm('Удалить строку?')) return;
-  api('/ports/' + rowId, { method:'DELETE' }).then(function() { refreshPortsList(taskId); });
+  if (!confirm('Удалить эту строку кабельного журнала?')) return;
+  api('/ports/' + rowId, { method: 'DELETE' }).then(function() {
+    refreshPortsList(taskId);
+  });
 }
 
+function uploadCableJournalExcel(file, taskId) {
+  if (!file) return;
+  if (!window.XLSX) {
+    return alert('Библиотека XLSX еще не загрузилась. Подождите 1-2 секунды и попробуйте снова.');
+  }
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var data = new Uint8Array(e.target.result);
+      var wb = XLSX.read(data, { type: 'array' });
+      var sheetName = wb.SheetNames[0];
+      for (var s = 0; s < wb.SheetNames.length; s++) {
+        var sn = wb.SheetNames[s].toLowerCase();
+        if (sn.includes('кж') || sn.includes('кабель') || sn.includes('порт') || sn.includes('journal')) {
+          sheetName = wb.SheetNames[s];
+          break;
+        }
+      }
+
+      var sheet = wb.Sheets[sheetName];
+      var rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      if (!rows || rows.length < 2) {
+        return alert('Файл пуст или содержит только одну строку.');
+      }
+
+      // Определение строки заголовков
+      var headerIdx = 0;
+      for (var i = 0; i < Math.min(15, rows.length); i++) {
+        var rowText = (rows[i] || []).join(' ').toLowerCase();
+        if (rowText.includes('порт') || rowText.includes('маркировк') || rowText.includes('помещен') || rowText.includes('шкаф') || rowText.includes('кросс')) {
+          headerIdx = i;
+          break;
+        }
+      }
+
+      var headers = (rows[headerIdx] || []).map(function(h) { return String(h || '').trim().toLowerCase(); });
+
+      var findCol = function(patterns) {
+        return headers.findIndex(function(h) {
+          return patterns.some(function(p) { return h.includes(p); });
+        });
+      };
+
+      var colPort     = findCol(['порт', 'port', '№ розетки', 'номер розетки', 'розетк', 'точка']);
+      var colMarking  = findCol(['маркировк', 'бирка', 'marking', 'марка']);
+      var colRoom     = findCol(['помещен', 'комнат', 'кабинет', 'room', 'локация']);
+      var colCabinet  = findCol(['шкаф', 'ткш', 'стойка', 'rack', 'cabinet', 'шкафу']);
+      var colUnit     = findCol(['юнит', 'unit', ' u', 'высота']);
+      var colPatch    = findCol(['кросс', 'пп', 'патч', 'панель', 'patch']);
+      var colLen      = findCol(['длина', 'длинна', 'метраж', 'length', 'м.']);
+      var colCrimping = findCol(['обжим', 'схема', 'тип обжима', 'распиновка', 'crimping']);
+      var colTesting  = findCol(['правильн', 'тест', 'статус', 'fluke', 'результат', 'годен', 'испытан', 'test']);
+
+      var parsedPorts = [];
+      for (var r = headerIdx + 1; r < rows.length; r++) {
+        var row = rows[r];
+        if (!row || !row.length) continue;
+
+        var portNumber = colPort !== -1 ? String(row[colPort] || '').trim() : '';
+        var marking    = colMarking !== -1 ? String(row[colMarking] || '').trim() : '';
+        var room       = colRoom !== -1 ? String(row[colRoom] || '').trim() : '';
+        var cabinet    = colCabinet !== -1 ? String(row[colCabinet] || '').trim() : '';
+        var unit       = colUnit !== -1 ? String(row[colUnit] || '').trim() : '';
+        var patchPanel = colPatch !== -1 ? String(row[colPatch] || '').trim() : '';
+        var cableLength = colLen !== -1 ? parseFloat(String(row[colLen] || '').replace(',', '.')) : null;
+        var crimping   = colCrimping !== -1 ? String(row[colCrimping] || '').trim() : '';
+        var rawTesting = colTesting !== -1 ? String(row[colTesting] || '').trim() : '';
+
+        if (!portNumber && !marking && !room && !cabinet && !patchPanel) continue;
+
+        if (!portNumber && marking) portNumber = marking;
+        else if (!portNumber) portNumber = String(parsedPorts.length + 1);
+
+        var testingStatus = 'pass';
+        var tLower = rawTesting.toLowerCase();
+        if (tLower.includes('fail') || tLower.includes('ошиб') || tLower.includes('брак') || tLower.includes('не') || tLower === '-') {
+          testingStatus = 'fail';
+        } else if (tLower.includes('pass') || tLower.includes('ok') || tLower.includes('годен') || tLower === '+') {
+          testingStatus = 'pass';
+        } else if (rawTesting) {
+          testingStatus = rawTesting;
+        }
+
+        parsedPorts.push({
+          portNumber: portNumber,
+          marking: marking,
+          room: room,
+          cabinet: cabinet,
+          unit: unit,
+          patchPanel: patchPanel,
+          cableLength: !isNaN(cableLength) ? cableLength : null,
+          crimping: crimping || 'T568B',
+          testingStatus: testingStatus
+        });
+      }
+
+      if (!parsedPorts.length) {
+        return alert('Не удалось распознать строки кабельного журнала в файле. Проверьте заголовки колонок (Порт, Маркировка, Помещение, Шкаф, Юнит, Кросс, Длина, Обжим, Правильность).');
+      }
+
+      var replaceExisting = confirm(
+        'Найдено ' + parsedPorts.length + ' записей портов.\n\n' +
+        'Нажмите «ОК», чтобы заменить текущий кабельный журнал новыми данными из файла.\n' +
+        'Нажмите «Отмена», чтобы добавить найденные строки к уже существующим.'
+      );
+
+      api('/tasks/' + taskId + '/ports/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ports: parsedPorts, replaceExisting: replaceExisting })
+      }).then(function(res) {
+        if (res && res.error) return alert('Ошибка загрузки: ' + res.error);
+        if (typeof showToast === 'function') {
+          showToast('Кабельный журнал загружен (' + (res.count || parsedPorts.length) + ' портов)', 'success');
+        } else {
+          alert('Кабельный журнал успешно загружен (' + (res.count || parsedPorts.length) + ' портов)');
+        }
+        refreshPortsList(taskId);
+      }).catch(function(err) {
+        alert('Ошибка при сохранении кабельного журнала: ' + (err.message || err));
+      });
+
+    } catch(err) {
+      alert('Ошибка при чтении файла Excel: ' + (err.message || err));
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// Экспорт функций в window
+window.refreshPortsList = refreshPortsList;
+window.savePortField = savePortField;
+window.addPortRow = addPortRow;
+window.deletePortRow = deletePortRow;
+window.uploadCableJournalExcel = uploadCableJournalExcel;
+window.savePortRow = function(rowId, taskId) { /* legacy stub */ };
+
 var fieldLabels = {
-  status:'Статус', priority:'Приоритет', stage:'Этап', assignee:'Проект-менеджер (наш)',
-  customer:'Заказчик',
-  contract_id:'Генеральный договор',
-  controller:'Контролёр (Держатель контракта)', comment:'Комментарий', distributedAt:'Дата распределения',
-  contact:'Контакт на объекте', techLink:'Ссылка', deadline:'Дата окончания работ',
-  dateZayavki:'Дата заявки', fact:'Факт', obsledovanie:'Обследование',
-  dostup:'Доступ', dataVyhoda:'Дата выхода', priemka:'Приёмка',
-  oplata:'Оплата подрядчику', edoNumber:'№ документа в ЭДО',
-  invoiceInfo:'№ счёта/сумма', vedoStatus:'В ЭДО',
-  region:'Регион', address:'Адрес объекта', workType:'Тип работ',
-  tipObj:'Тип объекта', gosb:'№ ГОСБ', vsp:'№ ВСП',
-  manager:'Ответственное лицо (Заказчик)', amount:'Сумма договора', inOrder:'В заказе (портов)',
-  overdueDays:'Дней просрочки', contractor:'Субподрядчик (наш)',
-  distanceKm:'Удалённость (км)', pricePerUnit:'Стоимость за ед.',
-  idStatus:'Статус ИД', excelComment:'Комментарий (Excel)',
-  supplierOrderSigned:'Заказ подписан на портале', supplierIdUploaded:'ИД загружена на портал',
-  overdueReason:'Причина просрочки'
+  status: 'Статус заявки',
+  priority: 'Приоритет',
+  stage: 'Этап',
+  stageNum: 'Номер этапа',
+  stage_num: 'Номер этапа',
+  macroStatus: 'Макростатус',
+  macro_status: 'Макростатус',
+  assignee: 'Проект-менеджер (ПМ)',
+  customer: 'Заказчик',
+  contract_id: 'Генеральный договор',
+  contractId: 'Генеральный договор',
+  contract_agreement_id: 'Доп. соглашение (Лот)',
+  contractAgreementId: 'Доп. соглашение (Лот)',
+  own_company_id: 'Наше юрлицо',
+  ownCompanyId: 'Наше юрлицо',
+  controller: 'Контролёр (Держатель контракта)',
+  comment: 'Комментарий',
+  distributedAt: 'Дата распределения',
+  distributed_at: 'Дата распределения',
+  contact: 'Контакт на объекте',
+  techLink: 'Ссылка на тех. инфу',
+  tech_link: 'Ссылка на тех. инфу',
+  materialsLink: 'Ссылка на материалы',
+  materials_link: 'Ссылка на материалы',
+  idLink: 'Ссылка на готовую ИД',
+  id_link: 'Ссылка на готовую ИД',
+  deadline: 'Срок окончания работ',
+  dateZayavki: 'Дата заявки',
+  date_zayavki: 'Дата заявки',
+  fact: 'Факт (портов)',
+  inOrder: 'В заказе (портов)',
+  in_order: 'В заказе (портов)',
+  obsledovanie: 'Обследование',
+  dostup: 'Доступ',
+  dataVyhoda: 'Дата выхода на объект',
+  data_vyhoda: 'Дата выхода на объект',
+  priemka: 'Приёмка',
+  oplata: 'Оплата подрядчику',
+  edoNumber: '№ документа в ЭДО',
+  edo_number: '№ документа в ЭДО',
+  invoiceInfo: '№ счёта/сумма',
+  invoice_info: '№ счёта/сумма',
+  vedoStatus: 'В ЭДО',
+  vedo_status: 'В ЭДО',
+  region: 'Регион',
+  address: 'Адрес объекта',
+  workType: 'Тип работ',
+  work_type: 'Тип работ',
+  tipObj: 'Тип объекта',
+  tip_obj: 'Тип объекта',
+  gosb: '№ ГОСБ',
+  vsp: '№ ВСП',
+  manager: 'Ответственное лицо (Заказчик)',
+  amount: 'Сумма договора',
+  overdueDays: 'Дней просрочки',
+  overdue_days: 'Дней просрочки',
+  contractor: 'Подрядчик (СМР)',
+  distanceKm: 'Удалённость (км)',
+  distance_km: 'Удалённость (км)',
+  kmRate: 'Ставка за км',
+  km_rate: 'Ставка за км',
+  pricePerUnit: 'Стоимость за ед.',
+  price_per_unit: 'Стоимость за ед.',
+  idStatus: 'Статус ИД',
+  id_status: 'Статус ИД',
+  excelComment: 'Комментарий (Excel)',
+  excel_comment: 'Комментарий (Excel)',
+  supplierOrderSigned: 'Заказ подписан на портале',
+  supplier_order_signed: 'Заказ подписан на портале',
+  supplierIdUploaded: 'ИД загружена на портал',
+  supplier_id_uploaded: 'ИД загружена на портал',
+  overdueReason: 'Причина просрочки',
+  overdue_reason: 'Причина просрочки',
+  statusSmr: 'Статус СМР',
+  status_smr: 'Статус СМР',
+  smrActualEndDate: 'Фактическая дата завершения СМР',
+  smr_actual_end_date: 'Фактическая дата завершения СМР',
+  tmc: 'Сумма ТМЦ',
+  extras: 'Дополнительные расходы',
+  assignmentStatus: 'Статус назначения',
+  assignment_status: 'Статус назначения'
 };
 
-function saveCard() {
+function saveCard(silent) {
   var t = S.tasks.find(function(x){ return String(x.id) === String(S.cardId); });
-  if (!t) return;
+  if (!t) return Promise.resolve();
   var data = Object.assign({}, S.cardDraft);
-  if (!Object.keys(data).length) { S.cardConfirmOpen = false; renderApp(); return; }
+  if (!Object.keys(data).length) { 
+    S.cardConfirmOpen = false; 
+    if (!silent) renderApp(); 
+    return Promise.resolve(); 
+  }
 
   var now = new Date().toLocaleString('ru');
   var author = S.user ? (S.user.full_name || S.user.username) : 'Система';
-  var hist = t._history || [];
+  var hist = (t.history || t._history || []).slice();
   Object.keys(data).forEach(function(k){
     var oldV = t[k], newV = data[k];
     var isBool = typeof newV === 'boolean';
@@ -2866,21 +3489,55 @@ function saveCard() {
       hist.push({date:now, author:author, field:fieldLabels[k]||k, old:oldStr, new:newStr});
     }
   });
+  data.history = hist;
   data._history = hist;
 
-  delete data.status;
-  delete data.stage;
-  delete data.stageNum;
+  // Очищаем черновик перед отправкой
+  S.cardDraft = {};
+  S.cardConfirmOpen = false;
 
-  api('/tasks/' + S.cardId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})
-    .then(function(){
-      Object.assign(t, data);
-      S.cardDraft = {};
-      S.cardConfirmOpen = false;
-      renderApp();
+  var saveInd = document.getElementById('card_autosave_indicator');
+  if (saveInd) {
+    saveInd.textContent = '⏳ Сохранение...';
+    saveInd.style.color = '#b45309';
+  }
+
+  return api('/tasks/' + S.cardId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})
+    .then(function(res){
+      if (res && res.task) {
+        Object.assign(t, res.task);
+        var idx = (S.tasks || []).findIndex(function(x) { return String(x.id) === String(S.cardId); });
+        if (idx !== -1) S.tasks[idx] = res.task;
+      } else {
+        Object.assign(t, data);
+        t.history = hist;
+        t._history = hist;
+      }
+      if (saveInd) {
+        saveInd.textContent = '✓ Сохранено в журнал';
+        saveInd.style.color = '#16a34a';
+        setTimeout(function() {
+          if (saveInd && saveInd.textContent === '✓ Сохранено в журнал') saveInd.textContent = '';
+        }, 2500);
+      }
+      if (!silent) {
+        renderApp();
+        if (typeof showToast === 'function') showToast('✓ Изменения сохранены', 'success');
+      }
+      if (S.cardTab === 'history' && window.refreshCardHistory) {
+        window.refreshCardHistory(t.id);
+      }
     })
-    .catch(function(e){ alert('Ошибка сохранения: ' + e.message); });
+    .catch(function(e){ 
+      console.error('Ошибка сохранения карточки:', e);
+      if (saveInd) {
+        saveInd.textContent = '⚠️ Ошибка сохранения';
+        saveInd.style.color = '#dc2626';
+      }
+      if (!silent) alert('Ошибка сохранения: ' + e.message); 
+    });
 }
+window.saveCard = saveCard;
 
 function cancelTaskPrompt(taskId) {
   if (!confirm('Вы уверены, что хотите отменить заявку ' + taskId + '?\nДействие переведёт заявку в архив с фиксацией официальной причины.')) return;
@@ -3426,6 +4083,9 @@ window.acceptTmcCustody = acceptTmcCustody;
 
 function updateField(taskId, fieldName, value) {
   var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); });
+  var payload = {};
+  payload[fieldName] = value;
+
   if (t) {
     t[fieldName] = value;
     if (fieldName === 'dataVyhoda') {
@@ -3433,6 +4093,21 @@ function updateField(taskId, fieldName, value) {
       t.data_vyhoda = value;
       if (!t.rawData) t.rawData = {};
       t.rawData.dataVyhoda = value;
+      if (value && (!t.macroStatus || t.macroStatus === 'new' || t.macroStatus === 'assigned')) {
+        t.macroStatus = 'install';
+        t.status = 'progress';
+        payload.macroStatus = 'install';
+        payload.status = 'progress';
+        payload.stageNum = 1;
+      }
+    }
+    if (fieldName === 'smrActualEndDate') {
+      t.smrActualEndDate = value;
+      t.smr_actual_end_date = value;
+      if (value && (!t.statusSmr || t.statusSmr === 'in_progress')) {
+        t.statusSmr = 'done';
+        payload.statusSmr = 'done';
+      }
     }
     if (fieldName === 'fact') {
       t.fact = value !== '' ? Number(value) : null;
@@ -3443,9 +4118,6 @@ function updateField(taskId, fieldName, value) {
     }
   }
 
-  var payload = {};
-  payload[fieldName] = value;
-
   api('/tasks/' + encodeURIComponent(taskId), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -3455,11 +4127,19 @@ function updateField(taskId, fieldName, value) {
     if (res && res.error) {
       alert('Ошибка сохранения: ' + res.error);
     } else {
+      if (res && res.task) {
+        var idx = (S.tasks || []).findIndex(function(x) { return String(x.id) === String(taskId); });
+        if (idx !== -1) S.tasks[idx] = res.task;
+        if (t) Object.assign(t, res.task);
+      }
       if (typeof showToast === 'function') {
         showToast('✓ Сохранено');
       }
       if (window.renderSmrChecklist) {
         window.renderSmrChecklist(taskId);
+      }
+      if (S.cardTab === 'history' && window.refreshCardHistory) {
+        window.refreshCardHistory(taskId);
       }
     }
   })
@@ -4362,6 +5042,7 @@ function saveSubcontract(taskId, editId) {
     var targetContr = contractorName;
     if (t && targetContr) {
       t.contractor = targetContr;
+      t.status = 'progress';
       if (t.macroStatus === 'new' || !t.macroStatus) {
         t.macroStatus = 'assigned';
         t.stageNum = 1;
@@ -4369,7 +5050,7 @@ function saveSubcontract(taskId, editId) {
       api('/tasks/' + encodeURIComponent(taskId), { 
         method: 'PUT', 
         headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ contractor: targetContr, macroStatus: t.macroStatus, stageNum: t.stageNum }) 
+        body: JSON.stringify({ contractor: targetContr, status: 'progress', macroStatus: t.macroStatus, stageNum: t.stageNum }) 
       });
     }
     loadCardSubcontracts(taskId);
@@ -5264,4 +5945,89 @@ function scrollTaskChatToBottom() {
   }, 40);
 }
 window.scrollTaskChatToBottom = scrollTaskChatToBottom;
+
+function refreshCardHistory(taskId) {
+  if (!taskId) taskId = S.cardId;
+  if (!taskId) return;
+  var cont = document.getElementById('cardHistoryContainer');
+  if (cont && !cont.querySelector('.hist-item')) {
+    cont.innerHTML = '<div class="t3" style="padding:.5rem 0">Загрузка актуальной истории...</div>';
+  }
+
+  api('/tasks/' + encodeURIComponent(taskId)).then(function(freshTask) {
+    if (freshTask && !freshTask.error) {
+      if (!Array.isArray(S.tasks)) S.tasks = [];
+      var idx = S.tasks.findIndex(function(x) { return String(x.id) === String(taskId); });
+      if (idx !== -1) {
+        S.tasks[idx] = freshTask;
+      } else {
+        S.tasks.push(freshTask);
+      }
+      var t = freshTask;
+      var hist = (t.history || t._history || []).slice().reverse();
+      var html = hist.length ? hist.map(function(h){
+        var authorHtml = h.author ? ' <span class="badge b-gray" style="font-size:10px;padding:1px 5px;margin-left:5px">' + h.author + '</span>' : '';
+        return '<div class="hist-item" style="padding:6px 0;border-bottom:1px solid var(--border)">' + (h.date || '—') + authorHtml + '<br><span class="t3">' + (h.field || 'Поле') + ':</span> <span style="text-decoration:line-through;color:var(--red);opacity:0.8">' + (h.old || '—') + '</span> &rarr; <b style="color:var(--text)">' + (h.new || '—') + '</b></div>';
+      }).join('') : '<div class="t3" style="font-size:.78rem;padding:.5rem 0">Изменений не было</div>';
+
+      var c = document.getElementById('cardHistoryContainer');
+      if (c) c.innerHTML = html;
+    }
+  }).catch(function(err) {
+    console.error('Error refreshing history:', err);
+  });
+}
+window.refreshCardHistory = refreshCardHistory;
+
+// Фоновая синхронизация карточки для совместной работы (Collaborative live-sync)
+if (window._cardSyncInterval) clearInterval(window._cardSyncInterval);
+window._cardSyncInterval = setInterval(function() {
+  if (S.page !== 'card' || !S.cardId) return;
+  // Если пользователь прямо сейчас редактирует форму или инпут в фокусе — не сбивать фокус
+  if (S.cardDraft && Object.keys(S.cardDraft).length > 0) return;
+  var activeTag = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toLowerCase() : '';
+  if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') return;
+
+  var curTask = (S.tasks || []).find(function(x) { return String(x.id) === String(S.cardId); });
+  var curVersion = curTask ? (curTask.version || 0) : 0;
+
+  api('/tasks/' + encodeURIComponent(S.cardId)).then(function(fresh) {
+    if (fresh && !fresh.error && curTask) {
+      var histOld = JSON.stringify(curTask.history || curTask._history || []);
+      var histNew = JSON.stringify(fresh.history || fresh._history || []);
+      if ((fresh.version || 0) > curVersion || histOld !== histNew) {
+        var idx = S.tasks.findIndex(function(x) { return String(x.id) === String(S.cardId); });
+        if (idx !== -1) S.tasks[idx] = fresh;
+        if (S.page === 'card' && String(S.cardId) === String(fresh.id) && (!S.cardDraft || !Object.keys(S.cardDraft).length)) {
+          renderApp();
+          if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(fresh.id);
+          if (window.renderSmrChecklist) window.renderSmrChecklist(fresh.id);
+        }
+      }
+    }
+  }).catch(function() {});
+}, 10000);
+
+// Синхронизация при возврате вкладки браузера в активное состояние
+if (!window._cardFocusListenerAdded) {
+  window._cardFocusListenerAdded = true;
+  window.addEventListener('focus', function() {
+    if (S.page === 'card' && S.cardId && (!S.cardDraft || !Object.keys(S.cardDraft).length)) {
+      var activeTag = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toLowerCase() : '';
+      if (activeTag !== 'input' && activeTag !== 'textarea' && activeTag !== 'select') {
+        api('/tasks/' + encodeURIComponent(S.cardId)).then(function(fresh) {
+          if (fresh && !fresh.error) {
+            var idx = (S.tasks || []).findIndex(function(x) { return String(x.id) === String(S.cardId); });
+            if (idx !== -1) S.tasks[idx] = fresh;
+            if (S.page === 'card' && String(S.cardId) === String(fresh.id)) {
+              renderApp();
+              if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(fresh.id);
+              if (window.renderSmrChecklist) window.renderSmrChecklist(fresh.id);
+            }
+          }
+        }).catch(function() {});
+      }
+    }
+  });
+}
 

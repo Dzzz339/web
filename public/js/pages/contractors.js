@@ -1,6 +1,14 @@
 // public/js/pages/contractors.js - Справочники организаций: Заказчики, Поставщики материалов, Логистика / ТК, Подрядчики СМР, Прочие, Собственные юрлица
 
 var contractorSearchTimeout = null;
+var contractorTaxLabels = {
+  usn: 'УСН (Без НДС)',
+  osno: 'ОСНО (НДС 20%)',
+  npd: 'Самозанятый (НПД 6%)',
+  usn_5: 'УСН (НДС 5%)',
+  usn_7: 'УСН (НДС 7%)',
+  gph: 'Физлицо (ГПХ 13%)'
+};
 
 function pageContractors() {
   S.contractorActiveTab = S.contractorActiveTab || 'subcontractor';
@@ -286,6 +294,7 @@ function renderCustomersTable(container, list) {
           <div style="font-size:.74rem; color:var(--text-3); margin-top:2px">
             ИНН: <b style="font-family:monospace; color:var(--text)">${escHtml(c.inn || '—')}</b> ${c.kpp ? '· КПП: ' + escHtml(c.kpp) : ''}
             ${c.ogrn ? '· ОГРН: ' + escHtml(c.ogrn) : ''}
+            ${c.tax_system ? '· <span class="badge b-gray" style="font-size:.68rem">' + escHtml(contractorTaxLabels[c.tax_system] || c.tax_system) + '</span>' : ''}
           </div>
           ${c.name_full ? '<div style="font-size:.74rem; color:var(--text-3); line-height:1.2; margin-top:2px">' + escHtml(c.name_full) + '</div>' : ''}
           ${c.address_legal ? '<div style="font-size:.72rem; color:var(--text-3); margin-top:3px">📍 ' + escHtml(c.address_legal) + '</div>' : ''}
@@ -351,6 +360,7 @@ function renderSuppliersTable(container, list) {
           <div style="font-size:.74rem; color:var(--text-3); margin-top:2px">
             ИНН: <b style="font-family:monospace; color:var(--text)">${escHtml(c.inn || '—')}</b> ${c.kpp ? '· КПП: ' + escHtml(c.kpp) : ''}
             ${c.ogrn ? '· ОГРН: ' + escHtml(c.ogrn) : ''}
+            ${c.tax_system ? '· <span class="badge b-gray" style="font-size:.68rem">' + escHtml(contractorTaxLabels[c.tax_system] || c.tax_system) + '</span>' : ''}
           </div>
           ${c.name_full ? '<div style="font-size:.74rem; color:var(--text-3); margin-top:2px">' + escHtml(c.name_full.slice(0, 90)) + '</div>' : ''}
           ${bankInfo}
@@ -419,6 +429,7 @@ function renderLogisticsTable(container, list) {
           <div style="font-size:.74rem; color:var(--text-3); margin-top:2px">
             ИНН: <b style="font-family:monospace; color:var(--text)">${escHtml(c.inn || '—')}</b> ${c.kpp ? '· КПП: ' + escHtml(c.kpp) : ''}
             ${c.ogrn ? '· ОГРН: ' + escHtml(c.ogrn) : ''}
+            ${c.tax_system ? '· <span class="badge b-gray" style="font-size:.68rem">' + escHtml(contractorTaxLabels[c.tax_system] || c.tax_system) + '</span>' : ''}
           </div>
           ${c.name_full ? '<div style="font-size:.74rem; color:var(--text-3); margin-top:2px">' + escHtml(c.name_full.slice(0, 90)) + '</div>' : ''}
           ${bankInfo}
@@ -485,6 +496,7 @@ function renderSubcontractorsTable(container, list) {
           <div style="font-size:.74rem; color:var(--text-3); margin-top:2px">
             ИНН: <b style="font-family:monospace; color:var(--text)">${escHtml(c.inn || '—')}</b> ${c.kpp ? '· КПП: ' + escHtml(c.kpp) : ''}
             ${c.ogrn ? '· ОГРН: ' + escHtml(c.ogrn) : ''}
+            ${c.tax_system ? '· <span class="badge b-gray" style="font-size:.68rem">' + escHtml(contractorTaxLabels[c.tax_system] || c.tax_system) + '</span>' : ''}
           </div>
           ${c.director ? '<div style="font-size:.73rem; color:var(--text-3); margin-top:2px">Директор: ' + escHtml(c.director) + '</div>' : ''}
           ${c.phone ? '<div style="font-size:.73rem; color:var(--text-3)">📞 ' + escHtml(c.phone) + '</div>' : ''}
@@ -553,6 +565,7 @@ function renderOtherExpenseTable(container, list) {
           <div style="font-size:.74rem; color:var(--text-3); margin-top:2px">
             ИНН: <b style="font-family:monospace; color:var(--text)">${escHtml(c.inn || '—')}</b> ${c.kpp ? '· КПП: ' + escHtml(c.kpp) : ''}
             ${c.ogrn ? '· ОГРН: ' + escHtml(c.ogrn) : ''}
+            ${c.tax_system ? '· <span class="badge b-gray" style="font-size:.68rem">' + escHtml(contractorTaxLabels[c.tax_system] || c.tax_system) + '</span>' : ''}
           </div>
           ${c.name_full ? '<div style="font-size:.74rem; color:var(--text-3); margin-top:2px">' + escHtml(c.name_full.slice(0, 90)) + '</div>' : ''}
           ${bankInfo}
@@ -622,6 +635,7 @@ function renderOwnCompaniesTable(container, list) {
           <div style="font-size:.74rem; color:var(--text-3); margin-top:2px">
             ИНН: <b style="font-family:monospace; color:var(--text)">${escHtml(c.inn || '—')}</b> ${c.kpp ? '· КПП: ' + escHtml(c.kpp) : ''}
             ${c.ogrn ? '· ОГРН: ' + escHtml(c.ogrn) : ''}
+            ${c.tax_system ? '· <span class="badge b-gray" style="font-size:.68rem">' + escHtml(contractorTaxLabels[c.tax_system] || c.tax_system) + '</span>' : ''}
           </div>
           ${c.name_full ? '<div style="font-size:.74rem; color:var(--text-3); line-height:1.2; margin-top:2px">' + escHtml(c.name_full) + '</div>' : ''}
           ${c.address_legal ? '<div style="font-size:.72rem; color:var(--text-3); margin-top:3px">📍 ' + escHtml(c.address_legal) + '</div>' : ''}
@@ -768,6 +782,18 @@ function renderContractorAddForm(container, curTab) {
           </div>
         </div>
 
+        <div class="mb">
+          <label style="font-size:.75rem; font-weight:600">Система налогообложения</label>
+          <select id="nc_tax_system" style="width:100%; padding:6px; border:1px solid var(--border); border-radius:6px; font-size:.82rem">
+            <option value="usn" selected>УСН (Без НДС)</option>
+            <option value="osno">ОСНО (НДС 20%)</option>
+            <option value="npd">Самозанятый (НПД 6%)</option>
+            <option value="usn_5">УСН (НДС 5% - реформа 2025)</option>
+            <option value="usn_7">УСН (НДС 7% - реформа 2025)</option>
+            <option value="gph">Физлицо (ГПХ, НДФЛ 13%)</option>
+          </select>
+        </div>
+
         <div class="g2 mb">
           <div>
             <div style="display:flex; justify-content:space-between; align-items:center">
@@ -894,6 +920,7 @@ function saveNewContractor(tabType) {
     ogrn: document.getElementById('nc_ogrn') ? document.getElementById('nc_ogrn').value.trim() : null,
     legal_form: document.getElementById('nc_legal_form') ? document.getElementById('nc_legal_form').value.trim() : null,
     name_short: nameShort,
+    tax_system: document.getElementById('nc_tax_system') ? document.getElementById('nc_tax_system').value : 'usn',
     name_full: document.getElementById('nc_name_full') ? document.getElementById('nc_name_full').value.trim() : null,
     type: tabType,
     address_legal: document.getElementById('nc_address') ? document.getElementById('nc_address').value.trim() : null,
@@ -938,6 +965,15 @@ function editContractor(id) {
   showModal('✏️ Редактировать карточку организации #' + id, [
     { key: 'nameShort', label: 'Краткое наименование', value: c.name_short, required: true },
     { key: 'legalForm', label: 'ОПФ (форма организации)', value: c.legal_form || '' },
+    { key: 'taxSystem', label: 'Система налогообложения', type: 'select', value: c.tax_system || 'usn', options: [
+        { value: 'usn', label: 'УСН (Без НДС)' },
+        { value: 'osno', label: 'ОСНО (НДС 20%)' },
+        { value: 'npd', label: 'Самозанятый (НПД 6%)' },
+        { value: 'usn_5', label: 'УСН (НДС 5% - реформа 2025)' },
+        { value: 'usn_7', label: 'УСН (НДС 7% - реформа 2025)' },
+        { value: 'gph', label: 'Физлицо (ГПХ, НДФЛ 13%)' }
+      ]
+    },
     { key: 'type', label: 'Тип организации', type: 'select', value: c.type || 'subcontractor', options: [
         { value: 'subcontractor', label: '👷 Подрядчик СМР (монтажная организация)' },
         { value: 'customer', label: '🏛️ Заказчик (кто нам платит)' },
@@ -947,7 +983,7 @@ function editContractor(id) {
         { value: 'own', label: '🏛️ Собственное юрлицо («Мы»)' }
       ]
     },
-    { key: 'inn', label: 'ИНН', value: c.inn, required: true },
+    { key: 'inn', label: 'ИНН', value: c.inn || '', required: false },
     { key: 'kpp', label: 'КПП', value: c.kpp || '' },
     { key: 'ogrn', label: 'ОГРН / ОГРНИП', value: c.ogrn || '' },
     { key: 'nameFull', label: 'Полное наименование', type: 'textarea', value: c.name_full || '' },
@@ -972,6 +1008,7 @@ function editContractor(id) {
       body: JSON.stringify({
         name_short: d.nameShort,
         legal_form: d.legalForm,
+        tax_system: d.taxSystem || 'usn',
         type: d.type,
         inn: d.inn,
         kpp: d.kpp,

@@ -38,7 +38,7 @@ export async function initDB() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS contractors (
       id            SERIAL PRIMARY KEY,
-      inn           TEXT UNIQUE NOT NULL,
+      inn           TEXT UNIQUE,
       kpp           TEXT,
       name_short    TEXT NOT NULL,
       name_full     TEXT,
@@ -57,6 +57,7 @@ export async function initDB() {
   `);
 
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contractors_inn ON contractors(inn)`);
+  await pool.query(`ALTER TABLE contractors ALTER COLUMN inn DROP NOT NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contractors_name ON contractors(name_short)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS contractor_id INTEGER REFERENCES contractors(id) ON DELETE SET NULL`);
@@ -227,6 +228,7 @@ export async function initDB() {
   await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS signer_position TEXT DEFAULT 'Директор'`);
   await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS is_own BOOLEAN DEFAULT false`);
   await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS own_company_id INTEGER REFERENCES own_companies(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS tax_system TEXT DEFAULT 'usn'`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contractors_type ON contractors(type)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contractors_is_own ON contractors(is_own)`);
 
@@ -630,6 +632,8 @@ export async function initDB() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_items_task_id ON task_items(task_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_items_contractor_id ON task_items(contractor_id)`);
+  await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS article TEXT`);
+  await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS supplier TEXT`);
 
 
   await pool.query(`
@@ -678,10 +682,19 @@ export async function initDB() {
       room          TEXT,
       marking       TEXT,
       cable_length  NUMERIC,
+      cabinet       TEXT,
+      unit          TEXT,
+      crimping      TEXT,
+      testing_status TEXT,
       created_at    TIMESTAMPTZ DEFAULT NOW()
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_ports_task_id ON task_ports(task_id)`);
+  await pool.query(`ALTER TABLE task_ports ADD COLUMN IF NOT EXISTS cabinet TEXT`);
+  await pool.query(`ALTER TABLE task_ports ADD COLUMN IF NOT EXISTS unit TEXT`);
+  await pool.query(`ALTER TABLE task_ports ADD COLUMN IF NOT EXISTS crimping TEXT`);
+  await pool.query(`ALTER TABLE task_ports ADD COLUMN IF NOT EXISTS testing_status TEXT`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS smr_actual_end_date DATE`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS task_checklists (

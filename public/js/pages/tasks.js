@@ -1042,14 +1042,16 @@ function assignContractorToTask(taskId, nameShort) {
   api('/tasks/' + taskId, {
     method:'PUT',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({contractor: nameShort, macroStatus: targetMacro, stageNum: targetStage, _history: hist})
+    body:JSON.stringify({contractor: nameShort, status: 'progress', macroStatus: targetMacro, stageNum: targetStage, _history: hist})
   })
     .then(function(){
       t.contractor = nameShort;
+      t.status = 'progress';
       t.macroStatus = targetMacro;
       t.stageNum = targetStage;
       t._history = hist;
       if (S.cardDraft) delete S.cardDraft.contractor;
+      if (window._taskSmrTax) delete window._taskSmrTax[taskId];
       closeContractorPicker(); 
       if (window._curCardSubcontracts && window._curCardSubcontracts[0]) {
         window._curCardSubcontracts[0].contractor_name = nameShort;
@@ -1088,6 +1090,7 @@ function removeContractorFromTask(taskId) {
       closeContractorPicker();
       window._curCardSubcontracts = [];
       if (window._taskSmrSpec) delete window._taskSmrSpec[taskId];
+      if (window._taskSmrTax) delete window._taskSmrTax[taskId];
       if (typeof loadCardSubcontracts === 'function' && S.cardId && String(S.cardId) === String(taskId)) { 
         loadCardSubcontracts(taskId); 
       }

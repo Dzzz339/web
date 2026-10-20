@@ -758,6 +758,7 @@ function bindEvents() {
     // Живое редактирование карточки заявки
   var cardForm = document.getElementById('cardForm');
   if (cardForm) {
+    var _cardAutoSaveTimer = null;
     cardForm.addEventListener('change', function(e) {
       var el = e.target;
       if (!el.name) return;
@@ -780,18 +781,37 @@ function bindEvents() {
         delete S.cardDraft[el.name];
       } else {
         S.cardDraft[el.name] = newVal;
+        // Мгновенное автосохранение изменений в базу данных и журнал истории
+        clearTimeout(_cardAutoSaveTimer);
+        _cardAutoSaveTimer = setTimeout(function() {
+          if (typeof window.saveCard === 'function') window.saveCard(true);
+        }, 300);
       }
-      renderApp();
+    });
+
+    // Для текстовых полей и комментариев — автосохранение с дебаунсом при вводе
+    cardForm.addEventListener('input', function(e) {
+      var el = e.target;
+      if (!el.name || el.type === 'checkbox' || el.type === 'radio') return;
+      S.cardDraft[el.name] = el.value;
+      clearTimeout(_cardAutoSaveTimer);
+      _cardAutoSaveTimer = setTimeout(function() {
+        if (typeof window.saveCard === 'function') window.saveCard(true);
+      }, 1200);
     });
   }
   var cardSaveBtn = document.getElementById('cardSaveBtn');
-  if (cardSaveBtn) cardSaveBtn.addEventListener('click', function(){ S.cardConfirmOpen = true; renderApp(); });
+  if (cardSaveBtn) cardSaveBtn.addEventListener('click', function(){ 
+    if (typeof window.saveCard === 'function') window.saveCard(false); 
+  });
   var cardResetBtn = document.getElementById('cardResetBtn');
   if (cardResetBtn) cardResetBtn.addEventListener('click', function(){ S.cardDraft = {}; S.cardConfirmOpen = false; renderApp(); });
   var cardConfirmCancelBtn = document.getElementById('cardConfirmCancelBtn');
   if (cardConfirmCancelBtn) cardConfirmCancelBtn.addEventListener('click', function(){ S.cardConfirmOpen = false; renderApp(); });
   var cardConfirmOkBtn = document.getElementById('cardConfirmOkBtn');
-  if (cardConfirmOkBtn) cardConfirmOkBtn.addEventListener('click', saveCard);
+  if (cardConfirmOkBtn) cardConfirmOkBtn.addEventListener('click', function(){
+    if (typeof window.saveCard === 'function') window.saveCard(false);
+  });
   // task filters: быстрый поиск с дебаунсом
   var tq = document.getElementById('tq');
   if (tq) {
@@ -817,6 +837,12 @@ function bindEvents() {
     });
   }
 }
+
+window.addEventListener('beforeunload', function() {
+  if (S.cardDraft && Object.keys(S.cardDraft).length > 0 && S.cardId) {
+    if (typeof window.saveCard === 'function') window.saveCard(true);
+  }
+});
 
 // ─── Парсинг Excel на стороне браузера ───────────────────────────────────────
 

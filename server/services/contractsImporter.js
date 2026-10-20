@@ -530,13 +530,26 @@ export async function importContractsFromExcel(filePath, pool) {
       customerId = customerMap.get(custKey);
     } else if (item.customer_name && item.customer_name !== 'Не указан') {
       try {
-        const innPseudo = 'CUST-' + Math.floor(1000000000 + Math.random() * 9000000000);
-        const { rows: newCust } = await pool.query(`
-          INSERT INTO contractors (name_short, name_full, inn, type, status)
-          VALUES ($1, $2, $3, 'customer', 'active')
-          ON CONFLICT (inn) DO NOTHING
-          RETURNING id
-        `, [item.customer_name, item.customer_name, innPseudo]);
+        const innMatch = item.customer_name.match(/\b(\d{10}|\d{12})\b/);
+        const extractedInn = innMatch ? innMatch[1] : null;
+        let newCust = null;
+        if (extractedInn) {
+          const res = await pool.query(`
+            INSERT INTO contractors (name_short, name_full, inn, type, status)
+            VALUES ($1, $2, $3, 'customer', 'active')
+            ON CONFLICT (inn) DO UPDATE SET name_short = EXCLUDED.name_short
+            RETURNING id
+          `, [item.customer_name, item.customer_name, extractedInn]);
+          newCust = res.rows;
+        } else {
+          // ИНН неизвестен - создаем без псевдо-ИНН (NULL)
+          const res = await pool.query(`
+            INSERT INTO contractors (name_short, name_full, inn, type, status)
+            VALUES ($1, $2, NULL, 'customer', 'active')
+            RETURNING id
+          `, [item.customer_name, item.customer_name]);
+          newCust = res.rows;
+        }
         if (newCust && newCust.length > 0) {
           customerId = newCust[0].id;
           customerMap.set(custKey, customerId);
