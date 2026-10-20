@@ -125,6 +125,7 @@ export async function initDB() {
       comment     TEXT,
       distributed_at DATE,
       history     JSONB DEFAULT '[]',
+      own_company_id INTEGER,
       created_at  TIMESTAMPTZ DEFAULT NOW(),
       updated_at  TIMESTAMPTZ DEFAULT NOW(),
       raw_data    JSONB DEFAULT '{}'
@@ -227,7 +228,17 @@ export async function initDB() {
   await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS signer_name TEXT`);
   await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS signer_position TEXT DEFAULT 'Директор'`);
   await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS is_own BOOLEAN DEFAULT false`);
+  
+  // Инициализация собственных юрлиц группы (own_companies) и инфраструктуры субподрядов
+  try {
+    await initSubcontractDms(pool);
+  } catch (dmsErr) {
+    console.error('[DB] Subcontract DMS init error:', dmsErr.message);
+  }
+
   await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS own_company_id INTEGER REFERENCES own_companies(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS own_company_id INTEGER REFERENCES own_companies(id) ON DELETE SET NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_own_company_id ON tasks(own_company_id)`);
   await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS tax_system TEXT DEFAULT 'usn'`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contractors_type ON contractors(type)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contractors_is_own ON contractors(is_own)`);
