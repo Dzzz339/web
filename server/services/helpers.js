@@ -29,6 +29,7 @@ export function rowToTask(r) {
     amount:       Number(r.amount)        || 0,
     kmRate:       Number(r.km_rate) || 0,
     distanceKm:   Number(r.distance_km)  || 0,
+    realDistanceKm: r.real_distance_km != null ? Number(r.real_distance_km) : null,
     pricePerUnit: Number(r.price_per_unit)|| 0,
     techLink:     r.tech_link,
     edoNumber:    r.edo_number,

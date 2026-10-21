@@ -258,6 +258,119 @@ window._takeTaskToStage = function(taskId, stageNum) {
   });
 };
 
+window.cardTransitionToSmr = function(taskId) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  var curStage = t ? (t.stageNum != null ? t.stageNum : (t.stage_num != null ? t.stage_num : 0)) : 0;
+  if (curStage === 0) {
+    if (!confirm('Перевести заявку на Этап 1 «В монтаже» и перейти во вкладку «Исполнение / СМР»?')) {
+      setCardTab('items');
+      return;
+    }
+    api('/tasks/' + encodeURIComponent(taskId), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stageNum: 1 })
+    }).then(function() {
+      showToast('Заявка переведена на этап 1: В монтаже', 'success');
+      if (t) {
+        t.stageNum = 1;
+        t.stage_num = 1;
+      }
+      setCardTab('items');
+    }).catch(function(err) {
+      alert('Ошибка обновления этапа: ' + (err.message || err));
+      setCardTab('items');
+    });
+  } else {
+    setCardTab('items');
+  }
+};
+
+window.cardOpenCloudFolderModal = function(taskId, fieldKey) {
+  var old = document.getElementById('_cloud_folder_modal');
+  if (old) old.remove();
+
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); }) || {};
+  var fieldLabels = {
+    priemka: 'Приёмка (фотоматериалы)',
+    obsledovanie: 'Обследование объекта (акт, фото)',
+    dostup: 'Допуск на объект (письма, заявки)'
+  };
+  var fieldTitle = fieldLabels[fieldKey] || 'Папка документов';
+  var curVal = (t[fieldKey] || '').trim();
+
+  var cleanCustomer = (t.customer || 'Сбербанк').trim();
+  var taskNum = t.id || '';
+  var shortCategory = fieldKey === 'priemka' ? 'Приемка' : (fieldKey === 'obsledovanie' ? 'Обследование' : 'Допуск');
+  var folderName = 'Заявка_№' + taskNum + '_' + shortCategory;
+
+  var modal = document.createElement('div');
+  modal.id = '_cloud_folder_modal';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = '<div class="modal-box" style="max-width:540px;width:95%">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">' +
+      '<div style="display:flex;align-items:center;gap:8px">' +
+        '<span style="font-size:1.3rem">☁️</span>' +
+        '<h3 style="margin:0;font-size:1.05rem">Папка в Seafile: ' + escHtml(fieldTitle) + '</h3>' +
+      '</div>' +
+      '<button class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_cloud_folder_modal\').remove()">✕</button>' +
+    '</div>' +
+
+    '<div style="background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:.8rem">' +
+      '<div style="font-weight:600;color:var(--text);margin-bottom:3px">🏛️ ' + escHtml(t.address || 'Адрес не указан') + '</div>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px">' +
+        '<span style="color:var(--text-2)">Рекомендуемое имя папки: <code style="font-weight:700;background:#e2e8f0;padding:2px 5px;border-radius:4px">' + escHtml(folderName) + '</code></span>' +
+        '<button type="button" class="btn btn-xs btn-ghost" onclick="navigator.clipboard.writeText(\'' + escHtml(folderName) + '\');showToast(\'Имя папки скопировано\', \'info\')" style="padding:2px 7px;font-size:.72rem;border:1px solid var(--border);background:#fff">📋 Скопировать</button>' +
+      '</div>' +
+    '</div>' +
+
+    '<div style="margin-bottom:14px">' +
+      '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Ссылка общего доступа на папку (cloud.stockeasy.ru):</label>' +
+      '<input type="url" id="_cloud_folder_input_url" value="' + escHtml(curVal) + '" placeholder="https://cloud.stockeasy.ru/d/... или путь /" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;box-sizing:border-box">' +
+      '<div style="font-size:.72rem;color:var(--text-3);margin-top:4px">Создайте папку в облаке и вставьте полученную ссылку общего доступа (или внутренний путь).</div>' +
+    '</div>' +
+
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding-top:10px;border-top:1px solid var(--border)">' +
+      '<a href="https://cloud.stockeasy.ru" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="color:#0284c7;border:1px solid var(--border);display:inline-flex;align-items:center;gap:6px">' +
+        '🌐 Открыть cloud.stockeasy.ru ↗' +
+      '</a>' +
+      '<div style="display:flex;gap:6px">' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_cloud_folder_modal\').remove()">Отмена</button>' +
+        '<button type="button" class="btn btn-sm btn-primary" onclick="window.cardSaveCloudFolderLink(\'' + escHtml(taskId) + '\', \'' + fieldKey + '\')">💾 Сохранить ссылку</button>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
+  setTimeout(function(){
+    var inp = document.getElementById('_cloud_folder_input_url');
+    if (inp) inp.focus();
+  }, 100);
+};
+
+window.cardSaveCloudFolderLink = function(taskId, fieldKey) {
+  var inp = document.getElementById('_cloud_folder_input_url');
+  var url = inp ? inp.value.trim() : '';
+
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify((function(){ var d = {}; d[fieldKey] = url; return d; })())
+  }).then(function() {
+    showToast('Ссылка на папку сохранена', 'success');
+    var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+    if (t) t[fieldKey] = url;
+    var modal = document.getElementById('_cloud_folder_modal');
+    if (modal) modal.remove();
+    var cardFieldInp = document.getElementById('card_field_' + fieldKey);
+    if (cardFieldInp) cardFieldInp.value = url;
+    openCard(taskId);
+  }).catch(function(err) {
+    alert('Ошибка сохранения ссылки: ' + (err.message || err));
+  });
+};
+
 window.filterCardContractsList = function(q) {
   var qy = String(q || '').toLowerCase().trim();
   var inp = document.getElementById('card_contract_search_inp');
@@ -745,11 +858,13 @@ function pageCard() {
           } else {
             displayVal = '—';
           }
+        } else if (key === 'realDistanceKm') {
+          displayVal = (!isNaN(num) && val !== '' && val != null) ? (num.toLocaleString('ru-RU') + ' км') : '—';
         } else {
           displayVal = (!isNaN(num) && val !== '' && val != null) ? (num.toLocaleString('ru-RU') + (isCurrency ? ' ₽' : '')) : '—';
         }
-      } else if (type === 'url') {
-        displayVal = val ? ('<a href="' + escHtml(val) + '" target="_blank" rel="noopener noreferrer" style="color:var(--blue);text-decoration:underline;word-break:break-all">🔗 Открыть ссылку</a>') : '—';
+      } else if (type === 'url' || ((key === 'priemka' || key === 'obsledovanie' || key === 'dostup') && typeof val === 'string' && (val.startsWith('http://') || val.startsWith('https://')))) {
+        displayVal = val ? ('<a href="' + escHtml(val) + '" target="_blank" rel="noopener noreferrer" style="color:var(--blue);text-decoration:underline;word-break:break-all">🔗 Открыть ссылку (Seafile)</a>') : '—';
       } else if (key === 'contract_id') {
         var curC = (S.contracts || []).find(function(x){ return String(x.id) === String(val || curContractId); });
         var cleanNum = curC ? cleanContractNumber(curC.contract_number) : '';
@@ -939,7 +1054,7 @@ function pageCard() {
             '</div>' +
             '<div style="display:flex;gap:4px;flex-wrap:wrap">' +
               '<button type="button" class="btn btn-sm btn-ghost" onclick="openContractorPicker(\'' + eid + '\')" style="font-size:.74rem;padding:2px 7px" title="Выбрать другого подрядчика">🔍 Сменить</button>' +
-              '<button type="button" class="btn btn-sm btn-ghost" onclick="openSubcontractModal(\'' + eid + '\')" style="font-size:.74rem;padding:2px 7px;color:var(--primary)" title="Редактировать параметры заказ-наряда и поручения">📋 Заказ-наряд</button>' +
+              '<button type="button" class="btn btn-sm btn-ghost" onclick="openSubcontractModal(\'' + eid + '\')" style="font-size:.74rem;padding:2px 7px;color:var(--primary);font-weight:600" title="Редактировать условия договора, монтажников и дедлайн">✏️ Условия и монтажники</button>' +
               (curStageNum === 0 ? ('<button type="button" class="btn btn-sm btn-primary" onclick="window._takeTaskToStage(\'' + eid + '\', 1)" style="font-size:.74rem;padding:2px 8px;background:#16a34a;border-color:#16a34a;font-weight:700" title="Перевести заявку на Этап 1 (В монтаже)">👷 В монтаж →</button>') : '') +
             '</div>' +
           '</div>' +
@@ -1007,6 +1122,14 @@ function pageCard() {
       inp = '<div style="display:flex;gap:4px;align-items:center;width:100%">' +
         '<input type="number" name="pricePerUnit" data-key="pricePerUnit" value="' + String(curVal).replace(/"/g,'&quot;') + '" placeholder="0" style="flex:1">' +
         (calcPrice > 0 ? ('<button type="button" class="btn btn-sm btn-ghost" onclick="window.recalcCardUnitPrice(\'' + escHtml(t.id) + '\')" title="Пересчитать по формуле: ' + curAmount + ' ÷ ' + curPorts + ' = ' + calcPrice + ' ₽" style="padding:3px 7px;font-size:.74rem;white-space:nowrap;border:1px solid var(--border)">🔄 ' + calcPrice.toLocaleString('ru-RU') + ' ₽</button>') : '') +
+      '</div>';
+    }
+    else if (key === 'priemka' || key === 'obsledovanie' || key === 'dostup') {
+      var isUrl = typeof val === 'string' && (val.startsWith('http://') || val.startsWith('https://'));
+      inp = '<div style="display:flex;gap:4px;align-items:center;width:100%">' +
+        '<input type="text" name="' + key + '" data-key="' + key + '" id="card_field_' + key + '" value="' + String(val).replace(/"/g,'&quot;') + '" placeholder="Папка или ссылка в облаке" style="flex:1;min-width:0;font-size:.82rem">' +
+        (isUrl ? ('<a href="' + escHtml(val) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="padding:2px 7px;font-size:.74rem;color:#0284c7;white-space:nowrap;border:1px solid var(--border)" title="Открыть папку в Seafile">☁️ Открыть</a>') : '') +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="window.cardOpenCloudFolderModal(\'' + escHtml(t.id) + '\', \'' + key + '\')" style="padding:2px 7px;font-size:.74rem;color:var(--primary);white-space:nowrap;border:1px solid var(--border)" title="Создать или привязать папку в cloud.stockeasy.ru">☁️ Seafile</button>' +
       '</div>';
     }
     else if (type === 'textarea') inp = '<textarea name="'+key+'" data-key="'+key+'"' + (ph ? (' placeholder="' + escHtml(ph) + '"') : '') + ' style="width:100%;font-size:.82rem;min-height:54px;transition:min-height .2s ease" onfocus="this.style.minHeight=\'110px\'" onblur="if(this.value.length < 120) this.style.minHeight=\'54px\'">'+val+'</textarea>';
@@ -1566,21 +1689,6 @@ function pageCard() {
   }
   var contrPhoneHtml = renderContrPhoneHtml(false);
 
-  var quickDocsCard = '<div class="card p">' +
-    '<div class="sec-title" style="margin-bottom:.5rem;display:flex;align-items:center;justify-content:space-between">' +
-      '<span style="display:flex;align-items:center;gap:6px">📄 Документы объекта</span>' +
-      '<span style="font-size:.72rem;color:var(--text-3)">Комплект Word (.docx)</span>' +
-    '</div>' +
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">' +
-      '<button type="button" class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\'' + eid + '\')" title="Сформировать официальное письмо на допуск на объект в Word">🪪 Допуск на объект</button>' +
-      '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'order_subcontract\')" title="Сформировать Заказ-наряд (Приложение №2 к Договору субподряда)">📄 Приложение №2</button>' +
-      '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'completion_act\')" title="Сформировать двухсторонний Акт сдачи-приемки работ («Сдал/Принял»)">🤝 Акт «Сдал/Принял»</button>' +
-      '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'invoice\')" title="Сформировать официальный Счет на оплату от Подрядчика">💰 Счёт на оплату</button>' +
-      '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'tmc_act\')" title="Сформировать Акт списания материалов (ТМЦ) объекта">📦 Акт расхода ТМЦ</button>' +
-      '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'id_registry\')" title="Сформировать Альбом исполнительной документации (СКС)">📑 Альбом ИД</button>' +
-    '</div>' +
-  '</div>';
-
   var isAccepted = (t.assignmentStatus === 'accepted' || t.assignment_status === 'accepted');
   var customerInflowCard = '<div class="card p" style="border:1.5px solid var(--border);background:#fff">' +
     '<div class="sec-title" style="margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center">' +
@@ -1589,14 +1697,15 @@ function pageCard() {
     '</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
       field('Сумма договора / заявки', 'amount', 'number', true) +
-      field('Удаленность объекта (км)', 'distanceKm', 'number', true) +
-      field('В заказе Заказчика (план, портов)', 'inOrder', 'number', true) +
-      field('Фактически смонтировано (портов)', 'fact', 'number', true) +
       field('Стоимость за единицу', 'pricePerUnit', 'number', true) +
+      field('В заказе Заказчика (план, портов)', 'inOrder', 'number', true) +
       (isWorker ? '' : field('№ документа в ЭДО', 'edoNumber', 'text', true)) +
+      field('Километраж дороги (км)', 'realDistanceKm', 'number', true) +
+      field('Доплата за удаленность (₽)', 'distanceKm', 'number', true) +
     '</div>' +
-    '<div style="margin-top:8px;padding-top:6px;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end">' +
-      '<button type="button" class="btn btn-sm btn-primary" onclick="setCardTab(\'items\')" style="font-size:.8rem;padding:4px 12px;font-weight:600">👷 Перейти к расчету СМР и подрядчику →</button>' +
+    '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+      '<span style="font-size:.74rem;color:var(--text-3)">Проверили данные Заказчика и подрядчика?</span>' +
+      '<button type="button" class="btn btn-sm btn-primary" onclick="window.cardTransitionToSmr(\'' + eid + '\')" style="font-size:.82rem;padding:5px 14px;font-weight:700;background:#16a34a;border-color:#16a34a">🚀 Передать в монтаж (на этап СМР) →</button>' +
     '</div>' +
   '</div>';
 
@@ -1619,14 +1728,24 @@ function pageCard() {
             field('Регион', 'region', 'text', true) +
             field('Адрес объекта', 'address', 'text', true) +
           '</div>' +
-          '<div style="display:grid;grid-template-columns:' + (isWorker ? '1fr' : '1fr 1fr') + ';gap:8px;margin-bottom:6px">' +
-            (isWorker ? '' : field('№ ГОСБ', 'gosb', 'text', true)) +
-            (isWorker ? '' : field('№ ВСП', 'vsp', 'text', true)) +
-          '</div>' +
-          '<div style="display:grid;grid-template-columns:' + (isWorker ? '1fr' : '1fr 1fr') + ';gap:8px;margin-bottom:6px">' +
-            (isWorker ? '' : field('Тип объекта', 'tipObj', 'text', true)) +
-            field('Тип работ', 'workType', 'text', true) +
-          '</div>' +
+          (!isWorker ? (
+            '<details style="margin-bottom:8px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:6px 10px">' +
+              '<summary style="cursor:pointer;font-size:.78rem;font-weight:600;color:var(--text-2);user-select:none;display:flex;align-items:center;justify-content:space-between">' +
+                '<span>📋 Реквизиты объекта / ВСП / ГОСБ (Сбер) ▾</span>' +
+                '<span style="font-size:.72rem;color:var(--text-3)">' + ((t.gosb || t.vsp || t.tipObj) ? 'ГОСБ: ' + escHtml(t.gosb||'—') + ' · ВСП: ' + escHtml(t.vsp||'—') : 'развернуть') + '</span>' +
+              '</summary>' +
+              '<div style="margin-top:8px">' +
+                '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">' +
+                  field('№ ГОСБ', 'gosb', 'text', true) +
+                  field('№ ВСП', 'vsp', 'text', true) +
+                '</div>' +
+                '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+                  field('Тип объекта', 'tipObj', 'text', true) +
+                  field('Тип работ', 'workType', 'text', true) +
+                '</div>' +
+              '</div>' +
+            '</details>'
+          ) : '') +
           '<div>' +
             field('Контакт на объекте', 'contact', 'textarea', true) +
           '</div>' +
@@ -1664,10 +1783,10 @@ function pageCard() {
           '</div>' +
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">' +
             field('Дата распределения', 'distributedAt', 'date', true) +
-            field('Дедлайн (план)', 'deadline', 'date', true) +
+            field('Дедлайн Заказчика (план)', 'deadline', 'date', true) +
           '</div>' +
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">' +
-            field('Дата выхода (факт)', 'dataVyhoda', 'date', true) +
+            field('Дата выхода', 'dataVyhoda', 'date', true) +
             field('Приёмка (фото)', 'priemka', 'text', true) +
           '</div>' +
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">' +
@@ -1677,7 +1796,7 @@ function pageCard() {
           (isWorker ? '' : 
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;padding-top:6px;border-top:1px dashed var(--border)">' +
               field('Внутренний комментарий', 'comment', 'textarea', true) +
-              field('Комментарий из Excel', 'excelComment', 'textarea', true) +
+              field('Комментарий Заказчика', 'excelComment', 'textarea', true) +
             '</div>' +
             rawExtraRows
           ) +
@@ -1694,8 +1813,7 @@ function pageCard() {
         '<!-- 2. Параметры заказа по договору (Вход) -->' +
         customerInflowCard +
 
-        '<!-- 3. Документы объекта и Data Lineage -->' +
-        quickDocsCard +
+        '<!-- 3. Data Lineage -->' +
         (isWorker ? '' : '<div class="card p" style="background:#f8fafc;border:1.5px solid var(--border)">' +
           '<div class="sec-title" style="margin-bottom:.3rem;display:flex;align-items:center;gap:6px">📌 Происхождение заявки (Data Lineage)</div>' +
           '<div style="display:flex;flex-direction:column;gap:4px;font-size:.76rem">' +
@@ -1903,16 +2021,17 @@ function pageCard() {
   var docsRegistryBlock = '<div class="card p mb" style="border:1.5px solid var(--border)">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:.75rem">' +
       '<div>' +
-        '<div class="sec-title" style="margin:0;font-size:1.05rem">📑 Реестр сформированных документов</div>' +
-        '<div style="font-size:.78rem;color:var(--text-3);margin-top:2px">Официальные документы по объекту: Заказ-наряды (Прил. №2), Акты «Сдал/Принял», Счета на оплату, Письма на допуск, Акты расхода ТМЦ, Альбомы ИД</div>' +
+        '<div class="sec-title" style="margin:0;font-size:1.05rem">📑 Реестр документов по заявке</div>' +
+        '<div style="font-size:.78rem;color:var(--text-3);margin-top:2px">Управленческий учет: Заявка (Прил. №2), Акты выполненных работ, Счета, Отчеты монтажника (ТМЦ), Допуски на объект и Альбом ИД</div>' +
       '</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-        '<button type="button" class="btn btn-sm btn-primary" onclick="generateTaskDoc(\'' + eid + '\', \'order_subcontract\')">📄 Приложение №2</button>' +
-        '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'completion_act\')">🤝 Акт «Сдал/Принял»</button>' +
-        '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'invoice\')">💰 Счет</button>' +
-        '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'tmc_act\')">📦 Акт расхода ТМЦ</button>' +
-        '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'id_registry\')">📑 Альбом ИД</button>' +
-        '<button type="button" class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\'' + eid + '\')">🪪 Допуск на объект</button>' +
+        '<button type="button" class="btn btn-sm btn-primary" onclick="generateTaskDoc(\'' + eid + '\', \'order_subcontract\')" title="Заявка (Заказ на работы) — неотъемлемая часть договора субподряда">📄 Заявка (Прил. №2)</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'completion_act\')" title="Акт выполненных работ к заказу на работы («Сдал/Принял»)">🤝 Акт вып. работ</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'invoice\')" title="Сформировать счёт на оплату">💰 Счёт</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'tmc_act\')" title="Отчет монтажника по израсходованным материалам (Акт ТМЦ)">📦 Отчет монтажника (ТМЦ)</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'id_registry\')" title="Альбом исполнительной документации СКС">📑 Альбом ИД</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\'' + eid + '\')" title="Допуск на объект: Письмо на допуск, Заказ-наряд или Наряд-допуск" style="border:1px solid #fed7aa;background:#fff7ed;color:#c2410c;font-weight:700">🪪 Допуск на объект ▾</button>' +
+        '<button type="button" class="btn btn-sm btn-outline" onclick="openUploadTaskDocModal(\'' + eid + '\')" title="Учесть входящий счет, акт выполненных работ или скан от контрагента" style="font-weight:700;border:1.5px dashed var(--blue);color:var(--blue)">📎 Учесть Счет / Акт контрагента</button>' +
       '</div>' +
     '</div>' +
     '<div id="cardDocumentsContainer" class="t3">Загрузка документов…</div>' +
@@ -3441,16 +3560,18 @@ var fieldLabels = {
   overdueDays: 'Дней просрочки',
   overdue_days: 'Дней просрочки',
   contractor: 'Подрядчик (СМР)',
-  distanceKm: 'Удалённость (км)',
-  distance_km: 'Удалённость (км)',
+  realDistanceKm: 'Километраж дороги (км)',
+  real_distance_km: 'Километраж дороги (км)',
+  distanceKm: 'Доплата за удаленность (₽)',
+  distance_km: 'Доплата за удаленность (₽)',
   kmRate: 'Ставка за км',
   km_rate: 'Ставка за км',
   pricePerUnit: 'Стоимость за ед.',
   price_per_unit: 'Стоимость за ед.',
   idStatus: 'Статус ИД',
   id_status: 'Статус ИД',
-  excelComment: 'Комментарий (Excel)',
-  excel_comment: 'Комментарий (Excel)',
+  excelComment: 'Комментарий Заказчика',
+  excel_comment: 'Комментарий Заказчика',
   supplierOrderSigned: 'Заказ подписан на портале',
   supplier_order_signed: 'Заказ подписан на портале',
   supplierIdUploaded: 'ИД загружена на портал',
@@ -3615,13 +3736,35 @@ function openAccessLetterModal(taskId) {
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(2px)';
     
     modal.innerHTML = `
-      <div style="background:#fff;border-radius:14px;padding:1.5rem;width:100%;max-width:640px;box-shadow:0 12px 48px rgba(0,0,0,.25);max-height:90vh;display:flex;flex-direction:column">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+      <div style="background:#fff;border-radius:14px;padding:1.5rem;width:100%;max-width:640px;box-shadow:0 12px 48px rgba(0,0,0,.25);max-height:92vh;display:flex;flex-direction:column">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
           <div>
-            <div style="font-weight:700;font-size:1.1rem">📄 Письмо на допуск на объект (.docx)</div>
+            <div style="font-weight:700;font-size:1.1rem">🪪 Допуск на объект (.docx)</div>
             <div style="font-size:.8rem;color:var(--text-3);margin-top:2px">Объект: <b>${escHtml(t.id)}</b> (${escHtml(t.customer || 'Заказчик')}, ${escHtml(t.address || '')})</div>
           </div>
           <button onclick="document.getElementById('_access_letter_modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-3);line-height:1">×</button>
+        </div>
+
+        <!-- 3 ВИДА ДОКУМЕНТОВ ДОПУСКА (ПО АЛЕКСЕЮ ЧАЙКЕ) -->
+        <div style="margin-bottom:12px;background:#f8fafc;padding:10px 12px;border-radius:8px;border:1.5px solid var(--border)">
+          <label style="display:block;font-size:.76rem;font-weight:700;color:var(--text);margin-bottom:6px">Выберите вид документа допуска:</label>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:6px">
+            <label style="display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:6px;border:1.5px solid #3b82f6;background:#eff6ff;cursor:pointer" id="alm_lbl_permit_letter">
+              <input type="radio" name="alm_doc_type" value="permit_letter" checked onchange="window.handleAlmDocTypeChange(this.value)">
+              <span style="font-size:.82rem;font-weight:700;color:#1d4ed8">✉️ Письмо на допуск</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:6px;border:1.5px solid var(--border);background:#fff;cursor:pointer" id="alm_lbl_access_order">
+              <input type="radio" name="alm_doc_type" value="access_order" onchange="window.handleAlmDocTypeChange(this.value)">
+              <span style="font-size:.82rem;font-weight:700;color:var(--text)">📋 Заказ-наряд на работы</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:6px;border:1.5px solid var(--border);background:#fff;cursor:pointer" id="alm_lbl_work_permit">
+              <input type="radio" name="alm_doc_type" value="work_permit" onchange="window.handleAlmDocTypeChange(this.value)">
+              <span style="font-size:.82rem;font-weight:700;color:var(--text)">🛡️ Наряд-допуск</span>
+            </label>
+          </div>
+          <div id="alm_type_hint" style="font-size:.73rem;color:var(--text-3);margin-top:6px">
+            ✉️ <strong>Письмо на допуск (письмо-список)</strong> — официальное письмо на владельца / службу безопасности объекта со списком монтажников и паспортными данными.
+          </div>
         </div>
 
         <div style="overflow-y:auto;flex:1;padding-right:4px">
@@ -3646,7 +3789,7 @@ function openAccessLetterModal(taskId) {
             <input type="text" id="alm_search" placeholder="Быстрый поиск..." oninput="filterAlmSpecialists(this.value)" style="padding:4px 8px;font-size:.8rem;border:1px solid var(--border);border-radius:4px;width:160px">
           </div>
 
-          <div id="alm_specialists_list" style="border:1.5px solid var(--border);border-radius:8px;max-height:260px;overflow-y:auto;padding:6px;background:var(--bg)">
+          <div id="alm_specialists_list" style="border:1.5px solid var(--border);border-radius:8px;max-height:240px;overflow-y:auto;padding:6px;background:var(--bg)">
             ${specsList.map(function(s) {
               var hasPass = s.passport_raw && s.passport_raw.trim() !== '';
               var passSnippet = s.passport_raw || s.passport_series_number || 'Паспортные данные не заполнены';
@@ -3674,7 +3817,7 @@ function openAccessLetterModal(taskId) {
           </div>
           <div style="display:flex;gap:8px">
             <button onclick="document.getElementById('_access_letter_modal').remove()" class="btn btn-ghost btn-sm">Отмена</button>
-            <button id="alm_download_btn" class="btn btn-sm" onclick="downloadAccessLetter('${escHtml(taskId)}')">📥 Скачать письмо (.docx)</button>
+            <button id="alm_download_btn" class="btn btn-sm btn-primary" onclick="downloadAccessLetter('${escHtml(taskId)}')">📥 Сформировать и скачать (.docx)</button>
           </div>
         </div>
       </div>
@@ -3694,6 +3837,48 @@ function openAccessLetterModal(taskId) {
   });
 }
 
+window.handleAlmDocTypeChange = function(type) {
+  var hintEl = document.getElementById('alm_type_hint');
+  var lblPermit = document.getElementById('alm_lbl_permit_letter');
+  var lblOrder = document.getElementById('alm_lbl_access_order');
+  var lblHazard = document.getElementById('alm_lbl_work_permit');
+
+  [lblPermit, lblOrder, lblHazard].forEach(function(l){
+    if (l) {
+      l.style.borderColor = 'var(--border)';
+      l.style.backgroundColor = '#fff';
+      var sp = l.querySelector('span');
+      if (sp) sp.style.color = 'var(--text)';
+    }
+  });
+
+  if (type === 'access_order') {
+    if (lblOrder) {
+      lblOrder.style.borderColor = '#c2410c';
+      lblOrder.style.backgroundColor = '#fff7ed';
+      var sp = lblOrder.querySelector('span');
+      if (sp) sp.style.color = '#c2410c';
+    }
+    if (hintEl) hintEl.innerHTML = '📋 <strong>Заказ-наряд на работы</strong> — распорядительный документ организации: определяет бригаду (старший, монтажники), инструктаж по режиму, перечень и сроки выполнения работ.';
+  } else if (type === 'work_permit') {
+    if (lblHazard) {
+      lblHazard.style.borderColor = '#dc2626';
+      lblHazard.style.backgroundColor = '#fef2f2';
+      var sp = lblHazard.querySelector('span');
+      if (sp) sp.style.color = '#dc2626';
+    }
+    if (hintEl) hintEl.innerHTML = '🛡️ <strong>Наряд-допуск</strong> — отдельный документ для работ с повышенной опасностью (высотные, в действующих электроустановках, в закрытых зонах объекта).';
+  } else {
+    if (lblPermit) {
+      lblPermit.style.borderColor = '#3b82f6';
+      lblPermit.style.backgroundColor = '#eff6ff';
+      var sp = lblPermit.querySelector('span');
+      if (sp) sp.style.color = '#1d4ed8';
+    }
+    if (hintEl) hintEl.innerHTML = '✉️ <strong>Письмо на допуск (письмо-список)</strong> — официальное письмо на владельца / службу безопасности объекта со списком монтажников и паспортными данными.';
+  }
+};
+
 function filterAlmSpecialists(val) {
   var q = (val || '').toLowerCase().trim();
   var items = document.querySelectorAll('.alm-spec-item');
@@ -3707,6 +3892,9 @@ function downloadAccessLetter(taskId) {
   var modal = document.getElementById('_access_letter_modal');
   if (!modal) return;
 
+  var selectedTypeRadio = modal.querySelector('input[name="alm_doc_type"]:checked');
+  var selectedType = selectedTypeRadio ? selectedTypeRadio.value : 'permit_letter';
+
   var contractorName = (document.getElementById('alm_contractor') ? document.getElementById('alm_contractor').value : '').trim();
   var responsibleInfo = (document.getElementById('alm_responsible') ? document.getElementById('alm_responsible').value : '').trim();
   var customTaskInfo = (document.getElementById('alm_task_info') ? document.getElementById('alm_task_info').value : '').trim();
@@ -3718,47 +3906,46 @@ function downloadAccessLetter(taskId) {
     return alert('Пожалуйста, выберите хотя бы одного специалиста для допуска');
   }
 
+  var selectedSpecs = (S.specialists || []).filter(function(s){ return specialistIds.includes(s.id); });
+
   var btn = document.getElementById('alm_download_btn');
   if (btn) {
     btn.disabled = true;
     btn.textContent = '⏳ Генерация Word...';
   }
 
-  fetch('/api/tasks/' + encodeURIComponent(taskId) + '/access-letter', {
+  api('/tasks/' + encodeURIComponent(taskId) + '/documents/generate', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + S.token
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      specialistIds: specialistIds,
-      contractorName: contractorName,
-      responsibleInfo: responsibleInfo,
-      customTaskInfo: customTaskInfo
+      doc_type: selectedType,
+      meta: {
+        specialists: selectedSpecs,
+        responsible_info: responsibleInfo,
+        contractor_name: contractorName,
+        task_info: customTaskInfo
+      }
     })
   })
-  .then(function(r) {
-    if (!r.ok) return r.json().then(function(e){ throw new Error(e.error || 'Ошибка сервера'); });
-    return r.blob();
-  })
-  .then(function(blob) {
-    var bUrl = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = bUrl;
-    var cleanId = taskId.replace(/[/\\?%*:|"<>]/g, '_');
-    a.download = 'Pismo_na_dopusk_' + cleanId + '.docx';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(bUrl);
+  .then(function(res) {
+    if (res && res.error) throw new Error(res.error);
+    if (res.file_url) {
+      var a = document.createElement('a');
+      a.href = res.file_url;
+      a.download = (res.title || selectedType) + '.docx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+    showToast('✅ Документ допуска сформирован и сохранен в реестре!', 'success');
     modal.remove();
     loadCardDocuments(taskId);
   })
   .catch(function(err) {
-    alert('Не удалось сформировать письмо на допуск: ' + err.message);
+    alert('Не удалось сформировать документ допуска: ' + err.message);
     if (btn) {
       btn.disabled = false;
-      btn.textContent = '📥 Скачать письмо (.docx)';
+      btn.textContent = '📥 Сформировать и скачать (.docx)';
     }
   });
 }
@@ -4832,7 +5019,7 @@ function _renderSubcontractModal(taskId, editId) {
   var curComment = editSub ? (editSub.comment || '') : '';
 
   var isAlreadyAssigned = !!(selectedCName || t.contractor);
-  var modalTitle = isAlreadyAssigned ? '✏️ Редактировать данные подрядчика' : '🤝 Назначить подрядчика';
+  var modalTitle = isAlreadyAssigned ? '✏️ Условия субподряда и состав монтажников' : '🤝 Назначить субподрядчика';
   var submitBtnLabel = isAlreadyAssigned ? 'Сохранить изменения' : 'Назначить подрядчика';
 
   var modal = document.createElement('div');
@@ -4904,8 +5091,12 @@ function _renderSubcontractModal(taskId, editId) {
       '</div>' +
 
       '<div>' +
-        '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Дедлайн (срок сдачи)</label>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+          '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin:0">Срок сдачи субподрядчиком (дедлайн монтажа)</label>' +
+          (t.deadline ? ('<span style="font-size:.72rem;color:var(--text-3)">Дедлайн Заказчика: <b style="color:var(--red)">' + (String(t.deadline).slice(0, 10).split('-').reverse().join('.')) + '</b></span>') : '') +
+        '</div>' +
         '<input type="date" id="subm_deadline" value="' + escHtml(curDeadline) + '" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+        '<div style="font-size:.71rem;color:var(--text-3);margin-top:2px">Срок сдачи работ субподрядчиком нашему ПМ (рекомендуется за 2-3 дня до дедлайна Заказчика).</div>' +
       '</div>' +
 
       '<div style="border-top:1px solid var(--border);padding-top:10px;margin-top:6px">' +
@@ -5090,12 +5281,14 @@ function deleteSubcontract(taskId, subId) {
 
 window.generateTaskDoc = function(taskId, docType, optSubcontractId) {
   var docTitles = {
-    order_subcontract: 'Заказ-наряд (Приложение №2)',
-    completion_act: 'Акт сдачи-приемки («Сдал/Принял»)',
+    order_subcontract: 'Заявка (Заказ на работы) [Прил. №2]',
+    completion_act: 'Акт вып. работ [к заказу]',
     invoice: 'Счет на оплату',
     permit_letter: 'Письмо на допуск на объект',
-    tmc_act: 'Акт списания материалов (ТМЦ)',
-    id_registry: 'Альбом исполнительной документации (СКС)',
+    access_order: 'Заказ-наряд на работы',
+    work_permit: 'Наряд-допуск на работы повышенной опасности',
+    tmc_act: 'Отчет монтажника (ТМЦ)',
+    id_registry: 'Альбом ИД (СКС)',
     contract: 'Договор подряда',
     power_attorney: 'Доверенность на получение ТМЦ'
   };
@@ -5140,52 +5333,390 @@ function loadCardDocuments(taskId) {
   if (!cont) return;
   api('/tasks/' + encodeURIComponent(taskId) + '/documents')
     .then(function(docs) {
+      window._cardDocsCache = Array.isArray(docs) ? docs : [];
       if (!Array.isArray(docs) || !docs.length) {
-        cont.innerHTML = '<div style="color:var(--text-3);font-size:.82rem">Официальные документы пока не сформированы. Нажмите «📑 Альбом ИД» или сгенерируйте Заказ-наряд («Приложение №2»).</div>';
+        cont.innerHTML = '<div style="color:var(--text-3);font-size:.82rem;padding:8px 0">' +
+          'Официальные документы пока не сформированы и не учтены. ' +
+          'Нажмите «📄 Заявка (Прил. №2)», «🪪 Допуск на объект ▾» или учтите входящий счет/акт контрагента через кнопку «📎 Учесть Счет / Акт контрагента».' +
+        '</div>';
         return;
       }
 
-      var html = '<table class="table" style="font-size:.82rem;margin-top:.4rem">' +
-        '<thead><tr>' +
-          '<th>Документ</th>' +
-          '<th>Тип</th>' +
-          '<th>№ и Дата</th>' +
-          '<th>Сформировал</th>' +
-          '<th>Действия</th>' +
+      var html = '<div style="overflow-x:auto"><table class="table" style="font-size:.82rem;margin-top:.4rem;width:100%">' +
+        '<thead><tr style="text-align:left;border-bottom:1.5px solid var(--border)">' +
+          '<th style="padding:6px 8px">Документ</th>' +
+          '<th style="padding:6px 8px">Тип</th>' +
+          '<th style="padding:6px 8px">№ и Дата</th>' +
+          '<th style="padding:6px 8px">Сумма</th>' +
+          '<th style="padding:6px 8px">Статус</th>' +
+          '<th style="padding:6px 8px">Автор / Учёт</th>' +
+          '<th style="padding:6px 8px;text-align:right">Действия</th>' +
         '</tr></thead><tbody>';
 
       docs.forEach(function(d) {
         var rawDate = d.doc_date || d.created_at;
         var dateStr = rawDate ? rawDate.slice(0, 10).split('-').reverse().join('.') : '—';
+        var meta = typeof d.meta === 'string' ? (function(){ try { return JSON.parse(d.meta); } catch(e){ return {}; } })() : (d.meta || {});
+        var isIncoming = Boolean(meta.is_incoming || d.is_incoming);
+        var amountVal = (meta.amount !== undefined && meta.amount !== null && meta.amount !== '') ? parseFloat(meta.amount) : (d.amount ? parseFloat(d.amount) : null);
+        var curStatus = meta.status || d.status || 'generated';
 
+        // Badges for doc_type
         var typeBadge = '<span class="badge b-gray" style="font-size:.68rem">' + escHtml(d.doc_type || 'Документ') + '</span>';
-        if (d.doc_type === 'order_subcontract') typeBadge = '<span class="badge b-blue" style="font-size:.68rem">Приложение №2</span>';
-        else if (d.doc_type === 'completion_act') typeBadge = '<span class="badge b-green" style="font-size:.68rem">Сдал/Принял</span>';
-        else if (d.doc_type === 'invoice') typeBadge = '<span class="badge b-yellow" style="font-size:.68rem">Счет</span>';
-        else if (d.doc_type === 'tmc_act') typeBadge = '<span class="badge b-gray" style="font-size:.68rem">Акт ТМЦ</span>';
-        else if (d.doc_type === 'id_registry') typeBadge = '<span class="badge b-purple" style="font-size:.68rem">Альбом ИД</span>';
-        else if (d.doc_type === 'permit_letter') typeBadge = '<span class="badge b-orange" style="font-size:.68rem">Допуск</span>';
+        if (d.doc_type === 'order_subcontract') typeBadge = '<span class="badge b-blue" style="font-size:.68rem">Заявка [Прил. №2]</span>';
+        else if (d.doc_type === 'completion_act') typeBadge = '<span class="badge b-green" style="font-size:.68rem">Акт вып. работ</span>';
+        else if (d.doc_type === 'invoice') typeBadge = '<span class="badge b-yellow" style="font-size:.68rem">Счет на оплату</span>';
+        else if (d.doc_type === 'tmc_act') typeBadge = '<span class="badge b-gray" style="font-size:.68rem">Отчет ТМЦ</span>';
+        else if (d.doc_type === 'id_registry') typeBadge = '<span class="badge b-purple" style="font-size:.68rem">Альбом ИД (СКС)</span>';
+        else if (d.doc_type === 'permit_letter') typeBadge = '<span class="badge" style="font-size:.68rem;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe">✉️ Письмо на допуск</span>';
+        else if (d.doc_type === 'access_order') typeBadge = '<span class="badge" style="font-size:.68rem;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa">📋 Заказ-наряд</span>';
+        else if (d.doc_type === 'work_permit') typeBadge = '<span class="badge" style="font-size:.68rem;background:#fef2f2;color:#dc2626;border:1px solid #fecaca">🛡️ Наряд-допуск</span>';
         else if (d.doc_type === 'contract') typeBadge = '<span class="badge b-blue" style="font-size:.68rem">Договор</span>';
         else if (d.doc_type === 'power_attorney') typeBadge = '<span class="badge b-gray" style="font-size:.68rem">Доверенность</span>';
+        else if (d.doc_type === 'upd') typeBadge = '<span class="badge b-purple" style="font-size:.68rem">УПД</span>';
 
-        html += '<tr>' +
-          '<td><a href="' + escHtml(d.file_url) + '" download style="font-weight:600;display:flex;align-items:center;gap:6px">📄 ' + escHtml(d.title) + '</a></td>' +
-          '<td style="white-space:nowrap">' + typeBadge + '</td>' +
-          '<td style="white-space:nowrap">' + escHtml(d.doc_number || '—') + ' от ' + dateStr + '</td>' +
-          '<td style="white-space:nowrap;color:var(--text-2)">' + escHtml(d.created_by_name || 'Система') + '</td>' +
-          '<td style="white-space:nowrap">' +
-            '<a href="' + escHtml(d.file_url) + '" download class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:.75rem">📥 Скачать</a> ' +
-            '<button class="btn btn-sm btn-ghost" style="color:var(--red);padding:2px 6px;font-size:.75rem" onclick="deleteCardDocument(\'' + escHtml(taskId) + '\', ' + d.id + ')">🗑️</button>' +
+        // Badges for status
+        var statusBadge = '';
+        if (curStatus === 'paid') {
+          statusBadge = '<span class="badge" style="font-size:.68rem;background:#dcfce7;color:#15803d;border:1px solid #86efac;cursor:pointer" onclick="openEditTaskDocModal(\'' + escHtml(taskId) + '\', ' + d.id + ')" title="Кликните для редактирования статуса">✅ Оплачен</span>';
+        } else if (curStatus === 'signed') {
+          statusBadge = '<span class="badge" style="font-size:.68rem;background:#eff6ff;color:#1d4ed8;border:1px solid #93c5fd;cursor:pointer" onclick="openEditTaskDocModal(\'' + escHtml(taskId) + '\', ' + d.id + ')" title="Кликните для редактирования статуса">✍️ Подписан</span>';
+        } else if (curStatus === 'issued') {
+          statusBadge = '<span class="badge" style="font-size:.68rem;background:#fef3c7;color:#b45309;border:1px solid #fde68a;cursor:pointer" onclick="openEditTaskDocModal(\'' + escHtml(taskId) + '\', ' + d.id + ')" title="Кликните для редактирования статуса">⏳ Выставлен</span>';
+        } else if (curStatus === 'draft') {
+          statusBadge = '<span class="badge b-gray" style="font-size:.68rem;cursor:pointer" onclick="openEditTaskDocModal(\'' + escHtml(taskId) + '\', ' + d.id + ')" title="Кликните для редактирования статуса">📝 Черновик</span>';
+        } else {
+          statusBadge = '<span class="badge" style="font-size:.68rem;background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;cursor:pointer" onclick="openEditTaskDocModal(\'' + escHtml(taskId) + '\', ' + d.id + ')" title="Кликните для редактирования статуса">⚡ Сформирован</span>';
+        }
+
+        // Title and file link
+        var titleHtml = '';
+        if (d.file_url) {
+          titleHtml = '<a href="' + escHtml(d.file_url) + '" target="_blank" download style="font-weight:600;display:inline-flex;align-items:center;gap:5px;color:var(--blue)">' +
+            (isIncoming ? '📎' : '📄') + ' ' + escHtml(d.title || 'Документ') +
+          '</a>';
+        } else {
+          titleHtml = '<span style="font-weight:600;display:inline-flex;align-items:center;gap:5px">' +
+            '📝 ' + escHtml(d.title || 'Документ') +
+          '</span>';
+        }
+
+        if (isIncoming) {
+          titleHtml += ' <span class="badge" style="font-size:.6rem;background:#f3e8ff;color:#7e22ce;vertical-align:middle">Контрагент</span>';
+        }
+
+        if (meta.comment) {
+          titleHtml += '<div style="font-size:.73rem;color:var(--text-3);margin-top:2px;max-width:280px;white-space:normal">' + escHtml(meta.comment) + '</div>';
+        }
+
+        // Amount string
+        var amountStr = (amountVal !== null && !isNaN(amountVal))
+          ? '<b style="color:var(--text)">' + amountVal.toLocaleString('ru-RU') + ' ₽</b>'
+          : '<span style="color:var(--text-3)">—</span>';
+
+        // Author
+        var authorStr = escHtml(meta.uploader_name || d.created_by_name || 'Система');
+
+        html += '<tr style="border-bottom:1px solid var(--border)">' +
+          '<td style="padding:6px 8px">' + titleHtml + '</td>' +
+          '<td style="padding:6px 8px;white-space:nowrap">' + typeBadge + '</td>' +
+          '<td style="padding:6px 8px;white-space:nowrap">' + escHtml(d.doc_number || 'б/н') + ' <span style="color:var(--text-3)">от</span> ' + dateStr + '</td>' +
+          '<td style="padding:6px 8px;white-space:nowrap">' + amountStr + '</td>' +
+          '<td style="padding:6px 8px;white-space:nowrap">' + statusBadge + '</td>' +
+          '<td style="padding:6px 8px;white-space:nowrap;color:var(--text-2);font-size:.76rem">' + authorStr + '</td>' +
+          '<td style="padding:6px 8px;white-space:nowrap;text-align:right">' +
+            (d.file_url ? '<a href="' + escHtml(d.file_url) + '" download class="btn btn-sm btn-ghost" style="padding:2px 6px;font-size:.75rem" title="Скачать файл">📥</a> ' : '') +
+            '<button type="button" class="btn btn-sm btn-ghost" style="padding:2px 6px;font-size:.75rem" onclick="openEditTaskDocModal(\'' + escHtml(taskId) + '\', ' + d.id + ')" title="Редактировать статус / сумму / реквизиты">✏️</button> ' +
+            '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red);padding:2px 6px;font-size:.75rem" onclick="deleteCardDocument(\'' + escHtml(taskId) + '\', ' + d.id + ')" title="Удалить из реестра">🗑️</button>' +
           '</td>' +
         '</tr>';
       });
 
-      html += '</tbody></table>';
+      html += '</tbody></table></div>';
       cont.innerHTML = html;
     })
     .catch(function(err) {
-      cont.innerHTML = '<div style="color:var(--red)">Ошибка реестра документов: ' + escHtml(err.message) + '</div>';
+      cont.innerHTML = '<div style="color:var(--red);padding:8px 0">Ошибка реестра документов: ' + escHtml(err.message) + '</div>';
     });
+}
+
+function openUploadTaskDocModal(taskId) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); }) || { id: taskId };
+  var existing = document.getElementById('_upload_doc_modal');
+  if (existing) existing.remove();
+
+  var todayStr = new Date().toISOString().slice(0, 10);
+
+  api('/tasks/' + encodeURIComponent(taskId) + '/subcontracts')
+    .then(function(subs) {
+      renderUploadModal(subs || []);
+    })
+    .catch(function() {
+      renderUploadModal([]);
+    });
+
+  function renderUploadModal(subcontracts) {
+    var modal = document.createElement('div');
+    modal.id = '_upload_doc_modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(2px)';
+
+    var subOptions = '<option value="">(Без привязки к конкретному субподряду)</option>';
+    (subcontracts || []).forEach(function(s) {
+      var sLabel = (s.contractor_name || 'Подрядчик') + ' — ' + (s.work_type || 'Работы') + (s.price_agreed ? (' (' + parseFloat(s.price_agreed).toLocaleString('ru-RU') + ' ₽)') : '');
+      subOptions += '<option value="' + s.id + '">' + escHtml(sLabel) + '</option>';
+    });
+
+    modal.innerHTML = `
+      <div style="background:#fff;border-radius:14px;padding:1.5rem;width:100%;max-width:560px;box-shadow:0 12px 48px rgba(0,0,0,.25);max-height:92vh;display:flex;flex-direction:column">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+          <div>
+            <div style="font-weight:700;font-size:1.1rem">📎 Учет документа / Счета / Акта контрагента</div>
+            <div style="font-size:.8rem;color:var(--text-3);margin-top:2px">Объект: <b>${escHtml(t.id)}</b> (${escHtml(t.customer || 'Заказчик')})</div>
+          </div>
+          <button onclick="document.getElementById('_upload_doc_modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-3);line-height:1">×</button>
+        </div>
+
+        <div style="overflow-y:auto;flex:1;padding-right:4px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+            <div>
+              <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Вид документа *</label>
+              <select id="upt_doc_type" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;background:#fff">
+                <option value="invoice">💰 Счет на оплату</option>
+                <option value="completion_act">🤝 Акт выполненных работ</option>
+                <option value="access_order">📋 Заказ-наряд на работы</option>
+                <option value="work_permit">🛡️ Наряд-допуск</option>
+                <option value="upd">📑 УПД</option>
+                <option value="contract">📄 Договор / Доп. соглашение</option>
+                <option value="other">📎 Прочий скан / документ</option>
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Статус</label>
+              <select id="upt_status" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;background:#fff">
+                <option value="issued">⏳ Выставлен / Ожидает</option>
+                <option value="paid">✅ Оплачен</option>
+                <option value="signed">✍️ Подписан</option>
+                <option value="draft">📝 Черновик</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+            <div>
+              <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Номер документа</label>
+              <input type="text" id="upt_doc_number" placeholder="Напр. 15/А или б/н" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">
+            </div>
+            <div>
+              <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Дата документа</label>
+              <input type="date" id="upt_doc_date" value="${todayStr}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+            <div>
+              <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Сумма (₽)</label>
+              <input type="number" step="0.01" id="upt_amount" placeholder="0.00" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">
+            </div>
+            <div>
+              <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Субподряд</label>
+              <select id="upt_subcontract_id" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;background:#fff">
+                ${subOptions}
+              </select>
+            </div>
+          </div>
+
+          <div style="margin-bottom:10px">
+            <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Наименование (не обязательно)</label>
+            <input type="text" id="upt_title" placeholder="Автоматически сформируется из номера и типа, если оставить пустым" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">
+          </div>
+
+          <div style="margin-bottom:10px">
+            <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Комментарий / примечание</label>
+            <textarea id="upt_comment" rows="2" placeholder="Напр.: Счет от монтажника за доп. работы" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;resize:vertical"></textarea>
+          </div>
+
+          <div style="margin-bottom:12px;background:#f8fafc;padding:10px 12px;border-radius:8px;border:1.5px dashed var(--border)">
+            <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text);margin-bottom:4px">📎 Прикрепить скан / файл (PDF, DOCX, JPG, PNG)</label>
+            <input type="file" id="upt_file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" style="font-size:.82rem">
+            <div style="font-size:.72rem;color:var(--text-3);margin-top:4px">Можно учесть документ и без файла (например, когда счет отправлен по ЭДО или в мессенджере).</div>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:1.25rem;border-top:1px solid var(--border);padding-top:12px">
+          <button onclick="document.getElementById('_upload_doc_modal').remove()" class="btn btn-ghost btn-sm">Отмена</button>
+          <button id="upt_save_btn" class="btn btn-sm btn-primary" onclick="saveUploadTaskDoc('${escHtml(taskId)}')">💾 Сохранить документ</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+    modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
+  }
+}
+
+function saveUploadTaskDoc(taskId) {
+  var docType = document.getElementById('upt_doc_type').value;
+  var docNum = document.getElementById('upt_doc_number').value.trim();
+  var docDate = document.getElementById('upt_doc_date').value;
+  var amount = document.getElementById('upt_amount').value.trim();
+  var status = document.getElementById('upt_status').value;
+  var title = document.getElementById('upt_title').value.trim();
+  var comment = document.getElementById('upt_comment').value.trim();
+  var subId = document.getElementById('upt_subcontract_id') ? document.getElementById('upt_subcontract_id').value : '';
+  var fileInput = document.getElementById('upt_file');
+
+  var fd = new FormData();
+  fd.append('doc_type', docType);
+  if (docNum) fd.append('doc_number', docNum);
+  if (docDate) fd.append('doc_date', docDate);
+  if (amount) fd.append('amount', amount);
+  if (status) fd.append('status', status);
+  if (title) fd.append('title', title);
+  if (comment) fd.append('comment', comment);
+  if (subId) fd.append('subcontract_id', subId);
+  if (fileInput && fileInput.files && fileInput.files[0]) {
+    fd.append('file', fileInput.files[0]);
+  }
+
+  var btn = document.getElementById('upt_save_btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Сохранение...'; }
+
+  api('/tasks/' + encodeURIComponent(taskId) + '/documents/upload', {
+    method: 'POST',
+    body: fd
+  })
+  .then(function(res) {
+    if (res && res.error) throw new Error(res.error);
+    var modal = document.getElementById('_upload_doc_modal');
+    if (modal) modal.remove();
+    if (typeof showToast === 'function') showToast('✅ Документ сохранен в реестре!', 'success');
+    loadCardDocuments(taskId);
+  })
+  .catch(function(err) {
+    alert('Ошибка учета документа: ' + err.message);
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Сохранить документ'; }
+  });
+}
+
+function openEditTaskDocModal(taskId, docId) {
+  var doc = (window._cardDocsCache || []).find(function(d){ return String(d.id) === String(docId); });
+  if (!doc) {
+    loadCardDocuments(taskId);
+    return;
+  }
+
+  var existing = document.getElementById('_edit_doc_modal');
+  if (existing) existing.remove();
+
+  var meta = typeof doc.meta === 'string' ? (function(){ try { return JSON.parse(doc.meta); } catch(e){ return {}; } })() : (doc.meta || {});
+  var curStatus = meta.status || doc.status || 'generated';
+  var curAmount = (meta.amount !== undefined && meta.amount !== null) ? meta.amount : (doc.amount || '');
+  var curDate = doc.doc_date ? doc.doc_date.slice(0, 10) : (doc.created_at ? doc.created_at.slice(0, 10) : '');
+  var curNum = doc.doc_number || '';
+  var curTitle = doc.title || '';
+  var curComment = meta.comment || '';
+
+  var modal = document.createElement('div');
+  modal.id = '_edit_doc_modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(2px)';
+
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:1.5rem;width:100%;max-width:500px;box-shadow:0 12px 48px rgba(0,0,0,.25);max-height:92vh;display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+        <div>
+          <div style="font-weight:700;font-size:1.1rem">✏️ Редактирование документа</div>
+          <div style="font-size:.8rem;color:var(--text-3);margin-top:2px">${escHtml(doc.title || 'Документ')}</div>
+        </div>
+        <button onclick="document.getElementById('_edit_doc_modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-3);line-height:1">×</button>
+      </div>
+
+      <div style="overflow-y:auto;flex:1;padding-right:4px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div>
+            <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Статус документа</label>
+            <select id="edt_status" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;background:#fff">
+              <option value="issued" ${curStatus === 'issued' ? 'selected' : ''}>⏳ Выставлен</option>
+              <option value="paid" ${curStatus === 'paid' ? 'selected' : ''}>✅ Оплачен</option>
+              <option value="signed" ${curStatus === 'signed' ? 'selected' : ''}>✍️ Подписан</option>
+              <option value="draft" ${curStatus === 'draft' ? 'selected' : ''}>📝 Черновик</option>
+              <option value="generated" ${curStatus === 'generated' ? 'selected' : ''}>⚡ Сформирован</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Сумма (₽)</label>
+            <input type="number" step="0.01" id="edt_amount" value="${escHtml(curAmount)}" placeholder="0.00" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div>
+            <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Номер документа</label>
+            <input type="text" id="edt_doc_number" value="${escHtml(curNum)}" placeholder="Номер" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">
+          </div>
+          <div>
+            <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Дата документа</label>
+            <input type="date" id="edt_doc_date" value="${escHtml(curDate)}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">
+          </div>
+        </div>
+
+        <div style="margin-bottom:10px">
+          <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Наименование</label>
+          <input type="text" id="edt_title" value="${escHtml(curTitle)}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">
+        </div>
+
+        <div style="margin-bottom:10px">
+          <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Комментарий / примечание</label>
+          <textarea id="edt_comment" rows="2" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;resize:vertical">${escHtml(curComment)}</textarea>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:1.25rem;border-top:1px solid var(--border);padding-top:12px">
+        <button onclick="document.getElementById('_edit_doc_modal').remove()" class="btn btn-ghost btn-sm">Отмена</button>
+        <button id="edt_save_btn" class="btn btn-sm btn-primary" onclick="saveEditTaskDoc('${escHtml(taskId)}', ${doc.id})">💾 Сохранить изменения</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
+}
+
+function saveEditTaskDoc(taskId, docId) {
+  var status = document.getElementById('edt_status').value;
+  var amount = document.getElementById('edt_amount').value.trim();
+  var docNum = document.getElementById('edt_doc_number').value.trim();
+  var docDate = document.getElementById('edt_doc_date').value;
+  var title = document.getElementById('edt_title').value.trim();
+  var comment = document.getElementById('edt_comment').value.trim();
+
+  var body = {
+    status: status,
+    amount: amount ? parseFloat(amount) : null,
+    doc_number: docNum || null,
+    doc_date: docDate || null,
+    title: title || null,
+    comment: comment
+  };
+
+  var btn = document.getElementById('edt_save_btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Сохранение...'; }
+
+  api('/documents/' + docId, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  .then(function(res) {
+    if (res && res.error) throw new Error(res.error);
+    var modal = document.getElementById('_edit_doc_modal');
+    if (modal) modal.remove();
+    if (typeof showToast === 'function') showToast('✅ Документ обновлен!', 'success');
+    loadCardDocuments(taskId);
+  })
+  .catch(function(err) {
+    alert('Ошибка обновления документа: ' + err.message);
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Сохранить изменения'; }
+  });
 }
 
 function deleteCardDocument(taskId, docId) {
@@ -5198,6 +5729,13 @@ function deleteCardDocument(taskId, docId) {
       alert('Ошибка удаления: ' + err.message);
     });
 }
+
+window.loadCardDocuments = loadCardDocuments;
+window.openUploadTaskDocModal = openUploadTaskDocModal;
+window.saveUploadTaskDoc = saveUploadTaskDoc;
+window.openEditTaskDocModal = openEditTaskDocModal;
+window.saveEditTaskDoc = saveEditTaskDoc;
+window.deleteCardDocument = deleteCardDocument;
 
 // ─── PAGE: МАРШИ ─────────────────────────────────────────────────────────────
 

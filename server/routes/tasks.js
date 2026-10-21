@@ -529,7 +529,8 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
     if (d.amount !== undefined && d.amount !== null) checkChange('Сумма договора', currentTask.amount, d.amount !== '' ? Number(d.amount) : null);
     if (d.pricePerUnit !== undefined && d.pricePerUnit !== null) checkChange('Цена за ед.', currentTask.price_per_unit, d.pricePerUnit !== '' ? Number(d.pricePerUnit) : null);
     if (d.kmRate !== undefined && d.kmRate !== null) checkChange('Ставка за км', currentTask.km_rate, d.kmRate !== '' ? Number(d.kmRate) : null);
-    if (d.distanceKm !== undefined && d.distanceKm !== null) checkChange('Удалённость (км)', currentTask.distance_km, d.distanceKm !== '' ? Number(d.distanceKm) : null);
+    if (d.distanceKm !== undefined && d.distanceKm !== null) checkChange('Доплата за удаленность (₽)', currentTask.distance_km, d.distanceKm !== '' ? Number(d.distanceKm) : null);
+    if (d.realDistanceKm !== undefined && d.realDistanceKm !== null) checkChange('Километраж дороги (км)', currentTask.real_distance_km, d.realDistanceKm !== '' ? Number(d.realDistanceKm) : null);
     if (d.tmc !== undefined && d.tmc !== null) checkChange('Сумма ТМЦ', currentTask.tmc, d.tmc !== '' ? Number(d.tmc) : null);
     if (d.extras !== undefined && d.extras !== null) checkChange('Дополнительные расходы', currentTask.extras, d.extras !== '' ? Number(d.extras) : null);
     if (d.region !== undefined) checkChange('Регион', currentTask.region, d.region);
@@ -625,6 +626,7 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
         priemka               = COALESCE($59, priemka),
         smr_actual_end_date   = CASE WHEN $60::boolean THEN $61::date ELSE smr_actual_end_date END,
         status                = COALESCE($62, status),
+        real_distance_km      = CASE WHEN $63::boolean THEN $64::numeric ELSE real_distance_km END,
         version               = version + 1,
         updated_at    = NOW()
       WHERE id = $1
@@ -690,7 +692,9 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       d.priemka !== undefined ? d.priemka : null,
       (d.smrActualEndDate !== undefined || d.smr_actual_end_date !== undefined),
       safeDate(d.smrActualEndDate || d.smr_actual_end_date),
-      targetStatus
+      targetStatus,
+      (d.realDistanceKm !== undefined || d.real_distance_km !== undefined),
+      (d.realDistanceKm !== undefined || d.real_distance_km !== undefined) ? (d.realDistanceKm !== '' && d.real_distance_km !== '' && d.realDistanceKm !== null && d.real_distance_km !== null ? Number(d.realDistanceKm != null ? d.realDistanceKm : d.real_distance_km) : null) : null
     ]);
 
     // Синхронизация с таблицей contractor_subcontracts при смене или снятии подрядчика

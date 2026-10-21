@@ -101,6 +101,461 @@ function statBox(lbl, val, sub, color) {
   '</div>';
 }
 
+// ─── ОЦЕНКА РИСКОВ ДЕДЛАЙНОВ («УСПЕЕМ / НЕ УСПЕЕМ») ─────────────────────────
+function getTaskDeadlineRisk(t) {
+  if (['done', 'paid', 'cancelled'].includes(t.status)) {
+    return {
+      level: 'done',
+      label: '✓ Завершено',
+      cls: 'b-green',
+      days: 0,
+      hint: 'Работы по заявке завершены'
+    };
+  }
+
+  if (!t.deadline) {
+    return {
+      level: 'none',
+      label: 'Срок не задан',
+      cls: 'b-gray',
+      days: null,
+      hint: 'Дедлайн не указан. Рекомендуется согласовать срок с Заказчиком.'
+    };
+  }
+
+  var now = new Date();
+  now.setHours(0, 0, 0, 0);
+  var dl = new Date(t.deadline);
+  dl.setHours(0, 0, 0, 0);
+  var diffTime = dl.getTime() - now.getTime();
+  var daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  var isOverdue = daysLeft < 0 || (Number(t.overdueDays) > 0);
+
+  if (isOverdue) {
+    var ovd = Math.max(Math.abs(daysLeft), Number(t.overdueDays) || 1);
+    return {
+      level: 'danger',
+      label: '🔴 Просрочено ' + ovd + ' дн.',
+      cls: 'b-red',
+      days: -ovd,
+      hint: 'Критическое нарушение дедлайна! Требуется перенос срока или эскалация.'
+    };
+  }
+
+  var hasContractor = !!(t.contractor && String(t.contractor).trim());
+  var isSupplyReady = t.status_supply === 'delivered';
+  var isSupplyShipped = t.status_supply === 'shipped';
+
+  if (daysLeft <= 3) {
+    var reasons = [];
+    if (!hasContractor) reasons.push('нет подряда');
+    if (!isSupplyReady && !isSupplyShipped) reasons.push('нет ТМЦ');
+    var suffix = reasons.length ? (' · ' + reasons.join(', ')) : '';
+    return {
+      level: 'critical',
+      label: '🔥 Горит (' + (daysLeft === 0 ? 'сегодня' : (daysLeft + ' дн.')) + suffix + ')',
+      cls: 'b-red',
+      days: daysLeft,
+      hint: 'Срок сдачи истекает через ' + daysLeft + ' дн.! ' + (reasons.length ? ('Факторы срыва: ' + reasons.join(', ')) : 'Контролируйте сдачу.')
+    };
+  }
+
+  if (daysLeft <= 7) {
+    if (!hasContractor) {
+      return {
+        level: 'warning',
+        label: '⚠️ Риск (' + daysLeft + ' дн. · нет подряда)',
+        cls: 'b-orange',
+        days: daysLeft,
+        hint: 'До сдачи осталось ' + daysLeft + ' дн., а исполнитель всё ещё не назначен!'
+      };
+    }
+    return {
+      level: 'warning',
+      label: '⏳ Внимание (' + daysLeft + ' дн.)',
+      cls: 'b-orange',
+      days: daysLeft,
+      hint: 'До дедлайна осталось ' + daysLeft + ' дн. Проверьте дату выхода на объект.'
+    };
+  }
+
+  return {
+    level: 'ok',
+    label: '✓ В графике (+' + daysLeft + ' дн.)',
+    cls: 'b-green',
+    days: daysLeft,
+    hint: 'Запас до дедлайна достаточный: ' + daysLeft + ' дн.'
+  };
+}
+
+// ─── СВОДКА РЕСУРСОВ ПОДРЯДЧИКОВ РЕГИОНА ─────────────────────────────────────
+function getRegionalContractorResourceSummary(filteredTasks, regionFilter) {
+  var allContractors = (S.contractors || []).filter(function(c) {
+    return c && c.name_short && c.type !== 'customer' && !String(c.inn || '').startsWith('CUST-');
+  });
+
+  var activeTasks = (S.tasks || []).filter(function(t) {
+    return t.status === 'progress' && t.contractor && String(t.contractor).trim();
+  });
+
+  var busySet = new Set();
+  activeTasks.forEach(function(t) {
+    busySet.add(String(t.contractor).trim().toLowerCase());
+  });
+
+  var relevantContractors = allContractors;
+  var regClean = regionFilter ? String(regionFilter).trim().toLowerCase() : '';
+  if (regClean) {
+    var regContractorNames = new Set();
+    (S.tasks || []).forEach(function(t) {
+      var tReg = String(t.region || '').trim().toLowerCase();
+      if (tReg.includes(regClean) || regClean.includes(tReg)) {
+        if (t.contractor && String(t.contractor).trim()) {
+          regContractorNames.add(String(t.contractor).trim().toLowerCase());
+        }
+      }
+    });
+
+    var regMatches = allContractors.filter(function(c) {
+      var nameL = String(c.name_short || '').trim().toLowerCase();
+      var addrL = String(c.address_legal || c.address_postal || '').toLowerCase();
+      return regContractorNames.has(nameL) || addrL.includes(regClean);
+    });
+
+    if (regMatches.length > 0) {
+      relevantContractors = regMatches;
+    }
+  }
+
+  var busyList = [];
+  var freeList = [];
+
+  relevantContractors.forEach(function(c) {
+    var nameL = String(c.name_short).trim().toLowerCase();
+    if (busySet.has(nameL)) {
+      busyList.push(c);
+    } else {
+      freeList.push(c);
+    }
+  });
+
+  return {
+    total: relevantContractors.length,
+    busy: busyList.length,
+    free: freeList.length,
+    busyList: busyList,
+    freeList: freeList,
+    region: regionFilter || ''
+  };
+}
+
+// ─── МОДАЛКА РЕСУРСОВ ПОДРЯДЧИКОВ РЕГИОНА ───────────────────────────────────
+window.openRegionalContractorResourceModal = function(regName) {
+  var old = document.getElementById('_reg_resource_modal');
+  if (old) old.remove();
+
+  var res = getRegionalContractorResourceSummary(S.tasks || [], regName);
+  var title = regName ? ('Региональный ресурс подряда: ' + escHtml(regName)) : 'Ресурс подряда (все регионы)';
+
+  var m = document.createElement('div');
+  m.id = '_reg_resource_modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:1000;display:flex;align-items:center;justify-content:center;padding:1rem';
+
+  var freeRows = res.freeList.length ? res.freeList.map(function(c) {
+    return '<div class="field-row" style="padding:8px 12px;border-radius:6px;margin-bottom:4px;background:#f8fafc;display:flex;justify-content:space-between;align-items:center">' +
+      '<div>' +
+        '<div style="font-weight:700;color:var(--text);font-size:.85rem">🟢 ' + escHtml(c.name_short) + '</div>' +
+        '<div class="t3" style="font-size:.72rem">ИНН ' + (c.inn || '—') + (c.curator_name ? (' · Контакт: ' + escHtml(c.curator_name)) : '') + (c.curator_phone ? (' (' + escHtml(c.curator_phone) + ')') : '') + '</div>' +
+      '</div>' +
+      '<span class="badge b-green" style="font-size:.7rem">Свободен</span>' +
+    '</div>';
+  }).join('') : '<div class="t3" style="padding:8px">Свободных подрядчиков в регионе нет</div>';
+
+  var busyRows = res.busyList.length ? res.busyList.map(function(c) {
+    return '<div class="field-row" style="padding:8px 12px;border-radius:6px;margin-bottom:4px;background:#f8fafc;display:flex;justify-content:space-between;align-items:center">' +
+      '<div>' +
+        '<div style="font-weight:600;color:var(--text);font-size:.85rem">🟠 ' + escHtml(c.name_short) + '</div>' +
+        '<div class="t3" style="font-size:.72rem">ИНН ' + (c.inn || '—') + (c.curator_phone ? (' · ' + escHtml(c.curator_phone)) : '') + '</div>' +
+      '</div>' +
+      '<span class="badge b-orange" style="font-size:.7rem">В работе</span>' +
+    '</div>';
+  }).join('') : '<div class="t3" style="padding:8px">Нет занятых подрядчиков</div>';
+
+  m.innerHTML =
+    '<div class="card" style="width:100%;max-width:540px;background:#fff;border-radius:12px;box-shadow:0 20px 40px rgba(0,0,0,0.25);overflow:hidden;animation:fadeIn 0.15s ease">' +
+      '<div style="background:#f8fafc;padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">' +
+        '<div>' +
+          '<div style="font-size:.74rem;color:var(--text-3);text-transform:uppercase;font-weight:700">Баланс рабочей силы</div>' +
+          '<div style="font-weight:700;font-size:1.05rem;color:var(--text)">' + title + '</div>' +
+        '</div>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_reg_resource_modal\').remove()" style="font-size:1.1rem;padding:4px 8px">✕</button>' +
+      '</div>' +
+      '<div style="padding:16px 18px;max-height:70vh;overflow-y:auto">' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;text-align:center">' +
+          '<div style="background:#f1f5f9;padding:8px;border-radius:8px"><div class="t3" style="font-size:.7rem">ВСЕГО</div><b style="font-size:1.1rem">' + res.total + '</b></div>' +
+          '<div style="background:#fff7ed;padding:8px;border-radius:8px"><div class="t3" style="font-size:.7rem;color:var(--orange)">В РАБОТЕ</div><b style="font-size:1.1rem;color:var(--orange)">' + res.busy + '</b></div>' +
+          '<div style="background:#f0fdf4;padding:8px;border-radius:8px"><div class="t3" style="font-size:.7rem;color:var(--green)">СВОБОДНЫ</div><b style="font-size:1.1rem;color:var(--green)">' + res.free + '</b></div>' +
+        '</div>' +
+        '<div style="font-weight:700;font-size:.8rem;margin-bottom:6px;color:var(--green)">🟢 Свободные ресурсы (' + res.free + ')</div>' +
+        '<div style="margin-bottom:16px">' + freeRows + '</div>' +
+        '<div style="font-weight:700;font-size:.8rem;margin-bottom:6px;color:var(--orange)">🟠 Занятые ресурсы (' + res.busy + ')</div>' +
+        '<div>' + busyRows + '</div>' +
+      '</div>' +
+      '<div style="background:#f8fafc;padding:10px 18px;border-top:1px solid var(--border);text-align:right">' +
+        '<button type="button" class="btn btn-sm btn-primary" onclick="document.getElementById(\'_reg_resource_modal\').remove()">Закрыть</button>' +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(m);
+};
+
+// ─── ЭКСПРЕСС-КАРТА ОБЪЕКТА И ЗАМЕР КИЛОМЕТРОВ ──────────────────────────────
+window.openQuickRouteMapModal = function(taskId) {
+  var old = document.getElementById('_quick_route_map_modal');
+  if (old) old.remove();
+
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+
+  var fullAddr = t.clean_address || t.address || t.region || '';
+  var mapQueryAddr = 'Россия, ' + fullAddr;
+  var yandexUrl = 'https://yandex.ru/maps/?rtext=~' + encodeURIComponent(mapQueryAddr) + '&rtt=auto';
+  var curRealKm = (t.realDistanceKm != null && t.realDistanceKm > 0) ? Number(t.realDistanceKm) : ((t.real_distance_km != null && t.real_distance_km > 0) ? Number(t.real_distance_km) : '');
+  var curTransportRub = Number(t.distanceKm || t.distance_km || 0);
+  var curRate = Number(t.km_rate || t.kmRate || 70);
+
+  var m = document.createElement('div');
+  m.id = '_quick_route_map_modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:1000;display:flex;align-items:center;justify-content:center;padding:1rem';
+
+  m.innerHTML =
+    '<div class="card" style="width:100%;max-width:560px;background:#fff;border-radius:12px;box-shadow:0 20px 40px rgba(0,0,0,0.25);overflow:hidden;animation:fadeIn 0.15s ease">' +
+      '<div style="background:#f8fafc;padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">' +
+        '<div>' +
+          '<div style="font-size:.74rem;color:var(--text-3);text-transform:uppercase;font-weight:700">Маршрут и удалённость объекта</div>' +
+          '<div style="font-weight:700;font-size:1.05rem;color:var(--text)">Заявка № ' + escHtml(t.id) + '</div>' +
+        '</div>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_quick_route_map_modal\').remove()" style="font-size:1.1rem;padding:4px 8px">✕</button>' +
+      '</div>' +
+      '<div style="padding:16px 18px">' +
+        '<div style="background:#f1f5f9;padding:10px 14px;border-radius:8px;margin-bottom:14px">' +
+          '<div style="font-weight:600;font-size:.85rem;color:var(--text)">📍 ' + escHtml(fullAddr || 'Адрес не указан') + '</div>' +
+          (t.vsp ? '<div class="t3" style="font-size:.75rem;margin-top:2px">ВСП: ' + escHtml(t.vsp) + (t.region ? (' · Регион: ' + escHtml(t.region)) : '') + '</div>' : '') +
+          (t.geo_lat && t.geo_lat !== 'NONE' ? '<div class="t3" style="font-size:.72rem;margin-top:2px;color:var(--green)">✓ Координаты определены: ' + t.geo_lat + ', ' + t.geo_lon + '</div>' : '') +
+        '</div>' +
+        '<div style="margin-bottom:14px;display:flex;gap:8px">' +
+          '<a href="' + yandexUrl + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="flex:1;background:#fc3f1d;color:#fff;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:6px">' +
+            '🚗 Открыть маршрут в Яндекс.Навигаторе' +
+          '</a>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">' +
+          '<div>' +
+            '<label class="t3" style="display:block;font-size:.74rem;font-weight:700;margin-bottom:3px">Реальный километраж (в один конец, км)</label>' +
+            '<input type="number" id="_qmap_dist_inp" value="' + (curRealKm || '') + '" placeholder="напр. 155" style="width:100%;padding:7px 10px;font-size:.92rem;font-weight:700" oninput="window._recalcQuickMapTotal()">' +
+          '</div>' +
+          '<div>' +
+            '<label class="t3" style="display:block;font-size:.74rem;font-weight:700;margin-bottom:3px">Ставка за км (₽)</label>' +
+            '<input type="number" id="_qmap_rate_inp" value="' + curRate + '" style="width:100%;padding:7px 10px;font-size:.92rem;font-weight:700" oninput="window._recalcQuickMapTotal()">' +
+          '</div>' +
+        '</div>' +
+        '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">' +
+          '<div>' +
+            '<div class="t3" style="font-size:.72rem">Расчётная компенсация дороги:</div>' +
+            '<div style="font-size:.72rem;color:var(--text-3)">(километры × 2 конца × ставка)</div>' +
+          '</div>' +
+          '<b id="_qmap_total_lbl" style="font-size:1.15rem;color:var(--blue)">' + (curRealKm ? fmtMoney(curRealKm * 2 * curRate) : (curTransportRub > 0 ? fmtMoney(curTransportRub) + ' (по смете)' : '0 ₽')) + '</b>' +
+        '</div>' +
+        (curTransportRub > 0 ? (
+          '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.75rem;color:#92400e;display:flex;align-items:center;justify-content:space-between">' +
+            '<span>Текущая компенсация в смете Заказчика:</span>' +
+            '<b>' + fmtMoney(curTransportRub) + '</b>' +
+          '</div>'
+        ) : '') +
+        '<label style="display:flex;align-items:center;gap:8px;font-size:.78rem;cursor:pointer;margin-bottom:16px;color:var(--text)">' +
+          '<input type="checkbox" id="_qmap_recalc_chk" style="width:16px;height:16px"' + (curTransportRub === 0 ? ' checked' : '') + '>' +
+          '<span>Обновить сумму дороги в смете по ставке (<span id="_qmap_recalc_amt_lbl">' + (curRealKm ? fmtMoney(curRealKm * 2 * curRate) : '0 ₽') + '</span>)</span>' +
+        '</label>' +
+        '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_quick_route_map_modal\').remove()">Отмена</button>' +
+          '<button type="button" class="btn btn-sm btn-primary" onclick="window.saveQuickRouteMapKm(\'' + escHtml(taskId) + '\')">✓ Сохранить в заявку</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(m);
+};
+
+window._recalcQuickMapTotal = function() {
+  var dist = Number(document.getElementById('_qmap_dist_inp').value) || 0;
+  var rate = Number(document.getElementById('_qmap_rate_inp').value) || 70;
+  var total = Math.round(dist * 2 * rate);
+  var el = document.getElementById('_qmap_total_lbl');
+  if (el) el.textContent = fmtMoney(total);
+  var el2 = document.getElementById('_qmap_recalc_amt_lbl');
+  if (el2) el2.textContent = fmtMoney(total);
+};
+
+window.saveQuickRouteMapKm = function(taskId) {
+  var distVal = document.getElementById('_qmap_dist_inp').value;
+  var dist = distVal !== '' ? Number(distVal) : null;
+  var rate = Number(document.getElementById('_qmap_rate_inp').value) || 70;
+  var recalcChk = document.getElementById('_qmap_recalc_chk');
+  var shouldRecalc = recalcChk ? recalcChk.checked : false;
+
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+
+  var payload = {
+    realDistanceKm: dist,
+    kmRate: rate
+  };
+  if (shouldRecalc && dist > 0) {
+    payload.distanceKm = Math.round(dist * 2 * rate);
+  }
+
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(function(res) {
+    t.realDistanceKm = dist;
+    t.real_distance_km = dist;
+    t.kmRate = rate;
+    t.km_rate = rate;
+    if (payload.distanceKm !== undefined) {
+      t.distanceKm = payload.distanceKm;
+      t.distance_km = payload.distanceKm;
+    }
+    if (res && res.task) {
+      Object.assign(t, res.task);
+    }
+    var m = document.getElementById('_quick_route_map_modal');
+    if (m) m.remove();
+    renderApp();
+    if (typeof showToast === 'function') showToast('✓ Данные маршрута сохранены (дистанция: ' + (dist ? (dist + ' км') : 'не указана') + ')', 'success');
+  }).catch(function(err) {
+    alert('Ошибка сохранения маршрута: ' + err.message);
+  });
+};
+
+// ─── ЭКСПРЕСС-ПЕРЕНОС СРОКА / ДЕДЛАЙНА ────────────────────────────────────────
+window.openQuickDeadlinePostponeModal = function(taskId) {
+  var old = document.getElementById('_quick_postpone_modal');
+  if (old) old.remove();
+
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+
+  var curDl = t.deadline ? t.deadline.slice(0, 10) : '';
+
+  var m = document.createElement('div');
+  m.id = '_quick_postpone_modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:1000;display:flex;align-items:center;justify-content:center;padding:1rem';
+
+  m.innerHTML =
+    '<div class="card" style="width:100%;max-width:500px;background:#fff;border-radius:12px;box-shadow:0 20px 40px rgba(0,0,0,0.25);overflow:hidden;animation:fadeIn 0.15s ease">' +
+      '<div style="background:#f8fafc;padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">' +
+        '<div>' +
+          '<div style="font-size:.74rem;color:var(--text-3);text-transform:uppercase;font-weight:700">Календарное планирование</div>' +
+          '<div style="font-weight:700;font-size:1.05rem;color:var(--text)">Перенос срока: № ' + escHtml(t.id) + '</div>' +
+        '</div>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_quick_postpone_modal\').remove()" style="font-size:1.1rem;padding:4px 8px">✕</button>' +
+      '</div>' +
+      '<div style="padding:16px 18px">' +
+        '<div style="margin-bottom:14px">' +
+          '<label class="t3" style="display:block;font-size:.75rem;font-weight:700;margin-bottom:4px">Новый срок сдачи (дедлайн):</label>' +
+          '<input type="date" id="_qpostpone_date" value="' + curDl + '" style="width:100%;padding:7px 10px;font-size:.95rem;font-weight:600">' +
+        '</div>' +
+        '<div style="margin-bottom:14px">' +
+          '<label class="t3" style="display:block;font-size:.75rem;font-weight:700;margin-bottom:4px">Причина переноса / статус согласования:</label>' +
+          '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">' +
+            '<button type="button" class="btn btn-xs btn-ghost" onclick="document.getElementById(\'_qpostpone_reason\').value=this.textContent" style="font-size:.7rem">Ожидание доступа на объект</button>' +
+            '<button type="button" class="btn btn-xs btn-ghost" onclick="document.getElementById(\'_qpostpone_reason\').value=this.textContent" style="font-size:.7rem">Задержка поставки ТМЦ</button>' +
+            '<button type="button" class="btn btn-xs btn-ghost" onclick="document.getElementById(\'_qpostpone_reason\').value=this.textContent" style="font-size:.7rem">Согласовано с Заказчиком</button>' +
+            '<button type="button" class="btn btn-xs btn-ghost" onclick="document.getElementById(\'_qpostpone_reason\').value=this.textContent" style="font-size:.7rem">Неготовность помещения</button>' +
+          '</div>' +
+          '<textarea id="_qpostpone_reason" placeholder="Укажите комментарий или причину переноса срока..." style="width:100%;height:65px;padding:8px;font-size:.85rem;border:1.5px solid var(--border);border-radius:6px;box-sizing:border-box"></textarea>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_quick_postpone_modal\').remove()">Отмена</button>' +
+          '<button type="button" class="btn btn-sm btn-primary" onclick="window.saveQuickDeadlinePostpone(\'' + escHtml(taskId) + '\')">✓ Применить новый срок</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(m);
+};
+
+window.saveQuickDeadlinePostpone = function(taskId) {
+  var newDate = document.getElementById('_qpostpone_date').value;
+  var reason = (document.getElementById('_qpostpone_reason').value || '').trim();
+  if (!newDate) { alert('Укажите новую дату дедлайна'); return; }
+
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+
+  var now = new Date().toLocaleString('ru');
+  var author = S.user ? (S.user.full_name || S.user.username) : 'Система';
+  var hist = t._history || t.history || [];
+  hist.push({
+    date: now,
+    author: author,
+    field: 'Срок окончания работ',
+    old: t.deadline || '—',
+    new: newDate + (reason ? (' (' + reason + ')') : '')
+  });
+
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      deadline: newDate,
+      overdueReason: reason || t.overdueReason,
+      _history: hist
+    })
+  }).then(function(res) {
+    t.deadline = newDate;
+    if (reason) t.overdueReason = reason;
+    t._history = hist;
+    if (res && res.task) {
+      Object.assign(t, res.task);
+    }
+    var m = document.getElementById('_quick_postpone_modal');
+    if (m) m.remove();
+    renderApp();
+    if (typeof showToast === 'function') showToast('✓ Новый дедлайн сохранён: ' + newDate.split('-').reverse().join('.'), 'success');
+  }).catch(function(err) {
+    alert('Ошибка переноса срока: ' + err.message);
+  });
+};
+
+// ─── БЫСТРЫЙ ВХОДНОЙ КОНТРОЛЬ («ПРИНЯТЬ») ────────────────────────────────────
+window.quickAcceptTask = function(taskId) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+  var author = S.user ? (S.user.full_name || S.user.username) : 'Система';
+
+  api('/tasks/' + encodeURIComponent(taskId) + '/accept', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      assignee: t.assignee || author
+    })
+  }).then(function(res) {
+    t.assignmentStatus = 'accepted';
+    t.assignment_status = 'accepted';
+    t.status = 'progress';
+    if (!t.assignee) t.assignee = author;
+    if (res && res.task) {
+      Object.assign(t, res.task);
+    }
+    renderApp();
+    if (typeof showToast === 'function') showToast('✓ Заявка ' + taskId + ' принята в работу', 'success');
+  }).catch(function(err) {
+    alert('Ошибка входного контроля: ' + err.message);
+  });
+};
+
 function pageTasks() {
   S.taskSort = S.taskSort || 'date_desc';
   function taskSortIndicator(field) {
@@ -415,13 +870,38 @@ function pageTasks() {
   var activeCount = activeFilters.length;
   var hasFilter = activeCount > 0 || !!q;
 
-  var sumTransportAll = filtered.reduce(function(s,t){ return s + Number(t.distanceKm || 0); }, 0);
+  var totalRealKmAll = filtered.reduce(function(s,t){ return s + (Number(t.realDistanceKm || t.real_distance_km) || 0); }, 0);
+  var sumTransportAll = filtered.reduce(function(s,t){ return s + (Number(t.distanceKm || t.distance_km) || 0); }, 0);
   var sumContAll = filtered.reduce(function(s, t) { return s + getTaskContractorFinance(t).total; }, 0);
   var sumContPaid = filtered.filter(function(t) { return getTaskContractorFinance(t).isPaid; }).reduce(function(s, t) { return s + getTaskContractorFinance(t).total; }, 0);
   var sumContPending = Math.max(0, sumContAll - sumContPaid);
   var sumContTransport = filtered.reduce(function(s, t) { return s + getTaskContractorFinance(t).transport; }, 0);
   var sumMargin = sumAll - sumContAll;
   var marginPct = sumAll > 0 ? Math.round(sumMargin / sumAll * 100) : 0;
+
+  // Контекстные метрики: Логистика и ТМЦ
+  var cntSupplyDelivered = filtered.filter(function(t) { return t.status_supply === 'delivered'; }).length;
+  var cntSupplyShipped = filtered.filter(function(t) { return t.status_supply === 'shipped'; }).length;
+  var cntSupplyPending = filtered.filter(function(t) { return !t.status_supply || t.status_supply === 'pending' || t.status_supply === 'none'; }).length;
+  var cntSupplierSigned = filtered.filter(function(t) { return !!t.supplierOrderSigned; }).length;
+  var sumTmc = filtered.reduce(function(s, t) { return s + (Number(t.tmc) || 0); }, 0);
+
+  // Контекстные метрики: Проектирование и ИД
+  var cntIdDone = filtered.filter(function(t) { return t.status_id === 'done' || t.status_id === 'accepted'; }).length;
+  var cntIdReview = filtered.filter(function(t) { return t.status_id === 'review'; }).length;
+  var cntIdPending = filtered.filter(function(t) { return !t.status_id || t.status_id === 'pending'; }).length;
+  var cntIdRemarks = filtered.filter(function(t) { return Number(t.openRemarksCount) > 0; }).length;
+  var cntPortalUploaded = filtered.filter(function(t) { return t.rawData && (t.rawData['загружено на портал'] || '').toString().trim().toLowerCase() === 'да'; }).length;
+
+  // Контекстные метрики: Бухгалтерия и счета
+  var cntFinPaid = filtered.filter(function(t) { return t.status_finance === 'paid' || (String(t.oplata || '')).toLowerCase().includes('оплач'); }).length;
+  var cntFinInvoice = filtered.filter(function(t) { return t.status_finance === 'invoice' || !!t.edoNumber; }).length;
+  var cntFinPending = filtered.filter(function(t) { return (!t.status_finance || t.status_finance === 'pending') && !(String(t.oplata || '')).toLowerCase().includes('оплач'); }).length;
+  var sumPaid = filtered.filter(function(t) { return t.status_finance === 'paid' || (String(t.oplata || '')).toLowerCase().includes('оплач'); }).reduce(function(s, t) { return s + (Number(t.amount) || 0); }, 0);
+  var sumPending = Math.max(0, sumAll - sumPaid);
+
+  // Контекстные метрики: Ресурс подрядчиков в регионе
+  var regResource = getRegionalContractorResourceSummary(filtered, reg);
 
   var userRole = S.user ? String(S.user.role || '').toLowerCase() : '';
   var canSeeCustomer = ['admin', 'director', 'manager', 'to_engineer', 'accountant'].includes(userRole);
@@ -601,9 +1081,9 @@ function pageTasks() {
           '<b style="color:var(--orange);font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumAct) + '</b>' +
         '</div>' +
         '<span style="color:var(--border)">|</span>' +
-        '<div style="display:inline-flex;align-items:center;gap:4px" title="Транспортные расходы (удаленность): ' + fmtMoney(sumTransportAll) + '">' +
-          '<span style="color:var(--text-3)">Удаленность:</span>' +
-          '<b style="font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumTransportAll) + '</b>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Транспортные расходы от Заказчика: ' + fmtMoney(sumTransportAll) + (totalRealKmAll > 0 ? (' (замерено по навигатору: ' + fmtN(totalRealKmAll) + ' км)') : '') + '">' +
+          '<span style="color:var(--text-3)">Дорога:</span>' +
+          '<b style="font-family:monospace;font-size:.85rem">🚗 ' + (totalRealKmAll > 0 ? (fmtN(totalRealKmAll) + ' км · ') : '') + fmtMoneyShort(sumTransportAll) + '</b>' +
         '</div>' +
         '<span style="color:var(--border)">|</span>' +
         '<div style="display:inline-flex;align-items:center;gap:4px" title="Порты: выполнено ' + fmtN(portsDone) + ' из ' + fmtN(portsTotal) + ' (остаток: ' + fmtN(portBalance) + ' шт.)">' +
@@ -612,12 +1092,17 @@ function pageTasks() {
           '<span style="font-size:.72rem;color:' + (portBalance > 0 ? 'var(--orange)' : 'var(--green)') + ';font-weight:600">(' + (portBalance > 0 ? '+' : '') + fmtN(portBalance) + ' шт.)</span>' +
         '</div>' +
       '</div>';
-  } else {
+  } else if (appMode === 'contractor') {
+    var regResLabel = '👥 Ресурс: Всего ' + regResource.total + ' · В работе ' + regResource.busy + ' · Свободны ' + regResource.free;
     statsCompactHtml = 
       '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.82rem">' +
         '<div style="display:inline-flex;align-items:center;gap:4px" title="Заявок: ' + fmtN(filtered.length) + ' из ' + fmtN(S.tasks.length) + '">' +
           '<span style="color:var(--text-3)">Заявки:</span>' +
           '<b style="color:var(--orange)">' + fmtN(filtered.length) + '</b>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px;cursor:pointer" onclick="openRegionalContractorResourceModal(\'' + escHtml(reg || '') + '\')" title="Баланс ресурсов подрядчиков (кликните для просмотра свободных бригад)">' +
+          '<span class="badge ' + (regResource.free > 0 ? 'b-green' : 'b-orange') + '" style="font-size:.72rem;padding:2px 7px;cursor:pointer">' + regResLabel + ' 🔍</span>' +
         '</div>' +
         '<span style="color:var(--border)">|</span>' +
         '<div style="display:inline-flex;align-items:center;gap:4px" title="Общая сумма к выплате подрядчикам: ' + fmtMoney(sumContAll) + '">' +
@@ -637,12 +1122,92 @@ function pageTasks() {
           '<b style="color:var(--orange);font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumContPending) + '</b>' +
         '</div>' +
         '<span style="color:var(--border)">|</span>' +
-        '<div style="display:inline-flex;align-items:center;gap:4px" title="Транспортные расходы подрядчикам: ' + fmtMoney(sumContTransport) + '">' +
-          '<span style="color:var(--text-3)">Транспорт:</span>' +
-          '<b style="font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumContTransport) + '</b>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Плановая маржа: ' + fmtMoney(sumMargin) + ' (' + marginPct + '% от договора Заказчика)">' +
+          '<span style="color:var(--text-3)">Маржа:</span>' +
+          '<b style="color:var(--green);font-family:monospace;font-size:.85rem">' + marginPct + '% (' + fmtMoneyShort(sumMargin) + ')</b>' +
+        '</div>' +
+      '</div>';
+  } else if (appMode === 'supply') {
+    statsCompactHtml = 
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.82rem">' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Заявок на обеспечение: ' + fmtN(filtered.length) + '">' +
+          '<span style="color:var(--text-3)">Заявки:</span>' +
+          '<b style="color:var(--orange)">' + fmtN(filtered.length) + '</b>' +
         '</div>' +
         '<span style="color:var(--border)">|</span>' +
-        '<div style="display:inline-flex;align-items:center;gap:4px" title="Плановая маржа: ' + fmtMoney(sumMargin) + ' (' + marginPct + '% от договора Заказчика)">' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="ТМЦ доставлено на объект: ' + cntSupplyDelivered + ' заявок">' +
+          '<span class="badge b-green" style="font-size:.72rem">✓ Доставлено: ' + cntSupplyDelivered + '</span>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Груз в пути (отправлен со склада / поставщиком): ' + cntSupplyShipped + ' заявок">' +
+          '<span class="badge b-blue" style="font-size:.72rem">🚚 В пути: ' + cntSupplyShipped + '</span>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Ожидает отгрузки / комплектации: ' + cntSupplyPending + ' заявок">' +
+          '<span class="badge b-orange" style="font-size:.72rem">⏳ Ожидает: ' + cntSupplyPending + '</span>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Подписано заказов поставщикам: ' + cntSupplierSigned + ' из ' + filtered.length + '">' +
+          '<span style="color:var(--text-3)">Заказы:</span>' +
+          '<b>' + cntSupplierSigned + '/' + filtered.length + '</b>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Общая расчетная стоимость ТМЦ: ' + fmtMoney(sumTmc) + '">' +
+          '<span style="color:var(--text-3)">ТМЦ всего:</span>' +
+          '<b style="font-family:monospace;font-size:.85rem">' + (sumTmc > 0 ? fmtMoneyShort(sumTmc) : '—') + '</b>' +
+        '</div>' +
+      '</div>';
+  } else if (appMode === 'docs') {
+    statsCompactHtml = 
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.82rem">' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Заявок на ИД: ' + fmtN(filtered.length) + '">' +
+          '<span style="color:var(--text-3)">Заявки:</span>' +
+          '<b style="color:var(--orange)">' + fmtN(filtered.length) + '</b>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="ИД полностью согласована и принята: ' + cntIdDone + ' шт.">' +
+          '<span class="badge b-green" style="font-size:.72rem">✓ Принято: ' + cntIdDone + '</span>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="ИД на проверке / согласовании у Заказчика: ' + cntIdReview + ' шт.">' +
+          '<span class="badge b-blue" style="font-size:.72rem">🔍 На проверке: ' + cntIdReview + '</span>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="ИД в подготовке / не начата: ' + cntIdPending + ' шт.">' +
+          '<span class="badge b-gray" style="font-size:.72rem">📐 В работе: ' + cntIdPending + '</span>' +
+        '</div>' +
+        (cntIdRemarks > 0 ? ('<span style="color:var(--border)">|</span><div style="display:inline-flex;align-items:center;gap:4px" title="Открытые замечания Заказчика"><span class="badge b-red" style="font-size:.72rem">⚠️ Замечания: ' + cntIdRemarks + '</span></div>') : '') +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Загружено на портал Заказчика: ' + cntPortalUploaded + ' из ' + filtered.length + '">' +
+          '<span style="color:var(--text-3)">Портал:</span>' +
+          '<b>' + cntPortalUploaded + '/' + filtered.length + '</b>' +
+        '</div>' +
+      '</div>';
+  } else if (appMode === 'finance') {
+    statsCompactHtml = 
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.82rem">' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Заявок в фин. учете: ' + fmtN(filtered.length) + '">' +
+          '<span style="color:var(--text-3)">Заявки:</span>' +
+          '<b style="color:var(--orange)">' + fmtN(filtered.length) + '</b>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Счета выставлены (в т.ч. через ЭДО): ' + cntFinInvoice + ' заявок">' +
+          '<span class="badge b-blue" style="font-size:.72rem">📄 Счета: ' + cntFinInvoice + '</span>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Оплачено Заказчиком: ' + fmtMoney(sumPaid) + ' (' + cntFinPaid + ' заявок)">' +
+          '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green)"></span>' +
+          '<span style="color:var(--text-3)">Оплачено:</span>' +
+          '<b style="color:var(--green);font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumPaid) + '</b>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Остаток неоплаченной дебиторской задолженности: ' + fmtMoney(sumPending) + '">' +
+          '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--orange)"></span>' +
+          '<span style="color:var(--text-3)">Дебиторка:</span>' +
+          '<b style="color:var(--orange);font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumPending) + '</b>' +
+        '</div>' +
+        '<span style="color:var(--border)">|</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Чистая маржа: ' + fmtMoney(sumMargin) + ' (' + marginPct + '%)">' +
           '<span style="color:var(--text-3)">Маржа:</span>' +
           '<b style="color:var(--green);font-family:monospace;font-size:.85rem">' + marginPct + '% (' + fmtMoneyShort(sumMargin) + ')</b>' +
         '</div>' +
@@ -659,7 +1224,7 @@ function pageTasks() {
         '<div class="card mb" style="background:#f8fafc;border:1.5px solid var(--border);border-radius:10px;padding:12px 16px;margin-top:6px;animation:fadeIn 0.15s ease">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;border-bottom:1px solid #e2e8f0;padding-bottom:6px">' +
             '<span style="font-weight:700;font-size:.82rem;color:var(--text);display:flex;align-items:center;gap:6px">' +
-              '📊 Детальная статистика Заказчика' +
+              '📊 Сводка Заказчика: календарный график и бюджет' +
             '</span>' +
             '<span style="font-size:.74rem;color:var(--text-3)">В выборке: <b>' + fmtN(filtered.length) + '</b> из <b>' + fmtN(S.tasks.length) + '</b> заявок</span>' +
           '</div>' +
@@ -668,7 +1233,7 @@ function pageTasks() {
             statBox('Общая стоимость', fmtMoney(sumAll), 'с удаленкой', null) +
             statBox('Выполнено', fmtMoney(sumDone), donePct + '% от общей суммы', 'var(--green)') +
             statBox('В работе', fmtMoney(sumAct), actPct + '% от общей суммы', 'var(--orange)') +
-            statBox('Удаленность', fmtMoney(sumTransportAll), 'транспорт всего', null) +
+            statBox('Удаленность / Дорога', fmtMoney(sumTransportAll), (totalRealKmAll > 0 ? (fmtN(totalRealKmAll) + ' км замерено') : 'по сметам Заказчика'), null) +
             statBox('Портов (факт/план)', fmtN(portsDone) + ' / ' + fmtN(portsTotal), portsPct + '% от плана', null) +
             statBox('Остаток портов', fmtN(portBalance) + ' шт.', 'в заказе минус факт', portBalance > 0 ? 'var(--orange)' : 'var(--green)') +
           '</div>' +
@@ -680,7 +1245,7 @@ function pageTasks() {
             '<span>В работе: <b>' + actPct + '%</b></span>' +
           '</div>' +
         '</div>';
-    } else {
+    } else if (appMode === 'contractor') {
       var paidPct = pct(sumContPaid, sumContAll);
       var pendingPct = pct(sumContPending, sumContAll);
 
@@ -688,18 +1253,23 @@ function pageTasks() {
         '<div class="card mb" style="background:#f8fafc;border:1.5px solid var(--border);border-radius:10px;padding:12px 16px;margin-top:6px;animation:fadeIn 0.15s ease">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;border-bottom:1px solid #e2e8f0;padding-bottom:6px">' +
             '<span style="font-weight:700;font-size:.82rem;color:var(--text);display:flex;align-items:center;gap:6px">' +
-              '📊 ' + (appMode === 'supply' ? 'Статистика логистики и ТМЦ' : appMode === 'docs' ? 'Статистика проектирования и ИД' : appMode === 'finance' ? 'Финансовая сводка по счетам' : 'Детальная экономика подрядчиков и маржинальность') +
+              '👷 Управление подрядом, баланс ресурсов и маржинальность' +
             '</span>' +
-            '<span style="font-size:.74rem;color:var(--text-3)">В выборке: <b>' + fmtN(filtered.length) + '</b> из <b>' + fmtN(S.tasks.length) + '</b> заявок</span>' +
+            '<div style="display:flex;align-items:center;gap:8px">' +
+              '<button type="button" class="btn btn-xs btn-primary" onclick="openRegionalContractorResourceModal(\'' + escHtml(reg || '') + '\')" style="font-size:.72rem;padding:3px 8px">' +
+                '👥 Баланс ресурсов региона' +
+              '</button>' +
+              '<span style="font-size:.74rem;color:var(--text-3)">Заявок: <b>' + fmtN(filtered.length) + '</b></span>' +
+            '</div>' +
           '</div>' +
           '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px">' +
-            statBox('Заявок в выборке', fmtN(filtered.length), 'из ' + fmtN(S.tasks.length), 'var(--orange)') +
-            statBox('Общая подрядчикам', fmtMoney(sumContAll), 'к выплате всего', null) +
+            statBox('Заявок в работе', fmtN(filtered.length), 'из ' + fmtN(S.tasks.length), 'var(--orange)') +
+            statBox('Свободных бригад', fmtN(regResource.free), 'из ' + regResource.total + ' подрядчиков', regResource.free > 0 ? 'var(--green)' : 'var(--orange)') +
+            statBox('К выплате подряду', fmtMoney(sumContAll), 'общая себестоимость', null) +
             statBox('Выплачено', fmtMoney(sumContPaid), paidPct + '% выплачено', 'var(--green)') +
-            statBox('К выплате', fmtMoney(sumContPending), pendingPct + '% остаток', 'var(--orange)') +
-            statBox('Транспортные', fmtMoney(sumContTransport), 'подрядчикам', null) +
-            statBox('Портов смонтировано', fmtN(portsDone) + ' / ' + fmtN(portsTotal), pct(portsDone, portsTotal) + '% от плана', null) +
-            statBox('Плановая маржа', fmtMoney(sumMargin), marginPct + '% от договора Заказчика', 'var(--green)') +
+            statBox('Остаток к выплате', fmtMoney(sumContPending), pendingPct + '% долг', 'var(--orange)') +
+            statBox('Транспорт подряду', fmtMoney(sumContTransport), 'компенсация дороги', null) +
+            statBox('Плановая маржа', fmtMoney(sumMargin), marginPct + '% от договора', 'var(--green)') +
           '</div>' +
           '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #e2e8f0;display:flex;align-items:center;gap:12px;font-size:.76rem;color:var(--text-3)">' +
             '<span>Выплаты подрядчикам: <b>' + paidPct + '%</b></span>' +
@@ -707,6 +1277,83 @@ function pageTasks() {
               '<div style="width:' + paidPct + '%;background:var(--green);height:100%;border-radius:3px"></div>' +
             '</div>' +
             '<span>Остаток: <b>' + pendingPct + '%</b></span>' +
+          '</div>' +
+        '</div>';
+    } else if (appMode === 'supply') {
+      var suppPct = filtered.length > 0 ? Math.round(cntSupplyDelivered / filtered.length * 100) : 0;
+      statsExpandedHtml = 
+        '<div class="card mb" style="background:#f8fafc;border:1.5px solid var(--border);border-radius:10px;padding:12px 16px;margin-top:6px;animation:fadeIn 0.15s ease">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;border-bottom:1px solid #e2e8f0;padding-bottom:6px">' +
+            '<span style="font-weight:700;font-size:.82rem;color:var(--text);display:flex;align-items:center;gap:6px">' +
+              '📦 Сводка снабжения, складских запасов и логистики ТМЦ' +
+            '</span>' +
+            '<span style="font-size:.74rem;color:var(--text-3)">Заявок: <b>' + fmtN(filtered.length) + '</b></span>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px">' +
+            statBox('Заявок на поставку', fmtN(filtered.length), 'всего в выборке', 'var(--orange)') +
+            statBox('Доставлено на объект', fmtN(cntSupplyDelivered), suppPct + '% обеспечено', 'var(--green)') +
+            statBox('В пути / отправлено', fmtN(cntSupplyShipped), 'отгружено со склада', 'var(--blue)') +
+            statBox('Ожидает отгрузки', fmtN(cntSupplyPending), 'в сборке / под заказ', 'var(--orange)') +
+            statBox('Заказов подписано', fmtN(cntSupplierSigned), 'из ' + filtered.length + ' заявок', null) +
+            statBox('Стоимость ТМЦ', fmtMoney(sumTmc), 'по спецификациям', null) +
+          '</div>' +
+          '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #e2e8f0;display:flex;align-items:center;gap:12px;font-size:.76rem;color:var(--text-3)">' +
+            '<span>Обеспеченность объектов ТМЦ: <b>' + suppPct + '%</b></span>' +
+            '<div style="flex:1;background:#e2e8f0;height:6px;border-radius:3px;overflow:hidden">' +
+              '<div style="width:' + suppPct + '%;background:var(--green);height:100%;border-radius:3px"></div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    } else if (appMode === 'docs') {
+      var idDonePct = filtered.length > 0 ? Math.round(cntIdDone / filtered.length * 100) : 0;
+      var portalPct = filtered.length > 0 ? Math.round(cntPortalUploaded / filtered.length * 100) : 0;
+      statsExpandedHtml = 
+        '<div class="card mb" style="background:#f8fafc;border:1.5px solid var(--border);border-radius:10px;padding:12px 16px;margin-top:6px;animation:fadeIn 0.15s ease">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;border-bottom:1px solid #e2e8f0;padding-bottom:6px">' +
+            '<span style="font-weight:700;font-size:.82rem;color:var(--text);display:flex;align-items:center;gap:6px">' +
+              '📐 Исполнительная документация (ИД) и сдача на портал' +
+            '</span>' +
+            '<span style="font-size:.74rem;color:var(--text-3)">Заявок: <b>' + fmtN(filtered.length) + '</b></span>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px">' +
+            statBox('Заявок на ИД', fmtN(filtered.length), 'всего в реестре', 'var(--orange)') +
+            statBox('ИД согласована', fmtN(cntIdDone), idDonePct + '% сдано', 'var(--green)') +
+            statBox('На экспертизе', fmtN(cntIdReview), 'у Заказчика', 'var(--blue)') +
+            statBox('В подготовке', fmtN(cntIdPending), 'ожидает сдачи', null) +
+            statBox('С замечаниями', fmtN(cntIdRemarks), 'требуют исправления', cntIdRemarks > 0 ? 'var(--red)' : 'var(--green)') +
+            statBox('Загружено на портал', fmtN(cntPortalUploaded), portalPct + '% от общего числа', 'var(--green)') +
+          '</div>' +
+          '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #e2e8f0;display:flex;align-items:center;gap:12px;font-size:.76rem;color:var(--text-3)">' +
+            '<span>Сдача исполнительной документации: <b>' + idDonePct + '%</b></span>' +
+            '<div style="flex:1;background:#e2e8f0;height:6px;border-radius:3px;overflow:hidden">' +
+              '<div style="width:' + idDonePct + '%;background:var(--green);height:100%;border-radius:3px"></div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    } else if (appMode === 'finance') {
+      var finPaidPct = sumAll > 0 ? Math.round(sumPaid / sumAll * 100) : 0;
+      statsExpandedHtml = 
+        '<div class="card mb" style="background:#f8fafc;border:1.5px solid var(--border);border-radius:10px;padding:12px 16px;margin-top:6px;animation:fadeIn 0.15s ease">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;border-bottom:1px solid #e2e8f0;padding-bottom:6px">' +
+            '<span style="font-weight:700;font-size:.82rem;color:var(--text);display:flex;align-items:center;gap:6px">' +
+              '💰 Финансовый баланс, счета, дебиторка и маржа' +
+            '</span>' +
+            '<span style="font-size:.74rem;color:var(--text-3)">Заявок: <b>' + fmtN(filtered.length) + '</b></span>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px">' +
+            statBox('Заявок в учете', fmtN(filtered.length), 'всего в реестре', 'var(--orange)') +
+            statBox('Выставлено счетов', fmtN(cntFinInvoice), 'в т.ч. через ЭДО', 'var(--blue)') +
+            statBox('Оплачено Заказчиком', fmtMoney(sumPaid), finPaidPct + '% от контрактов', 'var(--green)') +
+            statBox('Дебиторка Заказчика', fmtMoney(sumPending), 'остаток к оплате', 'var(--orange)') +
+            statBox('Выплачено подряду', fmtMoney(sumContPaid), 'из ' + fmtMoneyShort(sumContAll), null) +
+            statBox('Долг подрядчикам', fmtMoney(sumContPending), 'к выплате', 'var(--orange)') +
+            statBox('Операционная маржа', fmtMoney(sumMargin), marginPct + '% от выручки', 'var(--green)') +
+          '</div>' +
+          '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #e2e8f0;display:flex;align-items:center;gap:12px;font-size:.76rem;color:var(--text-3)">' +
+            '<span>Поступление оплат от Заказчика: <b>' + finPaidPct + '%</b></span>' +
+            '<div style="flex:1;background:#e2e8f0;height:6px;border-radius:3px;overflow:hidden">' +
+              '<div style="width:' + finPaidPct + '%;background:var(--green);height:100%;border-radius:3px"></div>' +
+            '</div>' +
           '</div>' +
         '</div>';
     }
@@ -753,19 +1400,24 @@ function pageTasks() {
       (datePpFormatted ? '<div class="t3" style="font-size:.7rem;margin-top:2px" title="Дата ПП (планового подтверждения / дата внесения)">ПП: ' + datePpFormatted + '</div>' : '') +
     '</td>';
 
-    // 3. Дедлайн + просрочка
+    // 3. Дедлайн + светофор риска + быстрый перенос
     var dlDate = t.deadline ? t.deadline.slice(0, 10).split('-').reverse().join('.') : '';
-    var odBadge = (t.overdueDays > 0)
-      ? '<div style="color:var(--red);font-weight:700;font-size:.72rem;margin-top:2px;display:inline-flex;align-items:center;gap:3px;background:rgba(239,68,68,0.1);padding:1px 5px;border-radius:4px" title="Просрочено на ' + t.overdueDays + ' дн.">⚠️ +' + t.overdueDays + ' дн</div>'
-      : '';
-    var dlHtml = dlDate ? ('<div style="font-weight:600;color:var(--text)">' + dlDate + '</div>' + odBadge) : (odBadge || '<span class="t3">—</span>');
+    var risk = getTaskDeadlineRisk(t);
+    var riskBadge = '<div style="margin-top:2px"><span class="badge ' + risk.cls + '" style="font-size:.67rem;padding:1px 5px;font-weight:700" title="' + escHtml(risk.hint) + '">' + escHtml(risk.label) + '</span></div>';
+    var postponeBtn = '<button type="button" class="btn-link" onclick="openQuickDeadlinePostponeModal(\'' + tid + '\')" title="Календарное планирование: быстрый перенос дедлайна с обоснованием" style="font-size:.68rem;color:var(--text-3);display:block;margin-top:2px;padding:0;text-decoration:none">⏱️ Перенос срока</button>';
+    var dlHtml = dlDate ? ('<div style="font-weight:600;color:var(--text)">' + dlDate + '</div>' + riskBadge + postponeBtn) : (riskBadge + postponeBtn);
     var colDeadline = '<td style="vertical-align:top;white-space:nowrap;font-size:.8rem">' + dlHtml + '</td>';
 
-    // 4. Адрес объекта (компактно с тултипом, без распирания таблицы)
+    // 4. Адрес объекта (компактно с картой и замером км)
     var addrText = t.address || t.title || '—';
+    var realKm = (t.realDistanceKm != null && t.realDistanceKm > 0) ? Number(t.realDistanceKm) : ((t.real_distance_km != null && t.real_distance_km > 0) ? Number(t.real_distance_km) : null);
+    var mapIconHtml = '<button type="button" class="btn-link" onclick="openQuickRouteMapModal(\'' + tid + '\')" title="Маршрут на карте, навигатор и километраж" style="font-size:.76rem;text-decoration:none;padding:0 3px;margin-left:4px;vertical-align:middle">🗺️' + (realKm ? (' <span style="font-size:.68rem;color:var(--blue);font-weight:700">' + realKm + ' км</span>') : '') + '</button>';
     var colAddress = '<td style="vertical-align:top;max-width:190px">' +
-      '<div style="font-weight:600;color:var(--text);line-height:1.25;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + escHtml(addrText) + '">' +
-        highlight(addrText, q) +
+      '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px">' +
+        '<div style="font-weight:600;color:var(--text);line-height:1.25;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + escHtml(addrText) + '">' +
+          highlight(addrText, q) +
+        '</div>' +
+        mapIconHtml +
       '</div>' +
       (t.vsp ? '<div class="t3" style="font-size:.7rem;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">№ ВСП: ' + escHtml(t.vsp) + '</div>' : '') +
     '</td>';
@@ -783,26 +1435,37 @@ function pageTasks() {
       factPorts + ' / ' + inOrderPorts + ' <span class="t3" style="font-size:.68rem;font-weight:normal">п.</span>' +
     '</td>';
 
-    // 7. Подрядчик / Исполнитель и ПМ
+    // 7. Подрядчик / Исполнитель, ПМ и быстрый входной контроль
     var pmBadge = t.assignee
       ? '<div class="t3" style="font-size:.7rem;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-2)" title="Проект-менеджер (ПМ): ' + escHtml(t.assignee) + '">👔 ПМ: ' + highlight(t.assignee, q) + '</div>'
+      : '';
+    var quickAcceptBtn = (!t.assignee && effStatus === 'pending')
+      ? '<div style="margin-top:3px"><button type="button" class="btn btn-xs" style="background:#22c55e;color:#fff;border:none;border-radius:4px;padding:2px 6px;font-size:.67rem;font-weight:700" onclick="quickAcceptTask(\'' + tid + '\')" title="Входной контроль: принять заявку в работу">✓ В работу</button></div>'
       : '';
     var colContr = '<td style="vertical-align:top;max-width:130px">' +
       '<button class="btn-link" style="text-align:left;max-width:130px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem" onclick="openContractorPicker(\'' + tid + '\')" title="' + escHtml(t.contractor || 'Назначить подрядчика') + '">' +
         (t.contractor ? ('👤 ' + escHtml(t.contractor)) : '<span class="t3" style="border-bottom:1px dashed var(--orange);color:var(--orange)">+ Назначить</span>') +
       '</button>' +
       pmBadge +
+      quickAcceptBtn +
     '</td>';
 
-    // 8 & 9. Цена и Стоимость
+    // 8 & 9. Цена и Стоимость / Дорога
     var colPrice = '';
     var colTotal = '';
 
     if (appMode === 'customer') {
       colPrice = '<td style="vertical-align:top;white-space:nowrap;color:var(--text-2);font-size:.8rem">' + (fin.unitPrice > 0 ? (fmtMoney(fin.unitPrice) + '<span class="t3" style="font-size:.68rem">/ед</span>') : '<span class="t3">—</span>') + '</td>';
+      var roadLine = '';
+      if (fin.transport > 0 || (realKm && realKm > 0)) {
+        var kmPrefix = realKm ? (realKm + ' км · ') : '';
+        roadLine = '<div style="font-size:.7rem;color:var(--text-2);margin-top:2px;cursor:pointer" onclick="openQuickRouteMapModal(\'' + tid + '\')" title="Транспортные расходы / удаленность (кликните для замера км по навигатору)">🚗 ' + kmPrefix + fmtMoney(fin.transport) + (!realKm && fin.transport > 0 ? ' <span style="font-size:.65rem;color:var(--text-3);opacity:0.85">(замерить км)</span>' : '') + '</div>';
+      } else {
+        roadLine = '<div style="font-size:.68rem;color:var(--text-3);margin-top:2px;cursor:pointer" onclick="openQuickRouteMapModal(\'' + tid + '\')" title="Указать километраж по навигатору">+ дорога (км)</div>';
+      }
       colTotal = '<td style="vertical-align:top;white-space:nowrap">' +
         '<div style="font-weight:700;color:var(--blue);font-size:.84rem">' + fmtMoney(fin.total) + '</div>' +
-        (fin.transport > 0 ? '<div class="t3" style="font-size:.68rem">🚗 +' + fmtMoney(fin.transport) + '</div>' : '') +
+        roadLine +
       '</td>';
     } else if (appMode === 'contractor') {
       var priceBtn = cFin.unitPrice > 0
@@ -813,17 +1476,23 @@ function pageTasks() {
 
       colPrice = '<td style="vertical-align:top;white-space:nowrap">' + priceBtn + '</td>';
 
+      var cRealKm = (t.realDistanceKm != null && t.realDistanceKm > 0) ? Number(t.realDistanceKm) : ((t.real_distance_km != null && t.real_distance_km > 0) ? Number(t.real_distance_km) : null);
+      var cRoadLine = (cFin.transport > 0 || (cRealKm && cRealKm > 0))
+        ? '<div style="font-size:.7rem;color:var(--text-2);margin-top:2px;cursor:pointer" onclick="openQuickRouteMapModal(\'' + tid + '\')" title="Транспортные расходы подрядчика (кликните для изменения км)">🚗 ' + (cRealKm ? (cRealKm + ' км · ') : '') + fmtMoney(cFin.transport) + '</div>'
+        : '';
+
       if (cFin.total > 0) {
         var marginRow = fin.total > cFin.total ? (fin.total - cFin.total) : 0;
         var marginPctRow = fin.total > 0 ? Math.round(marginRow / fin.total * 100) : 0;
         colTotal = '<td style="vertical-align:top;white-space:nowrap">' +
           '<div style="font-weight:700;color:var(--orange-dark);font-size:.84rem">' + fmtMoney(cFin.total) + '</div>' +
-          (cFin.transport > 0 ? '<div class="t3" style="font-size:.68rem">🚗 ' + fmtMoney(cFin.transport) + '</div>' : '') +
+          cRoadLine +
           (fin.total > 0 ? '<div style="font-size:.68rem;color:var(--green);font-weight:600">маржа +' + fmtMoney(marginRow) + ' (' + marginPctRow + '%)</div>' : '') +
         '</td>';
       } else {
         colTotal = '<td style="vertical-align:top;white-space:nowrap">' +
           '<div style="color:var(--text-3);font-size:.8rem;font-weight:500">Не оценено</div>' +
+          cRoadLine +
           '<div class="t3" style="font-size:.68rem">ждёт условий</div>' +
         '</td>';
       }
@@ -875,17 +1544,17 @@ function pageTasks() {
       '<table class="tasks-table"><thead><tr>' +
         '<th style="width:120px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'id\')" title="Сортировать по номеру заявки">Номер / ЭДО' + taskSortIndicator('id') + '</th>' +
         '<th style="width:90px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'date\')" title="Сортировать по дате поступления">Дата / ПП' + taskSortIndicator('date') + '</th>' +
-        '<th style="width:85px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'deadline\')" title="Сортировать по дедлайну">Дедлайн' + taskSortIndicator('deadline') + '</th>' +
-        '<th style="width:190px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'address\')" title="Сортировать по адресу">Адрес объекта' + taskSortIndicator('address') + '</th>' +
+        '<th style="width:105px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'deadline\')" title="Сортировать по дедлайну">Дедлайн / Риск' + taskSortIndicator('deadline') + '</th>' +
+        '<th style="width:190px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'address\')" title="Сортировать по адресу">Адрес / Карта' + taskSortIndicator('address') + '</th>' +
         '<th style="width:105px">Что делать</th>' +
         '<th style="width:85px">Сколько</th>' +
         '<th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'contractor\')" title="Сортировать по подрядчику">Исполнитель / ПМ' + taskSortIndicator('contractor') + '</th>' +
         (function() {
-          if (appMode === 'customer') return '<th style="width:90px">Цена (Вход)</th><th style="width:125px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'amount\')" title="Сортировать по стоимости">Стоимость' + taskSortIndicator('amount') + '</th>';
-          if (appMode === 'contractor') return '<th style="width:90px">Цена (Подряд)</th><th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'amount\')" title="Сортировать по стоимости">Стоимость' + taskSortIndicator('amount') + '</th>';
-          if (appMode === 'supply') return '<th style="width:90px">Статус ТМЦ</th><th style="width:130px">Склад / Трек</th>';
-          if (appMode === 'docs') return '<th style="width:90px">Статус ИД</th><th style="width:130px">Портал</th>';
-          if (appMode === 'finance') return '<th style="width:90px">Счета / Акты</th><th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'amount\')" title="Сортировать по марже">Фин. итог (Маржа)' + taskSortIndicator('amount') + '</th>';
+          if (appMode === 'customer') return '<th style="width:90px">Цена (Вход)</th><th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'amount\')" title="Сортировать по стоимости">Стоимость / Дорога' + taskSortIndicator('amount') + '</th>';
+          if (appMode === 'contractor') return '<th style="width:90px">Цена (Подряд)</th><th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'amount\')" title="Сортировать по стоимости">Стоимость / Дорога' + taskSortIndicator('amount') + '</th>';
+          if (appMode === 'supply') return '<th style="width:100px">Статус ТМЦ</th><th style="width:130px">Склад / Трек</th>';
+          if (appMode === 'docs') return '<th style="width:100px">Статус ИД</th><th style="width:130px">Портал</th>';
+          if (appMode === 'finance') return '<th style="width:100px">Счета / Акты</th><th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'amount\')" title="Сортировать по марже">Фин. итог (Маржа)' + taskSortIndicator('amount') + '</th>';
           return '';
         })() +
         '<th style="width:36px"></th>' +

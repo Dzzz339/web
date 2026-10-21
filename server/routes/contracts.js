@@ -106,6 +106,22 @@ router.get('/contracts', authenticateToken, async (req, res) => {
       paramIndex++;
     }
 
+    // 8. Фильтр по приоритету закрытия (P1, P2, P3, P4)
+    const priority = req.query.priority;
+    if (priority && priority !== 'all') {
+      whereConditions.push(`c.closing_priority = $${paramIndex}`);
+      params.push(priority);
+      paramIndex++;
+    }
+
+    // 9. Фильтр по типу контракта (закон: 223-ФЗ, 44-ФЗ, Прямой, Субподрядный)
+    const lawType = req.query.law_type || req.query.lawType;
+    if (lawType && lawType !== 'all') {
+      whereConditions.push(`c.contract_law_type = $${paramIndex}`);
+      params.push(lawType);
+      paramIndex++;
+    }
+
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
     const listQuery = `
@@ -582,7 +598,12 @@ router.put('/contracts/:id', authenticateToken, async (req, res) => {
       status,
       lots,
       manager_id,
-      manager_name
+      manager_name,
+      closing_priority,
+      closing_docs_plan_date,
+      contract_law_type,
+      payments,
+      penalties
     } = req.body;
 
     let finalDeadlineDate = deadline_date;
@@ -618,8 +639,13 @@ router.put('/contracts/:id', authenticateToken, async (req, res) => {
         lots = COALESCE($24, lots),
         manager_id = COALESCE($25, manager_id),
         manager_name = COALESCE($26, manager_name),
+        closing_priority = COALESCE($27, closing_priority),
+        closing_docs_plan_date = CASE WHEN $28::text IS NOT NULL AND $28::text != '' THEN $28::date ELSE closing_docs_plan_date END,
+        contract_law_type = COALESCE($29, contract_law_type),
+        payments = CASE WHEN $30::jsonb IS NOT NULL THEN $30::jsonb ELSE payments END,
+        penalties = CASE WHEN $31::jsonb IS NOT NULL THEN $31::jsonb ELSE penalties END,
         updated_at = NOW()
-      WHERE id = $27
+      WHERE id = $32
       RETURNING *
     `, [
       internal_number, contract_number, contract_date || null, contract_type_summary,
@@ -629,6 +655,11 @@ router.put('/contracts/:id', authenticateToken, async (req, res) => {
       security_amount, security_condition, discount_percent, amount,
       platform, cloud_url, contacts_raw, status, lots ? JSON.stringify(lots) : null,
       manager_id ? parseInt(manager_id, 10) : null, manager_name || null,
+      closing_priority || null,
+      closing_docs_plan_date || null,
+      contract_law_type || null,
+      payments ? JSON.stringify(payments) : null,
+      penalties ? JSON.stringify(penalties) : null,
       id
     ]);
 
@@ -639,6 +670,111 @@ router.put('/contracts/:id', authenticateToken, async (req, res) => {
     res.json(rows[0]);
   } catch (err) {
     console.error('Error updating contract:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Быстрое обновление приоритета закрытия и плановой даты
+ */
+router.patch('/contracts/:id/priority', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { closing_priority, closing_docs_plan_date } = req.body;
+    const { rows } = await pool.query(`
+      UPDATE contracts SET
+        closing_priority = COALESCE($1, closing_priority),
+        closing_docs_plan_date = CASE 
+          WHEN $2::text = '' OR $2 IS NULL THEN NULL 
+          ELSE $2::date 
+        END,
+        updated_at = NOW()
+      WHERE id = $3
+      RETURNING *
+    `, [closing_priority || null, closing_docs_plan_date !== undefined ? closing_docs_plan_date : null, id]);
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Договор не найден' });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error updating contract priority:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Быстрое обновление типа контракта (закон: 223-ФЗ, 44-ФЗ, Прямой, Субподрядный)
+ */
+router.patch('/contracts/:id/law-type', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { contract_law_type } = req.body;
+    const { rows } = await pool.query(`
+      UPDATE contracts SET
+        contract_law_type = COALESCE($1, contract_law_type),
+        updated_at = NOW()
+      WHERE id = $2
+      RETURNING *
+    `, [contract_law_type || null, id]);
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Договор не найден' });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error updating contract law type:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Обновление оплат по контракту
+ */
+router.patch('/contracts/:id/payments', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { payments } = req.body;
+    const cleanPayments = Array.isArray(payments) ? payments : [];
+    const { rows } = await pool.query(`
+      UPDATE contracts SET
+        payments = $1::jsonb,
+        updated_at = NOW()
+      WHERE id = $2
+      RETURNING *
+    `, [JSON.stringify(cleanPayments), id]);
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Договор не найден' });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error updating contract payments:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Обновление пеней и штрафов по контракту
+ */
+router.patch('/contracts/:id/penalties', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { penalties } = req.body;
+    const { rows } = await pool.query(`
+      UPDATE contracts SET
+        penalties = $1::jsonb,
+        updated_at = NOW()
+      WHERE id = $2
+      RETURNING *
+    `, [JSON.stringify(penalties || {}), id]);
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Договор не найден' });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error updating contract penalties:', err);
     res.status(500).json({ error: err.message });
   }
 });

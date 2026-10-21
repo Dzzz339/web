@@ -4,10 +4,12 @@ import path from 'path';
 import fs from 'fs';
 import { pool } from '../config/db.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
-import { UPLOADS_DIR } from '../middleware/upload.js';
+import { UPLOADS_DIR, uploadAttachment, fixUtf8Filename } from '../middleware/upload.js';
 import {
   generateSubcontractOrder,
   generatePermitLetter,
+  generateAccessWorkOrder,
+  generateHazardousWorkPermit,
   generatePowerOfAttorney,
   generateIdRegistry,
   generateContract,
@@ -162,7 +164,7 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
           account_corr: c.account_corr
         };
         const ccRes = await pool.query(`
-          SELECT * FROM contracts 
+          SELECT * FROM contractor_contracts 
           WHERE contractor_id = $1 OR contract_number ILIKE $2
           ORDER BY id DESC LIMIT 1
         `, [c.id, `%${c.name_short.split(' ').slice(-1)[0]}%`]);
@@ -180,8 +182,23 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
     if (generalContractor === DEFAULT_GENERAL_CONTRACTOR) {
       let ownId = task.own_company_id;
       if (!ownId && task.contract_id) {
-        const cntRes = await pool.query('SELECT own_company_id FROM contracts WHERE id = $1', [task.contract_id]);
-        if (cntRes.rows.length > 0) ownId = cntRes.rows[0].own_company_id;
+        const cntRes = await pool.query('SELECT own_company_id, our_entity_name FROM contracts WHERE id = $1', [task.contract_id]);
+        if (cntRes.rows.length > 0) {
+          ownId = cntRes.rows[0].own_company_id;
+          if (!ownId && cntRes.rows[0].our_entity_name) {
+            const entName = String(cntRes.rows[0].our_entity_name).toLowerCase();
+            if (entName.includes('к10')) {
+              const k10 = await pool.query("SELECT id FROM own_companies WHERE code = 'K10' LIMIT 1");
+              if (k10.rows.length) ownId = k10.rows[0].id;
+            } else if (entName.includes('кабельн')) {
+              const ks = await pool.query("SELECT id FROM own_companies WHERE code = 'KS' LIMIT 1");
+              if (ks.rows.length) ownId = ks.rows[0].id;
+            } else if (entName.includes('ультим')) {
+              const ult = await pool.query("SELECT id FROM own_companies WHERE code = 'ULTIMA' LIMIT 1");
+              if (ult.rows.length) ownId = ult.rows[0].id;
+            }
+          }
+        }
       }
       if (!ownId && (String(task.customer || '').includes('Сбер') || String(task.id || '').includes('К10') || String(task.sheet || '').includes('Сбер'))) {
         const k10Res = await pool.query("SELECT id FROM own_companies WHERE code = 'K10' LIMIT 1");
@@ -334,6 +351,47 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
         generalContractor,
         registryNumber: docNumber
       });
+    } else if (doc_type === 'access_order') {
+      docNumber = `ЗН-${task.id}-ОБ`;
+      title = `Заказ-наряд на производство работ № ${docNumber}`;
+      let specialists = (meta && Array.isArray(meta.specialists)) ? meta.specialists : [];
+      if (specialists.length === 0 && subcontract && subcontract.installer_fio) {
+        specialists.push({
+          full_name: subcontract.installer_fio,
+          passport_series_number: subcontract.installer_passport,
+          phone: subcontract.installer_phone,
+          role: 'Старший монтажник'
+        });
+      }
+      buffer = await generateAccessWorkOrder({
+        task,
+        specialists,
+        contractor,
+        generalContractor,
+        orderNumber: docNumber,
+        responsibleInfo: meta?.responsible_info,
+        workTypes: meta?.work_types,
+        instructions: meta?.instructions
+      });
+    } else if (doc_type === 'work_permit') {
+      docNumber = `НД-${task.id}`;
+      title = `Наряд-допуск на работы повышенной опасности № ${docNumber}`;
+      let specialists = (meta && Array.isArray(meta.specialists)) ? meta.specialists : [];
+      if (specialists.length === 0 && subcontract && subcontract.installer_fio) {
+        specialists.push({
+          full_name: subcontract.installer_fio,
+          passport_series_number: subcontract.installer_passport,
+          phone: subcontract.installer_phone
+        });
+      }
+      buffer = await generateHazardousWorkPermit({
+        task,
+        specialists,
+        contractor,
+        generalContractor,
+        permitNumber: docNumber,
+        responsibleInfo: meta?.responsible_info
+      });
     } else {
       return res.status(400).json({ error: `Неизвестный тип документа: ${doc_type}` });
     }
@@ -350,7 +408,7 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
       INSERT INTO task_documents (
         task_id, subcontract_id, doc_type, doc_number, title, file_url, file_type, meta, created_by
       )
-      VALUES ($1, $2, $3, $4, $5, $6, 'docx', $7, $8)
+      VALUES ($1, $2, $3, $4, $5, $6, 'docx', $7, (SELECT id FROM users WHERE id = $8))
       RETURNING *
     `, [
       taskId,
@@ -367,6 +425,123 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
   } catch (err) {
     console.error('Error generating document:', err);
     res.status(500).json({ error: 'Ошибка генерации документа: ' + err.message });
+  }
+});
+
+// 2.1. Загрузка / ручной учет входящего счета или акта от контрагента
+router.post('/tasks/:taskId/documents/upload', authenticateToken, uploadAttachment.single('file'), async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const {
+      doc_type = 'invoice',
+      doc_number = '',
+      doc_date = null,
+      title = '',
+      amount = null,
+      status = 'issued',
+      comment = '',
+      subcontract_id = null
+    } = req.body;
+
+    let fileUrl = '';
+    let fileType = 'file';
+
+    if (req.file) {
+      fileUrl = `/uploads/documents/${req.file.filename}`;
+      const ext = path.extname(req.file.originalname).replace('.', '').toLowerCase();
+      fileType = ext || 'pdf';
+    }
+
+    const numVal = (amount !== undefined && amount !== '' && amount !== null) ? parseFloat(amount) : null;
+    const meta = {
+      amount: numVal,
+      status: status || 'issued',
+      comment: comment || '',
+      is_incoming: true,
+      uploader_name: req.user?.fullName || req.user?.username || 'Пользователь'
+    };
+
+    let docTitle = title;
+    if (!docTitle) {
+      if (doc_type === 'invoice') docTitle = `Счет на оплату № ${doc_number || 'б/н'}`;
+      else if (doc_type === 'completion_act') docTitle = `Акт вып. работ № ${doc_number || 'б/н'}`;
+      else if (doc_type === 'access_order') docTitle = `Заказ-наряд № ${doc_number || 'б/н'}`;
+      else if (doc_type === 'work_permit') docTitle = `Наряд-допуск № ${doc_number || 'б/н'}`;
+      else docTitle = `Входящий документ № ${doc_number || 'б/н'}`;
+    }
+
+    const insertRes = await pool.query(`
+      INSERT INTO task_documents (
+        task_id, subcontract_id, doc_type, doc_number, doc_date, title, file_url, file_type, meta, status, created_by
+      )
+      VALUES (
+        $1, $2, $3, $4, COALESCE($5::date, CURRENT_DATE), $6, $7, $8, $9, $10,
+        (SELECT id FROM users WHERE id = $11)
+      )
+      RETURNING *
+    `, [
+      taskId,
+      subcontract_id || null,
+      doc_type,
+      doc_number || null,
+      doc_date || null,
+      docTitle,
+      fileUrl,
+      fileType,
+      JSON.stringify(meta),
+      status || 'issued',
+      req.user?.id || null
+    ]);
+
+    res.status(201).json(insertRes.rows[0]);
+  } catch (err) {
+    console.error('Error uploading/recording document:', err);
+    res.status(500).json({ error: 'Ошибка сохранения документа: ' + err.message });
+  }
+});
+
+// 2.2. Быстрое обновление статуса, суммы и реквизитов документа
+router.patch('/documents/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, amount, doc_number, doc_date, title, comment } = req.body;
+
+    const curRes = await pool.query('SELECT * FROM task_documents WHERE id = $1', [id]);
+    if (!curRes.rows.length) return res.status(404).json({ error: 'Документ не найден' });
+
+    const doc = curRes.rows[0];
+    const meta = typeof doc.meta === 'string' ? JSON.parse(doc.meta || '{}') : (doc.meta || {});
+
+    if (status !== undefined) {
+      meta.status = status;
+    }
+    if (amount !== undefined) {
+      meta.amount = (amount !== '' && amount !== null) ? parseFloat(amount) : null;
+    }
+    if (comment !== undefined) {
+      meta.comment = comment;
+    }
+
+    const newStatus = status !== undefined ? status : doc.status;
+    const newDocNum = doc_number !== undefined ? doc_number : doc.doc_number;
+    const newDocDate = doc_date !== undefined ? doc_date : doc.doc_date;
+    const newTitle = title !== undefined ? title : doc.title;
+
+    const updRes = await pool.query(`
+      UPDATE task_documents SET
+        status = $1,
+        doc_number = $2,
+        doc_date = COALESCE($3::date, doc_date),
+        title = $4,
+        meta = $5
+      WHERE id = $6
+      RETURNING *
+    `, [newStatus, newDocNum, newDocDate, newTitle, JSON.stringify(meta), id]);
+
+    res.json(updRes.rows[0]);
+  } catch (err) {
+    console.error('Error updating document:', err);
+    res.status(500).json({ error: 'Ошибка обновления документа: ' + err.message });
   }
 });
 

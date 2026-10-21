@@ -11,6 +11,89 @@ var CONTRACT_STATUSES = [
   { id: 'расторгнут', label: 'Расторгнут', color: '#991b1b', bg: '#fef2f2', border: '#fecaca' }
 ];
 
+var CLOSING_PRIORITIES = {
+  'P1': { id: 'P1', label: 'P1 Срочно', short: 'P1', icon: '🔴', color: '#b91c1c', bg: '#fee2e2', border: '#fca5a5' },
+  'P2': { id: 'P2', label: 'P2 Высокий', short: 'P2', icon: '🟠', color: '#c2410c', bg: '#ffedd5', border: '#fed7aa' },
+  'P3': { id: 'P3', label: 'P3 Обычный', short: 'P3', icon: '🟡', color: '#b45309', bg: '#fef3c7', border: '#fde68a' },
+  'P4': { id: 'P4', label: 'P4 Низкий', short: 'P4', icon: '🟢', color: '#15803d', bg: '#dcfce7', border: '#86efac' },
+  'none': { id: 'none', label: 'Без приоритета', short: '—', icon: '⚪', color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' }
+};
+
+var CONTRACT_LAW_TYPES = ['223-ФЗ', '44-ФЗ', 'Прямой договор', 'Субподрядный'];
+
+var CLOSING_DOC_STATUSES = {
+  required:  { id: 'required',  label: 'Требуется',    icon: '⏳', color: '#b45309', bg: '#fefce8', border: '#fef08a' },
+  ready:     { id: 'ready',     label: 'Готов (файл)', icon: '📝', color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe' },
+  prepared:  { id: 'ready',     label: 'Готов (файл)', icon: '📝', color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe' },
+  sent:      { id: 'sent',      label: 'Отправлен',    icon: '📤', color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
+  accepted:  { id: 'accepted',  label: 'Принят',       icon: '👁️', color: '#0d9488', bg: '#f0fdfa', border: '#99f6e4' },
+  completed: { id: 'completed', label: 'Завершен',     icon: '🏆', color: '#15803d', bg: '#f0fdf4', border: '#86efac' }
+};
+
+var CONTRACT_DEFAULT_CHECKLIST_ITEMS = [
+  { key: 'exec_doc', label: 'Исполнительная документация (ИД)' },
+  { key: 'scheme_sks', label: 'Схема СКС / Структурная схема' },
+  { key: 'cable_routes', label: 'План прокладки кабельных трасс' },
+  { key: 'cable_journal', label: 'Кабельный журнал' },
+  { key: 'manual', label: 'Инструкция по эксплуатации' },
+  { key: 'warranty_cert', label: 'Системный сертификат / гарантия 15–25 лет' },
+  { key: 'fluke_tests', label: 'Протоколы тестирования Fluke Networks' },
+  { key: 'acts_ks', label: 'Акты КС-2, КС-3 / УПД подписанные' }
+];
+
+function getContractClosingPriorityBadge(priority) {
+  var p = CLOSING_PRIORITIES[priority] || CLOSING_PRIORITIES.none;
+  return `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 7px; border-radius:6px; font-size:.72rem; font-weight:700; background:${p.bg}; color:${p.color}; border:1px solid ${p.border}">
+    <span>${p.icon}</span> <span>${p.label}</span>
+  </span>`;
+}
+
+function getContractLawTypeBadge(lawType) {
+  var law = lawType || '223-ФЗ';
+  var bg = '#eef2ff', color = '#4338ca', border = '#c7d2fe';
+  if (law.includes('44')) {
+    bg = '#ecfdf5'; color = '#047857'; border = '#a7f3d0';
+  } else if (law.includes('Прямой')) {
+    bg = '#fff7ed'; color = '#c2410c'; border = '#fed7aa';
+  } else if (law.includes('Субподряд')) {
+    bg = '#fdf4ff'; color = '#86198f'; border = '#f5d0fe';
+  }
+  return `<span style="display:inline-flex; align-items:center; gap:3px; padding:1px 6px; border-radius:4px; font-size:.70rem; font-weight:700; background:${bg}; color:${color}; border:1px solid ${border}">
+    📜 ${escHtml(law)}
+  </span>`;
+}
+
+function normalizeChecklistItemData(rawVal) {
+  if (!rawVal && rawVal !== false) {
+    return { required: false, status: 'required', file_url: '', file_name: '', updated_at: '' };
+  }
+  if (typeof rawVal === 'object' && rawVal !== null) {
+    var isReq = rawVal.required !== undefined ? Boolean(rawVal.required) : true;
+    var st = rawVal.status || 'required';
+    if (st === 'prepared') st = 'ready';
+    return {
+      required: isReq,
+      status: st,
+      file_url: rawVal.file_url || '',
+      file_name: rawVal.file_name || '',
+      updated_at: rawVal.updated_at || ''
+    };
+  }
+  if (rawVal === true || rawVal === 'accepted' || rawVal === 'completed') {
+    return { required: true, status: rawVal === 'completed' ? 'completed' : 'accepted', file_url: '', file_name: '', updated_at: '' };
+  }
+  if (rawVal === 'prepared' || rawVal === 'ready') {
+    return { required: true, status: 'ready', file_url: '', file_name: '', updated_at: '' };
+  }
+  if (rawVal === 'sent') {
+    return { required: true, status: 'sent', file_url: '', file_name: '', updated_at: '' };
+  }
+  if (rawVal === 'required') {
+    return { required: true, status: 'required', file_url: '', file_name: '', updated_at: '' };
+  }
+  return { required: false, status: 'required', file_url: '', file_name: '', updated_at: '' };
+}
+
 function getContractStatusBadge(status) {
   var sLower = String(status || '').trim().toLowerCase();
   var found = CONTRACT_STATUSES.find(function(s) {
@@ -38,6 +121,8 @@ function pageContracts() {
   S.contractYear = S.contractYear || 'all';
   S.contractManager = S.contractManager || 'all';
   S.contractEntity = S.contractEntity || 'all';
+  S.contractPriority = S.contractPriority || 'all';
+  S.contractLawType = S.contractLawType || 'all';
 
   // Менеджеры для фильтра
   var usersList = (S.contractFilterOptions && S.contractFilterOptions.users) || S.users || [];
@@ -84,7 +169,9 @@ function pageContracts() {
     (S.contractStatus && S.contractStatus !== 'all') || 
     (S.contractYear && S.contractYear !== 'all') || 
     (S.contractManager && S.contractManager !== 'all') || 
-    (S.contractEntity && S.contractEntity !== 'all')
+    (S.contractEntity && S.contractEntity !== 'all') ||
+    (S.contractPriority && S.contractPriority !== 'all') ||
+    (S.contractLawType && S.contractLawType !== 'all')
   );
 
   // Загружаем договоры с бэкенда
@@ -136,7 +223,7 @@ function pageContracts() {
 
       <!-- ПАНЕЛЬ ПОИСКА И ФИЛЬТРОВ (ДВЕ СТРОКИ: ПОИСК СВЕРХУ, ОТБОРЫ СНИЗУ) -->
       <div class="card p mb" style="display:flex; flex-direction:column; gap:10px">
-        <!-- СТРОКА 1: Поиск + Статус + Год + Сброс -->
+        <!-- СТРОКА 1: Поиск + Статус + Приоритет + Год + Сброс -->
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center">
           <div style="position:relative; flex:1; min-width:280px">
             <input type="text" id="contract_search_input" value="${escHtml(S.contractSearch)}" 
@@ -153,6 +240,15 @@ function pageContracts() {
             }).join('')}
           </select>
 
+          <select id="contract_filter_priority" style="padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:.82rem" onchange="onContractFilterChange('contractPriority', this.value)" title="Приоритет закрытия">
+            <option value="all" ${S.contractPriority === 'all' ? 'selected' : ''}>Приоритет (Все)</option>
+            <option value="P1" ${S.contractPriority === 'P1' ? 'selected' : ''}>🔴 P1 Срочно</option>
+            <option value="P2" ${S.contractPriority === 'P2' ? 'selected' : ''}>🟠 P2 Высокий</option>
+            <option value="P3" ${S.contractPriority === 'P3' ? 'selected' : ''}>🟡 P3 Обычный</option>
+            <option value="P4" ${S.contractPriority === 'P4' ? 'selected' : ''}>🟢 P4 Низкий</option>
+            <option value="none" ${S.contractPriority === 'none' ? 'selected' : ''}>⚪ Без приоритета</option>
+          </select>
+
           <select id="contract_filter_year" style="padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:.82rem" onchange="onContractFilterChange('contractYear', this.value)">
             <option value="all" ${S.contractYear === 'all' ? 'selected' : ''}>Год (Все)</option>
             ${yearOptionsHtml}
@@ -165,14 +261,14 @@ function pageContracts() {
           </div>
         </div>
 
-        <!-- СТРОКА 2: Отборы (Менеджер, Сторона 2, Сторона 1, О чем договор) -->
+        <!-- СТРОКА 2: Отборы (Менеджер, Сторона 2, Сторона 1, Закон, О чем договор) -->
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; padding-top:6px; border-top:1px dashed var(--border)">
           <div style="display:inline-flex; align-items:center; gap:5px; font-size:.74rem; font-weight:700; color:var(--text-2); text-transform:uppercase; letter-spacing:0.5px">
             <span>🎯</span> <span>Отбор:</span>
           </div>
 
           <!-- МЕНЕДЖЕР (КТО ВЕДЕТ КОНТРАКТ) -->
-          <select id="contract_filter_manager" style="padding:7px 10px; border:1px solid var(--border); border-radius:8px; font-size:.82rem; min-width:175px; flex:1" onchange="onContractFilterChange('contractManager', this.value)" title="Отбор по менеджеру договора">
+          <select id="contract_filter_manager" style="padding:7px 10px; border:1px solid var(--border); border-radius:8px; font-size:.82rem; min-width:160px; flex:1" onchange="onContractFilterChange('contractManager', this.value)" title="Отбор по менеджеру договора">
             <option value="all" ${S.contractManager === 'all' ? 'selected' : ''}>👤 Менеджер (Все)</option>
             <option value="unassigned" ${S.contractManager === 'unassigned' ? 'selected' : ''}>👤 Без менеджера</option>
             <option value="assigned" ${S.contractManager === 'assigned' ? 'selected' : ''}>👤 Любой назначенный</option>
@@ -180,19 +276,27 @@ function pageContracts() {
           </select>
 
           <!-- СТОРОНА 2 (ИСПОЛНИТЕЛЬ / НАША ОРГАНИЗАЦИЯ) -->
-          <select id="contract_filter_entity" style="padding:7px 10px; border:1px solid var(--border); border-radius:8px; font-size:.82rem; min-width:185px; flex:1" onchange="onContractFilterChange('contractEntity', this.value)" title="Отбор по стороне 2 (Исполнитель / Наша организация)">
-            <option value="all" ${S.contractEntity === 'all' ? 'selected' : ''}>🏢 Сторона 2: Исполнитель (Все)</option>
+          <select id="contract_filter_entity" style="padding:7px 10px; border:1px solid var(--border); border-radius:8px; font-size:.82rem; min-width:170px; flex:1" onchange="onContractFilterChange('contractEntity', this.value)" title="Отбор по стороне 2 (Исполнитель / Наша организация)">
+            <option value="all" ${S.contractEntity === 'all' ? 'selected' : ''}>🏢 Исполнитель (Все)</option>
             ${entityOptionsHtml}
           </select>
 
           <!-- СТОРОНА 1 (ЗАКАЗЧИК) -->
-          <select id="contract_filter_customer" style="padding:7px 10px; border:1px solid var(--border); border-radius:8px; font-size:.82rem; min-width:210px; max-width:320px; flex:1" onchange="onContractFilterChange('contractCustomer', this.value)" title="Отбор по стороне 1 (Заказчик)">
-            <option value="all" ${S.contractCustomer === 'all' ? 'selected' : ''}>🏛️ Сторона 1: Заказчик (Все)</option>
+          <select id="contract_filter_customer" style="padding:7px 10px; border:1px solid var(--border); border-radius:8px; font-size:.82rem; min-width:180px; max-width:280px; flex:1" onchange="onContractFilterChange('contractCustomer', this.value)" title="Отбор по стороне 1 (Заказчик)">
+            <option value="all" ${S.contractCustomer === 'all' ? 'selected' : ''}>🏛️ Заказчик (Все)</option>
             ${customerOptionsHtml}
           </select>
 
+          <!-- ЗАКОН / ТИП КОНТРАКТА -->
+          <select id="contract_filter_law" style="padding:7px 10px; border:1px solid var(--border); border-radius:8px; font-size:.82rem; min-width:125px; flex:1" onchange="onContractFilterChange('contractLawType', this.value)" title="Тип контракта (Закон)">
+            <option value="all" ${S.contractLawType === 'all' ? 'selected' : ''}>📜 Закон (Все)</option>
+            ${CONTRACT_LAW_TYPES.map(function(l) {
+              return `<option value="${escHtml(l)}" ${S.contractLawType === l ? 'selected' : ''}>${escHtml(l)}</option>`;
+            }).join('')}
+          </select>
+
           <!-- О ЧЕМ ДОГОВОР -->
-          <select id="contract_filter_type" style="padding:7px 10px; border:1px solid var(--border); border-radius:8px; font-size:.82rem; min-width:160px; flex:1" onchange="onContractFilterChange('contractType', this.value)" title="Отбор по предмету / типу работ">
+          <select id="contract_filter_type" style="padding:7px 10px; border:1px solid var(--border); border-radius:8px; font-size:.82rem; min-width:150px; flex:1" onchange="onContractFilterChange('contractType', this.value)" title="Отбор по предмету / типу работ">
             <option value="all" ${S.contractType === 'all' ? 'selected' : ''}>🏷️ О чем договор (Все)</option>
             <option value="СМР / СКС и ЛВС" ${S.contractType === 'СМР / СКС и ЛВС' ? 'selected' : ''}>СМР / СКС и ЛВС</option>
             <option value="Поставка" ${S.contractType === 'Поставка' ? 'selected' : ''}>Поставка</option>
@@ -232,6 +336,26 @@ function pageContracts() {
       <div id="contract_create_task_modal" class="card" style="width:100%; max-width:780px; max-height:92vh; overflow-y:auto; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); position:relative"></div>
     </div>
 
+    <!-- МОДАЛЬНОЕ ОКНО БЫСТРОГО ПРИОРИТЕТА И ПЛАНА ЗАКРЫТИЯ -->
+    <div id="contract_quick_priority_modal_backdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:10005; align-items:center; justify-content:center; padding:16px" onclick="if(event.target===this) closeContractPriorityQuickModal()">
+      <div id="contract_quick_priority_modal" class="card" style="width:100%; max-width:440px; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); overflow:hidden"></div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО БЫСТРОГО ТИПА КОНТРАКТА (ЗАКОН) -->
+    <div id="contract_quick_law_modal_backdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:10005; align-items:center; justify-content:center; padding:16px" onclick="if(event.target===this) closeContractLawTypeQuickModal()">
+      <div id="contract_quick_law_modal" class="card" style="width:100%; max-width:400px; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); overflow:hidden"></div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО ПРИКРЕПЛЕНИЯ ДОКУМЕНТА К ЧЕК-ЛИСТУ -->
+    <div id="contract_checklist_attach_modal_backdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:10006; align-items:center; justify-content:center; padding:16px" onclick="if(event.target===this) closeChecklistAttachmentModal()">
+      <div id="contract_checklist_attach_modal" class="card" style="width:100%; max-width:520px; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); overflow:hidden"></div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ ПЛАТЕЖА -->
+    <div id="contract_add_payment_modal_backdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:10006; align-items:center; justify-content:center; padding:16px" onclick="if(event.target===this) closeAddContractPaymentModal()">
+      <div id="contract_add_payment_modal" class="card" style="width:100%; max-width:480px; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); overflow:hidden"></div>
+    </div>
+
     <!-- МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ МАТЕРИАЛОВ (ПРОВОДНИК / БРАУЗЕР) -->
     <div id="contract_materials_modal_backdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:10002; align-items:center; justify-content:center; padding:16px" onclick="if(event.target===this) closeAddContractMaterialsModal()">
       <div id="contract_materials_modal" class="card" style="width:100%; max-width:640px; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); overflow:hidden"></div>
@@ -259,6 +383,8 @@ function fetchContracts() {
   if (S.contractYear && S.contractYear !== 'all') params.push('year=' + encodeURIComponent(S.contractYear));
   if (S.contractManager && S.contractManager !== 'all') params.push('manager=' + encodeURIComponent(S.contractManager));
   if (S.contractEntity && S.contractEntity !== 'all') params.push('entity=' + encodeURIComponent(S.contractEntity));
+  if (S.contractPriority && S.contractPriority !== 'all') params.push('priority=' + encodeURIComponent(S.contractPriority));
+  if (S.contractLawType && S.contractLawType !== 'all') params.push('law_type=' + encodeURIComponent(S.contractLawType));
 
   var url = '/contracts' + (params.length ? '?' + params.join('&') : '');
 
@@ -358,7 +484,9 @@ function updateContractResetButton() {
     (S.contractStatus && S.contractStatus !== 'all') || 
     (S.contractYear && S.contractYear !== 'all') || 
     (S.contractManager && S.contractManager !== 'all') || 
-    (S.contractEntity && S.contractEntity !== 'all')
+    (S.contractEntity && S.contractEntity !== 'all') ||
+    (S.contractPriority && S.contractPriority !== 'all') ||
+    (S.contractLawType && S.contractLawType !== 'all')
   );
   btnWrap.style.display = hasActive ? 'inline-flex' : 'none';
 }
@@ -424,6 +552,8 @@ function resetContractFilters() {
   S.contractYear = 'all';
   S.contractManager = 'all';
   S.contractEntity = 'all';
+  S.contractPriority = 'all';
+  S.contractLawType = 'all';
 
   var inp = document.getElementById('contract_search_input');
   if (inp) inp.value = '';
@@ -431,6 +561,8 @@ function resetContractFilters() {
   if (selT) selT.value = 'all';
   var selS = document.getElementById('contract_filter_status');
   if (selS) selS.value = 'all';
+  var selP = document.getElementById('contract_filter_priority');
+  if (selP) selP.value = 'all';
   var selY = document.getElementById('contract_filter_year');
   if (selY) selY.value = 'all';
   var selM = document.getElementById('contract_filter_manager');
@@ -439,6 +571,8 @@ function resetContractFilters() {
   if (selE) selE.value = 'all';
   var selC = document.getElementById('contract_filter_customer');
   if (selC) selC.value = 'all';
+  var selL = document.getElementById('contract_filter_law');
+  if (selL) selL.value = 'all';
 
   updateContractResetButton();
   fetchContracts();
@@ -605,6 +739,43 @@ function renderContractsTable() {
       shortFallback = shortFallback.slice(0, 25) + '…';
     }
 
+    var prioKey = c.closing_priority || 'P3';
+    var prioCfg = CLOSING_PRIORITIES[prioKey] || CLOSING_PRIORITIES.none;
+
+    var planDateStr = c.closing_docs_plan_date ? String(c.closing_docs_plan_date).slice(0, 10) : '';
+    var planFormatted = '';
+    var isPlanExpired = false;
+    if (planDateStr) {
+      var dPlan = new Date(planDateStr);
+      if (!isNaN(dPlan.getTime())) {
+        planFormatted = dPlan.toLocaleDateString('ru-RU');
+        var today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (dPlan < today && c.status !== 'Завершен' && c.status !== 'Расторгнут') {
+          isPlanExpired = true;
+        }
+      }
+    }
+
+    var priorityCellHtml = `
+      <div style="margin-top:6px; display:flex; flex-direction:column; gap:2px">
+        <button class="btn-ghost" onclick="event.stopPropagation(); openContractPriorityQuickModal(${c.id})" 
+                style="padding:2px 7px; font-size:.72rem; font-weight:700; border-radius:6px; border:1.5px solid ${prioCfg.border}; background:${prioCfg.bg}; color:${prioCfg.color}; cursor:pointer; display:inline-flex; align-items:center; gap:4px; align-self:flex-start" 
+                title="Приоритет закрытия документов (кликните для изменения)">
+          <span>${prioCfg.icon}</span> <span>${prioCfg.label}</span>
+        </button>
+        ${planFormatted ? `
+          <div style="font-size:.70rem; font-weight:${isPlanExpired ? '700' : '600'}; color:${isPlanExpired ? 'var(--red)' : '#1e40af'}; display:flex; align-items:center; gap:3px; margin-top:1px" title="Плановая дата готовности закрывающих документов">
+            <span>${isPlanExpired ? '⚠️' : '📦'}</span> <span>План: ${planFormatted}</span>
+          </div>
+        ` : `
+          <button class="btn-link" onclick="event.stopPropagation(); openContractPriorityQuickModal(${c.id})" style="font-size:.68rem; color:var(--text-3); text-align:left; padding:0; border:none; background:none; cursor:pointer" title="Установить плановую дату закрытия">
+            + план закрытия
+          </button>
+        `}
+      </div>
+    `;
+
     var dateCellHtml = `
       <div style="font-weight:700; color:var(--text); font-size:.85rem; white-space:nowrap">
         📅 ${dateFormatted}
@@ -623,6 +794,7 @@ function renderContractsTable() {
           <span>⏳</span> <span>${escHtml(shortFallback)}</span>
         </div>
       `}
+      ${priorityCellHtml}
     `;
 
     // Ссылки
@@ -636,11 +808,11 @@ function renderContractsTable() {
       linksHtml += `<button onclick="promptCloudUrl(${c.id})" class="btn btn-sm btn-ghost" style="padding:3px 7px; color:var(--text-3); font-size:.7rem" title="Прикрепить ссылку на облако">+ Облако</button>`;
     }
 
-    // Совмещенный номер и действие подробностей спереди
+    // Совмещенный номер и действие подробностей спереди (только сам чистый номер без префикса Вн. №)
     var numberHtml = `
       <div style="display:flex; flex-direction:column; gap:4px">
         <button class="btn-link" onclick="openContractModal(${c.id})" style="font-weight:800; font-family:monospace; font-size:.92rem; text-align:left; padding:0; color:var(--blue); border:none; background:none; cursor:pointer" title="Открыть подробности договора">
-          Вн. № ${highlight(escHtml(c.internal_number || '—'), S.contractSearch)}
+          ${highlight(escHtml(c.internal_number || '—'), S.contractSearch)}
         </button>
         ${c.contract_number ? `
           <div style="font-size:.73rem; color:var(--text-3)">
@@ -738,9 +910,22 @@ function renderContractsTable() {
         <td style="padding: 10px 12px; vertical-align:top; width:135px">${numberHtml}</td>
         <td style="padding: 10px 12px; vertical-align:top; width:130px">${dateCellHtml}</td>
         <td style="padding: 10px 12px; vertical-align:top">${customerHtml}</td>
-        <td style="padding: 10px 12px; vertical-align:top; width:140px">
+        <td style="padding: 10px 12px; vertical-align:top; width:145px">
           <span class="badge ${typeBadgeClass}">${escHtml(type)}</span>
-          <div style="margin-top:4px">${getContractStatusBadge(c.status)}</div>
+          <div style="margin-top:4px">
+            <button class="btn-ghost" onclick="event.stopPropagation(); openContractLawTypeQuickModal(${c.id})" 
+                    style="padding:1px 6px; font-size:.70rem; border-radius:4px; border:1px solid #c7d2fe; background:#eef2ff; color:#4338ca; font-weight:700; cursor:pointer" 
+                    title="Тип контракта (закон): кликните для быстрой смены">
+              📜 ${escHtml(c.contract_law_type || '223-ФЗ')}
+            </button>
+          </div>
+          <div style="margin-top:4px">
+            <button class="btn-ghost" onclick="event.stopPropagation(); openContractStatusQuickModal(${c.id})" 
+                    style="background:none; border:none; padding:0; cursor:pointer" 
+                    title="Кликните для быстрой смены статуса договора">
+              ${getContractStatusBadge(c.status)}
+            </button>
+          </div>
         </td>
         <td style="padding: 10px 12px; vertical-align:top">${subjectHtml}</td>
         <td style="padding: 10px 12px; vertical-align:top; width:115px">${amountHtml}</td>
@@ -830,9 +1015,35 @@ function openContractModal(id, activeTab) {
       <div class="modal-header" style="padding:20px 24px; padding-right:200px; border-bottom:1px solid var(--border); position:relative">
         <div>
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
-            <span class="badge b-orange" style="font-size:.85rem; font-weight:800; font-family:monospace">Вн. № ${escHtml(c.internal_number || '—')}</span>
+            <span class="badge b-orange" style="font-size:.85rem; font-weight:800; font-family:monospace">${escHtml(c.internal_number || '—')}</span>
             ${hasAgreements ? `<span class="badge b-yellow" style="font-size:.82rem; font-weight:700">📑 ${c.agreements.length} допсоглашений</span>` : (c.contract_number ? `<span class="badge b-gray" style="font-size:.85rem; font-weight:700">№ ${escHtml(cleanContractNumber(c.contract_number))}</span>` : '')}
             <span class="badge b-blue">${escHtml(c.contract_type_summary || 'Договор')}</span>
+
+            <div style="display:inline-flex; align-items:center; gap:6px; background:#f8fafc; padding:3px 8px; border-radius:8px; border:1px solid var(--border)">
+              <span style="font-size:.7rem; color:var(--text-3); font-weight:700; text-transform:uppercase">Закон:</span>
+              <select id="modal_contract_law_select_${c.id}"
+                      onchange="quickChangeContractLawType(${c.id}, this.value)"
+                      style="border:none; background:transparent; font-size:.8rem; font-weight:700; cursor:pointer; outline:none; padding:2px; color:#4338ca"
+                      title="Кликните для выбора закона">
+                ${CONTRACT_LAW_TYPES.map(function(l) {
+                  return `<option value="${escHtml(l)}" ${(c.contract_law_type || '223-ФЗ') === l ? 'selected' : ''}>${escHtml(l)}</option>`;
+                }).join('')}
+              </select>
+            </div>
+
+            <div style="display:inline-flex; align-items:center; gap:6px; background:#f8fafc; padding:3px 8px; border-radius:8px; border:1px solid var(--border)">
+              <span style="font-size:.7rem; color:var(--text-3); font-weight:700; text-transform:uppercase">Приоритет:</span>
+              <select id="modal_contract_prio_select_${c.id}"
+                      onchange="quickChangeContractPriority(${c.id}, this.value)"
+                      style="border:none; background:transparent; font-size:.8rem; font-weight:700; cursor:pointer; outline:none; padding:2px; color:var(--text)"
+                      title="Приоритет закрытия пакета документов">
+                <option value="P1" ${c.closing_priority === 'P1' ? 'selected' : ''}>🔴 P1 Срочно</option>
+                <option value="P2" ${c.closing_priority === 'P2' ? 'selected' : ''}>🟠 P2 Высокий</option>
+                <option value="P3" ${(c.closing_priority === 'P3' || !c.closing_priority) ? 'selected' : ''}>🟡 P3 Обычный</option>
+                <option value="P4" ${c.closing_priority === 'P4' ? 'selected' : ''}>🟢 P4 Низкий</option>
+                <option value="none" ${c.closing_priority === 'none' ? 'selected' : ''}>⚪ Без приоритета</option>
+              </select>
+            </div>
 
             <div style="display:inline-flex; align-items:center; gap:6px; background:#f8fafc; padding:3px 8px; border-radius:8px; border:1px solid var(--border)">
               <span style="font-size:.7rem; color:var(--text-3); font-weight:700; text-transform:uppercase">Статус:</span>
@@ -1056,12 +1267,34 @@ function renderContractTabMain(c, dDate, dEnd) {
 }
 
 function renderContractTabTerms(c) {
+  var prioKey = c.closing_priority || 'P3';
+  var prioCfg = CLOSING_PRIORITIES[prioKey] || CLOSING_PRIORITIES.none;
+  var planDateStr = c.closing_docs_plan_date ? String(c.closing_docs_plan_date).slice(0, 10) : '';
+  var planFormatted = planDateStr ? new Date(planDateStr).toLocaleDateString('ru-RU') : 'Не установлена';
+
   return `
-    <!-- КОМПАКТНЫЕ УСЛОВИЯ ОПЛАТЫ И ОБЕСПЕЧЕНИЕ -->
-    <div class="card p" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px; padding:10px 16px; margin-bottom:16px; background:#f8fafc; border:1px solid var(--border)">
+    <!-- КОМПАКТНЫЕ УСЛОВИЯ ОПЛАТЫ, ЗАКОН И ОБЕСПЕЧЕНИЕ -->
+    <div class="card p" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:12px; padding:12px 16px; margin-bottom:16px; background:#f8fafc; border:1px solid var(--border)">
       <div>
         <div style="font-size:.68rem; text-transform:uppercase; font-weight:700; color:var(--text-3)">💳 Условия оплаты</div>
         <div style="font-size:.88rem; font-weight:600; color:var(--text); margin-top:2px">${escHtml(c.payment_terms || 'В соответствии с условиями договора')}</div>
+      </div>
+      <div>
+        <div style="font-size:.68rem; text-transform:uppercase; font-weight:700; color:var(--text-3)">📜 Закон / Тип контракта</div>
+        <div style="margin-top:2px">
+          <button class="btn btn-xs btn-ghost" onclick="openContractLawTypeQuickModal(${c.id})" style="border:1px solid #c7d2fe; background:#eef2ff; color:#4338ca; font-weight:700; padding:2px 8px; border-radius:4px" title="Изменить закон">
+            📜 ${escHtml(c.contract_law_type || '223-ФЗ')} ✏️
+          </button>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:.68rem; text-transform:uppercase; font-weight:700; color:var(--text-3)">🎯 Приоритет и план закрытия</div>
+        <div style="margin-top:2px; display:flex; align-items:center; gap:6px; flex-wrap:wrap">
+          <button class="btn btn-xs btn-ghost" onclick="openContractPriorityQuickModal(${c.id})" style="border:1.5px solid ${prioCfg.border}; background:${prioCfg.bg}; color:${prioCfg.color}; font-weight:700; padding:2px 8px; border-radius:6px" title="Изменить приоритет и дату закрытия">
+            ${prioCfg.icon} ${prioCfg.label} ✏️
+          </button>
+          <span style="font-size:.75rem; color:var(--text-2); font-weight:600">📦 План: ${planFormatted}</span>
+        </div>
       </div>
       <div>
         <div style="font-size:.68rem; text-transform:uppercase; font-weight:700; color:var(--text-3)">🛡️ Обеспечение договора</div>
@@ -1078,7 +1311,13 @@ function renderContractTabTerms(c) {
       ` : ''}
     </div>
 
-    <!-- ИНТЕРАКТИВНЫЙ ЧЕК-ЛИСТ ТРЕБОВАНИЙ К СДАЧЕ / ЗАКРЫТИЮ -->
+    <!-- БЛОК ОПЛАТ ПО ДОГОВОРУ (ТРАНШИ И ГРАФИК) -->
+    ${renderContractPaymentsSection(c)}
+
+    <!-- БЛОК ПЕНИ И ШТРАФОВ -->
+    ${renderContractPenaltiesSection(c)}
+
+    <!-- ИНТЕРАКТИВНЫЙ ЧЕК-ЛИСТ ТРЕБОВАНИЙ К СДАЧЕ / ЗАКРЫТИЮ (5 ЭТАПОВ, ДА/НЕТ, ФАЙЛЫ) -->
     ${renderContractChecklistSection(c)}
 
     <!-- ТЕКСТ УСЛОВИЙ ДОГОВОРА (РЕДАКТИРУЕМЫЙ) -->
@@ -2159,6 +2398,32 @@ function openContractForm(id) {
         </div>
       </div>
 
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px">
+        <div>
+          <label style="font-size:.78rem; font-weight:700">Тип контракта (Закон)</label>
+          <select id="cf_law_type" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem; font-weight:600">
+            ${CONTRACT_LAW_TYPES.map(function(l) {
+              var isSel = (c && c.contract_law_type === l) ? 'selected' : (!c && l === '223-ФЗ' ? 'selected' : '');
+              return `<option value="${escHtml(l)}" ${isSel}>${escHtml(l)}</option>`;
+            }).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:.78rem; font-weight:700">Приоритет закрытия документов</label>
+          <select id="cf_closing_priority" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem; font-weight:600">
+            <option value="P1" ${c && c.closing_priority === 'P1' ? 'selected' : ''}>🔴 P1 Срочно</option>
+            <option value="P2" ${c && c.closing_priority === 'P2' ? 'selected' : ''}>🟠 P2 Высокий</option>
+            <option value="P3" ${(!c || c.closing_priority === 'P3') ? 'selected' : ''}>🟡 P3 Обычный</option>
+            <option value="P4" ${c && c.closing_priority === 'P4' ? 'selected' : ''}>🟢 P4 Низкий</option>
+            <option value="none" ${c && c.closing_priority === 'none' ? 'selected' : ''}>⚪ Без приоритета</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:.78rem; font-weight:700">План закрытия (пакет документов)</label>
+          <input type="date" id="cf_closing_docs_plan_date" value="${c && c.closing_docs_plan_date ? String(c.closing_docs_plan_date).slice(0, 10) : ''}" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem">
+        </div>
+      </div>
+
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
         <div>
           <label style="font-size:.78rem; font-weight:700">Ссылка на закупку (zakupki.gov.ru / ЭТП)</label>
@@ -2271,6 +2536,9 @@ function handleContractFormSubmit(e, id) {
     amount: parseFloat(document.getElementById('cf_amount').value) || 0,
     security_amount: parseFloat(document.getElementById('cf_security_amount').value) || 0,
     discount_percent: (parseFloat(document.getElementById('cf_discount').value) || 0) / 100,
+    contract_law_type: document.getElementById('cf_law_type') ? document.getElementById('cf_law_type').value : '223-ФЗ',
+    closing_priority: document.getElementById('cf_closing_priority') ? document.getElementById('cf_closing_priority').value : 'P3',
+    closing_docs_plan_date: document.getElementById('cf_closing_docs_plan_date') && document.getElementById('cf_closing_docs_plan_date').value ? document.getElementById('cf_closing_docs_plan_date').value : null,
     zakupki_url: document.getElementById('cf_zakupki_url').value.trim(),
     cloud_url: document.getElementById('cf_cloud_url').value.trim(),
     terms_text: document.getElementById('cf_terms_text').value.trim()
@@ -2988,23 +3256,9 @@ function setContractActivePreview(contractId, attachmentId) {
   openContractModal(contractId, 'main');
 }
 
-var CONTRACT_DEFAULT_CHECKLIST_ITEMS = [
-  { key: 'exec_doc', label: 'Исполнительная документация (ИД)' },
-  { key: 'scheme_sks', label: 'Схема СКС / Структурная схема' },
-  { key: 'cable_routes', label: 'План прокладки кабельных трасс' },
-  { key: 'cable_journal', label: 'Кабельный журнал' },
-  { key: 'manual', label: 'Инструкция по эксплуатации' },
-  { key: 'warranty_cert', label: 'Системный сертификат / гарантия 15–25 лет' },
-  { key: 'fluke_tests', label: 'Протоколы тестирования Fluke Networks' },
-  { key: 'acts_ks', label: 'Акты КС-2, КС-3 / УПД подписанные' }
-];
-
-var CLOSING_DOC_STATUSES = {
-  required: { label: 'Требуется', icon: '⏳', badgeClass: 'b-gray', color: '#64748b', bg: '#f8fafc', border: '#e2e8f0' },
-  prepared: { label: 'Подготовлен', icon: '📝', badgeClass: 'b-yellow', color: '#b45309', bg: '#fefce8', border: '#fef08a' },
-  sent:     { label: 'Отправлен', icon: '📤', badgeClass: 'b-blue', color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe' },
-  accepted: { label: 'Принят Заказчиком', icon: '✅', badgeClass: 'b-green', color: '#15803d', bg: '#f0fdf4', border: '#86efac' }
-};
+/* =========================================================================
+ * ЧЕК-ЛИСТ ЗАКРЫВАЮЩИХ ДОКУМЕНТОВ (5 ЭТАПОВ, ДА/НЕТ, ПРИВЯЗКА ФАЙЛОВ/ССЫЛОК)
+ * ========================================================================= */
 
 function renderContractChecklistSection(c) {
   var cl = {};
@@ -3016,43 +3270,77 @@ function renderContractChecklistSection(c) {
 
   var customItems = Array.isArray(cl._custom) ? cl._custom : [];
   var allItems = CONTRACT_DEFAULT_CHECKLIST_ITEMS.concat(customItems);
-  var totalCount = allItems.length;
 
-  var acceptedCount = 0;
+  var requiredCount = 0;
+  var completedCount = 0;
+
   allItems.forEach(function(item) {
-    var rawVal = cl[item.key];
-    var status = (rawVal === true || rawVal === 'accepted') ? 'accepted' : ((rawVal === false || !rawVal) ? 'required' : rawVal);
-    if (status === 'accepted') acceptedCount++;
+    var d = normalizeChecklistItemData(cl[item.key]);
+    if (d.required) {
+      requiredCount++;
+      if (d.status === 'accepted' || d.status === 'completed') {
+        completedCount++;
+      }
+    }
   });
 
-  var percent = totalCount > 0 ? Math.round((acceptedCount / totalCount) * 100) : 0;
-  var isAllDone = totalCount > 0 && acceptedCount === totalCount;
+  var percent = requiredCount > 0 ? Math.round((completedCount / requiredCount) * 100) : 0;
+  var isAllDone = requiredCount > 0 && completedCount === requiredCount;
 
   var itemsHtml = allItems.map(function(item) {
-    var rawVal = cl[item.key];
-    var status = (rawVal === true || rawVal === 'accepted') ? 'accepted' : ((rawVal === false || !rawVal) ? 'required' : rawVal);
-    var stCfg = CLOSING_DOC_STATUSES[status] || CLOSING_DOC_STATUSES.required;
-    var isAccepted = (status === 'accepted');
-    var isCustom = !CONTRACT_DEFAULT_CHECKLIST_ITEMS.some(function(d) { return d.key === item.key; });
+    var d = normalizeChecklistItemData(cl[item.key]);
+    var stCfg = CLOSING_DOC_STATUSES[d.status] || CLOSING_DOC_STATUSES.required;
+    var isDone = (d.status === 'accepted' || d.status === 'completed');
+    var isCustom = !CONTRACT_DEFAULT_CHECKLIST_ITEMS.some(function(defItem) { return defItem.key === item.key; });
+    var isReq = d.required;
+
+    var fileHtml = '';
+    if (d.file_url) {
+      var displayFileName = d.file_name || 'Открыть документ';
+      fileHtml = `
+        <div style="display:inline-flex; align-items:center; gap:4px; margin-top:4px; max-width:100%">
+          <a href="${escHtml(d.file_url)}" target="_blank" style="display:inline-flex; align-items:center; gap:4px; font-size:.74rem; font-weight:600; color:#0284c7; background:#e0f2fe; padding:2px 8px; border-radius:4px; border:1px solid #bae6fd; text-decoration:none; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" title="Открыть: ${escHtml(displayFileName)}">
+            <span>📎</span> <span style="overflow:hidden; text-overflow:ellipsis">${escHtml(displayFileName)}</span>
+          </a>
+          <button class="btn btn-xs btn-ghost" onclick="removeChecklistAttachment(${c.id}, '${item.key}')" title="Открепить файл" style="color:#ef4444; padding:0 4px; font-size:.85rem; line-height:1">&times;</button>
+        </div>
+      `;
+    }
 
     return `
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 12px; border-radius:8px; background:${stCfg.bg}; border:1.5px solid ${stCfg.border}; transition:all .15s">
-        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; flex:1; margin:0; user-select:none" title="Быстро отметить как принятый">
-          <input type="checkbox" style="width:16px; height:16px; cursor:pointer; accent-color:#16a34a" ${isAccepted ? 'checked' : ''} onchange="updateContractDocStatus(${c.id}, '${item.key}', this.checked ? 'accepted' : 'required')">
-          <span style="font-size:.84rem; font-weight:${isAccepted ? '700' : '500'}; color:${isAccepted ? '#15803d' : 'var(--text)'}">
-            ${escHtml(item.label)}
-          </span>
-        </label>
-        <div style="display:flex; align-items:center; gap:6px">
-          <select onchange="updateContractDocStatus(${c.id}, '${item.key}', this.value)" style="padding:2px 6px; font-size:.74rem; font-weight:700; border-radius:6px; border:1px solid ${stCfg.border}; background:#fff; color:${stCfg.color}; cursor:pointer">
-            <option value="required" ${status === 'required' ? 'selected' : ''}>⏳ Требуется</option>
-            <option value="prepared" ${status === 'prepared' ? 'selected' : ''}>📝 Подготовлен</option>
-            <option value="sent" ${status === 'sent' ? 'selected' : ''}>📤 Отправлен</option>
-            <option value="accepted" ${status === 'accepted' ? 'selected' : ''}>✅ Принят</option>
-          </select>
-          ${isCustom ? `
-            <button class="btn btn-xs btn-ghost" onclick="removeContractChecklistItem(${c.id}, '${item.key}')" title="Удалить это требование" style="color:var(--red); font-size:1rem; padding:0 4px; line-height:1">&times;</button>
-          ` : ''}
+      <div style="display:flex; flex-direction:column; gap:6px; padding:10px 12px; border-radius:8px; background:${isReq ? stCfg.bg : '#f8fafc'}; border:1.5px solid ${isReq ? stCfg.border : '#e2e8f0'}; opacity:${isReq ? '1' : '0.65'}; transition:all .15s">
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:10px">
+          <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer; flex:1; margin:0; user-select:none" title="${isReq ? 'Требуется по данному контракту' : 'Не требуется по данному контракту'}">
+            <input type="checkbox" style="width:17px; height:17px; margin-top:2px; cursor:pointer; accent-color:#2563eb" ${isReq ? 'checked' : ''} onchange="toggleContractDocRequired(${c.id}, '${item.key}', this.checked)">
+            <div>
+              <div style="font-size:.84rem; font-weight:${isReq ? (isDone ? '700' : '600') : '500'}; color:${isReq ? (isDone ? '#15803d' : 'var(--text)') : 'var(--text-3)'}; text-decoration:${isReq ? 'none' : 'line-through'}">
+                ${escHtml(item.label)}
+              </div>
+              ${!isReq ? `
+                <div style="font-size:.7rem; color:var(--text-3); font-style:italic">Не требуется по условиям договора</div>
+              ` : ''}
+              ${fileHtml}
+            </div>
+          </label>
+          <div style="display:flex; align-items:center; gap:6px; flex-shrink:0">
+            ${isReq ? `
+              <select onchange="updateContractDocStage(${c.id}, '${item.key}', this.value)" style="padding:3px 6px; font-size:.74rem; font-weight:700; border-radius:6px; border:1px solid ${stCfg.border}; background:#fff; color:${stCfg.color}; cursor:pointer">
+                <option value="required" ${d.status === 'required' ? 'selected' : ''}>⏳ 1. Требуется</option>
+                <option value="ready" ${d.status === 'ready' || d.status === 'prepared' ? 'selected' : ''}>📝 2. Готов (файл)</option>
+                <option value="sent" ${d.status === 'sent' ? 'selected' : ''}>📤 3. Отправлен</option>
+                <option value="accepted" ${d.status === 'accepted' ? 'selected' : ''}>👁️ 4. Принят</option>
+                <option value="completed" ${d.status === 'completed' ? 'selected' : ''}>🏆 5. Завершен</option>
+              </select>
+              ${!d.file_url ? `
+                <button class="btn btn-xs btn-outline" onclick="openChecklistAttachmentModal(${c.id}, '${item.key}')" style="font-size:.72rem; padding:2px 6px; white-space:nowrap" title="Прикрепить файл с ПК или ссылку на Seafile">+ Файл</button>
+              ` : `
+                <button class="btn btn-xs btn-ghost" onclick="openChecklistAttachmentModal(${c.id}, '${item.key}')" style="font-size:.72rem; padding:2px 6px" title="Заменить файл или ссылку">✏️</button>
+              `}
+            ` : ''}
+            ${isCustom ? `
+              <button class="btn btn-xs btn-ghost" onclick="removeContractChecklistItem(${c.id}, '${item.key}')" title="Удалить это требование" style="color:var(--red); font-size:1.1rem; padding:0 4px; line-height:1">&times;</button>
+            ` : ''}
+          </div>
         </div>
       </div>
     `;
@@ -3065,13 +3353,13 @@ function renderContractChecklistSection(c) {
         <div>
           <div style="display:flex; align-items:center; gap:8px">
             <span style="font-size:1.15rem">📋</span>
-            <span style="font-weight:700; font-size:.95rem">Чек-лист закрывающих документов и требований (4 этапа)</span>
-            <span class="badge ${isAllDone ? 'b-green' : (acceptedCount > 0 ? 'b-blue' : 'b-gray')}" style="font-size:.78rem; font-weight:700">
-              ${acceptedCount} из ${totalCount} принято (${percent}%)
+            <span style="font-weight:700; font-size:.95rem">Чек-лист закрывающих документов и требований (5 этапов)</span>
+            <span class="badge ${isAllDone ? 'b-green' : (completedCount > 0 ? 'b-blue' : 'b-gray')}" style="font-size:.78rem; font-weight:700">
+              ${completedCount} из ${requiredCount} сдано (${percent}%)
             </span>
           </div>
           <div style="font-size:.78rem; color:var(--text-3); margin-top:2px">
-            Контроль 4 этапов каждого документа: ⏳ Требуется → 📝 Подготовлен → 📤 Отправлен Заказчику → ✅ Принят Заказчиком
+            5 этапов: ⏳ Требуется → 📝 Готов (файл) → 📤 Отправлен → 👁️ Принят → 🏆 Завершен. Снимите галочку, если документ не требуется по договору.
           </div>
         </div>
         <button class="btn btn-sm btn-ghost" onclick="promptAddContractChecklistItem(${c.id})" style="border:1px dashed var(--border); font-size:.8rem; font-weight:600">
@@ -3086,19 +3374,19 @@ function renderContractChecklistSection(c) {
 
       ${isAllDone ? `
         <div style="padding:8px 12px; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:6px; color:#065f46; font-size:.82rem; font-weight:600; margin-bottom:12px; display:flex; align-items:center; gap:6px">
-          <span>🎉</span> Все закрывающие требования и документы по договору закрыты и приняты Заказчиком!
+          <span>🎉</span> Все требуемые закрывающие документы по договору успешно приняты и завершены!
         </div>
       ` : ''}
 
       <!-- СПИСОК ТРЕБОВАНИЙ -->
-      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:8px">
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(340px, 1fr)); gap:10px">
         ${itemsHtml}
       </div>
     </div>
   `;
 }
 
-function updateContractDocStatus(contractId, key, newStatus) {
+function toggleContractDocRequired(contractId, key, isChecked) {
   var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
   var cl = {};
   if (c && c.checklist) {
@@ -3107,7 +3395,10 @@ function updateContractDocStatus(contractId, key, newStatus) {
     } catch(e) { cl = {}; }
   }
 
-  cl[key] = newStatus;
+  var currentData = normalizeChecklistItemData(cl[key]);
+  currentData.required = Boolean(isChecked);
+  currentData.updated_at = new Date().toISOString();
+  cl[key] = currentData;
 
   api('/contracts/' + contractId + '/checklist', {
     method: 'PATCH',
@@ -3124,8 +3415,234 @@ function updateContractDocStatus(contractId, key, newStatus) {
   });
 }
 
+function updateContractDocStage(contractId, key, newStage) {
+  var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
+  var cl = {};
+  if (c && c.checklist) {
+    try {
+      cl = typeof c.checklist === 'string' ? JSON.parse(c.checklist) : Object.assign({}, c.checklist);
+    } catch(e) { cl = {}; }
+  }
+
+  var currentData = normalizeChecklistItemData(cl[key]);
+  currentData.status = newStage;
+  currentData.updated_at = new Date().toISOString();
+  cl[key] = currentData;
+
+  api('/contracts/' + contractId + '/checklist', {
+    method: 'PATCH',
+    body: JSON.stringify({ checklist: cl })
+  }).then(function(res) {
+    if (res && res.error) {
+      showToast('Ошибка сохранения: ' + res.error, 'error');
+    } else {
+      if (c) c.checklist = cl;
+      if ((newStage === 'ready' || newStage === 'prepared') && !currentData.file_url) {
+        openChecklistAttachmentModal(contractId, key);
+      } else {
+        openContractModal(contractId, 'terms');
+      }
+    }
+  }).catch(function(err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  });
+}
+
+function updateContractDocStatus(contractId, key, newStatus) {
+  updateContractDocStage(contractId, key, newStatus);
+}
+
 function toggleContractChecklistItem(contractId, key, isChecked) {
-  updateContractDocStatus(contractId, key, isChecked ? 'accepted' : 'required');
+  toggleContractDocRequired(contractId, key, isChecked);
+}
+
+function openChecklistAttachmentModal(contractId, key) {
+  var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
+  var cl = {};
+  if (c && c.checklist) {
+    try {
+      cl = typeof c.checklist === 'string' ? JSON.parse(c.checklist) : (c.checklist || {});
+    } catch(e) { cl = {}; }
+  }
+  var d = normalizeChecklistItemData(cl[key]);
+
+  var customItems = Array.isArray(cl._custom) ? cl._custom : [];
+  var allItems = CONTRACT_DEFAULT_CHECKLIST_ITEMS.concat(customItems);
+  var itemDef = allItems.find(function(x) { return x.key === key; }) || { label: key };
+
+  var backdrop = document.getElementById('contract_checklist_attach_modal_backdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.id = 'contract_checklist_attach_modal_backdrop';
+    backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10005;display:flex;align-items:center;justify-content:center;padding:16px';
+    backdrop.onclick = function(e) { if (e.target === backdrop) backdrop.style.display = 'none'; };
+    document.body.appendChild(backdrop);
+  }
+
+  backdrop.style.display = 'flex';
+  backdrop.innerHTML = `
+    <div class="card p" style="max-width:500px; width:100%; border-radius:12px; background:#fff; box-shadow:0 20px 40px rgba(0,0,0,0.25)">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+        <div style="font-weight:700; font-size:1.05rem">📎 Прикрепление документа</div>
+        <button class="btn btn-xs btn-ghost" onclick="document.getElementById('contract_checklist_attach_modal_backdrop').style.display='none'" style="font-size:1.2rem; line-height:1">&times;</button>
+      </div>
+      <div style="font-size:.85rem; color:var(--text); font-weight:600; margin-bottom:14px; background:#f8fafc; padding:8px 12px; border-radius:6px; border:1px solid #e2e8f0">
+        ${escHtml(itemDef.label)}
+      </div>
+
+      <!-- Вариант 1: Загрузить с ПК -->
+      <div style="margin-bottom:16px; padding:12px; border:1px dashed #cbd5e1; border-radius:8px; background:#fbfcfe">
+        <div style="font-size:.8rem; font-weight:700; color:var(--text); margin-bottom:6px">1. Загрузить файл с компьютера</div>
+        <input type="file" id="checklist_file_input_${contractId}_${key}" style="font-size:.82rem; width:100%" onchange="handleChecklistAttachmentUpload(${contractId}, '${key}', this)">
+        <div style="font-size:.72rem; color:var(--text-3); margin-top:4px">PDF, Word, Excel, фото или скан (до 50 МБ)</div>
+      </div>
+
+      <!-- Вариант 2: Ссылка на Seafile или Облако -->
+      <div style="margin-bottom:16px">
+        <div style="font-size:.8rem; font-weight:700; color:var(--text); margin-bottom:6px">2. Или вставить ссылку на Seafile / Облако</div>
+        <input type="text" id="checklist_link_url_${contractId}_${key}" value="${escHtml(d.file_url || '')}" placeholder="https://cloud.stockeasy.ru/..." style="width:100%; padding:8px 10px; border:1.5px solid var(--border); border-radius:6px; font-size:.85rem; margin-bottom:8px">
+        <input type="text" id="checklist_link_name_${contractId}_${key}" value="${escHtml(d.file_name || '')}" placeholder="Название документа (например: Исполнительная схема)" style="width:100%; padding:8px 10px; border:1.5px solid var(--border); border-radius:6px; font-size:.85rem">
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px">
+        <button class="btn btn-sm btn-ghost" onclick="document.getElementById('contract_checklist_attach_modal_backdrop').style.display='none'">Отмена</button>
+        <button class="btn btn-sm" onclick="saveChecklistAttachmentLink(${contractId}, '${key}')">Сохранить ссылку</button>
+      </div>
+    </div>
+  `;
+}
+
+function saveChecklistAttachmentLink(contractId, key) {
+  var urlInput = document.getElementById('checklist_link_url_' + contractId + '_' + key);
+  var nameInput = document.getElementById('checklist_link_name_' + contractId + '_' + key);
+  var url = urlInput ? urlInput.value.trim() : '';
+  var name = nameInput ? nameInput.value.trim() : '';
+
+  if (!url) {
+    showToast('Введите ссылку на документ', 'warning');
+    return;
+  }
+
+  var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
+  var cl = {};
+  if (c && c.checklist) {
+    try {
+      cl = typeof c.checklist === 'string' ? JSON.parse(c.checklist) : Object.assign({}, c.checklist);
+    } catch(e) { cl = {}; }
+  }
+
+  var currentData = normalizeChecklistItemData(cl[key]);
+  currentData.file_url = url;
+  currentData.file_name = name || 'Ссылка на документ';
+  if (currentData.status === 'required') {
+    currentData.status = 'ready';
+  }
+  currentData.updated_at = new Date().toISOString();
+  cl[key] = currentData;
+
+  api('/contracts/' + contractId + '/checklist', {
+    method: 'PATCH',
+    body: JSON.stringify({ checklist: cl })
+  }).then(function(res) {
+    if (res && res.error) {
+      showToast('Ошибка сохранения: ' + res.error, 'error');
+    } else {
+      showToast('Ссылка прикреплена', 'success');
+      var backdrop = document.getElementById('contract_checklist_attach_modal_backdrop');
+      if (backdrop) backdrop.style.display = 'none';
+      if (c) c.checklist = cl;
+      openContractModal(contractId, 'terms');
+    }
+  }).catch(function(err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  });
+}
+
+function handleChecklistAttachmentUpload(contractId, key, input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+
+  var fd = new FormData();
+  fd.append('files', file);
+  fd.append('comment', 'Чек-лист: ' + key);
+
+  showToast('Загрузка файла...', 'info');
+
+  fetch('/api/contracts/' + contractId + '/attachments', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + S.token },
+    body: fd
+  }).then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res && res.error) {
+        showToast('Ошибка загрузки: ' + res.error, 'error');
+      } else {
+        var uploadedFile = Array.isArray(res) && res.length ? res[0] : null;
+        if (!uploadedFile) {
+          showToast('Ошибка сохранения файла', 'error');
+          return;
+        }
+
+        var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
+        var cl = {};
+        if (c && c.checklist) {
+          try {
+            cl = typeof c.checklist === 'string' ? JSON.parse(c.checklist) : Object.assign({}, c.checklist);
+          } catch(e) { cl = {}; }
+        }
+
+        var currentData = normalizeChecklistItemData(cl[key]);
+        currentData.file_url = '/uploads/contracts/' + uploadedFile.file_path;
+        currentData.file_name = uploadedFile.original_name || file.name;
+        if (currentData.status === 'required') {
+          currentData.status = 'ready';
+        }
+        currentData.updated_at = new Date().toISOString();
+        cl[key] = currentData;
+
+        api('/contracts/' + contractId + '/checklist', {
+          method: 'PATCH',
+          body: JSON.stringify({ checklist: cl })
+        }).then(function(updRes) {
+          showToast('Файл успешно прикреплен к требованию', 'success');
+          var backdrop = document.getElementById('contract_checklist_attach_modal_backdrop');
+          if (backdrop) backdrop.style.display = 'none';
+          if (c) c.checklist = cl;
+          openContractModal(contractId, 'terms');
+        });
+      }
+    }).catch(function(err) {
+      showToast('Ошибка: ' + err.message, 'error');
+    });
+}
+
+function removeChecklistAttachment(contractId, key) {
+  if (!confirm('Открепить этот файл от требования?')) return;
+
+  var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
+  var cl = {};
+  if (c && c.checklist) {
+    try {
+      cl = typeof c.checklist === 'string' ? JSON.parse(c.checklist) : Object.assign({}, c.checklist);
+    } catch(e) { cl = {}; }
+  }
+
+  var currentData = normalizeChecklistItemData(cl[key]);
+  currentData.file_url = '';
+  currentData.file_name = '';
+  currentData.updated_at = new Date().toISOString();
+  cl[key] = currentData;
+
+  api('/contracts/' + contractId + '/checklist', {
+    method: 'PATCH',
+    body: JSON.stringify({ checklist: cl })
+  }).then(function(res) {
+    showToast('Файл откреплен', 'info');
+    if (c) c.checklist = cl;
+    openContractModal(contractId, 'terms');
+  }).catch(function(err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  });
 }
 
 function promptAddContractChecklistItem(contractId) {
@@ -3144,7 +3661,7 @@ function promptAddContractChecklistItem(contractId) {
   if (!Array.isArray(cl._custom)) cl._custom = [];
   var customKey = 'cust_' + Date.now();
   cl._custom.push({ key: customKey, label: label });
-  cl[customKey] = false;
+  cl[customKey] = { required: true, status: 'required', file_url: '', file_name: '', updated_at: new Date().toISOString() };
 
   api('/contracts/' + contractId + '/checklist', {
     method: 'PATCH',
@@ -3194,6 +3711,687 @@ function removeContractChecklistItem(contractId, key) {
   });
 }
 
+/* =========================================================================
+ * ОПЛАТЫ ПО ДОГОВОРУ (ТРАНШИ, ГРАФИК, ПРОГРЕСС-БАР, ОСТАТОК)
+ * ========================================================================= */
+
+function renderContractPaymentsSection(c) {
+  var payments = [];
+  if (c && c.payments) {
+    try {
+      payments = typeof c.payments === 'string' ? JSON.parse(c.payments) : (c.payments || []);
+    } catch(e) { payments = []; }
+  }
+  if (!Array.isArray(payments)) payments = [];
+
+  var totalVal = Number(c.total_amount || c.amount || 0);
+  var paidSum = 0;
+  var pendingSum = 0;
+
+  payments.forEach(function(p) {
+    var amt = Number(p.amount) || 0;
+    if (p.status === 'paid') {
+      paidSum += amt;
+    } else {
+      pendingSum += amt;
+    }
+  });
+
+  var remainingSum = Math.max(0, totalVal - paidSum);
+  var paidPercent = totalVal > 0 ? Math.min(100, Math.round((paidSum / totalVal) * 100)) : 0;
+  var pendingPercent = totalVal > 0 ? Math.min(100 - paidPercent, Math.round((pendingSum / totalVal) * 100)) : 0;
+
+  var rowsHtml = '';
+  if (!payments.length) {
+    rowsHtml = `
+      <tr>
+        <td colspan="6" style="text-align:center; padding:1.5rem; color:var(--text-3); font-size:.84rem">
+          Транши оплат пока не добавлены. Нажмите «+ Добавить платеж», чтобы внести аванс или расчет по КС-2.
+        </td>
+      </tr>
+    `;
+  } else {
+    rowsHtml = payments.map(function(p) {
+      var isPaid = (p.status === 'paid');
+      var amt = Number(p.amount) || 0;
+      var dStr = p.date ? new Date(p.date).toLocaleDateString('ru-RU') : '—';
+
+      return `
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:8px 12px; font-weight:600; font-size:.84rem">${escHtml(dStr)}</td>
+          <td style="padding:8px 12px; font-size:.84rem; font-weight:600; color:var(--text)">${escHtml(p.purpose || 'Оплата по договору')}</td>
+          <td style="padding:8px 12px; font-size:.84rem; font-family:monospace; color:var(--text-2)">${escHtml(p.doc_num || '—')}</td>
+          <td style="padding:8px 12px; font-size:.88rem; font-weight:700; color:${isPaid ? 'var(--green)' : '#b45309'}">${fmtMoney(amt)}</td>
+          <td style="padding:8px 12px">
+            <button class="btn btn-xs" onclick="toggleContractPaymentStatus(${c.id}, '${p.id}')" style="border:1px solid ${isPaid ? '#86efac' : '#fde68a'}; background:${isPaid ? '#dcfce7' : '#fef3c7'}; color:${isPaid ? '#15803d' : '#b45309'}; font-weight:700; border-radius:6px; cursor:pointer" title="Нажмите для смены статуса">
+              ${isPaid ? '✅ Оплачено' : '⏳ Ожидается'}
+            </button>
+          </td>
+          <td style="padding:8px 12px; text-align:right">
+            <button class="btn btn-xs btn-ghost text-danger" onclick="deleteContractPayment(${c.id}, '${p.id}')" title="Удалить транш" style="padding:2px 6px">🗑️</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  return `
+    <div class="card p" style="background:#fff; border:1px solid var(--border); margin-bottom:16px">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px">
+        <div style="display:flex; align-items:center; gap:8px">
+          <span style="font-size:1.15rem">💳</span>
+          <span style="font-weight:700; font-size:.95rem">Оплаты и транши по договору</span>
+          <span class="badge ${paidPercent >= 100 ? 'b-green' : (paidSum > 0 ? 'b-blue' : 'b-gray')}" style="font-size:.78rem; font-weight:700">
+            Оплачено ${paidPercent}%
+          </span>
+        </div>
+        <button class="btn btn-sm btn-outline" onclick="openAddContractPaymentModal(${c.id})" style="font-size:.8rem; font-weight:600">
+          + Добавить платеж
+        </button>
+      </div>
+
+      <!-- СВОДНЫЕ ЦИФРЫ ОПЛАТЫ -->
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px; margin-bottom:12px; background:#f8fafc; padding:10px 14px; border-radius:8px; border:1px solid #e2e8f0">
+        <div>
+          <div style="font-size:.7rem; text-transform:uppercase; font-weight:700; color:var(--text-3)">Сумма договора</div>
+          <div style="font-size:.92rem; font-weight:700; color:var(--text); margin-top:2px">${fmtMoney(totalVal)}</div>
+        </div>
+        <div>
+          <div style="font-size:.7rem; text-transform:uppercase; font-weight:700; color:#15803d">Фактически оплачено</div>
+          <div style="font-size:.92rem; font-weight:700; color:#15803d; margin-top:2px">${fmtMoney(paidSum)} (${paidPercent}%)</div>
+        </div>
+        <div>
+          <div style="font-size:.7rem; text-transform:uppercase; font-weight:700; color:#b45309">Ожидается к оплате</div>
+          <div style="font-size:.92rem; font-weight:700; color:#b45309; margin-top:2px">${fmtMoney(pendingSum)}</div>
+        </div>
+        <div>
+          <div style="font-size:.7rem; text-transform:uppercase; font-weight:700; color:var(--text-2)">Остаток к оплате</div>
+          <div style="font-size:.92rem; font-weight:700; color:var(--text); margin-top:2px">${fmtMoney(remainingSum)}</div>
+        </div>
+      </div>
+
+      <!-- МНОГОЦВЕТНЫЙ ПРОГРЕСС-БАР -->
+      <div style="width:100%; height:8px; background:#e2e8f0; border-radius:999px; overflow:hidden; margin-bottom:14px; display:flex">
+        <div style="height:100%; width:${paidPercent}%; background:#10b981; transition:width .25s ease" title="Оплачено: ${fmtMoney(paidSum)}"></div>
+        <div style="height:100%; width:${pendingPercent}%; background:#f59e0b; transition:width .25s ease" title="Ожидается: ${fmtMoney(pendingSum)}"></div>
+      </div>
+
+      <!-- ТАБЛИЦА ТРАНШЕЙ -->
+      <div class="tbl-wrap" style="border:1px solid var(--border); border-radius:6px; overflow:hidden">
+        <table style="width:100%; border-collapse:collapse">
+          <thead>
+            <tr style="background:#f8fafc; font-size:.75rem; text-transform:uppercase; color:var(--text-3); border-bottom:1px solid var(--border)">
+              <th style="padding:6px 12px; text-align:left">Дата</th>
+              <th style="padding:6px 12px; text-align:left">Назначение платежа</th>
+              <th style="padding:6px 12px; text-align:left">Документ / ПП</th>
+              <th style="padding:6px 12px; text-align:left">Сумма</th>
+              <th style="padding:6px 12px; text-align:left">Статус</th>
+              <th style="padding:6px 12px; width:40px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function openAddContractPaymentModal(contractId) {
+  var backdrop = document.getElementById('contract_payment_modal_backdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.id = 'contract_payment_modal_backdrop';
+    backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10005;display:flex;align-items:center;justify-content:center;padding:16px';
+    backdrop.onclick = function(e) { if (e.target === backdrop) backdrop.style.display = 'none'; };
+    document.body.appendChild(backdrop);
+  }
+
+  var today = new Date().toISOString().slice(0, 10);
+
+  backdrop.style.display = 'flex';
+  backdrop.innerHTML = `
+    <div class="card p" style="max-width:460px; width:100%; border-radius:12px; background:#fff; box-shadow:0 20px 40px rgba(0,0,0,0.25)">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+        <div style="font-weight:700; font-size:1.05rem">💳 Добавление платежа (транша)</div>
+        <button class="btn btn-xs btn-ghost" onclick="document.getElementById('contract_payment_modal_backdrop').style.display='none'" style="font-size:1.2rem; line-height:1">&times;</button>
+      </div>
+
+      <div style="margin-bottom:10px">
+        <label style="font-size:.78rem; font-weight:700; color:var(--text-3); display:block; margin-bottom:4px">Дата платежа</label>
+        <input type="date" id="new_payment_date" value="${today}" style="width:100%; padding:7px 10px; border:1.5px solid var(--border); border-radius:6px; font-size:.85rem">
+      </div>
+
+      <div style="margin-bottom:10px">
+        <label style="font-size:.78rem; font-weight:700; color:var(--text-3); display:block; margin-bottom:4px">Сумма платежа (руб)*</label>
+        <input type="number" step="0.01" id="new_payment_amount" placeholder="0.00" style="width:100%; padding:7px 10px; border:1.5px solid var(--border); border-radius:6px; font-size:.88rem; font-weight:700">
+      </div>
+
+      <div style="margin-bottom:10px">
+        <label style="font-size:.78rem; font-weight:700; color:var(--text-3); display:block; margin-bottom:4px">Назначение платежа</label>
+        <input type="text" id="new_payment_purpose" placeholder="Например: Аванс 30%, Окончательный расчет" list="payment_purpose_presets" style="width:100%; padding:7px 10px; border:1.5px solid var(--border); border-radius:6px; font-size:.85rem">
+        <datalist id="payment_purpose_presets">
+          <option value="Аванс 30%">
+          <option value="Аванс 50%">
+          <option value="Промежуточный расчет по КС-2">
+          <option value="Окончательный расчет (100%)">
+          <option value="Оплата материалов">
+        </datalist>
+      </div>
+
+      <div style="margin-bottom:10px">
+        <label style="font-size:.78rem; font-weight:700; color:var(--text-3); display:block; margin-bottom:4px">Номер документа / ПП</label>
+        <input type="text" id="new_payment_doc_num" placeholder="ПП № ... от ..." style="width:100%; padding:7px 10px; border:1.5px solid var(--border); border-radius:6px; font-size:.85rem">
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label style="font-size:.78rem; font-weight:700; color:var(--text-3); display:block; margin-bottom:4px">Статус</label>
+        <select id="new_payment_status" style="width:100%; padding:7px 10px; border:1.5px solid var(--border); border-radius:6px; font-size:.85rem; font-weight:600">
+          <option value="paid">✅ Оплачено (факт)</option>
+          <option value="pending">⏳ Ожидается (план)</option>
+        </select>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:8px">
+        <button class="btn btn-sm btn-ghost" onclick="document.getElementById('contract_payment_modal_backdrop').style.display='none'">Отмена</button>
+        <button class="btn btn-sm" onclick="saveAddContractPayment(${contractId})">Сохранить платеж</button>
+      </div>
+    </div>
+  `;
+}
+
+function saveAddContractPayment(contractId) {
+  var date = (document.getElementById('new_payment_date').value || '').trim();
+  var amtStr = (document.getElementById('new_payment_amount').value || '').trim();
+  var purpose = (document.getElementById('new_payment_purpose').value || '').trim() || 'Оплата по договору';
+  var docNum = (document.getElementById('new_payment_doc_num').value || '').trim();
+  var status = (document.getElementById('new_payment_status').value || 'paid');
+
+  var amount = parseFloat(amtStr);
+  if (isNaN(amount) || amount <= 0) {
+    showToast('Укажите корректную сумму платежа', 'warning');
+    return;
+  }
+
+  var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
+  var payments = [];
+  if (c && c.payments) {
+    try {
+      payments = typeof c.payments === 'string' ? JSON.parse(c.payments) : (c.payments || []);
+    } catch(e) { payments = []; }
+  }
+  if (!Array.isArray(payments)) payments = [];
+
+  var newPay = {
+    id: 'pay_' + Date.now(),
+    date: date || new Date().toISOString().slice(0, 10),
+    amount: amount,
+    purpose: purpose,
+    doc_num: docNum,
+    status: status
+  };
+
+  payments.push(newPay);
+
+  api('/contracts/' + contractId + '/payments', {
+    method: 'PATCH',
+    body: JSON.stringify({ payments: payments })
+  }).then(function(res) {
+    if (res && res.error) {
+      showToast('Ошибка сохранения: ' + res.error, 'error');
+    } else {
+      showToast('Платеж добавлен', 'success');
+      var backdrop = document.getElementById('contract_payment_modal_backdrop');
+      if (backdrop) backdrop.style.display = 'none';
+      if (c) c.payments = payments;
+      openContractModal(contractId, 'terms');
+    }
+  }).catch(function(err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  });
+}
+
+function toggleContractPaymentStatus(contractId, paymentId) {
+  var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
+  var payments = [];
+  if (c && c.payments) {
+    try {
+      payments = typeof c.payments === 'string' ? JSON.parse(c.payments) : (c.payments || []);
+    } catch(e) { payments = []; }
+  }
+  if (!Array.isArray(payments)) return;
+
+  var p = payments.find(function(x) { return x.id === paymentId; });
+  if (!p) return;
+
+  p.status = (p.status === 'paid') ? 'pending' : 'paid';
+
+  api('/contracts/' + contractId + '/payments', {
+    method: 'PATCH',
+    body: JSON.stringify({ payments: payments })
+  }).then(function(res) {
+    if (res && res.error) {
+      showToast('Ошибка: ' + res.error, 'error');
+    } else {
+      if (c) c.payments = payments;
+      openContractModal(contractId, 'terms');
+    }
+  }).catch(function(err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  });
+}
+
+function deleteContractPayment(contractId, paymentId) {
+  if (!confirm('Удалить эту запись о платеже?')) return;
+
+  var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
+  var payments = [];
+  if (c && c.payments) {
+    try {
+      payments = typeof c.payments === 'string' ? JSON.parse(c.payments) : (c.payments || []);
+    } catch(e) { payments = []; }
+  }
+  if (!Array.isArray(payments)) return;
+
+  payments = payments.filter(function(x) { return x.id !== paymentId; });
+
+  api('/contracts/' + contractId + '/payments', {
+    method: 'PATCH',
+    body: JSON.stringify({ payments: payments })
+  }).then(function(res) {
+    if (res && res.error) {
+      showToast('Ошибка: ' + res.error, 'error');
+    } else {
+      showToast('Платеж удален', 'info');
+      if (c) c.payments = payments;
+      openContractModal(contractId, 'terms');
+    }
+  }).catch(function(err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  });
+}
+
+/* =========================================================================
+ * ПЕНИ, ШТРАФЫ И ПРЕТЕНЗИИ ПО ДОГОВОРУ
+ * ========================================================================= */
+
+var CONTRACT_PENALTY_STATUSES = {
+  none:     { id: 'none',     label: 'Нет претензий',         icon: '✅', color: '#15803d', bg: '#f0fdf4', border: '#86efac' },
+  issued:   { id: 'issued',   label: 'Выставлена претензия', icon: '⚠️', color: '#b45309', bg: '#fefce8', border: '#fef08a' },
+  accepted: { id: 'accepted', label: 'Принята / Удержана',   icon: '🛑', color: '#b91c1c', bg: '#fee2e2', border: '#fca5a5' },
+  paid:     { id: 'paid',     label: 'Штраф оплачен',        icon: '💳', color: '#4338ca', bg: '#eef2ff', border: '#c7d2fe' }
+};
+
+function renderContractPenaltiesSection(c) {
+  var pen = {};
+  if (c && c.penalties) {
+    try {
+      pen = typeof c.penalties === 'string' ? JSON.parse(c.penalties) : (c.penalties || {});
+    } catch(e) { pen = {}; }
+  }
+
+  var stKey = pen.status || 'none';
+  var stCfg = CONTRACT_PENALTY_STATUSES[stKey] || CONTRACT_PENALTY_STATUSES.none;
+  var amt = Number(pen.amount) || 0;
+  var hasPenalties = (stKey !== 'none' || amt > 0);
+  var dateStr = pen.date ? new Date(pen.date).toLocaleDateString('ru-RU') : '';
+
+  return `
+    <div class="card p" style="background:#fff; border:1px solid ${hasPenalties ? stCfg.border : 'var(--border)'}; margin-bottom:16px">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:8px">
+        <div style="display:flex; align-items:center; gap:8px">
+          <span style="font-size:1.15rem">⚖️</span>
+          <span style="font-weight:700; font-size:.95rem">Штрафы, пени и претензии</span>
+          <span style="display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:6px; font-size:.74rem; font-weight:700; background:${stCfg.bg}; color:${stCfg.color}; border:1px solid ${stCfg.border}">
+            <span>${stCfg.icon}</span> <span>${stCfg.label}</span>
+          </span>
+          ${amt > 0 ? `
+            <span style="font-size:.9rem; font-weight:700; color:#b91c1c">${fmtMoney(amt)}</span>
+          ` : ''}
+        </div>
+        <button class="btn btn-sm btn-ghost" onclick="openContractPenaltiesModal(${c.id})" style="border:1px solid var(--border); font-size:.8rem; font-weight:600">
+          ✏️ Редактировать штрафы
+        </button>
+      </div>
+
+      ${hasPenalties ? `
+        <div style="padding:10px 14px; background:${stCfg.bg}; border-radius:8px; border:1px solid ${stCfg.border}; font-size:.83rem">
+          <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:4px">
+            ${dateStr ? `<div><strong>Дата претензии:</strong> ${escHtml(dateStr)}</div>` : ''}
+            <div><strong>Сумма санкций:</strong> <span style="font-weight:700; color:#b91c1c">${fmtMoney(amt)}</span></div>
+          </div>
+          ${pen.comment ? `
+            <div style="margin-top:4px; color:var(--text); white-space:pre-wrap"><strong>Основание / комментарий:</strong> ${escHtml(pen.comment)}</div>
+          ` : ''}
+        </div>
+      ` : `
+        <div style="font-size:.8rem; color:var(--text-3)">Претензии и штрафы по данному контракту отсутствуют.</div>
+      `}
+    </div>
+  `;
+}
+
+function openContractPenaltiesModal(contractId) {
+  var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
+  var pen = {};
+  if (c && c.penalties) {
+    try {
+      pen = typeof c.penalties === 'string' ? JSON.parse(c.penalties) : (c.penalties || {});
+    } catch(e) { pen = {}; }
+  }
+
+  var backdrop = document.getElementById('contract_penalties_modal_backdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.id = 'contract_penalties_modal_backdrop';
+    backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10005;display:flex;align-items:center;justify-content:center;padding:16px';
+    backdrop.onclick = function(e) { if (e.target === backdrop) backdrop.style.display = 'none'; };
+    document.body.appendChild(backdrop);
+  }
+
+  var curStatus = pen.status || 'none';
+  var curAmount = pen.amount || 0;
+  var curDate = pen.date ? String(pen.date).slice(0, 10) : '';
+  var curComment = pen.comment || '';
+
+  backdrop.style.display = 'flex';
+  backdrop.innerHTML = `
+    <div class="card p" style="max-width:480px; width:100%; border-radius:12px; background:#fff; box-shadow:0 20px 40px rgba(0,0,0,0.25)">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+        <div style="font-weight:700; font-size:1.05rem">⚖️ Штрафы, пени и претензии</div>
+        <button class="btn btn-xs btn-ghost" onclick="document.getElementById('contract_penalties_modal_backdrop').style.display='none'" style="font-size:1.2rem; line-height:1">&times;</button>
+      </div>
+
+      <div style="margin-bottom:10px">
+        <label style="font-size:.78rem; font-weight:700; color:var(--text-3); display:block; margin-bottom:4px">Статус претензий</label>
+        <select id="penalty_status_select" style="width:100%; padding:8px 10px; border:1.5px solid var(--border); border-radius:6px; font-size:.85rem; font-weight:600">
+          <option value="none" ${curStatus === 'none' ? 'selected' : ''}>✅ Нет претензий</option>
+          <option value="issued" ${curStatus === 'issued' ? 'selected' : ''}>⚠️ Выставлена претензия</option>
+          <option value="accepted" ${curStatus === 'accepted' ? 'selected' : ''}>🛑 Принята / Удержана</option>
+          <option value="paid" ${curStatus === 'paid' ? 'selected' : ''}>💳 Штраф оплачен</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom:10px">
+        <label style="font-size:.78rem; font-weight:700; color:var(--text-3); display:block; margin-bottom:4px">Сумма штрафа / пени (руб)</label>
+        <input type="number" step="0.01" id="penalty_amount_input" value="${curAmount}" style="width:100%; padding:7px 10px; border:1.5px solid var(--border); border-radius:6px; font-size:.88rem; font-weight:700">
+      </div>
+
+      <div style="margin-bottom:10px">
+        <label style="font-size:.78rem; font-weight:700; color:var(--text-3); display:block; margin-bottom:4px">Дата претензии / акта</label>
+        <input type="date" id="penalty_date_input" value="${curDate}" style="width:100%; padding:7px 10px; border:1.5px solid var(--border); border-radius:6px; font-size:.85rem">
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label style="font-size:.78rem; font-weight:700; color:var(--text-3); display:block; margin-bottom:4px">Основание / Причина / Комментарий</label>
+        <textarea id="penalty_comment_input" rows="3" placeholder="Укажите номер претензионного письма, статьи или дни просрочки..." style="width:100%; padding:8px 10px; border:1.5px solid var(--border); border-radius:6px; font-size:.85rem">${escHtml(curComment)}</textarea>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:8px">
+        <button class="btn btn-sm btn-ghost" onclick="document.getElementById('contract_penalties_modal_backdrop').style.display='none'">Отмена</button>
+        <button class="btn btn-sm" onclick="saveContractPenalties(${contractId})">Сохранить</button>
+      </div>
+    </div>
+  `;
+}
+
+function saveContractPenalties(contractId) {
+  var status = document.getElementById('penalty_status_select').value;
+  var amount = parseFloat(document.getElementById('penalty_amount_input').value) || 0;
+  var date = document.getElementById('penalty_date_input').value || null;
+  var comment = document.getElementById('penalty_comment_input').value.trim();
+
+  var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
+  var penalties = {
+    status: status,
+    amount: amount,
+    date: date,
+    comment: comment
+  };
+
+  api('/contracts/' + contractId + '/penalties', {
+    method: 'PATCH',
+    body: JSON.stringify({ penalties: penalties })
+  }).then(function(res) {
+    if (res && res.error) {
+      showToast('Ошибка сохранения: ' + res.error, 'error');
+    } else {
+      showToast('Штрафы и претензии сохранены', 'success');
+      var backdrop = document.getElementById('contract_penalties_modal_backdrop');
+      if (backdrop) backdrop.style.display = 'none';
+      if (c) c.penalties = penalties;
+      openContractModal(contractId, 'terms');
+    }
+  }).catch(function(err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  });
+}
+
+/* =========================================================================
+ * БЫСТРЫЕ МОДАЛКИ (ПРИОРИТЕТ, ЗАКОН, СТАТУС)
+ * ========================================================================= */
+
+function openContractPriorityQuickModal(contractId) {
+  var c = (window._activeContract && window._activeContract.id === contractId)
+    ? window._activeContract
+    : ((S.contracts || []).find(function(x) { return x.id === contractId; }));
+
+  if (!c) return;
+
+  var backdrop = document.getElementById('contract_priority_quick_modal_backdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.id = 'contract_priority_quick_modal_backdrop';
+    backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10006;display:flex;align-items:center;justify-content:center;padding:16px';
+    backdrop.onclick = function(e) { if (e.target === backdrop) backdrop.style.display = 'none'; };
+    document.body.appendChild(backdrop);
+  }
+
+  var curPrio = c.closing_priority || 'P3';
+  var curPlanDate = c.closing_docs_plan_date ? String(c.closing_docs_plan_date).slice(0, 10) : '';
+
+  backdrop.style.display = 'flex';
+  backdrop.innerHTML = `
+    <div class="card p" style="max-width:420px; width:100%; border-radius:12px; background:#fff; box-shadow:0 20px 40px rgba(0,0,0,0.25)">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+        <div style="font-weight:700; font-size:1.05rem">🎯 Приоритет и дедлайн закрытия</div>
+        <button class="btn btn-xs btn-ghost" onclick="document.getElementById('contract_priority_quick_modal_backdrop').style.display='none'" style="font-size:1.2rem; line-height:1">&times;</button>
+      </div>
+      <div style="font-size:.82rem; color:var(--text-3); margin-bottom:14px">
+        Договор: <strong>${escHtml(c.contract_number || c.internal_number || ('#' + c.id))}</strong>
+      </div>
+
+      <div style="margin-bottom:12px">
+        <label style="font-size:.78rem; font-weight:700; color:var(--text-3); display:block; margin-bottom:6px">Приоритет закрытия</label>
+        <div style="display:grid; grid-template-columns:1fr; gap:6px">
+          ${Object.keys(CLOSING_PRIORITIES).map(function(k) {
+            var p = CLOSING_PRIORITIES[k];
+            var isSel = (curPrio === k);
+            return `
+              <label style="display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:6px; border:1.5px solid ${isSel ? p.color : '#e2e8f0'}; background:${isSel ? p.bg : '#fff'}; cursor:pointer">
+                <input type="radio" name="quick_contract_priority" value="${p.id}" ${isSel ? 'checked' : ''} style="accent-color:${p.color}">
+                <span style="font-size:.9rem">${p.icon}</span>
+                <span style="font-weight:700; font-size:.84rem; color:${p.color}">${p.label}</span>
+              </label>
+            `;
+          }).join('')}
+        </div>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label style="font-size:.78rem; font-weight:700; color:var(--text-3); display:block; margin-bottom:4px">Плановая дата готовности пакета документов</label>
+        <input type="date" id="quick_closing_docs_plan_date" value="${curPlanDate}" style="width:100%; padding:7px 10px; border:1.5px solid var(--border); border-radius:6px; font-size:.85rem">
+        <div style="font-size:.72rem; color:var(--text-3); margin-top:4px">Срок сдачи полного комплекта ИД и закрывающих актов Заказчику</div>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:8px">
+        <button class="btn btn-sm btn-ghost" onclick="document.getElementById('contract_priority_quick_modal_backdrop').style.display='none'">Отмена</button>
+        <button class="btn btn-sm" onclick="saveContractPriorityQuick(${contractId})">Сохранить</button>
+      </div>
+    </div>
+  `;
+}
+
+function saveContractPriorityQuick(contractId) {
+  var selectedRadio = document.querySelector('input[name="quick_contract_priority"]:checked');
+  var priority = selectedRadio ? selectedRadio.value : 'P3';
+  var planDate = (document.getElementById('quick_closing_docs_plan_date').value || '').trim() || null;
+
+  api('/contracts/' + contractId + '/priority', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      closing_priority: priority,
+      closing_docs_plan_date: planDate
+    })
+  }).then(function(res) {
+    if (res && res.error) {
+      showToast('Ошибка сохранения: ' + res.error, 'error');
+    } else {
+      showToast('Приоритет закрытия обновлен', 'success');
+      var backdrop = document.getElementById('contract_priority_quick_modal_backdrop');
+      if (backdrop) backdrop.style.display = 'none';
+
+      if (window._activeContract && window._activeContract.id === contractId) {
+        window._activeContract.closing_priority = priority;
+        window._activeContract.closing_docs_plan_date = planDate;
+        var modalBackdrop = document.getElementById('contract_modal_backdrop');
+        if (modalBackdrop && modalBackdrop.style.display !== 'none') {
+          openContractModal(contractId, S.contractActiveTab || 'terms');
+        }
+      }
+      fetchContracts();
+    }
+  }).catch(function(err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  });
+}
+
+function openContractLawTypeQuickModal(contractId) {
+  var c = (window._activeContract && window._activeContract.id === contractId)
+    ? window._activeContract
+    : ((S.contracts || []).find(function(x) { return x.id === contractId; }));
+
+  if (!c) return;
+
+  var backdrop = document.getElementById('contract_law_type_quick_modal_backdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.id = 'contract_law_type_quick_modal_backdrop';
+    backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10006;display:flex;align-items:center;justify-content:center;padding:16px';
+    backdrop.onclick = function(e) { if (e.target === backdrop) backdrop.style.display = 'none'; };
+    document.body.appendChild(backdrop);
+  }
+
+  var curLaw = c.contract_law_type || '223-ФЗ';
+
+  backdrop.style.display = 'flex';
+  backdrop.innerHTML = `
+    <div class="card p" style="max-width:380px; width:100%; border-radius:12px; background:#fff; box-shadow:0 20px 40px rgba(0,0,0,0.25)">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+        <div style="font-weight:700; font-size:1.05rem">📜 Закон / Тип контракта</div>
+        <button class="btn btn-xs btn-ghost" onclick="document.getElementById('contract_law_type_quick_modal_backdrop').style.display='none'" style="font-size:1.2rem; line-height:1">&times;</button>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label style="font-size:.78rem; font-weight:700; color:var(--text-3); display:block; margin-bottom:8px">Выберите закон регулирования</label>
+        <div style="display:flex; flex-direction:column; gap:8px">
+          ${CONTRACT_LAW_TYPES.map(function(law) {
+            var isSel = (curLaw === law);
+            return `
+              <label style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:6px; border:1.5px solid ${isSel ? 'var(--blue)' : 'var(--border)'}; background:${isSel ? '#eff6ff' : '#fff'}; cursor:pointer">
+                <input type="radio" name="quick_contract_law" value="${escHtml(law)}" ${isSel ? 'checked' : ''} style="accent-color:var(--blue)">
+                <span style="font-weight:700; font-size:.88rem; color:var(--text)">📜 ${escHtml(law)}</span>
+              </label>
+            `;
+          }).join('')}
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:8px">
+        <button class="btn btn-sm btn-ghost" onclick="document.getElementById('contract_law_type_quick_modal_backdrop').style.display='none'">Отмена</button>
+        <button class="btn btn-sm" onclick="saveContractLawTypeQuick(${contractId})">Сохранить</button>
+      </div>
+    </div>
+  `;
+}
+
+function saveContractLawTypeQuick(contractId) {
+  var selectedRadio = document.querySelector('input[name="quick_contract_law"]:checked');
+  var law = selectedRadio ? selectedRadio.value : '223-ФЗ';
+
+  api('/contracts/' + contractId + '/law-type', {
+    method: 'PATCH',
+    body: JSON.stringify({ contract_law_type: law })
+  }).then(function(res) {
+    if (res && res.error) {
+      showToast('Ошибка сохранения: ' + res.error, 'error');
+    } else {
+      showToast('Тип контракта обновлен: ' + law, 'success');
+      var backdrop = document.getElementById('contract_law_type_quick_modal_backdrop');
+      if (backdrop) backdrop.style.display = 'none';
+
+      if (window._activeContract && window._activeContract.id === contractId) {
+        window._activeContract.contract_law_type = law;
+        var modalBackdrop = document.getElementById('contract_modal_backdrop');
+        if (modalBackdrop && modalBackdrop.style.display !== 'none') {
+          openContractModal(contractId, S.contractActiveTab || 'terms');
+        }
+      }
+      fetchContracts();
+    }
+  }).catch(function(err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  });
+}
+
+function openContractStatusQuickModal(contractId) {
+  var c = (window._activeContract && window._activeContract.id === contractId)
+    ? window._activeContract
+    : ((S.contracts || []).find(function(x) { return x.id === contractId; }));
+
+  if (!c) return;
+
+  var backdrop = document.getElementById('contract_status_quick_modal_backdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.id = 'contract_status_quick_modal_backdrop';
+    backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10006;display:flex;align-items:center;justify-content:center;padding:16px';
+    backdrop.onclick = function(e) { if (e.target === backdrop) backdrop.style.display = 'none'; };
+    document.body.appendChild(backdrop);
+  }
+
+  var curStatus = String(c.status || '').toLowerCase().trim();
+
+  backdrop.style.display = 'flex';
+  backdrop.innerHTML = `
+    <div class="card p" style="max-width:380px; width:100%; border-radius:12px; background:#fff; box-shadow:0 20px 40px rgba(0,0,0,0.25)">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+        <div style="font-weight:700; font-size:1.05rem">🏷️ Смена статуса договора</div>
+        <button class="btn btn-xs btn-ghost" onclick="document.getElementById('contract_status_quick_modal_backdrop').style.display='none'" style="font-size:1.2rem; line-height:1">&times;</button>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label style="font-size:.78rem; font-weight:700; color:var(--text-3); display:block; margin-bottom:8px">Выберите текущий этап договора</label>
+        <div style="display:flex; flex-direction:column; gap:6px">
+          ${CONTRACT_STATUSES.map(function(st) {
+            var isSel = (curStatus === st.id.toLowerCase());
+            return `
+              <button type="button" onclick="quickChangeContractStatus(${contractId}, '${st.id}'); document.getElementById('contract_status_quick_modal_backdrop').style.display='none'" style="display:flex; align-items:center; justify-content:space-between; padding:8px 12px; border-radius:6px; border:1.5px solid ${isSel ? st.color : st.border}; background:${st.bg}; cursor:pointer; text-align:left; transition:all .15s">
+                <span style="font-weight:700; font-size:.85rem; color:${st.color}">
+                  <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${st.color}; margin-right:6px"></span>
+                  ${st.label}
+                </span>
+                ${isSel ? '<span style="font-size:.8rem; color:' + st.color + '">✓ Текущий</span>' : ''}
+              </button>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 window.initContractMap = initContractMap;
 window.openAssignContractManagerModal = openAssignContractManagerModal;
 window.saveContractManager = saveContractManager;
@@ -3210,9 +4408,29 @@ window.handleContractDrop = handleContractDrop;
 window.deleteContractAttachment = deleteContractAttachment;
 window.setContractActivePreview = setContractActivePreview;
 window.renderContractChecklistSection = renderContractChecklistSection;
+window.toggleContractDocRequired = toggleContractDocRequired;
+window.updateContractDocStage = updateContractDocStage;
+window.updateContractDocStatus = updateContractDocStatus;
 window.toggleContractChecklistItem = toggleContractChecklistItem;
+window.openChecklistAttachmentModal = openChecklistAttachmentModal;
+window.saveChecklistAttachmentLink = saveChecklistAttachmentLink;
+window.handleChecklistAttachmentUpload = handleChecklistAttachmentUpload;
+window.removeChecklistAttachment = removeChecklistAttachment;
 window.promptAddContractChecklistItem = promptAddContractChecklistItem;
 window.removeContractChecklistItem = removeContractChecklistItem;
+window.renderContractPaymentsSection = renderContractPaymentsSection;
+window.openAddContractPaymentModal = openAddContractPaymentModal;
+window.saveAddContractPayment = saveAddContractPayment;
+window.toggleContractPaymentStatus = toggleContractPaymentStatus;
+window.deleteContractPayment = deleteContractPayment;
+window.renderContractPenaltiesSection = renderContractPenaltiesSection;
+window.openContractPenaltiesModal = openContractPenaltiesModal;
+window.saveContractPenalties = saveContractPenalties;
+window.openContractPriorityQuickModal = openContractPriorityQuickModal;
+window.saveContractPriorityQuick = saveContractPriorityQuick;
+window.openContractLawTypeQuickModal = openContractLawTypeQuickModal;
+window.saveContractLawTypeQuick = saveContractLawTypeQuick;
+window.openContractStatusQuickModal = openContractStatusQuickModal;
 window.handleContractFormFilesSelect = handleContractFormFilesSelect;
 window.removeContractFormPendingFile = removeContractFormPendingFile;
 window.renderContractFormFilesChips = renderContractFormFilesChips;

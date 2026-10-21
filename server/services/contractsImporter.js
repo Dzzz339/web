@@ -590,7 +590,7 @@ export async function importContractsFromExcel(filePath, pool) {
             amount = $17,
             platform = $18,
             contacts_raw = $19,
-            status = $20,
+            status = COALESCE(NULLIF(contracts.status, ''), $20),
             lots = $21,
             raw_data = $22,
             updated_at = NOW()

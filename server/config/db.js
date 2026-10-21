@@ -182,6 +182,7 @@ export async function initDB() {
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS date_vnesen DATE`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS raw_data JSONB DEFAULT '{}'`);
   await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS km_rate NUMERIC DEFAULT 0');
+  await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS real_distance_km NUMERIC DEFAULT NULL');
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tmc NUMERIC DEFAULT 0`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS extras NUMERIC DEFAULT 0`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS geo_lat TEXT`);
@@ -368,6 +369,7 @@ export async function initDB() {
       customer_id           INTEGER REFERENCES contractors(id) ON DELETE SET NULL,
       our_entity_region     TEXT,
       our_entity_name       TEXT,
+      own_company_id        INTEGER REFERENCES own_companies(id) ON DELETE SET NULL,
       delivery_place        TEXT,
       subject               TEXT,
       terms_text            TEXT DEFAULT '',
@@ -405,7 +407,27 @@ export async function initDB() {
   await pool.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS manager_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS manager_name TEXT`);
   await pool.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS checklist JSONB DEFAULT '{}'`);
+  await pool.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS own_company_id INTEGER REFERENCES own_companies(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS closing_priority TEXT DEFAULT 'P3'`);
+  await pool.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS closing_docs_plan_date DATE DEFAULT NULL`);
+  await pool.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS contract_law_type TEXT DEFAULT '223-ФЗ'`);
+  await pool.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS payments JSONB DEFAULT '[]'`);
+  await pool.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS penalties JSONB DEFAULT '{"amount": 0, "status": "none", "comment": ""}'`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_closing_priority ON contracts(closing_priority)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_contract_law_type ON contracts(contract_law_type)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_manager_id ON contracts(manager_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_own_company_id ON contracts(own_company_id)`);
+  await pool.query(`
+    UPDATE contracts c SET own_company_id = oc.id 
+    FROM own_companies oc 
+    WHERE c.own_company_id IS NULL AND (
+      oc.name_short = c.our_entity_name 
+      OR oc.name_full = c.our_entity_name 
+      OR (c.our_entity_name ILIKE '%К10%' AND oc.code = 'K10') 
+      OR (c.our_entity_name ILIKE '%Кабельные%' AND oc.code = 'KS') 
+      OR (c.our_entity_name ILIKE '%Ультима%' AND oc.code = 'ULTIMA')
+    )
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS contract_attachments (
