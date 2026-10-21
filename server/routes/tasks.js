@@ -59,10 +59,23 @@ router.get('/tasks', authenticateToken, async (req, res) => {
     const role = String(req.user?.role || '').toLowerCase();
     const isWorker = role === 'worker' || role === 'installer' || role === 'contractor';
 
-    // Если зашел рабочий / монтажник, показываем только ЕГО задачи
+    // Если зашел рабочий / монтажник, показываем только ЕГО задачи (по ФИО, логину или субподряду)
     if (isWorker) {
-      query += ' WHERE t.assignee = $1';
-      params.push(req.user.fullName);
+      query += ` WHERE (
+        t.assignee = $1 OR 
+        t.assignee = $2 OR 
+        EXISTS (
+          SELECT 1 FROM task_subcontracts sub 
+          WHERE sub.task_id = t.id AND (
+            sub.installer_fio ILIKE $1 OR 
+            sub.installer_fio ILIKE $2 OR
+            (sub.specialist_id IS NOT NULL AND sub.specialist_id IN (
+              SELECT id FROM specialists WHERE full_name ILIKE $1 OR full_name ILIKE $2
+            ))
+          )
+        )
+      )`;
+      params.push(req.user.fullName || '', req.user.username || '');
     }
 
     query += ' ORDER BY t.created_at';
@@ -102,8 +115,24 @@ router.get('/tasks/:id', authenticateToken, async (req, res) => {
 
     // Защита от BOLA/IDOR: монтажник может просматривать только свою назначенную задачу
     if (isWorker) {
-      if (task.assignee && task.assignee !== req.user.fullName) {
-        return res.status(403).json({ error: 'Доступ ограничен: данная заявка назначена другому специалисту' });
+      const isDirectlyAssigned = (
+        (task.assignee && (task.assignee === req.user.fullName || task.assignee === req.user.username)) ||
+        (task.contractor && (task.contractor === req.user.fullName || task.contractor === req.user.username))
+      );
+      if (!isDirectlyAssigned) {
+        const { rows: subRows } = await pool.query(
+          `SELECT 1 FROM task_subcontracts 
+           WHERE task_id = $1 AND (
+             installer_fio ILIKE $2 OR installer_fio ILIKE $3 OR
+             (specialist_id IS NOT NULL AND specialist_id IN (
+               SELECT id FROM specialists WHERE full_name ILIKE $2 OR full_name ILIKE $3
+             ))
+           ) LIMIT 1`,
+          [task.id, req.user.fullName || '', req.user.username || '']
+        );
+        if (!subRows.length && task.assignee) {
+          return res.status(403).json({ error: 'Доступ ограничен: данная заявка назначена другому специалисту' });
+        }
       }
       task.amount = 0;
       task.tmc = 0;
@@ -154,7 +183,7 @@ router.get('/tasks/:id/chat', authenticateToken, async (req, res) => {
 });
 
 // Создание одиночной заявки вручную (или через ИИ)
-router.post('/tasks', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
+router.post('/tasks', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics', 'to_engineer'), async (req, res) => {
   try {
     const t = req.body;
     
@@ -805,7 +834,7 @@ router.post('/tasks/:id/accept', authenticateToken, async (req, res) => {
     const task = rows[0];
     if (!task) return res.status(404).json({ error: 'Заявка не найдена' });
     const isManager = ['admin', 'director', 'manager', 'to_engineer'].includes(req.user.role);
-    if (!isManager && task.assignee && task.assignee !== req.user.fullName) {
+    if (!isManager && task.assignee && task.assignee !== req.user.fullName && task.assignee !== req.user.username) {
       return res.status(403).json({ error: 'Эта заявка назначена не вам' });
     }
 
@@ -864,7 +893,7 @@ router.post('/tasks/:id/decline', authenticateToken, async (req, res) => {
     const task = rows[0];
     if (!task) return res.status(404).json({ error: 'Заявка не найдена' });
     const isManager = ['admin', 'director', 'manager', 'to_engineer'].includes(req.user.role);
-    if (!isManager && task.assignee && task.assignee !== req.user.fullName) {
+    if (!isManager && task.assignee && task.assignee !== req.user.fullName && task.assignee !== req.user.username) {
       return res.status(403).json({ error: 'Эта заявка назначена не вам' });
     }
 

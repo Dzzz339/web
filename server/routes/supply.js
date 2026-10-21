@@ -225,7 +225,7 @@ router.get('/materials', authenticateToken, async (req, res) => {
 
 // POST /api/materials
 router.post('/materials', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
+  if (!['admin', 'director', 'logistics'].includes(req.user.role)) return res.status(403).json({ error: 'Нет доступа' });
   try {
     const { code, name, category, unit, package_qty, package_unit, price_default, min_stock_alert } = req.body;
     const { rows } = await pool.query(`
@@ -311,7 +311,7 @@ router.get('/contractors/:id/warehouse', authenticateToken, async (req, res) => 
 
 // POST /api/stock/receipt
 router.post('/stock/receipt', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
+  if (!['admin', 'director', 'logistics'].includes(req.user.role)) return res.status(403).json({ error: 'Нет доступа' });
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1151,7 +1151,7 @@ router.get('/suppliers', authenticateToken, async (req, res) => {
 
 // POST /api/suppliers
 router.post('/suppliers', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
+  if (!['admin', 'director', 'logistics'].includes(req.user.role)) return res.status(403).json({ error: 'Нет доступа' });
   try {
     const { name, contact, phone, email, lead_time_days, min_order_amount } = req.body;
     const { rows } = await pool.query(`
@@ -1196,7 +1196,7 @@ router.get('/purchase-orders', authenticateToken, async (req, res) => {
 
 // POST /api/purchase-orders
 router.post('/purchase-orders', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
+  if (!['admin', 'director', 'logistics'].includes(req.user.role)) return res.status(403).json({ error: 'Нет доступа' });
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

@@ -287,7 +287,7 @@ router.get('/contracts/:id', authenticateToken, async (req, res) => {
  */
 router.patch('/contracts/:id/manager', authenticateToken, async (req, res) => {
   const role = String(req.user.role || '').toLowerCase();
-  if (!['admin', 'director', 'manager', 'accountant'].includes(role)) {
+  if (!['admin', 'director', 'manager', 'accountant', 'to_engineer'].includes(role)) {
     return res.status(403).json({ error: 'Недостаточно прав для назначения менеджера' });
   }
 
@@ -490,7 +490,7 @@ router.delete('/contracts/:id/attachments/:attachmentId', authenticateToken, asy
  */
 router.post('/contracts', authenticateToken, async (req, res) => {
   const role = String(req.user.role || '').toLowerCase();
-  if (!['admin', 'director', 'manager', 'accountant'].includes(role)) {
+  if (!['admin', 'director', 'manager', 'accountant', 'to_engineer'].includes(role)) {
     return res.status(403).json({ error: 'Недостаточно прав для создания договора' });
   }
 
@@ -566,7 +566,7 @@ router.post('/contracts', authenticateToken, async (req, res) => {
  */
 router.put('/contracts/:id', authenticateToken, async (req, res) => {
   const role = String(req.user.role || '').toLowerCase();
-  if (!['admin', 'director', 'manager', 'accountant'].includes(role)) {
+  if (!['admin', 'director', 'manager', 'accountant', 'to_engineer'].includes(role)) {
     return res.status(403).json({ error: 'Недостаточно прав для редактирования договора' });
   }
 
@@ -895,7 +895,7 @@ router.get('/contracts/:id/available-tasks', authenticateToken, async (req, res)
  */
 router.post('/contracts/:id/link-task', authenticateToken, async (req, res) => {
   const role = String(req.user.role || '').toLowerCase();
-  if (!['admin', 'director', 'manager', 'accountant'].includes(role)) {
+  if (!['admin', 'director', 'manager', 'accountant', 'to_engineer'].includes(role)) {
     return res.status(403).json({ error: 'Недостаточно прав для привязки заявки к договору' });
   }
 
@@ -939,7 +939,7 @@ router.post('/contracts/:id/link-task', authenticateToken, async (req, res) => {
  */
 router.post('/contracts/:id/unlink-task', authenticateToken, async (req, res) => {
   const role = String(req.user.role || '').toLowerCase();
-  if (!['admin', 'director', 'manager', 'accountant'].includes(role)) {
+  if (!['admin', 'director', 'manager', 'accountant', 'to_engineer'].includes(role)) {
     return res.status(403).json({ error: 'Недостаточно прав для отвязки заявки от договора' });
   }
 
@@ -971,7 +971,7 @@ router.post('/contracts/:id/unlink-task', authenticateToken, async (req, res) =>
  */
 router.post('/contracts/:id/agreements', authenticateToken, async (req, res) => {
   const role = String(req.user.role || '').toLowerCase();
-  if (!['admin', 'director', 'manager', 'accountant'].includes(role)) {
+  if (!['admin', 'director', 'manager', 'accountant', 'to_engineer'].includes(role)) {
     return res.status(403).json({ error: 'Недостаточно прав для добавления допсоглашения' });
   }
 
@@ -1032,7 +1032,7 @@ router.post('/contracts/:id/agreements', authenticateToken, async (req, res) => 
  */
 router.patch('/contracts/agreements/:id', authenticateToken, async (req, res) => {
   const role = String(req.user.role || '').toLowerCase();
-  if (!['admin', 'director', 'manager', 'accountant'].includes(role)) {
+  if (!['admin', 'director', 'manager', 'accountant', 'to_engineer'].includes(role)) {
     return res.status(403).json({ error: 'Недостаточно прав для редактирования допсоглашения' });
   }
 

@@ -65,7 +65,7 @@ router.get('/contractors/:id/specialists', authenticateToken, async (req, res) =
 // Добавить монтажника напрямую к подрядчику (или привязать существующего "покрасить")
 router.post('/contractors/:id/specialists', authenticateToken, async (req, res) => {
   const role = String(req.user.role || '').toLowerCase();
-  if (!['admin', 'director', 'manager'].includes(role)) {
+  if (!['admin', 'director', 'manager', 'to_engineer'].includes(role)) {
     return res.status(403).json({ error: 'Недостаточно прав' });
   }
   try {
@@ -195,7 +195,7 @@ router.get('/contractors/:id', authenticateToken, async (req, res) => {
 // Создать нового подрядчика/контрагента
 router.post('/contractors', authenticateToken, async (req, res) => {
   const role = String(req.user.role || '').toLowerCase();
-  if (!['admin', 'director', 'manager'].includes(role)) {
+  if (!['admin', 'director', 'manager', 'to_engineer'].includes(role)) {
     return res.status(403).json({ error: 'Создание контрагентов доступно только Администратору, Руководителю и Менеджеру' });
   }
   try {
@@ -228,7 +228,7 @@ router.post('/contractors', authenticateToken, async (req, res) => {
 // Обновить данные подрядчика
 router.put('/contractors/:id', authenticateToken, async (req, res) => {
   const role = String(req.user.role || '').toLowerCase();
-  if (!['admin', 'director', 'manager'].includes(role)) {
+  if (!['admin', 'director', 'manager', 'to_engineer'].includes(role)) {
     return res.status(403).json({ error: 'Редактирование контрагентов доступно только Администратору, Руководителю и Менеджеру' });
   }
   try {

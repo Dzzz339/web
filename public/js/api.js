@@ -30,10 +30,20 @@ function api(url, opts) {
   }
 
   return fetch('/api' + url, opts).then(function(r){ 
-    if (r.status === 401 || r.status === 403) {
+    if (r.status === 401) {
       localStorage.clear();
       location.reload();
       return new Promise(function(){});
+    }
+
+    if (r.status === 403) {
+      return r.json().catch(function(){ return { error: 'Доступ ограничен (403)' }; }).then(function(errData) {
+        var msg = (errData && errData.error) || 'Доступ ограничен (403)';
+        var err = new Error(msg);
+        err.status = 403;
+        err.data = errData;
+        throw err;
+      });
     }
 
     if (!S.isOnline) {

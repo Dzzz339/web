@@ -1,5 +1,8 @@
 function init() {
   setupOfflineListeners();
+  if (S.user && !isPageAllowedForRole(S.page, S.user.role)) {
+    S.page = getDefaultPageForRole(S.user.role);
+  }
   renderNav();
   if (!S.token) {
     renderApp();
@@ -64,10 +67,10 @@ function init() {
       api('/chains').catch(function(){ return []; }),
       api('/import-info').catch(function(){ return null; }),
       api('/marches').catch(function(){ return []; }),
-      api('/contracts').catch(function(){ return []; }),
+      !isWorkerRole ? api('/contracts').catch(function(){ return []; }) : Promise.resolve([]),
       !isWorkerRole ? api('/contractors').catch(function(){ return []; }) : Promise.resolve([]),
       !isWorkerRole ? api('/specialists').catch(function(){ return []; }) : Promise.resolve([]),
-      (S.user && S.user.role === 'admin') ? api('/users').catch(function(){ return []; }) : Promise.resolve([]),
+      (S.user && (S.user.role === 'admin' || S.user.role === 'director')) ? api('/users').catch(function(){ return []; }) : Promise.resolve([]),
       api('/own-companies').catch(function(){ return []; })
     ];
 
@@ -153,7 +156,52 @@ function init() {
   });
 }
 
+
+function getDefaultPageForRole(role) {
+  var r = String(role || '').toLowerCase();
+  if (r === 'worker' || r === 'installer') return 'tasks';
+  if (r === 'to_engineer' || r === 'designer') return 'tasks';
+  if (r === 'logistics') return 'supply';
+  return 'dashboard';
+}
+
+function isPageAllowedForRole(page, role) {
+  var r = String(role || '').toLowerCase();
+  if (r === 'admin') return true;
+  if (!page || page === 'profile') return true;
+
+  if (r === 'worker' || r === 'installer') {
+    return ['tasks', 'card', 'chat', 'help'].includes(page);
+  }
+  if (r === 'director') {
+    return !['data', 'logs'].includes(page);
+  }
+  if (r === 'manager') {
+    return ['dashboard', 'contracts', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'chat', 'aichat', 'help'].includes(page) || page.startsWith('dash-');
+  }
+  if (r === 'to_engineer') {
+    return ['contracts', 'tasks', 'card', 'kanban', 'contractors', 'chat', 'aichat', 'help'].includes(page);
+  }
+  if (r === 'logistics') {
+    return ['contracts', 'supply', 'tasks', 'card', 'marches', 'march-detail', 'contractors', 'chat', 'aichat', 'help'].includes(page);
+  }
+  if (r === 'designer') {
+    return ['contracts', 'tasks', 'card', 'kanban', 'chat', 'aichat', 'help'].includes(page);
+  }
+  if (r === 'accountant') {
+    return ['dashboard', 'contracts', 'tasks', 'card', 'contractors', 'chat', 'help'].includes(page) || page.startsWith('dash-');
+  }
+  return true;
+}
+
+window.getDefaultPageForRole = getDefaultPageForRole;
+window.isPageAllowedForRole = isPageAllowedForRole;
+
 function go(page) {
+  if (S.user && !isPageAllowedForRole(page, S.user.role)) {
+    if (typeof showToast === "function") showToast("⚠️ Данный раздел недоступен для вашей роли", "warning");
+    return;
+  }
   S.page = page;
   toggleMobileSidebar(false);
   renderNav();
@@ -396,6 +444,10 @@ function renderApp() {
       if (uEl) uEl.focus();
     }, 50);
     return;
+  }
+  if (S.user && !isPageAllowedForRole(S.page, S.user.role)) {
+    S.page = getDefaultPageForRole(S.user.role);
+    renderNav();
   }
   if (document.body) {
     document.body.classList.toggle('page-kanban-active', S.page === 'kanban');

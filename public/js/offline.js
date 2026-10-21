@@ -433,10 +433,20 @@ function manualSync() {
 
 function fetchFreshServerData() {
   if (!S.token || !S.isOnline) return Promise.resolve();
-  var requests = [api('/stats'), api('/tasks'), api('/chains'), api('/import-info'), api('/marches')];
-  if (S.user && S.user.role === 'admin') {
-    requests.push(api('/users'));
-    requests.push(api('/contractors'));
+  var isWorker = S.user && (S.user.role === 'worker' || S.user.role === 'installer');
+  var requests = [
+    api('/stats').catch(function(){ return {}; }),
+    api('/tasks').catch(function(){ return []; }),
+    api('/chains').catch(function(){ return []; }),
+    api('/import-info').catch(function(){ return null; }),
+    api('/marches').catch(function(){ return []; })
+  ];
+  if (!isWorker) {
+    requests.push(api('/contracts').catch(function(){ return []; }));
+    requests.push(api('/contractors').catch(function(){ return []; }));
+  }
+  if (S.user && (S.user.role === 'admin' || S.user.role === 'director')) {
+    requests.push(api('/users').catch(function(){ return []; }));
   }
   return Promise.all(requests).then(function(res) {
     if (res[0] && !res[0].error) S.stats = res[0];
@@ -444,8 +454,17 @@ function fetchFreshServerData() {
     if (Array.isArray(res[2])) S.chains = res[2];
     if (res[3] && !res[3].error) S.importInfo = res[3];
     if (Array.isArray(res[4])) S.marches = res[4];
-    if (Array.isArray(res[5])) S.users = res[5];
-    if (Array.isArray(res[6])) S.contractors = res[6];
+    var offset = 5;
+    if (!isWorker) {
+      if (res[offset] && res[offset].contracts) S.contracts = res[offset].contracts;
+      else if (Array.isArray(res[offset])) S.contracts = res[offset];
+      offset++;
+      if (Array.isArray(res[offset])) S.contractors = res[offset];
+      offset++;
+    }
+    if (S.user && (S.user.role === 'admin' || S.user.role === 'director')) {
+      if (Array.isArray(res[offset])) S.users = res[offset];
+    }
     renderApp();
   }).catch(function(e) {
     console.warn('[fetchFreshServerData] error:', e);
