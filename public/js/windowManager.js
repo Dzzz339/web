@@ -371,11 +371,13 @@
             backdrop.style.display = 'none';
           }
         }
-        if (modalBox && document.body.contains(modalBox) && modalBox.style.display !== 'none') {
+        if (modalBox && document.body.contains(modalBox)) {
           if (modalBox.id && modalBox.id.startsWith('_')) {
             modalBox.remove();
-          } else {
+          } else if (!backdrop) {
             modalBox.style.display = 'none';
+          } else {
+            modalBox.style.display = '';
           }
         }
         if (typeof window.restorePageScroll === 'function') {

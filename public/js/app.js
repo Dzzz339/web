@@ -198,6 +198,9 @@ window.getDefaultPageForRole = getDefaultPageForRole;
 window.isPageAllowedForRole = isPageAllowedForRole;
 
 function go(page) {
+  if (S.page === 'card' && S.cardDraft && Object.keys(S.cardDraft).length > 0) {
+    if (typeof window.saveCard === 'function') window.saveCard(true);
+  }
   if (S.user && !isPageAllowedForRole(page, S.user.role)) {
     if (typeof showToast === "function") showToast("⚠️ Данный раздел недоступен для вашей роли", "warning");
     return;
@@ -850,6 +853,16 @@ function bindEvents() {
       _cardAutoSaveTimer = setTimeout(function() {
         if (typeof window.saveCard === 'function') window.saveCard(true);
       }, 1200);
+    });
+
+    // При потере фокуса инпутом — немедленный сброс дебаунса и моментальное сохранение
+    cardForm.addEventListener('focusout', function(e) {
+      var el = e.target;
+      if (!el.name || el.type === 'checkbox' || el.type === 'radio') return;
+      if (S.cardDraft && Object.prototype.hasOwnProperty.call(S.cardDraft, el.name)) {
+        clearTimeout(_cardAutoSaveTimer);
+        if (typeof window.saveCard === 'function') window.saveCard(true);
+      }
     });
   }
   var cardSaveBtn = document.getElementById('cardSaveBtn');

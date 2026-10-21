@@ -6536,7 +6536,9 @@ window._cardSyncInterval = setInterval(function() {
       if ((fresh.version || 0) > curVersion || histOld !== histNew) {
         var idx = S.tasks.findIndex(function(x) { return String(x.id) === String(S.cardId); });
         if (idx !== -1) S.tasks[idx] = fresh;
-        if (S.page === 'card' && String(S.cardId) === String(fresh.id) && (!S.cardDraft || !Object.keys(S.cardDraft).length)) {
+        var actTag = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toLowerCase() : '';
+        var isFocusingInput = (actTag === 'input' || actTag === 'textarea' || actTag === 'select');
+        if (S.page === 'card' && String(S.cardId) === String(fresh.id) && !isFocusingInput && (!S.cardDraft || !Object.keys(S.cardDraft).length)) {
           renderApp();
           if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(fresh.id);
           if (window.renderSmrChecklist) window.renderSmrChecklist(fresh.id);
@@ -6557,7 +6559,9 @@ if (!window._cardFocusListenerAdded) {
           if (fresh && !fresh.error) {
             var idx = (S.tasks || []).findIndex(function(x) { return String(x.id) === String(S.cardId); });
             if (idx !== -1) S.tasks[idx] = fresh;
-            if (S.page === 'card' && String(S.cardId) === String(fresh.id)) {
+            var actTag = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toLowerCase() : '';
+            var isFocusingInput = (actTag === 'input' || actTag === 'textarea' || actTag === 'select');
+            if (S.page === 'card' && String(S.cardId) === String(fresh.id) && !isFocusingInput && (!S.cardDraft || !Object.keys(S.cardDraft).length)) {
               renderApp();
               if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(fresh.id);
               if (window.renderSmrChecklist) window.renderSmrChecklist(fresh.id);

@@ -388,9 +388,6 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
             delete d[k];
           }
         }
-      } else if (role === 'manager' || role === 'to_engineer') {
-        delete d.amount;
-        delete d.pricePerUnit;
       }
     }
     // Если меняется исполнитель — подтягиваем организацию только если подрядчик еще не был назначен
@@ -599,132 +596,140 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
       finalHistory = finalHistory.concat(newHistoryEntries);
     }
 
+const updateFields = [];
+    const updateValues = [];
+    let pIdx = 1;
+
+    function addField(col, val, typeCast) {
+      updateFields.push(`${col} = $${pIdx++}${typeCast ? '::' + typeCast : ''}`);
+      updateValues.push(val);
+    }
+
+    if (d.region !== undefined) addField('region', d.region || null);
+    if (d.address !== undefined) addField('address', d.address || null);
+    if (d.workType !== undefined || d.work_type !== undefined) addField('work_type', d.workType || d.work_type || null);
+    if (d.deadline !== undefined) addField('deadline', safeDate(d.deadline), 'date');
+    if (d.priority !== undefined) addField('priority', d.priority || null);
+    if (d.archived !== undefined) addField('archived', Boolean(d.archived), 'boolean');
+    if (d.assignee !== undefined) addField('assignee', d.assignee || null);
+    if (d.controller !== undefined) addField('controller', d.controller || null);
+    if (d.manager !== undefined) addField('manager', d.manager || null);
+    if (d.comment !== undefined) addField('comment', d.comment !== null ? String(d.comment) : null);
+    if (d.distributedAt !== undefined || d.distributed_at !== undefined) {
+      addField('distributed_at', safeDate(d.distributedAt !== undefined ? d.distributedAt : d.distributed_at), 'date');
+    }
+    if (d.contact !== undefined) addField('contact', d.contact !== null ? String(d.contact) : null);
+    if (d.techLink !== undefined || d.tech_link !== undefined) addField('tech_link', (d.techLink || d.tech_link) || null);
+    if (d.fact !== undefined && d.fact !== null) addField('fact', d.fact !== '' ? Math.max(0, Number(d.fact) || 0) : null, 'integer');
+    if (d.overdueDays !== undefined && d.overdueDays !== null) addField('overdue_days', Math.max(0, Number(d.overdueDays) || 0), 'integer');
+    if (hasContractor) addField('contractor', cleanContractor);
+    if (d.inOrder !== undefined && d.inOrder !== null) addField('in_order', d.inOrder !== '' ? Math.max(0, Number(d.inOrder) || 0) : null, 'integer');
+    if (d.amount !== undefined && d.amount !== null) addField('amount', d.amount !== '' ? Math.max(0, Number(d.amount) || 0) : null, 'numeric');
+    if (d.distanceKm !== undefined || d.distance_km !== undefined) {
+      const rawD = d.distanceKm !== undefined ? d.distanceKm : d.distance_km;
+      addField('distance_km', (rawD !== null && rawD !== '') ? Math.max(0, Number(rawD) || 0) : null, 'numeric');
+    }
+    if (d.pricePerUnit !== undefined || d.price_per_unit !== undefined) {
+      const rawP = d.pricePerUnit !== undefined ? d.pricePerUnit : d.price_per_unit;
+      addField('price_per_unit', (rawP !== null && rawP !== '') ? Math.max(0, Number(rawP) || 0) : null, 'numeric');
+    }
+    if (d.idStatus !== undefined || d.id_status !== undefined) addField('id_status', (d.idStatus || d.id_status) || null);
+    if (d.excelComment !== undefined || d.excel_comment !== undefined) {
+      const ec = d.excelComment !== undefined ? d.excelComment : d.excel_comment;
+      addField('excel_comment', ec !== null ? String(ec) : null);
+    }
+    if (d.edoNumber !== undefined || d.edo_number !== undefined) {
+      const ed = d.edoNumber !== undefined ? d.edoNumber : d.edo_number;
+      addField('edo_number', ed !== null ? String(ed) : null);
+    }
+    if (d.invoiceInfo !== undefined || d.invoice_info !== undefined) {
+      const ii = d.invoiceInfo !== undefined ? d.invoiceInfo : d.invoice_info;
+      addField('invoice_info', ii !== null ? String(ii) : null);
+    }
+    if (d.vedoStatus !== undefined || d.vedo_status !== undefined) {
+      const vs = d.vedoStatus !== undefined ? d.vedoStatus : d.vedo_status;
+      addField('vedo_status', vs !== null ? String(vs) : null);
+    }
+    if (d.kmRate !== undefined && d.kmRate !== null) addField('km_rate', d.kmRate !== '' ? Math.max(0, Number(d.kmRate) || 0) : null, 'numeric');
+    if (d.tmc !== undefined && d.tmc !== null) addField('tmc', d.tmc !== '' ? Math.max(0, Number(d.tmc) || 0) : null, 'numeric');
+    if (d.extras !== undefined && d.extras !== null) addField('extras', d.extras !== '' ? Math.max(0, Number(d.extras) || 0) : null, 'numeric');
+    if (d.supplierOrderSigned !== undefined) addField('supplier_order_signed', Boolean(d.supplierOrderSigned), 'boolean');
+    if (d.supplierIdUploaded !== undefined) addField('supplier_id_uploaded', Boolean(d.supplierIdUploaded), 'boolean');
+    if (d.overdueReason !== undefined) addField('overdue_reason', d.overdueReason || null);
+    if (d.assignmentStatus !== undefined || d.assignment_status !== undefined) {
+      addField('assignment_status', (d.assignmentStatus || d.assignment_status) || null);
+    }
+    if (d.customer !== undefined) addField('customer', d.customer || null);
+    if (d.managerId !== undefined || d.manager_id !== undefined) {
+      const mid = d.managerId !== undefined ? d.managerId : d.manager_id;
+      addField('manager_id', mid ? Number(mid) : null, 'integer');
+    }
+    if (d.designerId !== undefined || d.designer_id !== undefined) {
+      const did = d.designerId !== undefined ? d.designerId : d.designer_id;
+      addField('designer_id', did ? Number(did) : null, 'integer');
+    }
+    if (d.materialsLink !== undefined || d.materials_link !== undefined) {
+      addField('materials_link', (d.materialsLink || d.materials_link) || null);
+    }
+    if (d.idLink !== undefined || d.id_link !== undefined) {
+      addField('id_link', (d.idLink || d.id_link) || null);
+    }
+    if (d.stageDue !== undefined || d.stage_due !== undefined) {
+      addField('stage_due', safeDate(d.stageDue !== undefined ? d.stageDue : d.stage_due), 'timestamptz');
+    }
+    if (targetMacroStatus) addField('macro_status', targetMacroStatus);
+    if (hasStageNum) addField('stage_num', targetStageNum, 'integer');
+    if (d.activeProcesses !== undefined) addField('active_processes', JSON.stringify(d.activeProcesses), 'jsonb');
+    if (d.customerId !== undefined || d.customer_id !== undefined) {
+      const cid = d.customerId !== undefined ? d.customerId : d.customer_id;
+      addField('customer_id', cid ? Number(cid) : null, 'integer');
+    }
+    if (d.contract_id !== undefined || d.contractId !== undefined) {
+      const cid = d.contract_id !== undefined ? d.contract_id : d.contractId;
+      addField('contract_id', cid ? Number(cid) : null, 'integer');
+    }
+    if (d.contract_lot !== undefined || d.contractLot !== undefined) {
+      const clot = d.contract_lot !== undefined ? d.contract_lot : d.contractLot;
+      addField('contract_lot', clot ? Number(clot) : null, 'integer');
+    }
+    if (d.rawData !== undefined || d.raw_data !== undefined) {
+      addField('raw_data', JSON.stringify(d.rawData || d.raw_data), 'jsonb');
+    }
+    if (d.own_company_id !== undefined || d.ownCompanyId !== undefined) {
+      const oid = d.own_company_id !== undefined ? d.own_company_id : d.ownCompanyId;
+      addField('own_company_id', oid ? Number(oid) : null, 'integer');
+    }
+    if (d.contract_agreement_id !== undefined || d.contractAgreementId !== undefined) {
+      const aid = d.contract_agreement_id !== undefined ? d.contract_agreement_id : d.contractAgreementId;
+      addField('contract_agreement_id', aid ? Number(aid) : null, 'integer');
+    }
+    if (d.dataVyhoda !== undefined || d.data_vyhoda !== undefined) {
+      addField('data_vyhoda', safeDate(d.dataVyhoda !== undefined ? d.dataVyhoda : d.data_vyhoda), 'date');
+    }
+    if (d.statusSmr !== undefined || d.status_smr !== undefined) {
+      addField('status_smr', (d.statusSmr || d.status_smr) || null);
+    }
+    if (d.obsledovanie !== undefined) addField('obsledovanie', d.obsledovanie !== null ? String(d.obsledovanie) : null);
+    if (d.dostup !== undefined) addField('dostup', d.dostup !== null ? String(d.dostup) : null);
+    if (d.priemka !== undefined) addField('priemka', d.priemka !== null ? String(d.priemka) : null);
+    if (d.smrActualEndDate !== undefined || d.smr_actual_end_date !== undefined) {
+      addField('smr_actual_end_date', safeDate(d.smrActualEndDate !== undefined ? d.smrActualEndDate : d.smr_actual_end_date), 'date');
+    }
+    if (targetStatus) addField('status', targetStatus);
+    if (d.realDistanceKm !== undefined || d.real_distance_km !== undefined) {
+      const rawRd = d.realDistanceKm !== undefined ? d.realDistanceKm : d.real_distance_km;
+      addField('real_distance_km', (rawRd !== null && rawRd !== '') ? Math.max(0, Number(rawRd) || 0) : null, 'numeric');
+    }
+
+    // Всегда обновляем историю, версию и updated_at
+    addField('history', JSON.stringify(finalHistory.slice(-500)), 'jsonb');
+    updateFields.push('version = version + 1');
+    updateFields.push('updated_at = NOW()');
+
+    updateValues.push(req.params.id);
     await pool.query(`
-      UPDATE tasks SET
-        region        = COALESCE($2, region),
-        address       = COALESCE($3, address),
-        work_type     = COALESCE($4, work_type),
-        deadline      = $5,
-        priority      = COALESCE($6, priority),
-        archived      = COALESCE($7, archived),
-        assignee      = COALESCE($8, assignee),
-        controller    = COALESCE($9, controller),
-        comment       = COALESCE($10, comment),
-        distributed_at = $11,
-        contact       = COALESCE($12, contact),
-        tech_link     = COALESCE($13, tech_link),
-        fact          = COALESCE($14::integer, fact),
-        overdue_days  = COALESCE($15::integer, overdue_days),
-        contractor    = CASE WHEN $53::boolean THEN $16 ELSE contractor END,
-        in_order      = COALESCE($17::integer, in_order),
-        amount        = COALESCE($18::numeric, amount),
-        distance_km   = COALESCE($19::numeric, distance_km),
-        price_per_unit= COALESCE($20::numeric, price_per_unit),
-        id_status     = COALESCE($21, id_status),
-        excel_comment = COALESCE($22, excel_comment),
-        edo_number    = COALESCE($23, edo_number),
-        invoice_info  = COALESCE($24, invoice_info),
-        vedo_status   = COALESCE($25, vedo_status),
-        history       = COALESCE($26::jsonb, history),
-        km_rate       = COALESCE($27::numeric, km_rate),
-        tmc           = COALESCE($28::numeric, tmc), 
-        extras        = COALESCE($29::numeric, extras),
-        supplier_order_signed = COALESCE($30::boolean, supplier_order_signed),
-        supplier_id_uploaded  = COALESCE($31::boolean, supplier_id_uploaded),
-        overdue_reason        = COALESCE($32, overdue_reason),
-        assignment_status     = COALESCE($33, assignment_status),
-        customer              = COALESCE($34, customer),
-        manager_id            = COALESCE($35::integer, manager_id),
-        designer_id           = COALESCE($36::integer, designer_id),
-        materials_link        = COALESCE($37, materials_link),
-        id_link               = COALESCE($38, id_link),
-        stage_due             = $39,
-        macro_status          = COALESCE($40, macro_status),
-        stage_num             = CASE WHEN $51::boolean THEN $52::integer ELSE stage_num END,
-        active_processes      = COALESCE($41::jsonb, active_processes),
-        customer_id           = COALESCE($42::integer, customer_id),
-        contract_id           = CASE WHEN $46::boolean THEN $43::integer ELSE contract_id END,
-        contract_lot          = COALESCE($44::integer, contract_lot),
-        raw_data              = COALESCE($45::jsonb, raw_data),
-        own_company_id        = CASE WHEN $47::boolean THEN $48::integer ELSE own_company_id END,
-        contract_agreement_id = CASE WHEN $49::boolean THEN $50::integer ELSE contract_agreement_id END,
-        data_vyhoda           = CASE WHEN $54::boolean THEN $55::date ELSE data_vyhoda END,
-        status_smr            = COALESCE($56, status_smr),
-        obsledovanie          = COALESCE($57, obsledovanie),
-        dostup                = COALESCE($58, dostup),
-        priemka               = COALESCE($59, priemka),
-        smr_actual_end_date   = CASE WHEN $60::boolean THEN $61::date ELSE smr_actual_end_date END,
-        status                = COALESCE($62, status),
-        real_distance_km      = CASE WHEN $63::boolean THEN $64::numeric ELSE real_distance_km END,
-        version               = version + 1,
-        updated_at    = NOW()
-      WHERE id = $1
-    `, [
-      req.params.id,
-      d.region      || null,
-      d.address     || null,
-      d.workType    || null,
-      safeDate(d.deadline),
-      d.priority    || null,
-      d.archived    !== undefined ? d.archived : null,
-      d.assignee    !== undefined ? d.assignee : null,
-      d.controller  !== undefined ? d.controller : null,
-      d.comment     !== undefined ? d.comment : null,
-      safeDate(d.distributedAt),
-      d.contact     !== undefined ? d.contact : null,
-      d.techLink    || null,
-      d.fact        !== undefined && d.fact !== null ? Math.max(0, Number(d.fact) || 0) : null,
-      d.overdueDays !== undefined && d.overdueDays !== null ? Math.max(0, Number(d.overdueDays) || 0) : null,
-      cleanContractor,
-      d.inOrder     !== undefined && d.inOrder !== null ? Math.max(0, Number(d.inOrder) || 0) : null,
-      d.amount      !== undefined && d.amount !== null ? Math.max(0, Number(d.amount) || 0) : null,
-      d.distanceKm  !== undefined && d.distanceKm !== null ? Math.max(0, Number(d.distanceKm) || 0) : null,
-      d.pricePerUnit!== undefined && d.pricePerUnit !== null ? Math.max(0, Number(d.pricePerUnit) || 0) : null,
-      d.idStatus    || null,
-      d.excelComment|| null,
-      d.edoNumber   || null,
-      d.invoiceInfo || null,
-      d.vedoStatus  || null,
-      JSON.stringify(finalHistory.slice(-500)),
-      d.kmRate      !== undefined && d.kmRate !== null ? Math.max(0, Number(d.kmRate) || 0) : null,
-      d.tmc         !== undefined && d.tmc !== null ? Math.max(0, Number(d.tmc) || 0) : null,
-      d.extras      !== undefined && d.extras !== null ? Math.max(0, Number(d.extras) || 0) : null,
-      d.supplierOrderSigned !== undefined ? Boolean(d.supplierOrderSigned) : null,
-      d.supplierIdUploaded  !== undefined ? Boolean(d.supplierIdUploaded)  : null,
-      d.overdueReason !== undefined ? d.overdueReason : null,
-      d.assignmentStatus || null,
-      d.customer || 'ПАО Сбербанк',
-      d.managerId   ? Number(d.managerId) : null,
-      d.designerId  ? Number(d.designerId) : null,
-      d.materialsLink || null,
-      d.idLink || null,
-      safeDate(d.stageDue),
-      targetMacroStatus,
-      d.activeProcesses ? JSON.stringify(d.activeProcesses) : null,
-      d.customerId ? Number(d.customerId) : null,
-      (d.contract_id || d.contractId) ? Number(d.contract_id || d.contractId) : null,
-      (d.contract_lot || d.contractLot) ? Number(d.contract_lot || d.contractLot) : null,
-      (d.rawData || d.raw_data) ? JSON.stringify(d.rawData || d.raw_data) : null,
-      (d.contract_id !== undefined || d.contractId !== undefined),
-      (d.own_company_id !== undefined || d.ownCompanyId !== undefined),
-      (d.own_company_id || d.ownCompanyId) ? Number(d.own_company_id || d.ownCompanyId) : null,
-      (d.contract_agreement_id !== undefined || d.contractAgreementId !== undefined),
-      (d.contract_agreement_id || d.contractAgreementId) ? Number(d.contract_agreement_id || d.contractAgreementId) : null,
-      hasStageNum,
-      targetStageNum,
-      hasContractor,
-      (d.dataVyhoda !== undefined || d.data_vyhoda !== undefined),
-      safeDate(d.dataVyhoda || d.data_vyhoda),
-      d.statusSmr || d.status_smr || null,
-      d.obsledovanie !== undefined ? d.obsledovanie : null,
-      d.dostup !== undefined ? d.dostup : null,
-      d.priemka !== undefined ? d.priemka : null,
-      (d.smrActualEndDate !== undefined || d.smr_actual_end_date !== undefined),
-      safeDate(d.smrActualEndDate || d.smr_actual_end_date),
-      targetStatus,
-      (d.realDistanceKm !== undefined || d.real_distance_km !== undefined),
-      (d.realDistanceKm !== undefined || d.real_distance_km !== undefined) ? (d.realDistanceKm !== '' && d.real_distance_km !== '' && d.realDistanceKm !== null && d.real_distance_km !== null ? Number(d.realDistanceKm != null ? d.realDistanceKm : d.real_distance_km) : null) : null
-    ]);
+      UPDATE tasks SET ${updateFields.join(', ')} WHERE id = $${pIdx}
+    `, updateValues);
 
     // Синхронизация с таблицей contractor_subcontracts при смене или снятии подрядчика
     if (hasContractor) {

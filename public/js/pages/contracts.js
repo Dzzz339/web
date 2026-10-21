@@ -31,13 +31,13 @@ var CLOSING_DOC_STATUSES = {
 };
 
 var CONTRACT_DEFAULT_CHECKLIST_ITEMS = [
-  { key: 'exec_doc', label: 'Исполнительная документация (ИД)' },
-  { key: 'scheme_sks', label: 'Схема СКС / Структурная схема' },
-  { key: 'cable_routes', label: 'План прокладки кабельных трасс' },
-  { key: 'cable_journal', label: 'Кабельный журнал' },
-  { key: 'manual', label: 'Инструкция по эксплуатации' },
-  { key: 'warranty_cert', label: 'Системный сертификат / гарантия 15–25 лет' },
-  { key: 'fluke_tests', label: 'Протоколы тестирования Fluke Networks' },
+  { key: 'exec_doc', label: 'Исполнительная документация (ИД)', isMaster: true },
+  { key: 'scheme_sks', label: 'Схема СКС / Структурная схема', isSubId: true },
+  { key: 'cable_routes', label: 'План прокладки кабельных трасс', isSubId: true },
+  { key: 'cable_journal', label: 'Кабельный журнал', isSubId: true },
+  { key: 'manual', label: 'Инструкция по эксплуатации', isSubId: true },
+  { key: 'warranty_cert', label: 'Системный сертификат / гарантия 15–25 лет', isAdvance: true, hint: 'Можно получить авансом у вендора для закрытия с Заказчиком' },
+  { key: 'fluke_tests', label: 'Протоколы тестирования Fluke Networks', isAdvance: true, hint: 'Протоколы измерений рефлектометром / кабельным тестером' },
   { key: 'acts_ks', label: 'Акты КС-2, КС-3 / УПД подписанные' }
 ];
 
@@ -79,7 +79,10 @@ function normalizeChecklistItemData(rawVal) {
       updated_at: rawVal.updated_at || ''
     };
   }
-  if (rawVal === true || rawVal === 'accepted' || rawVal === 'completed') {
+  if (rawVal === true) {
+    return { required: true, status: 'required', file_url: '', file_name: '', updated_at: '' };
+  }
+  if (rawVal === 'accepted' || rawVal === 'completed') {
     return { required: true, status: rawVal === 'completed' ? 'completed' : 'accepted', file_url: '', file_name: '', updated_at: '' };
   }
   if (rawVal === 'prepared' || rawVal === 'ready') {
@@ -93,6 +96,54 @@ function normalizeChecklistItemData(rawVal) {
   }
   return { required: false, status: 'required', file_url: '', file_name: '', updated_at: '' };
 }
+
+/**
+ * Расчет сводки закрывающих документов договора для сигналки и бейджей
+ */
+function getContractClosingDocsSummary(c) {
+  if (!c) return { requiredCount: 0, completedCount: 0, isAllDone: false, pendingCount: 0, pendingNames: [], hasChecklist: false };
+  var cl = {};
+  if (c.checklist) {
+    try {
+      cl = typeof c.checklist === 'string' ? JSON.parse(c.checklist) : (c.checklist || {});
+    } catch(e) { cl = {}; }
+  }
+  var customItems = Array.isArray(cl._custom) ? cl._custom : [];
+  var allItems = CONTRACT_DEFAULT_CHECKLIST_ITEMS.concat(customItems);
+
+  var execDocData = normalizeChecklistItemData(cl['exec_doc']);
+  var isExecDocRequired = Boolean(execDocData.required);
+
+  var requiredCount = 0;
+  var completedCount = 0;
+  var pendingNames = [];
+
+  allItems.forEach(function(item) {
+    // Если требуется полный альбом ИД, 4 его подраздела не дублируются в корневом подсчете
+    if (isExecDocRequired && (item.key === 'scheme_sks' || item.key === 'cable_routes' || item.key === 'cable_journal' || item.key === 'manual')) {
+      return;
+    }
+    var d = normalizeChecklistItemData(cl[item.key]);
+    if (d.required) {
+      requiredCount++;
+      if (d.status === 'accepted' || d.status === 'completed') {
+        completedCount++;
+      } else {
+        pendingNames.push(item.label);
+      }
+    }
+  });
+
+  return {
+    requiredCount: requiredCount,
+    completedCount: completedCount,
+    isAllDone: requiredCount > 0 && completedCount === requiredCount,
+    pendingCount: requiredCount - completedCount,
+    pendingNames: pendingNames,
+    hasChecklist: requiredCount > 0
+  };
+}
+window.getContractClosingDocsSummary = getContractClosingDocsSummary;
 
 function getContractStatusBadge(status) {
   var sLower = String(status || '').trim().toLowerCase();
@@ -658,6 +709,30 @@ function getContractDeadlineDate(c) {
 }
 
 /**
+ * Переключение сортировки договоров
+ */
+function setContractSort(field) {
+  if (S.contractSortField === field) {
+    S.contractSortDir = (S.contractSortDir === 'asc') ? 'desc' : 'asc';
+  } else {
+    S.contractSortField = field;
+    S.contractSortDir = (field === 'amount' || field === 'date') ? 'desc' : 'asc';
+  }
+  renderContractsTable();
+}
+window.setContractSort = setContractSort;
+
+function getContractSortIcon(f) {
+  var curF = S.contractSortField || 'priority';
+  var curD = S.contractSortDir || 'asc';
+  if (curF !== f) return '<span style="opacity:0.35; font-size:.7rem; margin-left:3px">⇅</span>';
+  return curD === 'asc' 
+    ? '<span style="color:#2563eb; font-weight:800; font-size:.78rem; margin-left:3px">▲</span>' 
+    : '<span style="color:#2563eb; font-weight:800; font-size:.78rem; margin-left:3px">▼</span>';
+}
+window.getContractSortIcon = getContractSortIcon;
+
+/**
  * Отрисовка таблицы договоров
  */
 function renderContractsTable() {
@@ -676,7 +751,51 @@ function renderContractsTable() {
     return;
   }
 
-  var rowsHtml = list.map(function(c) {
+  // Сортировка реестра договоров
+  var sortField = S.contractSortField || 'priority';
+  var sortDir = S.contractSortDir || 'asc';
+  var prioWeights = { 'P1': 1, 'P2': 2, 'P3': 3, 'P4': 4, 'none': 5 };
+
+  var sortedList = list.slice().sort(function(a, b) {
+    var res = 0;
+    if (sortField === 'priority') {
+      var pA = prioWeights[a.closing_priority || 'P3'] || 5;
+      var pB = prioWeights[b.closing_priority || 'P3'] || 5;
+      res = pA - pB;
+      if (res === 0) {
+        var dlA = getContractDeadlineDate(a);
+        var dlB = getContractDeadlineDate(b);
+        var tA = dlA ? new Date(dlA).getTime() : 9999999999999;
+        var tB = dlB ? new Date(dlB).getTime() : 9999999999999;
+        res = tA - tB;
+      }
+    } else if (sortField === 'date') {
+      var tA = a.contract_date ? new Date(a.contract_date).getTime() : 0;
+      var tB = b.contract_date ? new Date(b.contract_date).getTime() : 0;
+      res = tA - tB;
+    } else if (sortField === 'deadline') {
+      var dlA = getContractDeadlineDate(a);
+      var dlB = getContractDeadlineDate(b);
+      var tA = dlA ? new Date(dlA).getTime() : 9999999999999;
+      var tB = dlB ? new Date(dlB).getTime() : 9999999999999;
+      res = tA - tB;
+    } else if (sortField === 'number') {
+      var nA = String(a.internal_number || a.contract_number || '');
+      var nB = String(b.internal_number || b.contract_number || '');
+      res = nA.localeCompare(nB, 'ru', { numeric: true });
+    } else if (sortField === 'customer') {
+      var cA = String(a.customer_name || '');
+      var cB = String(b.customer_name || '');
+      res = cA.localeCompare(cB, 'ru');
+    } else if (sortField === 'amount') {
+      var amA = parseFloat(a.amount) || 0;
+      var amB = parseFloat(b.amount) || 0;
+      res = amA - amB;
+    }
+    return sortDir === 'desc' ? -res : res;
+  });
+
+  var rowsHtml = sortedList.map(function(c) {
     // Категория и бейдж
     var typeBadgeClass = 'b-blue';
     var type = c.contract_type_summary || 'Прочее';
@@ -776,6 +895,42 @@ function renderContractsTable() {
       </div>
     `;
 
+    var docsSummary = getContractClosingDocsSummary(c);
+    var docsSignalHtml = '';
+    if (docsSummary.hasChecklist) {
+      if (docsSummary.isAllDone) {
+        docsSignalHtml = `
+          <div style="margin-top:3px">
+            <button class="btn-ghost" onclick="event.stopPropagation(); openContractModal(${c.id}, 'terms')" 
+                    style="padding:2px 6px; font-size:.68rem; font-weight:700; border-radius:5px; border:1px solid #86efac; background:#f0fdf4; color:#15803d; cursor:pointer; display:inline-flex; align-items:center; gap:3px" 
+                    title="Все закрывающие документы приняты (${docsSummary.completedCount} из ${docsSummary.requiredCount})">
+              <span>✓ Все доки (${docsSummary.completedCount}/${docsSummary.requiredCount})</span>
+            </button>
+          </div>
+        `;
+      } else {
+        docsSignalHtml = `
+          <div style="margin-top:3px">
+            <button class="btn-ghost" onclick="event.stopPropagation(); openContractModal(${c.id}, 'terms')" 
+                    style="padding:2px 6px; font-size:.68rem; font-weight:700; border-radius:5px; border:1.5px solid #fca5a5; background:#fee2e2; color:#b91c1c; cursor:pointer; display:inline-flex; align-items:center; gap:3px" 
+                    title="Внимание! Не сданы закрывающие документы (${docsSummary.pendingCount}):&#10;• ${docsSummary.pendingNames.join('&#10;• ')}">
+              <span>⚠️ Доки: ${docsSummary.completedCount} из ${docsSummary.requiredCount}</span>
+            </button>
+          </div>
+        `;
+      }
+    } else {
+      docsSignalHtml = `
+        <div style="margin-top:2px">
+          <button class="btn-link" onclick="event.stopPropagation(); openContractModal(${c.id}, 'terms')" 
+                  style="font-size:.68rem; color:var(--text-3); text-align:left; padding:0; border:none; background:none; cursor:pointer" 
+                  title="Настроить чек-лист закрывающих документов">
+            + чек-лист доков
+          </button>
+        </div>
+      `;
+    }
+
     var dateCellHtml = `
       <div style="font-weight:700; color:var(--text); font-size:.85rem; white-space:nowrap">
         📅 ${dateFormatted}
@@ -795,6 +950,7 @@ function renderContractsTable() {
         </div>
       `}
       ${priorityCellHtml}
+      ${docsSignalHtml}
     `;
 
     // Ссылки
@@ -957,12 +1113,20 @@ function renderContractsTable() {
       <table>
         <thead>
           <tr style="background:var(--bg); border-bottom:1.5px solid var(--border)">
-            <th style="width:135px">№ Договора</th>
-            <th style="width:130px">Дата / Срок</th>
-            <th style="min-width:200px">Заказчик / Стороны</th>
+            <th style="width:135px; cursor:pointer; user-select:none" onclick="setContractSort('number')" title="Сортировать по номеру договора">
+              № Договора ${getContractSortIcon('number')}
+            </th>
+            <th style="width:145px; cursor:pointer; user-select:none" onclick="setContractSort('priority')" title="Сортировать по приоритету закрытия (P1 Срочно → P4) и срокам">
+              Сроки / Приоритет ${getContractSortIcon('priority')}
+            </th>
+            <th style="min-width:200px; cursor:pointer; user-select:none" onclick="setContractSort('customer')" title="Сортировать по заказчику">
+              Заказчик / Стороны ${getContractSortIcon('customer')}
+            </th>
             <th style="width:140px">О чем договор</th>
             <th style="min-width:240px">Предмет и Место</th>
-            <th style="width:115px">Сумма</th>
+            <th style="width:115px; cursor:pointer; user-select:none" onclick="setContractSort('amount')" title="Сортировать по сумме договора">
+              Сумма ${getContractSortIcon('amount')}
+            </th>
             <th style="width:105px">Обеспечение</th>
             <th style="width:100px">Ссылки</th>
             <th style="width:45px"></th>
@@ -986,7 +1150,9 @@ function openContractModal(id, activeTab) {
   var modalEl = document.getElementById('contract_detail_modal');
   if (!modalBackdrop || !modalEl) return;
 
+  modalEl.style.display = '';
   modalEl.innerHTML = `<div style="padding:3rem; text-align:center"><div class="spin" style="margin:0 auto 10px"></div>Загрузка договора...</div>`;
+  modalEl.style.display = 'block';
   modalBackdrop.style.display = 'flex';
 
   api('/contracts/' + id).then(function(c) {
@@ -2050,6 +2216,10 @@ function closeContractModal() {
     modalBackdrop.style.display = 'none';
     modalBackdrop.classList.remove('is-floating');
   }
+  var modalEl = document.getElementById('contract_detail_modal');
+  if (modalEl) {
+    modalEl.style.display = '';
+  }
   if (typeof window.restorePageScroll === 'function') window.restorePageScroll();
 }
 
@@ -2277,6 +2447,8 @@ function openContractForm(id) {
   var modalEl = document.getElementById('contract_form_modal');
   if (!modalBackdrop || !modalEl) return;
 
+  modalEl.style.display = '';
+
   S.contractFormPendingFiles = [];
 
   var isEdit = Boolean(id);
@@ -2464,6 +2636,7 @@ function openContractForm(id) {
     </form>
   `;
 
+  modalEl.style.display = 'block';
   modalBackdrop.style.display = 'flex';
 }
 
@@ -2506,6 +2679,10 @@ function closeContractFormModal() {
   if (modalBackdrop) {
     modalBackdrop.style.display = 'none';
     modalBackdrop.classList.remove('is-floating');
+  }
+  var modalEl = document.getElementById('contract_form_modal');
+  if (modalEl) {
+    modalEl.style.display = '';
   }
   if (typeof window.restorePageScroll === 'function') window.restorePageScroll();
 }
@@ -3260,6 +3437,16 @@ function setContractActivePreview(contractId, attachmentId) {
  * ЧЕК-ЛИСТ ЗАКРЫВАЮЩИХ ДОКУМЕНТОВ (5 ЭТАПОВ, ДА/НЕТ, ПРИВЯЗКА ФАЙЛОВ/ССЫЛОК)
  * ========================================================================= */
 
+window._toggleIdSubitems = function(contractId) {
+  if (!window._openIdSubitems) window._openIdSubitems = new Set();
+  if (window._openIdSubitems.has(contractId)) {
+    window._openIdSubitems.delete(contractId);
+  } else {
+    window._openIdSubitems.add(contractId);
+  }
+  openContractModal(contractId, 'terms');
+};
+
 function renderContractChecklistSection(c) {
   var cl = {};
   if (c && c.checklist) {
@@ -3271,10 +3458,15 @@ function renderContractChecklistSection(c) {
   var customItems = Array.isArray(cl._custom) ? cl._custom : [];
   var allItems = CONTRACT_DEFAULT_CHECKLIST_ITEMS.concat(customItems);
 
+  var execDocData = normalizeChecklistItemData(cl['exec_doc']);
+  var isExecDocRequired = Boolean(execDocData.required);
+  var ID_SUBKEYS = ['scheme_sks', 'cable_routes', 'cable_journal', 'manual'];
+
   var requiredCount = 0;
   var completedCount = 0;
 
   allItems.forEach(function(item) {
+    if (isExecDocRequired && ID_SUBKEYS.includes(item.key)) return;
     var d = normalizeChecklistItemData(cl[item.key]);
     if (d.required) {
       requiredCount++;
@@ -3287,7 +3479,7 @@ function renderContractChecklistSection(c) {
   var percent = requiredCount > 0 ? Math.round((completedCount / requiredCount) * 100) : 0;
   var isAllDone = requiredCount > 0 && completedCount === requiredCount;
 
-  var itemsHtml = allItems.map(function(item) {
+  function renderChecklistItemCard(item, isSub) {
     var d = normalizeChecklistItemData(cl[item.key]);
     var stCfg = CLOSING_DOC_STATUSES[d.status] || CLOSING_DOC_STATUSES.required;
     var isDone = (d.status === 'accepted' || d.status === 'completed');
@@ -3307,15 +3499,26 @@ function renderContractChecklistSection(c) {
       `;
     }
 
+    var advanceBadge = '';
+    if (item.isAdvance) {
+      advanceBadge = `
+        <div style="display:flex; align-items:center; gap:4px; margin-top:3px; flex-wrap:wrap">
+          <span class="badge" style="background:#fef3c7; color:#92400e; border:1px solid #fde68a; font-size:.68rem; font-weight:700">⚡ Авансовое закрытие</span>
+          ${item.hint ? `<span style="font-size:.70rem; color:#92400e; opacity:0.9">${escHtml(item.hint)}</span>` : ''}
+        </div>
+      `;
+    }
+
     return `
-      <div style="display:flex; flex-direction:column; gap:6px; padding:10px 12px; border-radius:8px; background:${isReq ? stCfg.bg : '#f8fafc'}; border:1.5px solid ${isReq ? stCfg.border : '#e2e8f0'}; opacity:${isReq ? '1' : '0.65'}; transition:all .15s">
+      <div style="display:flex; flex-direction:column; gap:6px; padding:${isSub ? '8px 10px' : '10px 12px'}; border-radius:8px; background:${isReq ? stCfg.bg : '#f8fafc'}; border:1.5px solid ${isReq ? stCfg.border : '#e2e8f0'}; opacity:${isReq ? '1' : '0.65'}; transition:all .15s; ${isSub ? 'background:#fff;' : ''}">
         <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:10px">
           <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer; flex:1; margin:0; user-select:none" title="${isReq ? 'Требуется по данному контракту' : 'Не требуется по данному контракту'}">
             <input type="checkbox" style="width:17px; height:17px; margin-top:2px; cursor:pointer; accent-color:#2563eb" ${isReq ? 'checked' : ''} onchange="toggleContractDocRequired(${c.id}, '${item.key}', this.checked)">
             <div>
-              <div style="font-size:.84rem; font-weight:${isReq ? (isDone ? '700' : '600') : '500'}; color:${isReq ? (isDone ? '#15803d' : 'var(--text)') : 'var(--text-3)'}; text-decoration:${isReq ? 'none' : 'line-through'}">
-                ${escHtml(item.label)}
+              <div style="font-size:${isSub ? '.80rem' : '.84rem'}; font-weight:${isReq ? (isDone ? '700' : '600') : '500'}; color:${isReq ? (isDone ? '#15803d' : 'var(--text)') : 'var(--text-3)'}; text-decoration:${isReq ? 'none' : 'line-through'}">
+                ${isSub ? '📄 ' : ''}${escHtml(item.label)}
               </div>
+              ${advanceBadge}
               ${!isReq ? `
                 <div style="font-size:.7rem; color:var(--text-3); font-style:italic">Не требуется по условиям договора</div>
               ` : ''}
@@ -3344,7 +3547,44 @@ function renderContractChecklistSection(c) {
         </div>
       </div>
     `;
-  }).join('');
+  }
+
+  var isIdSubOpen = Boolean(window._openIdSubitems && window._openIdSubitems.has(c.id));
+  var itemsHtml = allItems.map(function(item) {
+    if (isExecDocRequired && ID_SUBKEYS.includes(item.key)) {
+      return '';
+    }
+
+    var cardHtml = renderChecklistItemCard(item, false);
+
+    if (item.key === 'exec_doc' && isExecDocRequired) {
+      var subItems = CONTRACT_DEFAULT_CHECKLIST_ITEMS.filter(function(x){ return ID_SUBKEYS.includes(x.key); });
+      var subitemsHtml = subItems.map(function(sub){ return renderChecklistItemCard(sub, true); }).join('');
+
+      var idSubBox = `
+        <div style="grid-column: 1 / -1; margin-top:2px; padding:10px 12px; background:#f8fafc; border:1.5px dashed #cbd5e1; border-radius:8px">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px">
+            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap">
+              <span style="font-size:.80rem; font-weight:700; color:var(--text)">📁 Состав альбома ИД (4 подраздела):</span>
+              <span class="badge b-blue" style="font-size:.68rem">в составе единого альбома</span>
+            </div>
+            <button type="button" class="btn btn-xs btn-ghost" onclick="window._toggleIdSubitems(${c.id})" style="font-size:.72rem; padding:2px 8px; border:1px solid var(--border); background:#fff">
+              ${isIdSubOpen ? 'Свернуть подразделы ▲' : 'Развернуть подразделы (4) ▼'}
+            </button>
+          </div>
+          <div style="font-size:.72rem; color:var(--text-3); margin-top:2px">
+            Схема СКС, План трасс, Кабельный журнал и Инструкция по эксплуатации сдаются Заказчику в едином альбоме ИД.
+          </div>
+          <div id="id_subitems_box_${c.id}" style="display:${isIdSubOpen ? 'grid' : 'none'}; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:6px; margin-top:8px">
+            ${subitemsHtml}
+          </div>
+        </div>
+      `;
+      return cardHtml + idSubBox;
+    }
+
+    return cardHtml;
+  }).filter(Boolean).join('');
 
   return `
     <div class="card p" style="background:#fff; border:1px solid var(--border)">
@@ -3359,7 +3599,7 @@ function renderContractChecklistSection(c) {
             </span>
           </div>
           <div style="font-size:.78rem; color:var(--text-3); margin-top:2px">
-            5 этапов: ⏳ Требуется → 📝 Готов (файл) → 📤 Отправлен → 👁️ Принят → 🏆 Завершен. Снимите галочку, если документ не требуется по договору.
+            5 этапов: ⏳ Требуется → 📝 Готов (файл) → 📤 Отправлен → 👁️ Принят → 🏆 Завершен. Начальный статус при выставлении галочки строго «1. Требуется».
           </div>
         </div>
         <button class="btn btn-sm btn-ghost" onclick="promptAddContractChecklistItem(${c.id})" style="border:1px dashed var(--border); font-size:.8rem; font-weight:600">
@@ -3397,6 +3637,12 @@ function toggleContractDocRequired(contractId, key, isChecked) {
 
   var currentData = normalizeChecklistItemData(cl[key]);
   currentData.required = Boolean(isChecked);
+  if (isChecked) {
+    // Начальный статус строго 'required' («1. Требуется»), если нет прикрепленного файла
+    if (!currentData.file_url || currentData.status === 'accepted' || currentData.status === 'completed') {
+      currentData.status = 'required';
+    }
+  }
   currentData.updated_at = new Date().toISOString();
   cl[key] = currentData;
 
@@ -3408,6 +3654,9 @@ function toggleContractDocRequired(contractId, key, isChecked) {
       showToast('Ошибка сохранения: ' + res.error, 'error');
     } else {
       if (c) c.checklist = cl;
+      var inList = (S.contracts || []).find(function(x){ return x.id === contractId; });
+      if (inList) inList.checklist = cl;
+      renderContractsTable();
       openContractModal(contractId, 'terms');
     }
   }).catch(function(err) {
@@ -3437,6 +3686,9 @@ function updateContractDocStage(contractId, key, newStage) {
       showToast('Ошибка сохранения: ' + res.error, 'error');
     } else {
       if (c) c.checklist = cl;
+      var inList = (S.contracts || []).find(function(x){ return x.id === contractId; });
+      if (inList) inList.checklist = cl;
+      renderContractsTable();
       if ((newStage === 'ready' || newStage === 'prepared') && !currentData.file_url) {
         openChecklistAttachmentModal(contractId, key);
       } else {
@@ -3551,6 +3803,9 @@ function saveChecklistAttachmentLink(contractId, key) {
       var backdrop = document.getElementById('contract_checklist_attach_modal_backdrop');
       if (backdrop) backdrop.style.display = 'none';
       if (c) c.checklist = cl;
+      var inList = (S.contracts || []).find(function(x){ return x.id === contractId; });
+      if (inList) inList.checklist = cl;
+      renderContractsTable();
       openContractModal(contractId, 'terms');
     }
   }).catch(function(err) {
@@ -3608,6 +3863,9 @@ function handleChecklistAttachmentUpload(contractId, key, input) {
           var backdrop = document.getElementById('contract_checklist_attach_modal_backdrop');
           if (backdrop) backdrop.style.display = 'none';
           if (c) c.checklist = cl;
+          var inList = (S.contracts || []).find(function(x){ return x.id === contractId; });
+          if (inList) inList.checklist = cl;
+          renderContractsTable();
           openContractModal(contractId, 'terms');
         });
       }
@@ -3639,6 +3897,9 @@ function removeChecklistAttachment(contractId, key) {
   }).then(function(res) {
     showToast('Файл откреплен', 'info');
     if (c) c.checklist = cl;
+    var inList = (S.contracts || []).find(function(x){ return x.id === contractId; });
+    if (inList) inList.checklist = cl;
+    renderContractsTable();
     openContractModal(contractId, 'terms');
   }).catch(function(err) {
     showToast('Ошибка: ' + err.message, 'error');
@@ -3672,6 +3933,9 @@ function promptAddContractChecklistItem(contractId) {
     } else {
       showToast('Требование добавлено', 'success');
       if (c) c.checklist = cl;
+      var inList = (S.contracts || []).find(function(x){ return x.id === contractId; });
+      if (inList) inList.checklist = cl;
+      renderContractsTable();
       openContractModal(contractId, 'terms');
     }
   }).catch(function(err) {
@@ -3704,6 +3968,9 @@ function removeContractChecklistItem(contractId, key) {
     } else {
       showToast('Требование удалено', 'success');
       if (c) c.checklist = cl;
+      var inList = (S.contracts || []).find(function(x){ return x.id === contractId; });
+      if (inList) inList.checklist = cl;
+      renderContractsTable();
       openContractModal(contractId, 'terms');
     }
   }).catch(function(err) {
