@@ -498,7 +498,8 @@ function getTaskContractorFinance(t) {
   // 1. Индивидуальные договорные условия по конкретной заявке (доп. заказ к договору)
   var raw = t.rawData || {};
   var customRate = Number(raw.subRate || raw.sub_rate || t.contractor_rate) || 0;
-  var customTotal = Number(raw.subTotal || raw.sub_total || t.contractor_total || t.price_agreed) || 0;
+  var smrSpecTotal = (raw.smrTaxDetails && Number(raw.smrTaxDetails.totalWithTax)) || Number(raw.smr_amount) || Number(t.smr_amount) || 0;
+  var customTotal = Number(raw.subTotal || raw.sub_total || t.contractor_total || t.price_agreed || smrSpecTotal) || 0;
   var customDist = Number(raw.subDist || raw.sub_dist || t.contractor_transport) || 0;
   var customExtras = Number(raw.subExtras || raw.sub_extras) || 0;
 

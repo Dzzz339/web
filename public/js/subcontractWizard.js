@@ -7,6 +7,12 @@
 
   // 1. Быстрый локальный расчет СМР по правилам Алексея (шкала до 3 / более 3 портов, км сверх 10 км, шкафы)
   function calcSmrLocal(params) {
+    if (typeof window.getSubcontractCalculation === 'function') {
+      var dynRes = window.getSubcontractCalculation(params);
+      if (dynRes && Array.isArray(dynRes.lines) && dynRes.lines.length > 0) {
+        return dynRes;
+      }
+    }
     var ports = parseInt(params.ports, 10) || 0;
     var portType = params.portType || 'port_5e';
     var distanceKm = parseFloat(params.distanceKm) || 0;

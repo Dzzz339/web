@@ -23,6 +23,9 @@ var S = {
   contractSearch: '', contractType: 'all', contractCustomer: 'all', contractStatus: 'all', contractYear: 'all',
   contractManager: 'all', contractEntity: 'all', contractFilterOptions: null,
   contractModalId: null, contractEditDraft: null,
+  subContracts: [], subPricelists: [],
+  subContractSearch: '', subContractStatus: 'all', subContractCompany: 'all', subContractContractor: 'all',
+  subPriceSearch: '', subPriceFilter: 'all',
   aiActive: false, aiMode: 'general', aiMessages: [], aiLoading: false, aiStreaming: false, aiStreamText: '',
   supplyTab: 'stages'
 };

@@ -1489,9 +1489,10 @@ function pageTasks() {
         roadLine +
       '</td>';
     } else if (appMode === 'contractor') {
-      var priceBtn = cFin.unitPrice > 0
+      var effUnitPrice = cFin.unitPrice > 0 ? cFin.unitPrice : (ports > 0 ? Math.round(cFin.total / ports) : cFin.total);
+      var priceBtn = (effUnitPrice > 0 || cFin.total > 0)
         ? '<button type="button" class="btn-link" onclick="openSubcontractRateModal(\'' + tid + '\')" title="Индивидуальные договорные условия подряда (кликните для изменения)" style="font-weight:600;color:var(--text);font-size:.8rem;text-align:left">' +
-            fmtMoney(cFin.unitPrice) + '<span class="t3" style="font-size:.68rem">/ед <span style="font-size:.7rem;opacity:0.65">✏️</span></span>' +
+            fmtMoney(effUnitPrice) + '<span class="t3" style="font-size:.68rem">/ед <span style="font-size:.7rem;opacity:0.65">✏️</span></span>' +
           '</button>'
         : '<button type="button" class="btn btn-xs btn-ghost" style="color:var(--orange);border:1px dashed var(--orange);font-size:.72rem;padding:2px 6px" onclick="openSubcontractRateModal(\'' + tid + '\')" title="Задать ставку за порт или сумму подряда">+ Задать ставку</button>';
 

@@ -153,6 +153,450 @@ router.get('/contractor-contracts/:contractId/price-list', authenticateToken, as
   }
 });
 
+// 4.1. Получить ВСЕ договоры субподряда (для справочника «Договоры субподряда»)
+router.get('/subcontract-contracts', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT 
+        cc.*,
+        c.name_short AS contractor_name,
+        c.inn AS contractor_inn,
+        c.phone AS contractor_phone,
+        c.director AS contractor_director,
+        c.type AS contractor_type,
+        oc.name_short AS own_company_name,
+        oc.inn AS own_company_inn,
+        pl.id AS price_list_id,
+        pl.name AS price_list_name,
+        (SELECT COUNT(*) FROM price_list_items pli WHERE pli.price_list_id = pl.id) AS price_items_count
+      FROM contractor_contracts cc
+      LEFT JOIN contractors c ON cc.contractor_id = c.id
+      LEFT JOIN own_companies oc ON cc.own_company_id = oc.id
+      LEFT JOIN contractor_price_lists pl ON (pl.contract_id = cc.id OR (pl.contractor_id = cc.contractor_id AND pl.contract_id IS NULL)) AND pl.is_active = true
+      ORDER BY cc.contract_date DESC, cc.id DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching subcontract contracts:', err);
+    res.status(500).json({ error: 'Ошибка получения реестра договоров субподряда' });
+  }
+});
+
+// 4.2. Создать новый договор субподряда
+router.post('/subcontract-contracts', authenticateToken, async (req, res) => {
+  try {
+    const {
+      contractor_id,
+      own_company_id,
+      contract_number,
+      contract_date,
+      title,
+      customer_tag,
+      subject,
+      territory,
+      valid_from,
+      valid_to,
+      status,
+      scan_url,
+      create_price_list
+    } = req.body;
+
+    if (!contract_number) {
+      return res.status(400).json({ error: 'Номер договора обязателен' });
+    }
+    if (!contractor_id) {
+      return res.status(400).json({ error: 'Исполнитель обязателен' });
+    }
+
+    const { rows } = await pool.query(`
+      INSERT INTO contractor_contracts (
+        contractor_id, own_company_id, contract_number, contract_date, title,
+        customer_tag, subject, territory, valid_from, valid_to, status, scan_url
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING *
+    `, [
+      contractor_id,
+      own_company_id || null,
+      contract_number,
+      contract_date || new Date(),
+      title || `Договор субподряда № ${contract_number}`,
+      customer_tag || '',
+      subject || 'Монтаж СКС и слаботочных систем',
+      territory || '',
+      valid_from || contract_date || new Date(),
+      valid_to || null,
+      status || 'active',
+      scan_url || ''
+    ]);
+
+    const newContract = rows[0];
+
+    // Опционально создаем привязанный прайс-лист со стандартными позициями
+    if (create_price_list) {
+      const plRes = await pool.query(`
+        INSERT INTO contractor_price_lists (contract_id, contractor_id, name, customer_tag, is_active)
+        VALUES ($1, $2, $3, $4, true)
+        RETURNING id
+      `, [newContract.id, contractor_id, `Прайс-лист к договору № ${contract_number}`, customer_tag || '']);
+      const plId = plRes.rows[0].id;
+
+      // Копируем позиции из базового прайса
+      const defPl = await pool.query(`SELECT id FROM contractor_price_lists WHERE is_default = true LIMIT 1`);
+      if (defPl.rows.length) {
+        await pool.query(`
+          INSERT INTO price_list_items (
+            price_list_id, work_code, work_name, unit, price_tier_1, price_tier_2, tier_threshold, sort_order
+          )
+          SELECT $1, work_code, work_name, unit, price_tier_1, price_tier_2, tier_threshold, sort_order
+          FROM price_list_items
+          WHERE price_list_id = $2
+        `, [plId, defPl.rows[0].id]);
+      }
+    }
+
+    // Возвращаем контракт с обогащенными полями
+    const enriched = await pool.query(`
+      SELECT 
+        cc.*,
+        c.name_short AS contractor_name,
+        c.inn AS contractor_inn,
+        oc.name_short AS own_company_name,
+        pl.id AS price_list_id,
+        pl.name AS price_list_name
+      FROM contractor_contracts cc
+      LEFT JOIN contractors c ON cc.contractor_id = c.id
+      LEFT JOIN own_companies oc ON cc.own_company_id = oc.id
+      LEFT JOIN contractor_price_lists pl ON pl.contract_id = cc.id
+      WHERE cc.id = $1
+    `, [newContract.id]);
+
+    res.json(enriched.rows[0]);
+  } catch (err) {
+    console.error('Error creating subcontract contract:', err);
+    res.status(500).json({ error: 'Ошибка создания договора: ' + err.message });
+  }
+});
+
+// 4.3. Обновить договор субподряда
+router.put('/subcontract-contracts/:id', authenticateToken, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const {
+      contractor_id,
+      own_company_id,
+      contract_number,
+      contract_date,
+      title,
+      customer_tag,
+      subject,
+      territory,
+      valid_from,
+      valid_to,
+      status,
+      scan_url
+    } = req.body;
+
+    const { rows } = await pool.query(`
+      UPDATE contractor_contracts SET
+        contractor_id = COALESCE($1, contractor_id),
+        own_company_id = $2,
+        contract_number = COALESCE($3, contract_number),
+        contract_date = COALESCE($4, contract_date),
+        title = COALESCE($5, title),
+        customer_tag = $6,
+        subject = $7,
+        territory = $8,
+        valid_from = $9,
+        valid_to = $10,
+        status = COALESCE($11, status),
+        scan_url = $12,
+        updated_at = NOW()
+      WHERE id = $13
+      RETURNING *
+    `, [
+      contractor_id,
+      own_company_id || null,
+      contract_number,
+      contract_date,
+      title,
+      customer_tag || '',
+      subject || '',
+      territory || '',
+      valid_from || null,
+      valid_to || null,
+      status || 'active',
+      scan_url || '',
+      id
+    ]);
+
+    if (!rows.length) return res.status(404).json({ error: 'Договор не найден' });
+
+    const enriched = await pool.query(`
+      SELECT 
+        cc.*,
+        c.name_short AS contractor_name,
+        c.inn AS contractor_inn,
+        oc.name_short AS own_company_name,
+        pl.id AS price_list_id,
+        pl.name AS price_list_name
+      FROM contractor_contracts cc
+      LEFT JOIN contractors c ON cc.contractor_id = c.id
+      LEFT JOIN own_companies oc ON cc.own_company_id = oc.id
+      LEFT JOIN contractor_price_lists pl ON pl.contract_id = cc.id
+      WHERE cc.id = $1
+    `, [id]);
+
+    res.json(enriched.rows[0]);
+  } catch (err) {
+    console.error('Error updating subcontract contract:', err);
+    res.status(500).json({ error: 'Ошибка обновления договора: ' + err.message });
+  }
+});
+
+// 4.4. Удалить договор субподряда
+router.delete('/subcontract-contracts/:id', authenticateToken, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    await pool.query('DELETE FROM contractor_contracts WHERE id = $1', [id]);
+    res.json({ success: true, id });
+  } catch (err) {
+    console.error('Error deleting contract:', err);
+    res.status(500).json({ error: 'Ошибка удаления договора: ' + err.message });
+  }
+});
+
+// 4.5. Получить ВСЕ прайс-листы субподряда (для справочника «Прайсы субподряда»)
+router.get('/subcontract-pricelists', authenticateToken, async (req, res) => {
+  try {
+    const { rows: plRows } = await pool.query(`
+      SELECT 
+        pl.*,
+        cc.contract_number,
+        cc.contract_date,
+        cc.title AS contract_title,
+        COALESCE(pl.contractor_id, cc.contractor_id) AS effective_contractor_id,
+        c.name_short AS contractor_name,
+        c.inn AS contractor_inn,
+        c.phone AS contractor_phone,
+        oc.name_short AS own_company_name
+      FROM contractor_price_lists pl
+      LEFT JOIN contractor_contracts cc ON pl.contract_id = cc.id
+      LEFT JOIN contractors c ON c.id = COALESCE(pl.contractor_id, cc.contractor_id)
+      LEFT JOIN own_companies oc ON cc.own_company_id = oc.id
+      ORDER BY pl.is_default DESC, pl.id ASC
+    `);
+
+    const { rows: itemRows } = await pool.query(`
+      SELECT * FROM price_list_items ORDER BY price_list_id ASC, sort_order ASC, id ASC
+    `);
+
+    const itemsByPl = {};
+    itemRows.forEach(it => {
+      if (!itemsByPl[it.price_list_id]) itemsByPl[it.price_list_id] = [];
+      itemsByPl[it.price_list_id].push(it);
+    });
+
+    const result = plRows.map(pl => {
+      return {
+        ...pl,
+        items: itemsByPl[pl.id] || []
+      };
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('Error fetching subcontract pricelists:', err);
+    res.status(500).json({ error: 'Ошибка получения прайс-листов субподряда' });
+  }
+});
+
+// 4.6. Создать новый прайс-лист
+router.post('/subcontract-pricelists', authenticateToken, async (req, res) => {
+  try {
+    const {
+      name,
+      contractor_id,
+      contract_id,
+      customer_tag,
+      region,
+      is_default,
+      copy_from_id
+    } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'Название прайс-листа обязательно' });
+    }
+
+    if (is_default) {
+      await pool.query('UPDATE contractor_price_lists SET is_default = false WHERE is_default = true');
+    }
+
+    const { rows } = await pool.query(`
+      INSERT INTO contractor_price_lists (
+        contract_id, contractor_id, name, customer_tag, region, is_active, is_default
+      ) VALUES ($1, $2, $3, $4, $5, true, $6)
+      RETURNING *
+    `, [
+      contract_id || null,
+      contractor_id || null,
+      name,
+      customer_tag || '',
+      region || '',
+      Boolean(is_default)
+    ]);
+
+    const newPl = rows[0];
+
+    // Копируем позиции из источника или из дефолтного прайса
+    const srcId = copy_from_id || (await pool.query(`SELECT id FROM contractor_price_lists WHERE is_default = true LIMIT 1`)).rows[0]?.id;
+    if (srcId) {
+      await pool.query(`
+        INSERT INTO price_list_items (
+          price_list_id, work_code, work_name, unit, price_tier_1, price_tier_2, tier_threshold, sort_order
+        )
+        SELECT $1, work_code, work_name, unit, price_tier_1, price_tier_2, tier_threshold, sort_order
+        FROM price_list_items
+        WHERE price_list_id = $2
+      `, [newPl.id, srcId]);
+    }
+
+    const itemRows = await pool.query(`SELECT * FROM price_list_items WHERE price_list_id = $1 ORDER BY sort_order ASC, id ASC`, [newPl.id]);
+    res.json({
+      ...newPl,
+      items: itemRows.rows
+    });
+  } catch (err) {
+    console.error('Error creating subcontract pricelist:', err);
+    res.status(500).json({ error: 'Ошибка создания прайс-листа: ' + err.message });
+  }
+});
+
+// 4.7. Обновить прайс-лист (метаданные или сделать дефолтным)
+router.put('/subcontract-pricelists/:id', authenticateToken, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { name, customer_tag, region, is_active, is_default, contractor_id, contract_id } = req.body;
+
+    if (is_default) {
+      await pool.query('UPDATE contractor_price_lists SET is_default = false WHERE id != $1', [id]);
+    }
+
+    const { rows } = await pool.query(`
+      UPDATE contractor_price_lists SET
+        name = COALESCE($1, name),
+        customer_tag = COALESCE($2, customer_tag),
+        region = COALESCE($3, region),
+        is_active = COALESCE($4, is_active),
+        is_default = COALESCE($5, is_default),
+        contractor_id = $6,
+        contract_id = $7,
+        updated_at = NOW()
+      WHERE id = $8
+      RETURNING *
+    `, [
+      name,
+      customer_tag,
+      region,
+      is_active,
+      is_default,
+      contractor_id || null,
+      contract_id || null,
+      id
+    ]);
+
+    if (!rows.length) return res.status(404).json({ error: 'Прайс-лист не найден' });
+    const itemRows = await pool.query(`SELECT * FROM price_list_items WHERE price_list_id = $1 ORDER BY sort_order ASC, id ASC`, [id]);
+    res.json({
+      ...rows[0],
+      items: itemRows.rows
+    });
+  } catch (err) {
+    console.error('Error updating subcontract pricelist:', err);
+    res.status(500).json({ error: 'Ошибка обновления прайс-листа: ' + err.message });
+  }
+});
+
+// 4.8. Добавить позицию в прайс-лист
+router.post('/subcontract-pricelists/:id/items', authenticateToken, async (req, res) => {
+  try {
+    const priceListId = parseInt(req.params.id, 10);
+    const { work_code, work_name, unit, price_tier_1, price_tier_2, tier_threshold, sort_order } = req.body;
+
+    if (!work_name) return res.status(400).json({ error: 'Наименование позиции обязательно' });
+
+    const { rows } = await pool.query(`
+      INSERT INTO price_list_items (
+        price_list_id, work_code, work_name, unit, price_tier_1, price_tier_2, tier_threshold, sort_order
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING *
+    `, [
+      priceListId,
+      work_code || `custom_${Date.now()}`,
+      work_name,
+      unit || 'шт',
+      Number(price_tier_1) || 0,
+      Number(price_tier_2) || Number(price_tier_1) || 0,
+      Number(tier_threshold) || 1,
+      Number(sort_order) || 50
+    ]);
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error adding pricelist item:', err);
+    res.status(500).json({ error: 'Ошибка добавления позиции: ' + err.message });
+  }
+});
+
+// 4.9. Обновить позицию в прайс-листе
+router.put('/subcontract-pricelists/:id/items/:itemId', authenticateToken, async (req, res) => {
+  try {
+    const itemId = parseInt(req.params.itemId, 10);
+    const { work_name, unit, price_tier_1, price_tier_2, tier_threshold } = req.body;
+
+    const { rows } = await pool.query(`
+      UPDATE price_list_items SET
+        work_name = COALESCE($1, work_name),
+        unit = COALESCE($2, unit),
+        price_tier_1 = COALESCE($3, price_tier_1),
+        price_tier_2 = COALESCE($4, price_tier_2),
+        tier_threshold = COALESCE($5, tier_threshold)
+      WHERE id = $6
+      RETURNING *
+    `, [work_name, unit, price_tier_1, price_tier_2, tier_threshold, itemId]);
+
+    if (!rows.length) return res.status(404).json({ error: 'Позиция не найдена' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error updating pricelist item:', err);
+    res.status(500).json({ error: 'Ошибка обновления позиции: ' + err.message });
+  }
+});
+
+// 4.10. Удалить позицию из прайс-листа
+router.delete('/subcontract-pricelists/:id/items/:itemId', authenticateToken, async (req, res) => {
+  try {
+    const itemId = parseInt(req.params.itemId, 10);
+    await pool.query('DELETE FROM price_list_items WHERE id = $1', [itemId]);
+    res.json({ success: true, id: itemId });
+  } catch (err) {
+    console.error('Error deleting pricelist item:', err);
+    res.status(500).json({ error: 'Ошибка удаления позиции: ' + err.message });
+  }
+});
+
+// 4.11. Удалить прайс-лист
+router.delete('/subcontract-pricelists/:id', authenticateToken, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    await pool.query('DELETE FROM contractor_price_lists WHERE id = $1', [id]);
+    res.json({ success: true, id });
+  } catch (err) {
+    console.error('Error deleting pricelist:', err);
+    res.status(500).json({ error: 'Ошибка удаления прайс-листа: ' + err.message });
+  }
+});
+
 // 5. Предыдущие подряды подрядчика (для быстрого копирования условий в 2 клика: Казанка -> Юргинское)
 router.get('/contractors/:id/previous-subcontracts', authenticateToken, async (req, res) => {
   try {
