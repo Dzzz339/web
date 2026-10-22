@@ -686,6 +686,26 @@
       return;
     }
 
+    // 16.1. Окна справочников субподряда (Договоры, Прайсы, Позиции)
+    var scMatch = (node.id === '_sub_contract_modal_backdrop' || node.id === '_sub_price_modal_backdrop' || node.id === '_sub_items_modal_backdrop') ? node : (node.querySelector?.('#_sub_contract_modal_backdrop, #_sub_price_modal_backdrop, #_sub_items_modal_backdrop'));
+    if (scMatch) {
+      var scBox = scMatch.querySelector('.modal-box, .card') || scMatch;
+      if (!scBox.querySelector('.win-ctrls-wrap')) {
+        var isContract = scMatch.id.includes('contract');
+        var isItems = scMatch.id.includes('items');
+        window.makeWindowDraggableAndMinimizable(scBox, {
+          title: scBox.querySelector('h3, .modal-title')?.textContent?.trim() || (isContract ? 'Договор субподряда' : (isItems ? 'Позиции прайс-листа' : 'Прайс-лист субподряда')),
+          icon: isContract ? '📑' : (isItems ? '📋' : '⚙️'),
+          backdrop: scMatch,
+          onClose: function() {
+            scMatch.remove();
+            window.restorePageScroll();
+          }
+        });
+      }
+      return;
+    }
+
     // 17. Любое другое модальное окно с .modal-overlay и .modal-box
     if (node.classList && (node.classList.contains('modal-overlay') || node.classList.contains('wf-modal-overlay'))) {
       if (node.id === 'cardConfirmOverlay') return; // небольшое подтверждение внутри карточки не превращаем в окно
