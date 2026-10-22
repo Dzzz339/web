@@ -21,9 +21,15 @@ window.sortTasksBy = function(field) {
 };
 
 function toggleTasksFilters() {
+  var qEl = document.getElementById('tq');
+  if (qEl) S.taskQ = qEl.value;
   S.tasksFiltersOpen = !S.tasksFiltersOpen;
   renderApp();
 }
+window.toggleTasksFilters = toggleTasksFilters;
+window.applyTasksFilters = applyTasksFilters;
+window.clearFilters = clearFilters;
+window.removeTaskFilter = removeTaskFilter;
 
 function applyTasksFilters() {
   var v = function(id) { var el = document.getElementById(id); return el ? el.value : ''; };
@@ -901,7 +907,18 @@ function pageTasks() {
   var sumPending = Math.max(0, sumAll - sumPaid);
 
   // Контекстные метрики: Ресурс подрядчиков в регионе
-  var regResource = getRegionalContractorResourceSummary(filtered, reg);
+  var activeReg = reg;
+  if (!activeReg && q) {
+    var qL = q.toLowerCase();
+    var detectedRegs = Array.from(new Set(filtered.map(function(item){ return item.region; }).filter(Boolean)));
+    if (detectedRegs.length === 1) {
+      activeReg = detectedRegs[0];
+    } else {
+      var foundReg = detectedRegs.find(function(r){ return r.toLowerCase().includes(qL) || qL.includes(r.toLowerCase()); });
+      if (foundReg) activeReg = foundReg;
+    }
+  }
+  var regResource = getRegionalContractorResourceSummary(filtered, activeReg);
 
   var userRole = S.user ? String(S.user.role || '').toLowerCase() : '';
   var canSeeCustomer = ['admin', 'director', 'manager', 'to_engineer', 'accountant'].includes(userRole);
@@ -1457,9 +1474,13 @@ function pageTasks() {
     if (appMode === 'customer') {
       colPrice = '<td style="vertical-align:top;white-space:nowrap;color:var(--text-2);font-size:.8rem">' + (fin.unitPrice > 0 ? (fmtMoney(fin.unitPrice) + '<span class="t3" style="font-size:.68rem">/ед</span>') : '<span class="t3">—</span>') + '</td>';
       var roadLine = '';
-      if (fin.transport > 0 || (realKm && realKm > 0)) {
+      var trMoney = fin.transport;
+      if (realKm && trMoney === realKm && realKm <= 1000) {
+        trMoney = realKm * 2 * (Number(t.kmRate || t.km_rate) || 70);
+      }
+      if (trMoney > 0 || (realKm && realKm > 0)) {
         var kmPrefix = realKm ? (realKm + ' км · ') : '';
-        roadLine = '<div style="font-size:.7rem;color:var(--text-2);margin-top:2px;cursor:pointer" onclick="openQuickRouteMapModal(\'' + tid + '\')" title="Транспортные расходы / удаленность (кликните для замера км по навигатору)">🚗 ' + kmPrefix + fmtMoney(fin.transport) + (!realKm && fin.transport > 0 ? ' <span style="font-size:.65rem;color:var(--text-3);opacity:0.85">(замерить км)</span>' : '') + '</div>';
+        roadLine = '<div style="font-size:.7rem;color:var(--text-2);margin-top:2px;cursor:pointer" onclick="openQuickRouteMapModal(\'' + tid + '\')" title="Транспортные расходы / удаленность (кликните для замера км по навигатору)">🚗 ' + kmPrefix + fmtMoney(trMoney) + (!realKm && trMoney > 0 ? ' <span style="font-size:.65rem;color:var(--text-3);opacity:0.85">(замерить км)</span>' : '') + '</div>';
       } else {
         roadLine = '<div style="font-size:.68rem;color:var(--text-3);margin-top:2px;cursor:pointer" onclick="openQuickRouteMapModal(\'' + tid + '\')" title="Указать километраж по навигатору">+ дорога (км)</div>';
       }
@@ -1590,8 +1611,21 @@ function renderContractorPicker() {
       '<div class="mb"><input id="pc_acc_corr" type="text" placeholder="Корр. счет" style="width:100%"></div>' +
       '<div class="mb"><input id="pc_acc_pay" type="text" placeholder="Расчетный счет" style="width:100%"></div>' +
       '<div class="g2 mb">' +
-        '<input id="pc_phone" type="text" placeholder="Телефон">' +
+        '<input id="pc_phone" type="text" placeholder="Телефон организации">' +
         '<input id="pc_email" type="text" placeholder="Email">' +
+      '</div>' +
+      '<div style="background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-bottom:12px">' +
+        '<div style="font-weight:700;font-size:.78rem;color:var(--text);margin-bottom:6px;display:flex;align-items:center;gap:6px">' +
+          '<span>👷 Монтажник / Бригада (для списков и писем на допуск):</span>' +
+        '</div>' +
+        '<div class="g2 mb">' +
+          '<input id="pc_inst_name" type="text" placeholder="ФИО монтажника / бригадира">' +
+          '<input id="pc_inst_phone" type="text" placeholder="Телефон монтажника">' +
+        '</div>' +
+        '<div class="g2 mb">' +
+          '<input id="pc_inst_pass" type="text" placeholder="Паспорт (серия, номер, кем и когда выдан)">' +
+          '<input id="pc_inst_car" type="text" placeholder="Автомобиль, госномер">' +
+        '</div>' +
       '</div>' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem">' +
         '<button class="btn btn-sm btn-ghost" onclick="S.cpMode=\'search\';renderApp()">← Назад к поиску</button>' +
@@ -1827,6 +1861,25 @@ function addContractorFromPicker(taskId) {
     .then(function(res){
       if (res.error) { alert(res.error); return; }
       S.contractors.push(res);
+      var instName = document.getElementById('pc_inst_name') ? document.getElementById('pc_inst_name').value.trim() : '';
+      if (instName) {
+        var spPayload = {
+          full_name: instName,
+          phone: document.getElementById('pc_inst_phone') ? document.getElementById('pc_inst_phone').value.trim() : '',
+          passport_raw: document.getElementById('pc_inst_pass') ? document.getElementById('pc_inst_pass').value.trim() : '',
+          car_info: document.getElementById('pc_inst_car') ? document.getElementById('pc_inst_car').value.trim() : '',
+          contractor_name: data.name_short,
+          contractor_id: res.id,
+          role: 'installer'
+        };
+        api('/specialists', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spPayload) })
+          .then(function(newSp) {
+            if (newSp && newSp.id) {
+              if (!Array.isArray(S.specialists)) S.specialists = [];
+              S.specialists.push(newSp);
+            }
+          }).catch(function(){});
+      }
       assignContractorToTask(taskId, data.name_short);
     });
 }

@@ -299,44 +299,92 @@ window.cardOpenCloudFolderModal = function(taskId, fieldKey) {
   var fieldTitle = fieldLabels[fieldKey] || 'Папка документов';
   var curVal = (t[fieldKey] || '').trim();
 
-  var cleanCustomer = (t.customer || 'Сбербанк').trim();
   var taskNum = t.id || '';
   var shortCategory = fieldKey === 'priemka' ? 'Приемка' : (fieldKey === 'obsledovanie' ? 'Обследование' : 'Допуск');
-  var folderName = 'Заявка_№' + taskNum + '_' + shortCategory;
+  var year = (t.dateZayavki || t.created_at || new Date().toISOString()).slice(0, 4);
+  var rawAddr = (t.address || '').split(',')[0].replace(/[^\wа-яА-Я0-9\s-]/gi, '').trim();
+  var safeAddr = rawAddr || 'Объект';
+  var defaultCatalog = 'Заявки/' + year + '/' + taskNum + '_' + safeAddr;
+  var defaultPath = defaultCatalog + '/' + shortCategory;
+
+  var hasLink = curVal && (curVal.startsWith('http://') || curVal.startsWith('https://') || curVal.startsWith('Заявки/'));
 
   var modal = document.createElement('div');
   modal.id = '_cloud_folder_modal';
   modal.className = 'modal-overlay';
-  modal.innerHTML = '<div class="modal-box" style="max-width:540px;width:95%">' +
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">' +
-      '<div style="display:flex;align-items:center;gap:8px">' +
-        '<span style="font-size:1.3rem">☁️</span>' +
-        '<h3 style="margin:0;font-size:1.05rem">Папка в Seafile: ' + escHtml(fieldTitle) + '</h3>' +
+  modal.innerHTML = '<div class="modal-box" style="max-width:620px;width:95%;border-radius:12px;padding:20px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
+      '<div style="display:flex;align-items:center;gap:10px">' +
+        '<span style="font-size:1.4rem">☁️</span>' +
+        '<div>' +
+          '<h3 style="margin:0;font-size:1.1rem;color:var(--text)">Папка в Seafile: ' + escHtml(fieldTitle) + '</h3>' +
+          '<div style="font-size:.75rem;color:var(--text-3);margin-top:2px">Единое корпоративное хранилище cloud.stockeasy.ru</div>' +
+        '</div>' +
       '</div>' +
-      '<button class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_cloud_folder_modal\').remove()">✕</button>' +
+      '<button class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_cloud_folder_modal\').remove()" style="font-size:1.1rem;padding:2px 8px">✕</button>' +
     '</div>' +
 
-    '<div style="background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:.8rem">' +
-      '<div style="font-weight:600;color:var(--text);margin-bottom:3px">🏛️ ' + escHtml(t.address || 'Адрес не указан') + '</div>' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px">' +
-        '<span style="color:var(--text-2)">Рекомендуемое имя папки: <code style="font-weight:700;background:#e2e8f0;padding:2px 5px;border-radius:4px">' + escHtml(folderName) + '</code></span>' +
-        '<button type="button" class="btn btn-xs btn-ghost" onclick="navigator.clipboard.writeText(\'' + escHtml(folderName) + '\');showToast(\'Имя папки скопировано\', \'info\')" style="padding:2px 7px;font-size:.72rem;border:1px solid var(--border);background:#fff">📋 Скопировать</button>' +
+    // Информационная плашка объекта и каталога по умолчанию
+    '<div style="background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:8px;padding:12px 14px;margin-bottom:14px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px">' +
+        '<div>' +
+          '<div style="font-size:.72rem;font-weight:700;color:var(--text-3);text-transform:uppercase">Объект заявки №' + escHtml(taskNum) + '</div>' +
+          '<div style="font-weight:700;color:var(--text);font-size:.88rem;margin-top:2px">🏛️ ' + escHtml(t.address || 'Адрес не указан') + '</div>' +
+        '</div>' +
+        '<span class="badge b-blue" style="font-size:.72rem;padding:2px 8px">Каталог Seafile</span>' +
+      '</div>' +
+      '<div style="background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+        '<div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+          '<span style="font-size:.72rem;color:var(--text-3);display:block">Каталог по умолчанию в хранилище:</span>' +
+          '<code style="font-weight:700;color:var(--blue);font-size:.82rem">' + escHtml(defaultPath) + '</code>' +
+        '</div>' +
+        '<button type="button" class="btn btn-xs btn-ghost" onclick="navigator.clipboard.writeText(\'' + escHtml(defaultPath) + '\');showToast(\'Путь скопирован в буфер\', \'info\')" style="border:1px solid var(--border);white-space:nowrap;padding:4px 8px;font-size:.74rem;background:#fff">' +
+          '📋 Скопировать путь' +
+        '</button>' +
       '</div>' +
     '</div>' +
 
+    // Пошаговая инструкция
+    '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:.78rem;color:#1e40af">' +
+      '<div style="font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:6px">' +
+        '<span>💡 Порядок работы с облаком Seafile:</span>' +
+      '</div>' +
+      '<ol style="margin:0;padding-left:18px;line-height:1.45">' +
+        '<li>Нажмите кнопку <b>«🌐 Открыть cloud.stockeasy.ru»</b> ниже — откроется окно облака с вашей авторизацией.</li>' +
+        '<li>Перейдите в библиотеку <b>Заявки</b> по пути выше (или создайте папку для объекта).</li>' +
+        '<li>Нажмите на папке <b>«Поделиться» &rarr; «Ссылка общего доступа»</b> и вставьте полученную ссылку ниже (или нажмите «Использовать путь по умолчанию»).</li>' +
+      '</ol>' +
+    '</div>' +
+
+    // Поле ввода ссылки / пути
     '<div style="margin-bottom:14px">' +
-      '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">Ссылка общего доступа на папку (cloud.stockeasy.ru):</label>' +
-      '<input type="url" id="_cloud_folder_input_url" value="' + escHtml(curVal) + '" placeholder="https://cloud.stockeasy.ru/d/... или путь /" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;box-sizing:border-box">' +
-      '<div style="font-size:.72rem;color:var(--text-3);margin-top:4px">Создайте папку в облаке и вставьте полученную ссылку общего доступа (или внутренний путь).</div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+        '<label style="font-size:.78rem;font-weight:700;color:var(--text)">Ссылка общего доступа или каталог:</label>' +
+        '<button type="button" class="btn-link" onclick="document.getElementById(\'_cloud_folder_input_url\').value=\'' + escHtml(defaultPath) + '\'" style="font-size:.72rem;color:var(--blue);text-decoration:underline">' +
+          '⚡ Использовать путь по умолчанию' +
+        '</button>' +
+      '</div>' +
+      '<input type="text" id="_cloud_folder_input_url" value="' + escHtml(curVal) + '" placeholder="https://cloud.stockeasy.ru/d/... или ' + escHtml(defaultPath) + '" style="width:100%;padding:8px 12px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;box-sizing:border-box">' +
+      '<div style="font-size:.72rem;color:var(--text-3);margin-top:4px">' +
+        'После сохранения кнопка перехода в эту папку будет доступна прямо в строке «' + escHtml(fieldTitle) + '» на вкладке Информация.' +
+      '</div>' +
     '</div>' +
 
-    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding-top:10px;border-top:1px solid var(--border)">' +
-      '<a href="https://cloud.stockeasy.ru" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="color:#0284c7;border:1px solid var(--border);display:inline-flex;align-items:center;gap:6px">' +
-        '🌐 Открыть cloud.stockeasy.ru ↗' +
-      '</a>' +
+    // Нижние кнопки
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding-top:12px;border-top:1px solid var(--border)">' +
+      '<div style="display:flex;gap:8px">' +
+        '<button type="button" class="btn btn-sm" onclick="window.open(\'https://cloud.stockeasy.ru\', \'seafile_win\', \'width=1150,height=750,menubar=no,toolbar=no\')" style="background:#0284c7;color:#fff;border:none;display:inline-flex;align-items:center;gap:6px;font-weight:600">' +
+          '🌐 Открыть cloud.stockeasy.ru ↗' +
+        '</button>' +
+        (hasLink && curVal.startsWith('http') ? (
+          '<a href="' + escHtml(curVal) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="color:var(--green);border:1px solid #86efac;display:inline-flex;align-items:center;gap:4px">' +
+            '📂 Перейти в папку ↗' +
+          '</a>'
+        ) : '') +
+      '</div>' +
       '<div style="display:flex;gap:6px">' +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_cloud_folder_modal\').remove()">Отмена</button>' +
-        '<button type="button" class="btn btn-sm btn-primary" onclick="window.cardSaveCloudFolderLink(\'' + escHtml(taskId) + '\', \'' + fieldKey + '\')">💾 Сохранить ссылку</button>' +
+        '<button type="button" class="btn btn-sm btn-primary" onclick="window.cardSaveCloudFolderLink(\'' + escHtml(taskId) + '\', \'' + fieldKey + '\')">💾 Сохранить в заявку</button>' +
       '</div>' +
     '</div>' +
   '</div>';
@@ -525,7 +573,7 @@ function exportTask(id) {
 
 
 function setCardTab(tabName) {
-  if (S.cardDraft && Object.keys(S.cardDraft).length > 0) {
+  if (S.cardDraft && (Object.keys(S.cardDraft).filter(function(k){ return k !== '_smrTaskId'; }).length > 0 || S.cardDraft._smrDirty)) {
     if (typeof window.saveCard === 'function') window.saveCard(true);
   }
   S.cardTab = tabName;
@@ -553,7 +601,6 @@ function setCardTab(tabName) {
     refreshTaskItemsList(S.cardId);
     if (tabName === 'items') {
       loadCardSubcontracts(S.cardId);
-      if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(S.cardId);
       if (window.renderSmrChecklist) window.renderSmrChecklist(S.cardId);
     }
   }
@@ -1126,9 +1173,11 @@ function pageCard() {
     }
     else if (key === 'priemka' || key === 'obsledovanie' || key === 'dostup') {
       var isUrl = typeof val === 'string' && (val.startsWith('http://') || val.startsWith('https://'));
+      var isPath = typeof val === 'string' && val.trim().length > 0 && !isUrl;
+      var openLink = isUrl ? val : (isPath ? 'https://cloud.stockeasy.ru' : '');
       inp = '<div style="display:flex;gap:4px;align-items:center;width:100%">' +
         '<input type="text" name="' + key + '" data-key="' + key + '" id="card_field_' + key + '" value="' + String(val).replace(/"/g,'&quot;') + '" placeholder="Папка или ссылка в облаке" style="flex:1;min-width:0;font-size:.82rem">' +
-        (isUrl ? ('<a href="' + escHtml(val) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="padding:2px 7px;font-size:.74rem;color:#0284c7;white-space:nowrap;border:1px solid var(--border)" title="Открыть папку в Seafile">☁️ Открыть</a>') : '') +
+        (openLink ? ('<a href="' + escHtml(openLink) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="padding:2px 7px;font-size:.74rem;color:#0284c7;white-space:nowrap;border:1px solid var(--border)" title="Открыть папку в Seafile">☁️ Открыть</a>') : '') +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="window.cardOpenCloudFolderModal(\'' + escHtml(t.id) + '\', \'' + key + '\')" style="padding:2px 7px;font-size:.74rem;color:var(--primary);white-space:nowrap;border:1px solid var(--border)" title="Создать или привязать папку в cloud.stockeasy.ru">☁️ Seafile</button>' +
       '</div>';
     }
@@ -2500,19 +2549,22 @@ function pageCard() {
     renderTaskChatComponent(eid, true) +
   '</div>';
 
-  var hasDraft = Object.keys(S.cardDraft).length > 0;
+  var hasDraft = S.cardDraft && (
+    Object.keys(S.cardDraft).filter(function(k){ return k !== '_smrTaskId'; }).length > 0 ||
+    !!S.cardDraft._smrDirty
+  );
   var unsavedBar = hasDraft
-    ? '<div class="unsaved-bar">' +
+    ? '<div class="unsaved-bar" id="card_unsaved_bar">' +
         '<span>У вас есть несохранённые изменения</span>' +
-        '<button class="btn btn-sm" id="cardSaveBtn">Сохранить</button>' +
-        '<button class="btn btn-sm btn-ghost" id="cardResetBtn">Сбросить</button>' +
+        '<button class="btn btn-sm" id="cardSaveBtn" onclick="window.saveCard(false)">Сохранить</button>' +
+        '<button class="btn btn-sm btn-ghost" id="cardResetBtn" onclick="window._resetCardDraft()">Сбросить</button>' +
       '</div>'
     : '';
 
   var mobileActionBar = '<div class="mobile-action-bar">' +
     (hasDraft
-      ? '<button class="btn btn-sm btn-primary mobile-action-main-btn" onclick="saveCard()">💾 Сохранить</button>' +
-        '<button class="btn btn-sm btn-ghost" onclick="S.cardDraft={};renderApp()">✕</button>'
+      ? '<button class="btn btn-sm btn-primary mobile-action-main-btn" onclick="window.saveCard(false)">💾 Сохранить</button>' +
+        '<button class="btn btn-sm btn-ghost" onclick="window._resetCardDraft()">✕</button>'
       : ''
     ) +
   '</div>';
@@ -3588,11 +3640,49 @@ var fieldLabels = {
   assignment_status: 'Статус назначения'
 };
 
+window._ensureCardUnsavedBar = function(taskId) {
+  var bar = document.getElementById('card_unsaved_bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.className = 'unsaved-bar';
+    bar.id = 'card_unsaved_bar';
+    bar.innerHTML = '<span>У вас есть несохранённые изменения</span>' +
+      '<button class="btn btn-sm" id="cardSaveBtn" onclick="window.saveCard(false)">Сохранить</button>' +
+      '<button class="btn btn-sm btn-ghost" id="cardResetBtn" onclick="window._resetCardDraft()">Сбросить</button>';
+    document.body.appendChild(bar);
+  }
+  bar.style.display = 'flex';
+};
+
+window._resetCardDraft = function() {
+  if (S.cardId) {
+    if (window._taskSmrSpec) delete window._taskSmrSpec[S.cardId];
+    if (window._taskThirdPartySpec) delete window._taskThirdPartySpec[S.cardId];
+    if (window._taskSmrTaxConfig) delete window._taskSmrTaxConfig[S.cardId];
+    if (window._taskSmrRoundConfig) delete window._taskSmrRoundConfig[S.cardId];
+    if (window._taskSmrSpecUnrounded) delete window._taskSmrSpecUnrounded[S.cardId];
+  }
+  S.cardDraft = {};
+  S.cardConfirmOpen = false;
+  var bar = document.getElementById('card_unsaved_bar');
+  if (bar) bar.style.display = 'none';
+  if (S.cardId && typeof loadCardSubcontracts === 'function') {
+    loadCardSubcontracts(S.cardId);
+  }
+  renderApp();
+};
+
 function saveCard(silent) {
   var t = S.tasks.find(function(x){ return String(x.id) === String(S.cardId); });
   if (!t) return Promise.resolve();
+
+  var isSmrDirty = !!(S.cardDraft && S.cardDraft._smrDirty);
   var data = Object.assign({}, S.cardDraft);
-  if (!Object.keys(data).length) { 
+  delete data._smrDirty;
+  delete data._smrTaskId;
+
+  var hasFieldDraft = Object.keys(data).length > 0;
+  if (!hasFieldDraft && !isSmrDirty) { 
     S.cardConfirmOpen = false; 
     if (!silent) renderApp(); 
     return Promise.resolve(); 
@@ -3601,15 +3691,39 @@ function saveCard(silent) {
   var now = new Date().toLocaleString('ru');
   var author = S.user ? (S.user.full_name || S.user.username) : 'Система';
   var hist = (t.history || t._history || []).slice();
-  Object.keys(data).forEach(function(k){
-    var oldV = t[k], newV = data[k];
-    var isBool = typeof newV === 'boolean';
-    var oldStr = isBool ? (!!oldV ? 'Да' : 'Нет') : String(oldV||'');
-    var newStr = isBool ? (newV ? 'Да' : 'Нет') : String(newV);
-    if (oldStr !== newStr) {
-      hist.push({date:now, author:author, field:fieldLabels[k]||k, old:oldStr, new:newStr});
-    }
-  });
+
+  if (hasFieldDraft) {
+    Object.keys(data).forEach(function(k){
+      var oldV = t[k], newV = data[k];
+      var isBool = typeof newV === 'boolean';
+      var oldStr = isBool ? (!!oldV ? 'Да' : 'Нет') : String(oldV||'');
+      var newStr = isBool ? (newV ? 'Да' : 'Нет') : String(newV);
+      if (oldStr !== newStr) {
+        hist.push({date:now, author:author, field:fieldLabels[k]||k, old:oldStr, new:newStr});
+      }
+    });
+  }
+
+  // Фиксация изменений сметы в истории изменений заявки
+  var taskId = S.cardId;
+  if (isSmrDirty && window._taskSmrSpec && window._taskSmrSpec[taskId]) {
+    var spec = window._taskSmrSpec[taskId];
+    var totalBase = spec.reduce(function(acc, l){ return acc + (Number(l.sum) || 0); }, 0);
+    var taxCfg = window._getTaskSmrTaxConfig ? window._getTaskSmrTaxConfig(taskId) : { mode: 'usn', included: true };
+    var taxCalc = window._calculateSmrTaxes ? window._calculateSmrTaxes(totalBase, taxCfg.mode, taxCfg.included, taskId) : { totalWithTax: totalBase, taxTitle: 'Без налога' };
+
+    var oldAgreedStr = t.price_agreed ? fmtMoney(t.price_agreed) : '—';
+    var newAgreedStr = fmtMoney(taxCalc.totalWithTax) + ' (позиций: ' + spec.length + ', режим: ' + taxCalc.taxTitle + (taxCalc.isRounded ? ', округлено до целых рублей' : '') + ')';
+    hist.push({
+      date: now,
+      author: author,
+      field: 'Смета СМР и расчет подряда',
+      old: oldAgreedStr,
+      new: newAgreedStr
+    });
+    data.price_agreed = taxCalc.totalWithTax;
+  }
+
   data.history = hist;
   data._history = hist;
 
@@ -3617,13 +3731,23 @@ function saveCard(silent) {
   S.cardDraft = {};
   S.cardConfirmOpen = false;
 
+  var bar = document.getElementById('card_unsaved_bar');
+  if (bar) bar.style.display = 'none';
+
   var saveInd = document.getElementById('card_autosave_indicator');
   if (saveInd) {
     saveInd.textContent = '⏳ Сохранение...';
     saveInd.style.color = '#b45309';
   }
 
-  return api('/tasks/' + S.cardId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})
+  // Если смета изменялась, параллельно сохраняем спецификацию субподряда
+  var smrPromise = (isSmrDirty && typeof window._saveCardSmrSpec === 'function')
+    ? window._saveCardSmrSpec(taskId, { silent: true })
+    : Promise.resolve();
+
+  return smrPromise.then(function() {
+    return api('/tasks/' + S.cardId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+  })
     .then(function(res){
       if (res && res.task) {
         Object.assign(t, res.task);
@@ -3643,7 +3767,7 @@ function saveCard(silent) {
       }
       if (!silent) {
         renderApp();
-        if (typeof showToast === 'function') showToast('✓ Изменения сохранены', 'success');
+        if (typeof showToast === 'function') showToast('✓ Смета и изменения успешно сохранены', 'success');
       }
       if (S.cardTab === 'history' && window.refreshCardHistory) {
         window.refreshCardHistory(t.id);
@@ -4488,10 +4612,30 @@ window.renderSmrChecklist = renderSmrChecklist;
 
 function loadCardSubcontracts(taskId) {
   var cont = document.getElementById('cardSubcontractsContainer');
-  window._curCardSubcontracts = [];
-  api('/tasks/' + encodeURIComponent(taskId) + '/subcontracts')
+  return api('/tasks/' + encodeURIComponent(taskId) + '/subcontracts')
     .then(function(subs) {
       window._curCardSubcontracts = Array.isArray(subs) ? subs : [];
+      var curSub = (window._curCardSubcontracts || []).find(function(s){ return String(s.task_id) === String(taskId); });
+
+      // Загружаем сохраненную спецификацию только если нет несохраненного черновика
+      if (!S.cardDraft || !S.cardDraft._smrDirty) {
+        if (curSub && curSub.calculation_details && Array.isArray(curSub.calculation_details.lines) && curSub.calculation_details.lines.length) {
+          window._taskSmrSpec = window._taskSmrSpec || {};
+          window._taskSmrSpec[taskId] = JSON.parse(JSON.stringify(curSub.calculation_details.lines));
+          if (Array.isArray(curSub.calculation_details.third_party_lines)) {
+            window._taskThirdPartySpec = window._taskThirdPartySpec || {};
+            window._taskThirdPartySpec[taskId] = JSON.parse(JSON.stringify(curSub.calculation_details.third_party_lines));
+          }
+          if (curSub.calculation_details.tax_details) {
+            window._taskSmrTaxConfig = window._taskSmrTaxConfig || {};
+            window._taskSmrTaxConfig[taskId] = {
+              mode: curSub.calculation_details.tax_details.mode,
+              included: curSub.calculation_details.tax_details.taxIncluded
+            };
+          }
+        }
+      }
+
       if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(taskId);
       if (!cont) return;
 

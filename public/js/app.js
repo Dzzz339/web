@@ -177,19 +177,19 @@ function isPageAllowedForRole(page, role) {
     return !['data', 'logs'].includes(page);
   }
   if (r === 'manager') {
-    return ['dashboard', 'contracts', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'chat', 'aichat', 'help'].includes(page) || page.startsWith('dash-');
+    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'chat', 'aichat', 'help'].includes(page) || page.startsWith('dash-');
   }
   if (r === 'to_engineer') {
-    return ['contracts', 'tasks', 'card', 'kanban', 'contractors', 'chat', 'aichat', 'help'].includes(page);
+    return ['contracts', 'sub_contracts', 'sub_pricelists', 'tasks', 'card', 'kanban', 'contractors', 'chat', 'aichat', 'help'].includes(page);
   }
   if (r === 'logistics') {
-    return ['contracts', 'supply', 'tasks', 'card', 'marches', 'march-detail', 'contractors', 'chat', 'aichat', 'help'].includes(page);
+    return ['contracts', 'sub_contracts', 'sub_pricelists', 'supply', 'tasks', 'card', 'marches', 'march-detail', 'contractors', 'chat', 'aichat', 'help'].includes(page);
   }
   if (r === 'designer') {
-    return ['contracts', 'tasks', 'card', 'kanban', 'chat', 'aichat', 'help'].includes(page);
+    return ['contracts', 'sub_contracts', 'sub_pricelists', 'tasks', 'card', 'kanban', 'chat', 'aichat', 'help'].includes(page);
   }
   if (r === 'accountant') {
-    return ['dashboard', 'contracts', 'tasks', 'card', 'contractors', 'chat', 'help'].includes(page) || page.startsWith('dash-');
+    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'tasks', 'card', 'contractors', 'chat', 'help'].includes(page) || page.startsWith('dash-');
   }
   return true;
 }
@@ -498,6 +498,8 @@ function renderApp() {
   else if (S.page === 'aichat')    setApp(pageAiChat());
   else if (S.page === 'chat')      setApp(pageChat());
   else if (S.page === 'contracts') setApp(pageContracts());
+  else if (S.page === 'sub_contracts') setApp(pageSubContracts());
+  else if (S.page === 'sub_pricelists') setApp(pageSubPricelists());
   else if (S.page === 'contractors') setApp(pageContractors());
   else if (S.page === 'supply')    setApp(pageSupply());
   else if (S.page === 'kanban')    setApp(pageKanban());
@@ -561,6 +563,111 @@ function renderApp() {
       try { elToFocus.setSelectionRange(start, end); } catch(e) {}
     }
   }
+}
+
+
+
+// ─── СТРАНИЦЫ СПРАВОЧНИКОВ СУБПОДРЯДА ───────────────────────────────────────
+function pageSubContracts() {
+  var contractors = (S.contractors || []).filter(function(c) {
+    return c && c.type !== 'customer' && !String(c.inn || '').startsWith('CUST-');
+  });
+  return '<div style="animation:fadeIn 0.15s ease">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:1rem">' +
+      '<div>' +
+        '<h1 class="page-title" style="margin:0">📑 Договоры субподрядчиков</h1>' +
+        '<div style="font-size:.82rem;color:var(--text-3);margin-top:2px">Справочник договоров субподряда на СМР и соглашений по регионам</div>' +
+      '</div>' +
+      '<button type="button" class="btn btn-sm btn-primary" onclick="go(\'contracts\')">Перейти в Контракты</button>' +
+    '</div>' +
+    '<div class="card p-3 mb-3" style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:16px">' +
+      '<div style="display:flex;align-items:flex-start;gap:12px">' +
+        '<span style="font-size:1.4rem">ℹ️</span>' +
+        '<div>' +
+          '<div style="font-weight:700;color:#1e40af;font-size:.9rem">Справочник договоров субподряда готовится к заполнению</div>' +
+          '<div style="font-size:.8rem;color:#1e3a8a;margin-top:4px;line-height:1.4">' +
+            'Раздел выделен в левое меню для раздельного учета контрактов заказчиков и договоров с субподрядчиками. Ожидаются данные и реквизиты договоров от Алексея Чайки. Здесь будут отображаться закрепления наших юрлиц (ООО «КС» / «К10») с подрядчиками, предметы договоров, сроки и привязанные прайсы.' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="card tbl-wrap" style="background:#fff;border-radius:10px;border:1.5px solid var(--border)">' +
+      '<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">' +
+        '<div style="font-weight:700;font-size:.88rem;color:var(--text)">Субподрядные организации (' + contractors.length + ')</div>' +
+        '<button type="button" class="btn btn-xs btn-ghost" onclick="go(\'contractors\')">Управление организациями →</button>' +
+      '</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:.82rem">' +
+        '<thead><tr style="background:var(--bg);border-bottom:1px solid var(--border);color:var(--text-3);font-size:.76rem">' +
+          '<th style="padding:8px 12px;text-align:left">Подрядчик</th>' +
+          '<th style="padding:8px 12px;text-align:left">ИНН</th>' +
+          '<th style="padding:8px 12px;text-align:left">Телефон</th>' +
+          '<th style="padding:8px 12px;text-align:left">Статус договора СМР</th>' +
+          '<th style="padding:8px 12px;text-align:right">Действия</th>' +
+        '</tr></thead>' +
+        '<tbody>' +
+          (contractors.length ? contractors.map(function(c) {
+            return '<tr style="border-bottom:1px solid var(--border)">' +
+              '<td style="padding:8px 12px;font-weight:600;color:var(--text)">' + escHtml(c.name_short || '—') + '</td>' +
+              '<td style="padding:8px 12px;color:var(--text-2);font-family:monospace">' + escHtml(c.inn || '—') + '</td>' +
+              '<td style="padding:8px 12px;color:var(--text-2)">' + escHtml(c.phone || '—') + '</td>' +
+              '<td style="padding:8px 12px"><span class="badge b-blue" style="font-size:.72rem">Ожидает прайс и договор</span></td>' +
+              '<td style="padding:8px 12px;text-align:right">' +
+                '<button type="button" class="btn btn-xs btn-ghost" onclick="go(\'contractors\')">Открыть карточку</button>' +
+              '</td>' +
+            '</tr>';
+          }).join('') : '<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text-3)">Субподрядчики пока не добавлены</td></tr>') +
+        '</tbody>' +
+      '</table>' +
+    '</div>' +
+  '</div>';
+}
+
+function pageSubPricelists() {
+  return '<div style="animation:fadeIn 0.15s ease">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:1rem">' +
+      '<div>' +
+        '<h1 class="page-title" style="margin:0">📊 Прайсы субподрядчиков</h1>' +
+        '<div style="font-size:.82rem;color:var(--text-3);margin-top:2px">Тарифные сетки, расценки на монтаж СКС, алмазное бурение и транспорт по регионам</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="card p-3 mb-3" style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:16px">' +
+      '<div style="display:flex;align-items:flex-start;gap:12px">' +
+        '<span style="font-size:1.4rem">⏳</span>' +
+        '<div>' +
+          '<div style="font-weight:700;color:#92400e;font-size:.9rem">Ожидаются прайсы от Алексея Чайки</div>' +
+          '<div style="font-size:.8rem;color:#b45309;margin-top:4px;line-height:1.4">' +
+            'Раздел зарезервирован для централизованного хранения прайс-листов подрядчиков. При импорте из Excel или добавлении прайс-листа можно будет задавать тарифы на единицу (порт, метр, штука), условия по регионам и нормативы дорожных расходов.' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:14px">' +
+      '<div class="card p-3" style="background:#fff;border:1.5px solid var(--border);border-radius:10px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+          '<span style="font-weight:700;font-size:.92rem;color:var(--text)">Прайс-лист КС (Разовые/СФР)</span>' +
+          '<span class="badge b-green" style="font-size:.7rem">Активен</span>' +
+        '</div>' +
+        '<div style="font-size:.78rem;color:var(--text-3);margin-bottom:10px">Базовый прайс-лист для разовых договоров и Социального фонда</div>' +
+        '<div style="font-size:.78rem;color:var(--text-2);display:flex;flex-direction:column;gap:4px">' +
+          '<div>• Монтаж СКС: <b>3 000 ₽ / порт</b></div>' +
+          '<div>• Алмазное бурение: <b>по согласованию</b></div>' +
+          '<div>• Транспортная ставка: <b>30–35 ₽ / км</b></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="card p-3" style="background:#fff;border:1.5px solid var(--border);border-radius:10px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+          '<span style="font-weight:700;font-size:.92rem;color:var(--text)">Типовой прайс (ПАО Сбербанк)</span>' +
+          '<span class="badge b-blue" style="font-size:.7rem">Стандарт</span>' +
+        '</div>' +
+        '<div style="font-size:.78rem;color:var(--text-3);margin-bottom:10px">Применяется при наличии договора со Сбербанком (до 10 портов)</div>' +
+        '<div style="font-size:.78rem;color:var(--text-2);display:flex;flex-direction:column;gap:4px">' +
+          '<div>• 1 порт: <b>5 000 ₽ / порт</b></div>' +
+          '<div>• 2 порта: <b>4 250 ₽ / порт</b></div>' +
+          '<div>• 3–10 портов: <b>3 750 ₽ / порт</b></div>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────

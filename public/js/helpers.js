@@ -442,17 +442,37 @@ function resolveRemarkPrompt(taskId, remarkId) {
   });
 }
 function getTaskFinance(t) {
+  var amount = Number(t.amount) || 0;
   var unitPrice = Number(t.pricePerUnit) || 0;
   var fact = Number(t.fact) || 0;
   var inOrder = Number(t.inOrder) || 0;
-  var work = Math.round(fact > 0 ? (fact * unitPrice) : (inOrder * unitPrice));
-  var transport = Number(t.distanceKm) || 0; 
+  var ports = fact > 0 ? fact : inOrder;
+  
+  var realKm = (t.realDistanceKm != null && t.realDistanceKm > 0) ? Number(t.realDistanceKm) : ((t.real_distance_km != null && t.real_distance_km > 0) ? Number(t.real_distance_km) : null);
+  var rawTransport = Number(t.distanceKm || t.distance_km) || 0;
+  var rate = Number(t.kmRate || t.km_rate) || 70;
+  
+  // Определяем реальную сумму компенсации дороги в рублях:
+  var transport = rawTransport;
+  // Если значение rawTransport ошибочно совпадает с расстоянием (например 180 км и 180 руб), рассчитываем реальную сумму компенсации
+  if (realKm && (transport === realKm || transport <= 1000) && realKm <= 1000) {
+    transport = realKm * 2 * rate;
+  }
+  
   var extras = Number(t.extras) || 0;
   var tmc = Number(t.tmc) || 0;
+  var work = Math.round(ports > 0 ? (ports * unitPrice) : 0);
   
-  var total = (work + transport + extras + tmc);
-  if (total === 0 && Number(t.amount) > 0) {
-    total = Number(t.amount);
+  // Сумма договора от Заказчика (amount) является мастер-суммой:
+  var total = amount > 0 ? amount : (work + transport + extras + tmc);
+  
+  // Если ставка за единицу не была задана напрямую, рассчитываем её от суммы договора:
+  if (unitPrice === 0 && amount > 0 && ports > 0) {
+    var netWork = Math.max(0, amount - transport - extras - tmc);
+    unitPrice = Math.round(netWork / ports);
+    work = netWork;
+  } else if (work === 0 && amount > 0) {
+    work = Math.max(0, amount - transport - extras - tmc);
   }
   
   return {
@@ -478,7 +498,7 @@ function getTaskContractorFinance(t) {
   // 1. Индивидуальные договорные условия по конкретной заявке (доп. заказ к договору)
   var raw = t.rawData || {};
   var customRate = Number(raw.subRate || raw.sub_rate || t.contractor_rate) || 0;
-  var customTotal = Number(raw.subTotal || raw.sub_total || t.contractor_total) || 0;
+  var customTotal = Number(raw.subTotal || raw.sub_total || t.contractor_total || t.price_agreed) || 0;
   var customDist = Number(raw.subDist || raw.sub_dist || t.contractor_transport) || 0;
   var customExtras = Number(raw.subExtras || raw.sub_extras) || 0;
 
@@ -575,7 +595,7 @@ function getTaskContractorFinance(t) {
   var custName = String(t.customer || '').toLowerCase();
   var isSber = custName.includes('сбер') || custName.includes('sber');
 
-  if (isSber && ports > 0 && ports <= 10) {
+  if (t.contractor && isSber && ports > 0 && ports <= 10) {
     unitPrice = ports >= 3 ? 3750 : (ports === 2 ? 4250 : 5000);
     work = ports * unitPrice;
     var custFin = getTaskFinance(t);

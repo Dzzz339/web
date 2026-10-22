@@ -299,8 +299,22 @@
     window.renderCardSmrCalculator(taskId);
   };
 
+  window._taskSmrRoundConfig = window._taskSmrRoundConfig || {};
+  window._taskSmrSpecUnrounded = window._taskSmrSpecUnrounded || {};
+
+  window._markSmrDirty = function(taskId) {
+    if (typeof S !== 'undefined') {
+      S.cardDraft = S.cardDraft || {};
+      S.cardDraft._smrDirty = true;
+      S.cardDraft._smrTaskId = taskId;
+    }
+    if (typeof window._ensureCardUnsavedBar === 'function') {
+      window._ensureCardUnsavedBar(taskId);
+    }
+  };
+
   // Калькулятор расчета налогов и сметы (НДС 20%, 5%, 7%, УСН, Самозанятые 6%, ГПХ 13%)
-  window._calculateSmrTaxes = function(baseSum, taxConfigOrMode, isTaxIncluded) {
+  window._calculateSmrTaxes = function(baseSum, taxConfigOrMode, isTaxIncluded, taskId) {
     baseSum = Math.round((Number(baseSum) || 0) * 100) / 100;
     var mode = 'usn';
     var included = true;
@@ -334,6 +348,7 @@
       sumWithoutTax: baseSum,
       taxAmount: 0,
       totalWithTax: baseSum,
+      unroundedTotal: baseSum,
       taxTitle: 'Без налога',
       taxRateNote: 'Не облагается (УСН / патент)',
       baseNote: 'Базовая сумма без налога'
@@ -452,6 +467,18 @@
         res.totalWithTax = baseSum;
         break;
     }
+
+    res.unroundedTotal = Math.round(res.totalWithTax * 100) / 100;
+    var isRounded = taskId && window._taskSmrRoundConfig && !!window._taskSmrRoundConfig[taskId];
+    if (isRounded) {
+      res.isRounded = true;
+      res.totalWithTax = Math.round(res.totalWithTax);
+      res.roundDiff = Math.round((res.totalWithTax - res.unroundedTotal) * 100) / 100;
+    } else {
+      res.isRounded = false;
+      res.roundDiff = 0;
+    }
+
     return res;
   };
 
@@ -613,6 +640,9 @@
     if (mode !== undefined && mode !== null) cur.mode = mode;
     if (included !== undefined && included !== null) cur.included = !!included;
     window._taskSmrTax[taskId] = cur;
+    if (typeof window._markSmrDirty === 'function') {
+      window._markSmrDirty(taskId);
+    }
     window._refreshSmrCalculations(taskId);
   };
 
@@ -637,6 +667,56 @@
 
   window._onSmrTaxIncludedChange = function(taskId, isIncluded) {
     window._setTaskSmrTaxConfig(taskId, null, isIncluded);
+  };
+
+  window._setSmrRounding = function(taskId, isRounded) {
+    window._taskSmrRoundConfig = window._taskSmrRoundConfig || {};
+    window._taskSmrSpecUnrounded = window._taskSmrSpecUnrounded || {};
+
+    var spec = window._taskSmrSpec && window._taskSmrSpec[taskId];
+    if (!spec || !spec.length) return;
+
+    var taxCfg = window._getTaskSmrTaxConfig(taskId);
+
+    if (isRounded) {
+      if (!window._taskSmrSpecUnrounded[taskId]) {
+        window._taskSmrSpecUnrounded[taskId] = JSON.parse(JSON.stringify(spec));
+      }
+      window._taskSmrRoundConfig[taskId] = true;
+
+      var currentBase = spec.reduce(function(a, l){ return a + (Number(l.sum) || 0); }, 0);
+      var taxCalc = window._calculateSmrTaxes(currentBase, taxCfg.mode, taxCfg.included, taskId);
+      var targetTotal = Math.round(taxCalc.unroundedTotal || taxCalc.totalWithTax);
+
+      var targetBase = targetTotal;
+      var mode = taxCfg.mode;
+      var included = taxCfg.included;
+      if (mode === 'usn_7' && !included) targetBase = Math.round((targetTotal / 1.07) * 100) / 100;
+      else if (mode === 'usn_5' && !included) targetBase = Math.round((targetTotal / 1.05) * 100) / 100;
+      else if (mode === 'osno_20' && !included) targetBase = Math.round((targetTotal / 1.20) * 100) / 100;
+      else if (mode === 'npd_6' && !included) targetBase = Math.round((targetTotal * 0.94) * 100) / 100;
+      else if (mode === 'gph_13' && !included) targetBase = Math.round((targetTotal * 0.87) * 100) / 100;
+
+      var delta = Math.round((targetBase - currentBase) * 100) / 100;
+      if (Math.abs(delta) >= 0.005) {
+        var last = spec[spec.length - 1];
+        last.sum = Math.round((Number(last.sum) + delta) * 100) / 100;
+        if (last.qty > 0) {
+          last.price = Math.round((last.sum / last.qty) * 100) / 100;
+        }
+      }
+    } else {
+      window._taskSmrRoundConfig[taskId] = false;
+      if (window._taskSmrSpecUnrounded[taskId]) {
+        window._taskSmrSpec[taskId] = JSON.parse(JSON.stringify(window._taskSmrSpecUnrounded[taskId]));
+        delete window._taskSmrSpecUnrounded[taskId];
+      }
+    }
+
+    if (typeof window._markSmrDirty === 'function') {
+      window._markSmrDirty(taskId);
+    }
+    window._renderCardSmrTable(taskId);
   };
 
   // Вычисление математических выражений в ячейках сметы (по типу 1С: ввод формул прямо в поле)
@@ -852,6 +932,7 @@
 
     var item = presets[presetKey] || presets.custom;
     window._taskThirdPartySpec[taskId].push(JSON.parse(JSON.stringify(item)));
+    if (typeof window._markSmrDirty === 'function') window._markSmrDirty(taskId);
     window._renderCardSmrTable(taskId);
   };
 
@@ -867,12 +948,14 @@
         window._refreshSmrCalculations(taskId);
       }
     }
+    if (typeof window._markSmrDirty === 'function') window._markSmrDirty(taskId);
   };
 
   window._removeThirdPartyLine = function(taskId, idx) {
     var list = window._taskThirdPartySpec && window._taskThirdPartySpec[taskId];
     if (!list) return;
     list.splice(idx, 1);
+    if (typeof window._markSmrDirty === 'function') window._markSmrDirty(taskId);
     window._renderCardSmrTable(taskId);
   };
 
@@ -904,7 +987,24 @@
     }) : null;
 
     // Инициализация спецификации СМР (одна работа = одна строка)
-    if (!window._taskSmrSpec[taskId]) {
+    if (curSub && curSub.calculation_details && Array.isArray(curSub.calculation_details.lines) && curSub.calculation_details.lines.length) {
+      if (!S.cardDraft || !S.cardDraft._smrDirty) {
+        window._taskSmrSpec[taskId] = JSON.parse(JSON.stringify(curSub.calculation_details.lines));
+        if (Array.isArray(curSub.calculation_details.third_party_lines)) {
+          window._taskThirdPartySpec = window._taskThirdPartySpec || {};
+          window._taskThirdPartySpec[taskId] = JSON.parse(JSON.stringify(curSub.calculation_details.third_party_lines));
+        }
+        if (curSub.calculation_details.tax_details) {
+          window._taskSmrTaxConfig = window._taskSmrTaxConfig || {};
+          window._taskSmrTaxConfig[taskId] = {
+            mode: curSub.calculation_details.tax_details.mode,
+            included: curSub.calculation_details.tax_details.taxIncluded
+          };
+        }
+      }
+    }
+
+    if (!window._taskSmrSpec[taskId] || !window._taskSmrSpec[taskId].length) {
       if (curSub && curSub.calculation_details && Array.isArray(curSub.calculation_details.lines) && curSub.calculation_details.lines.length) {
         window._taskSmrSpec[taskId] = JSON.parse(JSON.stringify(curSub.calculation_details.lines));
       } else {
@@ -1043,10 +1143,25 @@
               (contrObj && contrObj.phone ? ('<span>Тел: <a href="tel:' + escHtml(contrObj.phone.replace(/[^\d+]/g,'')) + '" style="color:var(--green);font-weight:600">' + escHtml(contrObj.phone) + '</a></span>') : '') +
               '<span>Договор: <b style="color:var(--blue)">' + contractTitle + '</b></span>' +
               '<span>Прайс: <b>' + escHtml(priceTitle) + '</b></span>' +
+              (function() {
+                var cSpecs = (S.specialists || []).filter(function(sp) {
+                  if (!sp) return false;
+                  var spOrg = (sp.contractor_name || sp.organization || sp.company || '').trim().toLowerCase();
+                  var cNameL = (contrName || '').trim().toLowerCase();
+                  return cNameL && spOrg && (spOrg === cNameL || spOrg.includes(cNameL) || cNameL.includes(spOrg));
+                });
+                if (cSpecs.length > 0) {
+                  return '<span class="badge b-green" style="font-size:.72rem" title="Монтажники привязаны к исполнителю">👷 Бригада: ' + cSpecs.length + ' чел.</span>';
+                }
+                return '<span class="badge b-orange" style="font-size:.72rem;background:#fffbeb;color:#b45309;border:1px solid #fde68a" title="Не указан список сотрудников для писем на допуск">⚠️ Бригада не указана</span> <button type="button" class="btn-link" onclick="openAccessLetterModal(\'' + escHtml(taskId) + '\')" style="font-size:.72rem;color:var(--blue);text-decoration:underline">+ Добавить монтажников</button>';
+              })() +
             '</div>' +
           '</div>' +
           '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">' +
-            '<button type="button" class="btn btn-sm btn-ghost" onclick="window.openContractorContractPickerModal(\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')" style="font-size:.75rem;color:var(--blue);font-weight:700" title="Сменить договор с юрлицом (К10 / КС) и применить прайс-лист">📑 Сменить договор/прайс</button>' +
+            '<div style="display:flex;flex-direction:column;gap:3px">' +
+              '<button type="button" class="btn btn-sm btn-ghost" onclick="window.openContractorContractPickerModal(\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')" style="font-size:.75rem;color:var(--blue);font-weight:700" title="Сменить договор с юрлицом (К10 / КС) и применить прайс-лист">📑 Сменить договор/прайс</button>' +
+              '<button type="button" class="btn btn-sm btn-ghost" onclick="window.openQuickSubcontractCreateModal(\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')" style="font-size:.72rem;color:var(--green);font-weight:700;padding:2px 8px;border:1px dashed var(--green)" title="Создать договор субподряда с данным исполнителем">+ Создать договор</button>' +
+            '</div>' +
             '<button type="button" class="btn btn-sm btn-ghost" onclick="openContractorPicker(\'' + escHtml(taskId) + '\')" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : '') + ' style="font-size:.75rem">🔍 Сменить исполнителя</button>' +
             '<button type="button" class="btn btn-sm btn-primary" onclick="openSubcontractWizardModal(\'' + escHtml(taskId) + '\')" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : '') + ' style="font-size:.75rem">🪄 Мастер поручения</button>' +
             '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red);border:1px solid #fca5a5;font-size:.75rem" onclick="if(window.removeContractorFromTask)window.removeContractorFromTask(\'' + escHtml(taskId) + '\')">❌ Убрать подрядчика</button>' +
@@ -1075,6 +1190,7 @@
           '<div class="sec-title" style="margin:0;font-size:1.05rem;display:flex;align-items:center;gap:6px">' +
             '<span>🛠️ Спецификация и расчет стоимости СМР</span>' +
             '<span class="badge b-blue" style="font-size:.72rem">Прайс-лист</span>' +
+            '<span style="font-size:.8rem;font-weight:600;color:var(--blue);margin-left:4px">· Заявка (соглашение) к договору</span>' +
           '</div>' +
           '<div style="font-size:.78rem;color:var(--text-3);margin-top:2px">Единый расчет: одна работа = одна строка, компенсация проезда и сопоставление с договором Заказчика</div>' +
         '</div>' +
@@ -1216,13 +1332,13 @@
     }).join('');
 
     if (!thirdParty.length) {
-      tpRowsHtml = '<tr><td colspan="6" style="padding:10px;text-align:center;color:#7e22ce;font-size:.78rem">Дополнительных расходов по объекту нет. Нажмите кнопки ниже для добавления проезда, проживания, бурения или спецтехники.</td></tr>';
+      tpRowsHtml = '<tr><td colspan="6" style="padding:10px;text-align:center;color:#7e22ce;font-size:.78rem">Дополнительных расходов по объекту нет. Нажмите кнопки выше для добавления проезда, проживания, бурения или спецтехники.</td></tr>';
     }
 
     // Расчет финансового баланса:
     // Заказчик (платят нам) → Расход: Подрядчик (СМР) → Расход: Доп. расходы → Нам (Операционный остаток)
     var custAmount = Number(t.amount || 0);
-    var taxCalc = window._calculateSmrTaxes(totalSubAmount, curTaxMode, isTaxIncluded);
+    var taxCalc = window._calculateSmrTaxes(totalSubAmount, curTaxMode, isTaxIncluded, taskId);
     var totalOutflow = taxCalc.totalWithTax + totalThirdPartyAmount;
     var netMargin = custAmount > 0 ? (custAmount - totalOutflow) : 0;
     var netMarginPct = custAmount > 0 ? Math.round((netMargin / custAmount) * 100) : 0;
@@ -1312,6 +1428,32 @@
         '</tr></tfoot>' +
       '</table>' +
     '</div>' +
+    (function(){
+      var defaultSuggs = [
+        'Монтаж СКС и линий связи (по прайс-листу подрядчика)',
+        'Монтаж кабельных трасс, лотков и кабель-каналов',
+        'Прокладка кабеля UTP / FTP (витая пара)',
+        'Установка и подключение розеток RJ-45',
+        'Установка и сборка телекоммуникационного шкафа 19\"',
+        'Кроссировка и маркировка патч-панелей',
+        'Тестирование и паспортизация портов СКС (Fluke)',
+        'Установка и настройка оборудования (коммутаторы, маршрутизаторы)',
+        'Монтаж и юстировка точек доступа Wi-Fi',
+        'Монтаж оптического кросса и сварка ВОЛС',
+        'Алмазное бурение отверстий в стенах и перекрытиях',
+        'Демонтажные работы кабельных линий и оборудования'
+      ];
+      var usedSet = new Set(defaultSuggs);
+      (S.tasks || []).forEach(function(item){
+        var arr = (item.rawData && item.rawData.smrSpecification) || [];
+        if (Array.isArray(arr)) {
+          arr.forEach(function(w){ if(w && w.name && w.name.trim()) usedSet.add(w.name.trim()); });
+        }
+      });
+      return '<datalist id="smr_work_suggestions_' + escHtml(taskId) + '">' +
+        Array.from(usedSet).map(function(sug){ return '<option value="' + escHtml(sug) + '"></option>'; }).join('') +
+      '</datalist>';
+    })() +
 
     // Лаконичный блок налогообложения и взаиморасчетов (по типу 1С)
     '<div id="smr_tax_calc_box_' + escHtml(taskId) + '" style="border:1.5px solid var(--border);border-radius:8px;background:var(--bg);padding:12px 14px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,0.03)">' +
@@ -1362,6 +1504,30 @@
           '<div id="smr_tax_total_with_' + escHtml(taskId) + '" style="font-size:1.15rem;font-weight:800;color:var(--primary);margin-top:2px">' + window.fmtMoneyPrecise(taxCalc.totalWithTax) + '</div>' +
           '<div style="font-size:.68rem;color:var(--text-3)">с учетом налога / к перечислению</div>' +
         '</div>' +
+      '</div>' +
+
+      // Блок округления до целых рублей (по запросу Алексея)
+      '<div id="smr_round_box_' + escHtml(taskId) + '" style="margin-top:12px;padding:10px 14px;background:#fff;border:1.5px solid #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="font-size:1.15rem">🪙</span>' +
+          '<div>' +
+            '<div style="font-size:.82rem;font-weight:700;color:var(--text)">Округлить до целых рублей?</div>' +
+            '<div style="font-size:.72rem;color:var(--text-3)">Согласование суммы к оплате для бухгалтерской отчетности</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;align-items:center">' +
+          '<button type="button" class="btn btn-sm ' + (!taxCalc.isRounded ? 'btn-primary' : 'btn-ghost') + '" onclick="window._setSmrRounding(\'' + escHtml(taskId) + '\', false)" style="font-size:.8rem;padding:4px 12px;font-weight:' + (!taxCalc.isRounded ? '700' : '500') + ';border:1.5px solid ' + (!taxCalc.isRounded ? 'var(--primary)' : 'var(--border)') + '">' +
+            'Нет = ' + window.fmtMoneyPrecise(taxCalc.unroundedTotal) + ' (без перерасчета сметы)' +
+          '</button>' +
+          '<button type="button" class="btn btn-sm ' + (taxCalc.isRounded ? 'btn-primary' : 'btn-ghost') + '" onclick="window._setSmrRounding(\'' + escHtml(taskId) + '\', true)" style="font-size:.8rem;padding:4px 12px;font-weight:' + (taxCalc.isRounded ? '700' : '500') + ';border:1.5px solid ' + (taxCalc.isRounded ? 'var(--primary)' : 'var(--border)') + '">' +
+            'Да = ' + window.fmtMoney(Math.round(taxCalc.unroundedTotal)) + ' (перерасчет сметы)' +
+          '</button>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;justify-content:flex-end;margin-top:10px;padding-top:8px;border-top:1px dashed var(--border)">' +
+        '<button type="button" class="btn btn-sm btn-primary" onclick="window.saveAndCreateAgreement(\'' + escHtml(taskId) + '\')" style="font-weight:700;font-size:.84rem;padding:6px 18px;display:inline-flex;align-items:center;gap:6px;box-shadow:0 2px 4px rgba(37,99,235,0.2)">' +
+          '📄 Сохранить и создать соглашение' +
+        '</button>' +
       '</div>' +
     '</div>' +
 
@@ -1447,7 +1613,7 @@
       '</div>' +
       '<div style="display:flex;justify-content:flex-end;align-items:center">' +
         '<button type="button" class="btn btn-sm btn-primary" id="save_smr_spec_btn" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="window._saveCardSmrSpec(\'' + escHtml(taskId) + '\')"') + ' style="padding:6px 16px;font-weight:700">' +
-          '💾 Сохранить спецификацию и смету' +
+          '💾 Сохранить изменения' +
         '</button>' +
       '</div>' +
     '</div>';
@@ -1476,7 +1642,7 @@
     thirdPartyDirectSum = Math.round(thirdPartyDirectSum * 100) / 100;
 
     var taxCfg = window._getTaskSmrTaxConfig(taskId);
-    var taxCalc = window._calculateSmrTaxes(totalSubAmount, taxCfg.mode, taxCfg.included);
+    var taxCalc = window._calculateSmrTaxes(totalSubAmount, taxCfg.mode, taxCfg.included, taskId);
 
     var custAmount = Number(t.amount || 0);
     var totalOutflow = Math.round((taxCalc.totalWithTax + totalThirdPartyAmount) * 100) / 100;
@@ -1540,6 +1706,26 @@
       elBalBox.style.borderColor = netMargin >= 0 ? '#86efac' : '#fca5a5';
     }
 
+    var elRoundBox = document.getElementById('smr_round_box_' + taskId);
+    if (elRoundBox) {
+      elRoundBox.innerHTML = 
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="font-size:1.15rem">🪙</span>' +
+          '<div>' +
+            '<div style="font-size:.82rem;font-weight:700;color:var(--text)">Округлить до целых рублей?</div>' +
+            '<div style="font-size:.72rem;color:var(--text-3)">Согласование суммы к оплате для бухгалтерской отчетности</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;align-items:center">' +
+          '<button type="button" class="btn btn-sm ' + (!taxCalc.isRounded ? 'btn-primary' : 'btn-ghost') + '" onclick="window._setSmrRounding(\'' + escHtml(taskId) + '\', false)" style="font-size:.8rem;padding:4px 12px;font-weight:' + (!taxCalc.isRounded ? '700' : '500') + ';border:1.5px solid ' + (!taxCalc.isRounded ? 'var(--primary)' : 'var(--border)') + '">' +
+            'Нет = ' + window.fmtMoneyPrecise(taxCalc.unroundedTotal) + ' (без перерасчета сметы)' +
+          '</button>' +
+          '<button type="button" class="btn btn-sm ' + (taxCalc.isRounded ? 'btn-primary' : 'btn-ghost') + '" onclick="window._setSmrRounding(\'' + escHtml(taskId) + '\', true)" style="font-size:.8rem;padding:4px 12px;font-weight:' + (taxCalc.isRounded ? '700' : '500') + ';border:1.5px solid ' + (taxCalc.isRounded ? 'var(--primary)' : 'var(--border)') + '">' +
+            'Да = ' + window.fmtMoney(Math.round(taxCalc.unroundedTotal)) + ' (перерасчет сметы)' +
+          '</button>' +
+        '</div>';
+    }
+
 
   };
 
@@ -1578,6 +1764,7 @@
     } else if (field === 'unit') {
       spec[idx].unit = String(val || '');
     }
+    if (typeof window._markSmrDirty === 'function') window._markSmrDirty(taskId);
   };
 
   window._addCustomCardSmrLine = function(taskId) {
@@ -1590,6 +1777,7 @@
       price: 0,
       sum: 0
     });
+    if (typeof window._markSmrDirty === 'function') window._markSmrDirty(taskId);
     window._renderCardSmrTable(taskId);
   };
 
@@ -1597,6 +1785,7 @@
     var spec = window._taskSmrSpec && window._taskSmrSpec[taskId];
     if (!spec) return;
     spec.splice(idx, 1);
+    if (typeof window._markSmrDirty === 'function') window._markSmrDirty(taskId);
     window._renderCardSmrTable(taskId);
   };
 
@@ -1647,30 +1836,33 @@
     });
     var menu = document.getElementById('smr_add_menu_' + taskId);
     if (menu) menu.style.display = 'none';
+    if (typeof window._markSmrDirty === 'function') window._markSmrDirty(taskId);
     window._renderCardSmrTable(taskId);
   };
 
   window._onSmrOwnCompanyChange = function(taskId, ownCompanyId) {
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); });
     if (t) t.own_company_id = Number(ownCompanyId);
+    if (typeof window._markSmrDirty === 'function') window._markSmrDirty(taskId);
     window.renderCardSmrCalculator(taskId);
   };
 
-  window._saveCardSmrSpec = function(taskId) {
+  window._saveCardSmrSpec = function(taskId, options) {
+    options = options || {};
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); });
-    if (!t) return;
+    if (!t) return Promise.resolve();
     var spec = window._taskSmrSpec && window._taskSmrSpec[taskId] ? window._taskSmrSpec[taskId] : [];
     var totalBaseAmount = spec.reduce(function(acc, l){ return acc + (Number(l.sum) || 0); }, 0);
     var thirdParty = window._taskThirdPartySpec && window._taskThirdPartySpec[taskId] ? window._taskThirdPartySpec[taskId] : [];
 
     var taxCfg = window._getTaskSmrTaxConfig(taskId);
-    var taxCalc = window._calculateSmrTaxes(totalBaseAmount, taxCfg.mode, taxCfg.included);
+    var taxCalc = window._calculateSmrTaxes(totalBaseAmount, taxCfg.mode, taxCfg.included, taskId);
 
     var curSub = (window._curCardSubcontracts || [])[0] || null;
     var cName = (curSub && curSub.contractor_name) || t.contractor || '';
     if (!cName) {
-      alert('Пожалуйста, сначала назначьте исполнителя СМР (подрядчика)!');
-      return;
+      if (!options.silent) alert('Пожалуйста, сначала назначьте исполнителя СМР (подрядчика)!');
+      return Promise.resolve();
     }
 
     var cObj = (S.contractors || []).find(function(c){ return c.name_short === cName; });
@@ -1699,27 +1891,33 @@
     };
 
     var btn = document.getElementById('save_smr_spec_btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Сохранение…'; }
+    if (btn && !options.silent) { btn.disabled = true; btn.textContent = 'Сохранение…'; }
 
-    api('/tasks/' + encodeURIComponent(taskId) + '/subcontract-wizard', {
+    return api('/tasks/' + encodeURIComponent(taskId) + '/subcontract-wizard', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     })
     .then(function(res) {
-      showToast('✅ Спецификация и расчет СМР сохранены!', 'success');
+      if (!options.silent && typeof showToast === 'function') showToast('✅ Спецификация и расчет СМР сохранены!', 'success');
       t.price_agreed = taxCalc.totalWithTax;
       t.rawData = t.rawData || {};
       t.rawData.smrTaxDetails = taxCalc;
-      if (typeof window.loadCardSubcontracts === 'function') {
-        window.loadCardSubcontracts(taskId);
+      if (res && res.subcontract) {
+        if (!window._curCardSubcontracts) window._curCardSubcontracts = [];
+        var exIdx = window._curCardSubcontracts.findIndex(function(s){ return s.id === res.subcontract.id; });
+        if (exIdx >= 0) window._curCardSubcontracts[exIdx] = res.subcontract;
+        else window._curCardSubcontracts.unshift(res.subcontract);
       }
+      return res;
     })
     .catch(function(err) {
-      alert('Ошибка сохранения: ' + err.message);
+      console.error('Error saving smr spec:', err);
+      if (!options.silent) alert('Ошибка сохранения сметы: ' + err.message);
+      throw err;
     })
     .finally(function() {
-      if (btn) { btn.disabled = false; btn.textContent = '💾 Сохранить спецификацию и смету'; }
+      if (btn && !options.silent) { btn.disabled = false; btn.textContent = '💾 Сохранить изменения'; }
     });
   };
 
@@ -2345,3 +2543,154 @@
   };
 
 })();
+
+
+// ─── БЫСТРОЕ СОЗДАНИЕ ДОГОВОРА СУБПОДРЯДА ─────────────────────────────────────
+window.openQuickSubcontractCreateModal = function(taskId, contrName) {
+  var old = document.getElementById('_quick_subcontract_modal');
+  if (old) old.remove();
+
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); }) || {};
+  var cName = (contrName && contrName.trim()) || (t.contractor && t.contractor.trim()) || (S.cardDraft && S.cardDraft.contractor ? S.cardDraft.contractor.trim() : '');
+  var cObj = (S.contractors || []).find(function(c){
+    if (!c) return false;
+    var cs = (c.name_short || '').toLowerCase();
+    var cn = cName.toLowerCase();
+    return cs === cn || cs.includes(cn) || cn.includes(cs);
+  }) || { name_short: cName, inn: '' };
+
+  var curYear = new Date().getFullYear();
+  var randNum = Math.floor(100 + Math.random() * 900);
+  var defNum = 'СУБ-' + curYear + '-' + randNum;
+  var defDate = new Date().toISOString().slice(0, 10);
+
+  var ownList = (S.ownCompanies && S.ownCompanies.length > 0) ? S.ownCompanies : [
+    { id: 'ks', name: 'ООО "Кабельные Системы"', director: 'Городович Милана Владимировна' },
+    { id: 'k10', name: 'ООО "К10"', director: 'Чайка Алексей Николаевич' }
+  ];
+
+  var modal = document.createElement('div');
+  modal.id = '_quick_subcontract_modal';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = '<div class="modal-box" style="max-width:540px;width:95%;background:#fff;border-radius:12px;padding:20px;box-shadow:0 20px 45px rgba(0,0,0,0.25)">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-bottom:1.5px solid var(--border);padding-bottom:10px">' +
+      '<h3 style="margin:0;font-size:1.1rem;display:flex;align-items:center;gap:6px"><span>📑 Создать договор субподряда</span></h3>' +
+      '<button class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_quick_subcontract_modal\').remove()" style="font-size:1.2rem;line-height:1">✕</button>' +
+    '</div>' +
+    '<form id="_quick_sub_form" onsubmit="event.preventDefault(); window._submitQuickSubcontract(\'' + escHtml(taskId) + '\')">' +
+      '<div style="margin-bottom:10px">' +
+        '<label style="display:block;font-size:.74rem;font-weight:700;color:var(--text-3);margin-bottom:3px">ГЕНПОДРЯДЧИК («МЫ»):</label>' +
+        '<select id="_qsub_own" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;font-weight:600">' +
+          ownList.map(function(oc){ return '<option value="' + oc.id + '">' + escHtml(oc.name) + (oc.director ? ' (Директор: ' + escHtml(oc.director) + ')' : '') + '</option>'; }).join('') +
+        '</select>' +
+      '</div>' +
+      '<div style="margin-bottom:10px">' +
+        '<label style="display:block;font-size:.74rem;font-weight:700;color:var(--text-3);margin-bottom:3px">СУБПОДРЯДЧИК (ИСПОЛНИТЕЛЬ СМР):</label>' +
+        '<input type="text" id="_qsub_contr" value="' + escHtml(cObj.name_short || cName) + '" readonly style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;background:#f8fafc;font-weight:700;color:var(--text)">' +
+        (cObj.inn ? '<div style="font-size:.72rem;color:var(--text-3);margin-top:2px">ИНН: ' + escHtml(cObj.inn) + '</div>' : '') +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">' +
+        '<div>' +
+          '<label style="display:block;font-size:.74rem;font-weight:700;color:var(--text-3);margin-bottom:3px">НОМЕР ДОГОВОРА:</label>' +
+          '<input type="text" id="_qsub_number" value="' + escHtml(defNum) + '" required style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.88rem;font-weight:700">' +
+        '</div>' +
+        '<div>' +
+          '<label style="display:block;font-size:.74rem;font-weight:700;color:var(--text-3);margin-bottom:3px">ДАТА ДОГОВОРА:</label>' +
+          '<input type="date" id="_qsub_date" value="' + defDate + '" required style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.88rem">' +
+        '</div>' +
+      '</div>' +
+      '<div style="margin-bottom:10px">' +
+        '<label style="display:block;font-size:.74rem;font-weight:700;color:var(--text-3);margin-bottom:3px">ПРЕДМЕТ ДОГОВОРА:</label>' +
+        '<input type="text" id="_qsub_subject" value="Выполнение строительно-монтажных работ (СМР) по объектам связи" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+      '</div>' +
+      '<div style="margin-bottom:14px">' +
+        '<label style="display:block;font-size:.74rem;font-weight:700;color:var(--text-3);margin-bottom:3px">ТИПОВОЙ ПРАЙС-ЛИСТ К ДОГОВОРУ:</label>' +
+        '<select id="_qsub_pricelist" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+          '<option value="Прайс-лист КС (Разовые/СФР)">Прайс-лист КС (Разовые/СФР)</option>' +
+          '<option value="Типовой Сбербанк (<=10 портов)">Типовой Сбербанк (<=10 портов)</option>' +
+          '<option value="Индивидуальный расчет">Индивидуальный расчет по смете</option>' +
+        '</select>' +
+      '</div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--border);padding-top:12px">' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_quick_subcontract_modal\').remove()">Отмена</button>' +
+        '<button type="submit" class="btn btn-sm btn-primary" style="font-weight:700">✓ Создать и привязать договор</button>' +
+      '</div>' +
+    '</form>' +
+  '</div>';
+  document.body.appendChild(modal);
+};
+
+window._submitQuickSubcontract = function(taskId) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  var ownId = document.getElementById('_qsub_own').value;
+  var num = document.getElementById('_qsub_number').value.trim();
+  var dt = document.getElementById('_qsub_date').value;
+  var sub = document.getElementById('_qsub_subject').value.trim();
+  var pl = document.getElementById('_qsub_pricelist').value;
+  var contrName = document.getElementById('_qsub_contr').value.trim();
+
+  var payload = {
+    contract_number: num,
+    contract_date: dt,
+    customer_name: contrName,
+    own_company: ownId,
+    subject: sub,
+    contract_type: 'subcontract',
+    status: 'active'
+  };
+
+  api('/contracts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(function(res) {
+    if (res && res.id) {
+      if (!Array.isArray(S.contracts)) S.contracts = [];
+      S.contracts.push(res);
+      if (t) {
+        t.contract_id = res.id;
+        t.contractor_contract_id = res.id;
+        t.contractor_contract_title = num + ' от ' + dt;
+        t.contractor_pricelist = pl;
+        if (!t.rawData) t.rawData = {};
+        t.rawData.contractor_pricelist = pl;
+        t.rawData.subcontract_number = num;
+      }
+      var m = document.getElementById('_quick_subcontract_modal');
+      if (m) m.remove();
+      if (typeof showToast === 'function') showToast('Договор ' + num + ' успешно создан и привязан!', 'success');
+      renderApp();
+    } else {
+      alert('Ошибка сохранения договора: ' + (res.error || 'неизвестная ошибка'));
+    }
+  }).catch(function(err) {
+    if (t) {
+      t.contractor_contract_title = num + ' от ' + dt;
+      t.contractor_pricelist = pl;
+      if (!t.rawData) t.rawData = {};
+      t.rawData.contractor_pricelist = pl;
+      t.rawData.subcontract_number = num;
+    }
+    var m = document.getElementById('_quick_subcontract_modal');
+    if (m) m.remove();
+    if (typeof showToast === 'function') showToast('Договор ' + num + ' сохранен в заявке!', 'success');
+    renderApp();
+  });
+};
+
+window.saveAndCreateAgreement = function(taskId) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+  var contrName = t.contractor || (S.cardDraft && S.cardDraft.contractor) || '';
+  if (typeof window._saveCardSmrSpec === 'function') {
+    window._saveCardSmrSpec(taskId, { silent: false });
+  }
+  if (typeof showToast === 'function') {
+    showToast('Смета сохранена! Формируем Заказ-наряд (соглашение к договору)...', 'success');
+  }
+  if (typeof window.exportDoc === 'function') {
+    setTimeout(function() {
+      window.exportDoc('app2', taskId, contrName);
+    }, 400);
+  }
+};

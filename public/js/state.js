@@ -157,7 +157,9 @@ var NAV_SECTIONS = [
   {
     title: 'СПРАВОЧНИКИ',
     items: [
-      { id: 'contractors', icon: ICONS.contractors, label: 'Организации' },
+      { id: 'contractors',     icon: ICONS.contractors, label: 'Организации' },
+      { id: 'sub_contracts',   icon: ICONS.contracts,   label: 'Договоры субподряда' },
+      { id: 'sub_pricelists',  icon: ICONS.calc,        label: 'Прайсы субподряда' },
       { id: 'users',       icon: ICONS.users,       label: 'Люди' }
     ]
   },
