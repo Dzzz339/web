@@ -579,6 +579,32 @@ function renderApp() {
 // Реализованы в public/js/pages/subcontracts.js
 
 
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+// Загрузка и показ уведомлений
+
+function loadNotifications() {
+  if (!S.token) return;
+  api('/notifications').then(function(list) {
+    if (!Array.isArray(list)) return;
+    S.notifications = list;
+    
+    var unreadCount = list.filter(n => !n.is_read).length;
+    var badge = document.getElementById('notif-badge');
+    var container = document.getElementById('notif-container');
+
+    if (container) container.style.display = 'block';
+    
+    if (badge) {
+      if (unreadCount > 0) {
+        badge.textContent = unreadCount;
+        badge.style.display = 'inline-block';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+  });
+}
+
 function toggleNotifications() {
   var box = document.getElementById('notif-dropdown');
   if (!box) return;
