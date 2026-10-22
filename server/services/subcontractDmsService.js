@@ -74,6 +74,11 @@ export async function initSubcontractDms(pool) {
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_price_lists_contract ON contractor_price_lists(contract_id)`);
+  await pool.query(`ALTER TABLE contractor_price_lists ALTER COLUMN contract_id DROP NOT NULL`);
+  await pool.query(`ALTER TABLE contractor_price_lists ADD COLUMN IF NOT EXISTS is_default BOOLEAN DEFAULT false`);
+  await pool.query(`ALTER TABLE contractor_price_lists ADD COLUMN IF NOT EXISTS contractor_id INTEGER REFERENCES contractors(id) ON DELETE SET NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_price_lists_contractor ON contractor_price_lists(contractor_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_price_lists_is_default ON contractor_price_lists(is_default)`);
 
   // 4. Позиции прайс-листа с дифференцированной шкалой объема (до 3 ед / более 3 ед, км, суточные)
   await pool.query(`
@@ -463,6 +468,32 @@ async function seedInitialData(pool) {
   if (vdKsContract) {
     await seedPriceList(pool, vdKsContract.id, 'Приложение №1 (Протокол согласования цены - КС / Общий)', 'Росприроднадзор / СФР / Коммерческие', standardPriceItems);
   }
+
+  // 5. Обеспечиваем базовый прайс-лист по умолчанию (для тех, у кого нет личного прайса)
+  const defPlRes = await pool.query(`SELECT id FROM contractor_price_lists WHERE is_default = true LIMIT 1`);
+  if (!defPlRes.rows.length) {
+    const insPl = await pool.query(`
+      INSERT INTO contractor_price_lists (name, customer_tag, region, is_active, is_default)
+      VALUES ('Базовый типовой прайс-лист субподряда (СКС / СМР)', 'Типовой (по умолчанию)', 'Все регионы', true, true)
+      RETURNING id
+    `);
+    const defId = insPl.rows[0].id;
+    for (const it of standardPriceItems) {
+      await pool.query(`
+        INSERT INTO price_list_items (
+          price_list_id, work_code, work_name, unit, price_tier_1, price_tier_2, tier_threshold, sort_order
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, [defId, it.work_code, it.work_name, it.unit, it.tier1, it.tier2, it.threshold, it.sort]);
+    }
+  }
+
+  // Обновляем contractor_id у прайс-листов, привязанных к договорам
+  await pool.query(`
+    UPDATE contractor_price_lists pl
+    SET contractor_id = cc.contractor_id
+    FROM contractor_contracts cc
+    WHERE pl.contract_id = cc.id AND pl.contractor_id IS NULL
+  `);
 }
 
 async function ensureContract({ pool, contractorId, ownCompanyId, contractNumber, contractDate, title, customerTag, subject, territory, validFrom, validTo }) {
