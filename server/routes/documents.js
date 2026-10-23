@@ -53,7 +53,7 @@ router.get('/tasks/:taskId/documents', authenticateToken, async (req, res) => {
 });
 
 // 2. Сгенерировать и зарегистрировать документ
-router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
+router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics', 'to_engineer'), async (req, res) => {
   try {
     const { taskId } = req.params;
     const {

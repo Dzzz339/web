@@ -314,7 +314,7 @@ function canUserEditField(user, key) {
   }
 
   // 6. Менеджер проекта и Специалист ТО
-  if (r === 'manager' || r === 'to_engineer') {
+  if (r === 'manager' || r === 'to_engineer' || r === 'logistics') {
     var lockedForManager = ['amount', 'pricePerUnit'];
     return !lockedForManager.includes(key);
   }

@@ -69,7 +69,7 @@ router.get('/tasks/:taskId/subcontracts', authenticateToken, async (req, res) =>
 });
 
 // 2. Создать субподряд (назначить подрядчика на часть работ)
-router.post('/tasks/:taskId/subcontracts', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
+router.post('/tasks/:taskId/subcontracts', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics', 'to_engineer'), async (req, res) => {
   try {
     const { taskId } = req.params;
     let {
@@ -172,7 +172,7 @@ router.post('/tasks/:taskId/subcontracts', authenticateToken, requireRole('admin
 });
 
 // 3. Обновить субподряд
-router.put('/subcontracts/:id', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
+router.put('/subcontracts/:id', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics', 'to_engineer'), async (req, res) => {
   try {
     const { id } = req.params;
     let {

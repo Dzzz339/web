@@ -82,10 +82,10 @@ var STOCK_ROLES = {
   },
   to_engineer: {
     code: 'to_engineer',
-    name: 'Специалист ТО',
+    name: 'Специалист ТО / Логист',
     icon: '🛠️',
     badgeClass: 'b-cyan',
-    description: 'Внешние договоры, ТЗ, данные по заказчикам'
+    description: 'Внешние договоры, ТЗ, цепи поставок, логистика и аналитика'
   },
   logistics: {
     code: 'logistics',

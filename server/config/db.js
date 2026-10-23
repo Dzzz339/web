@@ -928,6 +928,7 @@ export async function initDB() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_materials_task ON task_materials(task_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_materials_mat ON task_materials(material_id)`);
+  await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS supplier TEXT`);
 
   // 7. Поставщики ТМЦ
   await pool.query(`

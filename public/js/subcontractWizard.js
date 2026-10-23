@@ -143,6 +143,7 @@
     var curSub = (window._curCardSubcontracts || [])[0] || null;
     var subId = curSub ? curSub.id : null;
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+    window._curWizTask = t;
     var targetContr = (contrName && contrName.trim()) || (t.contractor && t.contractor.trim()) || (curSub && curSub.contractor_name) || '';
     var docTypeMap = {
       app2: 'order_subcontract',
@@ -175,6 +176,7 @@
     if (old) old.remove();
 
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+    window._curWizTask = t;
     var cName = (contrName && contrName.trim()) || (t.contractor && t.contractor.trim()) || (S.cardDraft && S.cardDraft.contractor ? S.cardDraft.contractor.trim() : '');
     if (!cName) {
       alert('Сначала назначьте исполнителя СМР!');
@@ -611,6 +613,7 @@
 
     // Определение режима по умолчанию на основе профиля назначенного подрядчика
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+    window._curWizTask = t;
     var curSub = (window._curCardSubcontracts || []).find(function(s){ return String(s.task_id) === String(taskId); }) || null;
     var contrName = (t.contractor && t.contractor.trim()) || (curSub && curSub.contractor_name) || '';
     var contrObj = contrName ? (S.contractors || []).find(function(c){
@@ -751,6 +754,7 @@
     if (old) old.remove();
 
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+    window._curWizTask = t;
     var spec = (window._taskSmrSpec && window._taskSmrSpec[taskId]) || [];
     var thirdParty = (window._taskThirdPartySpec && window._taskThirdPartySpec[taskId]) || [];
 
@@ -1223,6 +1227,7 @@
     if (!box) return;
 
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+    window._curWizTask = t;
     var isAccepted = (
       t.assignmentStatus === 'accepted' || 
       t.assignment_status === 'accepted' || 
@@ -1630,6 +1635,7 @@
     var spec = (window._taskSmrSpec && window._taskSmrSpec[taskId]) || [];
     var thirdParty = (window._taskThirdPartySpec && window._taskThirdPartySpec[taskId]) || [];
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+    window._curWizTask = t;
 
     var totalSubAmount = 0;
     spec.forEach(function(l) {
@@ -1800,6 +1806,7 @@
     if (!window._taskSmrSpec[taskId]) window._taskSmrSpec[taskId] = [];
     var spec = window._taskSmrSpec[taskId];
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+    window._curWizTask = t;
 
     var catalog = {
       // Шкафы ТКШ
@@ -1936,6 +1943,7 @@
     if (window.savePageScroll) window.savePageScroll(targetId);
 
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+    window._curWizTask = t;
     var editSub = editSubId ? ((window._curCardSubcontracts || []).find(function(s){ return String(s.id) === String(editSubId); }) || null) : null;
 
     var subsList = (S.contractors || []).filter(function(c) {
@@ -2163,6 +2171,7 @@
     if (bodyEl) bodyEl.innerHTML = '';
 
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+    window._curWizTask = t;
     var isSber = (t.customer || '').toLowerCase().includes('сбер');
 
     Promise.all([
@@ -2368,6 +2377,8 @@
     var portType = document.getElementById('wiz_port_type') ? document.getElementById('wiz_port_type').value : 'port_5e';
     var cab = document.getElementById('wiz_cab') ? document.getElementById('wiz_cab').value : '';
     var km = document.getElementById('wiz_km') ? document.getElementById('wiz_km').value : 0;
+    var cId = document.getElementById('wiz_contractor_id') ? document.getElementById('wiz_contractor_id').value : '';
+    var curTask = window._curWizTask || {};
 
     var mRateEl = document.getElementById('wiz_manual_rate');
     var mTotalEl = document.getElementById('wiz_manual_total');
@@ -2383,17 +2394,33 @@
     }
 
     var res = calcSmrLocal({
+      contractorId: cId,
+      customerTag: curTask.customer || curTask.customer_tag || '',
+      region: curTask.region || curTask.chain || '',
       ports: ports,
       portType: portType,
       cabinetType: cab,
       distanceKm: km
     });
 
+    var isRec = res.isRecommended;
+    var plName = res.priceListName || (isRec ? 'Базовый (рекомендованный)' : 'Прайс');
+    var plBadge = ' <span class="badge" style="font-size:.72rem;padding:2px 7px;border-radius:4px;' +
+      (isRec ? 'background:#f0fdf4;color:#166534;border:1px solid #86efac' : 'background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe') + '">' +
+      (isRec ? '⭐ Реком.: ' : '👤 Прайс: ') + escHtml(plName) + '</span>';
+
     if (mTotal > 0) {
-      sumEl.innerHTML = 'По базовому прайсу: <span style="text-decoration:line-through;opacity:.65">' + fmtMoney(res.totalAmount) + '</span> → <span style="color:var(--green)">Согласовано вручную: ' + fmtMoney(mTotal) + '</span>';
+      sumEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">' +
+        '<div>' + plBadge + '</div>' +
+        '<div>По прайсу: <span style="text-decoration:line-through;opacity:.65">' + fmtMoney(res.totalAmount) + '</span> → <span style="color:var(--green)">Согласовано вручную: ' + fmtMoney(mTotal) + '</span></div>' +
+      '</div>';
     } else {
-      sumEl.innerHTML = 'Расчет по прайсу: <span style="color:var(--blue)">' + fmtMoney(res.totalAmount) + '</span>' +
-        (res.transportAmount > 0 ? (' <span class="t3" style="font-size:.75rem">(в т.ч. выезд ' + fmtMoney(res.transportAmount) + ')</span>') : '');
+      sumEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">' +
+        '<div>' + plBadge + '</div>' +
+        '<div>Расчет по тарифу: <span style="color:var(--blue);font-weight:700">' + fmtMoney(res.totalAmount) + '</span>' +
+          (res.transportAmount > 0 ? (' <span class="t3" style="font-size:.75rem">(в т.ч. выезд ' + fmtMoney(res.transportAmount) + ')</span>') : '') +
+        '</div>' +
+      '</div>';
     }
   };
 
@@ -2432,8 +2459,12 @@
     var portType = document.getElementById('wiz_port_type') ? document.getElementById('wiz_port_type').value : 'port_5e';
     var cab = document.getElementById('wiz_cab') ? document.getElementById('wiz_cab').value : '';
     var km = document.getElementById('wiz_km') ? parseFloat(document.getElementById('wiz_km').value) : 0;
+    var curTask = window._curWizTask || (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
 
     var calcRes = calcSmrLocal({
+      contractorId: cId,
+      customerTag: curTask.customer || curTask.customer_tag || '',
+      region: curTask.region || curTask.chain || '',
       ports: ports,
       portType: portType,
       cabinetType: cab,
@@ -2463,10 +2494,17 @@
       if (bestC) {
         contractId = bestC.id;
         ownCompanyId = bestC.own_company_id;
-        priceListId = bestC.price_list_id;
+        priceListId = bestC.price_list_id || calcRes.priceListId;
+      } else {
+        priceListId = calcRes.priceListId;
       }
     } else if (mode === 'new') {
       ownCompanyId = document.getElementById('wiz_new_own_company') ? parseInt(document.getElementById('wiz_new_own_company').value, 10) : null;
+      priceListId = calcRes.priceListId;
+    }
+
+    if (!priceListId && calcRes.priceListId) {
+      priceListId = calcRes.priceListId;
     }
 
     var mTotal = document.getElementById('wiz_manual_total') ? parseFloat(document.getElementById('wiz_manual_total').value) : 0;

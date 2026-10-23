@@ -187,11 +187,8 @@ function isPageAllowedForRole(page, role) {
   if (r === 'manager') {
     return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'chat', 'aichat', 'help'].includes(page) || page.startsWith('dash-');
   }
-  if (r === 'to_engineer') {
-    return ['contracts', 'sub_contracts', 'sub_pricelists', 'tasks', 'card', 'kanban', 'contractors', 'chat', 'aichat', 'help'].includes(page);
-  }
-  if (r === 'logistics') {
-    return ['contracts', 'sub_contracts', 'sub_pricelists', 'supply', 'tasks', 'card', 'marches', 'march-detail', 'contractors', 'chat', 'aichat', 'help'].includes(page);
+  if (r === 'to_engineer' || r === 'logistics') {
+    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'supply', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'chat', 'aichat', 'help'].includes(page) || page.startsWith('dash-');
   }
   if (r === 'designer') {
     return ['contracts', 'sub_contracts', 'sub_pricelists', 'tasks', 'card', 'kanban', 'chat', 'aichat', 'help'].includes(page);
@@ -330,13 +327,9 @@ function renderNav() {
         if (role === 'manager') {
           return ['dashboard', 'contracts', 'tasks', 'kanban', 'marches', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
         }
-        // Специалист ТО
-        if (role === 'to_engineer') {
-          return ['contracts', 'tasks', 'kanban', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
-        }
-        // Специалист по логистике
-        if (role === 'logistics') {
-          return ['contracts', 'supply', 'tasks', 'marches', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
+        // Специалист ТО / Логист (объединенные права: Цепи + Обзор + Маршруты)
+        if (role === 'to_engineer' || role === 'logistics') {
+          return ['dashboard', 'contracts', 'tasks', 'kanban', 'marches', 'supply', 'sub_contracts', 'sub_pricelists', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
         }
         // Проектировщик
         if (role === 'designer') {

@@ -1842,7 +1842,7 @@ router.get('/tasks/:id/items', authenticateToken, async (req, res) => {
   }
 });
 
-router.post('/tasks/:id/items', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
+router.post('/tasks/:id/items', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics', 'to_engineer'), async (req, res) => {
   try {
     const {
       work_type,
@@ -1900,7 +1900,7 @@ router.post('/tasks/:id/items', authenticateToken, requireRole('admin', 'directo
   }
 });
 
-router.post('/tasks/:id/items/batch', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
+router.post('/tasks/:id/items/batch', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics', 'to_engineer'), async (req, res) => {
   try {
     const { items, replaceExisting } = req.body;
     if (!Array.isArray(items)) return res.status(400).json({ error: 'items must be an array' });
@@ -1953,7 +1953,7 @@ router.post('/tasks/:id/items/batch', authenticateToken, requireRole('admin', 'd
   }
 });
 
-router.put('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
+router.put('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics', 'to_engineer'), async (req, res) => {
   try {
     const {
       work_type,

@@ -1878,16 +1878,16 @@ function pageCard() {
   var itemsBlock = '<div class="card p" style="margin-bottom:1rem;border:1.5px solid var(--border)">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:.75rem">' +
       '<div style="display:flex;align-items:center;gap:10px">' +
-        '<div class="sec-title" style="margin:0;font-size:1.05rem">📦 Состав работ и спецификация</div>' +
+        '<div class="sec-title" style="margin:0;font-size:1.05rem">👷 Состав работ СМР и расценки</div>' +
         '<span id="cardItemsCountBadge" class="badge b-gray" style="font-size:.74rem">0 позиций</span>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:6px">' +
         (!isLocked && S.user && ['admin','director','manager','to_engineer'].includes(String(S.user.role||'').toLowerCase())
-          ? ('<label class="btn btn-sm btn-ghost" style="cursor:pointer" title="Загрузить спецификацию материалов из Excel">' +
+          ? ('<label class="btn btn-sm btn-ghost" style="cursor:pointer" title="Загрузить перечень работ СМР из Excel">' +
                '📥 Загрузить из Excel' +
                '<input type="file" accept=".xlsx,.xls" style="display:none" onchange="uploadMaterialsExcel(this.files[0], \'' + eid + '\')">' +
              '</label>' +
-             '<button class="btn btn-sm btn-primary" onclick="openAddItemModal(\'' + eid + '\')">+ Добавить работу / ТМЦ</button>')
+             '<button class="btn btn-sm btn-primary" onclick="openAddItemModal(\'' + eid + '\')">+ Добавить работу / СМР</button>')
           : '') +
       '</div>' +
     '</div>' +
@@ -1900,9 +1900,9 @@ function pageCard() {
     '<div id="cardContractorOrdersBar" style="margin-top:.75rem;display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.78rem"></div>' +
   '</div>';
 
-  var materialsBlock = '<div class="card p" id="cardMaterialsBlock" style="margin-top:1rem">' +
+  var materialsBlock = '<div class="card p" id="cardMaterialsBlock" style="margin-top:0">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:.5rem">' +
-      '<div class="sec-title" style="margin:0">📦 Материалы и Чек-лист СКС</div>' +
+      '<div class="sec-title" style="margin:0">📦 Спецификация ТМЦ по поставщикам и чек-лист СКС</div>' +
       '<div style="display:flex;gap:.4rem;align-items:center">' +
         '<label class="btn btn-sm btn-ghost" style="cursor:pointer" title="Загрузить чек-лист / ведомость Заказчика в формате PDF">' +
           '📥 Загрузить PDF (чек-лист/ведомость)' +
@@ -2032,6 +2032,7 @@ function pageCard() {
   var paneItems = '<div id="cardTabPane-items" class="card-tab-pane" style="display:' + (curTab === 'items' ? 'block' : 'none') + '">' +
     '<div id="cardSmrCalculatorBlock" style="margin-bottom:1rem"></div>' +
     '<div id="cardSubcontractsContainer" style="display:none"></div>' +
+    itemsBlock +
     smrClosingBlock +
     '<div class="card p mb" id="attachmentsBlock">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
@@ -2047,7 +2048,6 @@ function pageCard() {
   '</div>';
 
   var paneSupply = '<div id="cardTabPane-supply" class="card-tab-pane" style="display:' + (curTab === 'supply' ? 'block' : 'none') + '">' +
-    itemsBlock +
     materialsBlock +
   '</div>';
 
@@ -4186,11 +4186,23 @@ function loadCardMaterials(taskId) {
     // Таблица материалов (план vs факт с ценами и суммами списания для накладной)
     var allWrittenOff = materials.every(function(m){ return m.is_written_off; });
     var totalTmcSum = 0;
+    var SUPPLIER_LIST = [
+      'Склад компании',
+      'ЭТМ',
+      'Русский Свет',
+      'Анлан',
+      'Линдекс',
+      'Инсистем',
+      'ДНС / Ситилинк',
+      'Леруа Мерлен',
+      'Прочий поставщик'
+    ];
 
     html += '<table style="width:100%;border-collapse:collapse;font-size:.82rem;margin-bottom:10px">' +
       '<thead><tr style="border-bottom:1px solid var(--border);color:var(--text-3);text-align:left">' +
         '<th style="padding:6px 4px">№</th>' +
         '<th style="padding:6px 4px">Материал / Артикул</th>' +
+        '<th style="padding:6px 4px">Поставщик / Склад</th>' +
         '<th style="padding:6px 4px;text-align:right">План (норма)</th>' +
         '<th style="padding:6px 4px;text-align:right">Факт расход</th>' +
         '<th style="padding:6px 4px;text-align:right">Цена за ед.</th>' +
@@ -4204,6 +4216,22 @@ function loadCardMaterials(taskId) {
       var itemSum = Math.round(curQty * price);
       totalTmcSum += itemSum;
 
+      var curSupplier = (m.supplier || '').trim();
+      var suppOptionsHtml = '<option value="">(Не выбран)</option>';
+      var matchedSupp = false;
+      SUPPLIER_LIST.forEach(function(sp) {
+        var isSel = (curSupplier.toLowerCase() === sp.toLowerCase());
+        if (isSel) matchedSupp = true;
+        suppOptionsHtml += '<option value="' + escHtml(sp) + '"' + (isSel ? ' selected' : '') + '>' + escHtml(sp) + '</option>';
+      });
+      if (curSupplier && !matchedSupp) {
+        suppOptionsHtml += '<option value="' + escHtml(curSupplier) + '" selected>' + escHtml(curSupplier) + '</option>';
+      }
+
+      var supplierCell = isDone
+        ? '<span class="badge b-blue" style="font-size:.74rem;white-space:nowrap">' + escHtml(curSupplier || 'Склад компании') + '</span>'
+        : '<select id="supp_mat_' + m.material_id + '" onchange="window.updateMaterialSupplier(\'' + encodeURIComponent(taskId) + '\', ' + m.material_id + ', this.value)" style="padding:3px 6px;font-size:.78rem;border:1px solid var(--border);border-radius:4px;background:#fff;max-width:145px;cursor:pointer">' + suppOptionsHtml + '</select>';
+
       var factInput = isDone
         ? '<span style="font-weight:700;color:var(--green)">' + curQty + ' ' + m.unit + '</span>'
         : '<input type="number" step="any" min="0" value="' + curQty + '" id="fact_mat_' + m.material_id + '" style="width:65px;padding:3px 6px;text-align:right;font-size:.82rem">';
@@ -4214,6 +4242,7 @@ function loadCardMaterials(taskId) {
           '<div style="font-weight:600">' + escHtml(m.name) + '</div>' +
           (m.calc_details ? '<div style="font-size:.7rem;color:var(--text-3)">' + escHtml(m.calc_details) + '</div>' : '') +
         '</td>' +
+        '<td style="padding:6px 4px">' + supplierCell + '</td>' +
         '<td style="padding:6px 4px;text-align:right;white-space:nowrap;color:var(--text-2)">' + m.plan_qty + ' ' + m.unit + '</td>' +
         '<td style="padding:6px 4px;text-align:right;white-space:nowrap">' + factInput + '</td>' +
         '<td style="padding:6px 4px;text-align:right;white-space:nowrap;color:var(--text-3);font-size:.76rem">' + price.toLocaleString('ru-RU') + ' ₽</td>' +
@@ -4222,7 +4251,7 @@ function loadCardMaterials(taskId) {
     });
 
     html += '<tr style="background:var(--bg);font-weight:700;border-top:2px solid var(--border)">' +
-      '<td colspan="5" style="padding:8px 6px;text-align:right">ИТОГО себестоимость ТМЦ по объекту:</td>' +
+      '<td colspan="6" style="padding:8px 6px;text-align:right">ИТОГО себестоимость ТМЦ по объекту:</td>' +
       '<td style="padding:8px 6px;text-align:right;font-size:.92rem;color:var(--blue)">' + totalTmcSum.toLocaleString('ru-RU') + ' ₽</td>' +
     '</tr>';
 
@@ -4280,8 +4309,10 @@ function saveTaskMaterialsFact(taskId) {
       var items = [];
       materials.forEach(function(m) {
         var inp = document.getElementById('fact_mat_' + m.material_id);
+        var suppInp = document.getElementById('supp_mat_' + m.material_id);
         var qty = inp ? parseFloat(inp.value) : (m.fact_qty != null ? m.fact_qty : m.plan_qty);
-        items.push({ material_id: m.material_id, fact_qty: isNaN(qty) ? 0 : qty });
+        var supp = suppInp ? suppInp.value : (m.supplier || null);
+        items.push({ material_id: m.material_id, fact_qty: isNaN(qty) ? 0 : qty, supplier: supp });
       });
 
       fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials/save-fact', {
@@ -4292,8 +4323,8 @@ function saveTaskMaterialsFact(taskId) {
       .then(function(r){ return r.json(); })
       .then(function(res) {
         if (res.success) {
-          if (typeof showToast === 'function') showToast('✅ Фактический расход ТМЦ сохранен');
-          else alert('✅ Фактический расход ТМЦ сохранен!');
+          if (typeof showToast === 'function') showToast('✅ Фактический расход и поставщики ТМЦ сохранены');
+          else alert('✅ Фактический расход и поставщики ТМЦ сохранены!');
           loadCardMaterials(taskId);
         } else {
           alert('Ошибка сохранения: ' + (res.error || 'неизвестная ошибка'));
@@ -4306,6 +4337,23 @@ function saveTaskMaterialsFact(taskId) {
 }
 window.saveTaskMaterialsFact = saveTaskMaterialsFact;
 
+window.updateMaterialSupplier = function(taskId, materialId, supplier) {
+  fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials/save-fact', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.token },
+    body: JSON.stringify({ items: [{ material_id: materialId, supplier: supplier }] })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(res) {
+    if (res && res.success) {
+      if (typeof showToast === 'function') showToast('Поставщик сохранен: ' + (supplier || 'не выбран'));
+    }
+  })
+  .catch(function(err) {
+    console.error('Ошибка сохранения поставщика:', err);
+  });
+};
+
 function writeOffTaskMaterials(taskId) {
   fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials', { headers: { 'Authorization': 'Bearer ' + S.token } })
     .then(function(r){ return r.json(); })
@@ -4314,8 +4362,10 @@ function writeOffTaskMaterials(taskId) {
       var items = [];
       materials.forEach(function(m) {
         var inp = document.getElementById('fact_mat_' + m.material_id);
+        var suppInp = document.getElementById('supp_mat_' + m.material_id);
         var qty = inp ? parseFloat(inp.value) : parseFloat(m.plan_qty);
-        items.push({ material_id: m.material_id, quantity: isNaN(qty) ? m.plan_qty : qty });
+        var supp = suppInp ? suppInp.value : (m.supplier || null);
+        items.push({ material_id: m.material_id, quantity: isNaN(qty) ? m.plan_qty : qty, supplier: supp });
       });
 
       if (!confirm('Подтвердить фактический расход и списать материалы с виртуального склада подрядчика с фиксацией в себестоимости объекта?')) return;
@@ -5535,9 +5585,16 @@ function loadCardDocuments(taskId) {
 
         // Title and file link
         var titleHtml = '';
+        var isDocx = (d.file_url || '').toLowerCase().indexOf('.docx') !== -1;
+        var isPdf = (d.file_url || '').toLowerCase().indexOf('.pdf') !== -1;
+        var fileFormatBadge = isDocx
+          ? '<span class="badge b-blue" style="font-size:.65rem;padding:1px 5px;font-weight:700" title="Документ Microsoft Word (.docx)">DOCX</span>'
+          : (isPdf ? '<span class="badge b-red" style="font-size:.65rem;padding:1px 5px;font-weight:700" title="Документ Adobe PDF (.pdf)">PDF</span>' : '');
+
         if (d.file_url) {
-          titleHtml = '<a href="' + escHtml(d.file_url) + '" target="_blank" download style="font-weight:600;display:inline-flex;align-items:center;gap:5px;color:var(--blue)">' +
+          titleHtml = '<a href="' + escHtml(d.file_url) + '" target="_blank" style="font-weight:600;display:inline-flex;align-items:center;gap:6px;color:var(--blue)" title="Открыть документ">' +
             (isIncoming ? '📎' : '📄') + ' ' + escHtml(d.title || 'Документ') +
+            (fileFormatBadge ? ' ' + fileFormatBadge : '') +
           '</a>';
         } else {
           titleHtml = '<span style="font-weight:600;display:inline-flex;align-items:center;gap:5px">' +

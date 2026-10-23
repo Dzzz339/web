@@ -428,10 +428,6 @@ router.post('/subcontract-pricelists', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Название прайс-листа обязательно' });
     }
 
-    if (is_default) {
-      await pool.query('UPDATE contractor_price_lists SET is_default = false WHERE is_default = true');
-    }
-
     const { rows } = await pool.query(`
       INSERT INTO contractor_price_lists (
         contract_id, contractor_id, name, customer_tag, region, is_active, is_default
@@ -477,10 +473,6 @@ router.put('/subcontract-pricelists/:id', authenticateToken, async (req, res) =>
   try {
     const id = parseInt(req.params.id, 10);
     const { name, customer_tag, region, is_active, is_default, contractor_id, contract_id } = req.body;
-
-    if (is_default) {
-      await pool.query('UPDATE contractor_price_lists SET is_default = false WHERE id != $1', [id]);
-    }
 
     const { rows } = await pool.query(`
       UPDATE contractor_price_lists SET

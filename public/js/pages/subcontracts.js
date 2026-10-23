@@ -8,18 +8,20 @@
   // ─── 1. ХЕЛПЕРЫ И ПОИСК ПРАЙС-ЛИСТА ДЛЯ ЗАЯВКИ (УНИВЕРСАЛЬНЫЙ МОСТ) ─────────
 
   /**
-   * Поиск наиболее подходящего прайс-листа субподряда:
-   * 1. Ищет персональный прайс для указанного исполнителя (по contractorId или contractId)
-   * 2. Если у исполнителя несколько прайсов — матчит по тэгу заказчика (например, Сбербанк vs Общий)
-   * 3. Если персонального нет — берет базовый прайс по умолчанию (is_default)
-   * 4. Fallback: первый активный прайс из справочника
+   * Интеллектуальный подбор прайс-листа субподряда (по правилам руководства):
+   * 1. Персональный прайс исполнителя (если с субподрядчиком заключен свой прайс под заказчика/регион)
+   * 2. Базовый (рекомендованный руководством) прайс для связки: Регион + Заказчик
+   *    (например: Базовый / Север / Сбербанк vs Базовый / Поволжье / Сбербанк)
+   * 3. Базовый по региону или базовый по заказчику
+   * 4. Общесистемный базовый шаблон
    */
-  window.findSubcontractPriceList = function(contractorId, customerTag) {
+  window.findSubcontractPriceList = function(contractorId, customerTag, region) {
     var pricelists = S.subPricelists || [];
     if (!pricelists.length) return null;
 
     var cId = contractorId ? parseInt(contractorId, 10) : null;
     var custLower = String(customerTag || '').trim().toLowerCase();
+    var regLower = String(region || '').trim().toLowerCase();
     var isSber = custLower.includes('сбер') || custLower.includes('sber');
 
     // 1. Поиск персонального прайса конкретного исполнителя
@@ -32,28 +34,83 @@
         return contractorLists[0];
       }
       if (contractorLists.length > 1) {
-        if (isSber) {
-          var sberPl = contractorLists.find(function(pl) {
-            var tag = String(pl.customer_tag || pl.name || '').toLowerCase();
-            return tag.includes('сбер') || tag.includes('sber');
+        // Точное совпадение: Заказчик + Регион
+        if (custLower && regLower) {
+          var matchBoth = contractorLists.find(function(pl) {
+            var tag = String(pl.customer_tag || '').toLowerCase();
+            var reg = String(pl.region || '').toLowerCase();
+            return (tag && (tag.includes(custLower) || custLower.includes(tag))) &&
+                   (reg && (reg.includes(regLower) || regLower.includes(reg)));
           });
-          if (sberPl) return sberPl;
-        } else {
-          var nonSberPl = contractorLists.find(function(pl) {
-            var tag = String(pl.customer_tag || pl.name || '').toLowerCase();
-            return !tag.includes('сбер') && !tag.includes('sber');
-          });
-          if (nonSberPl) return nonSberPl;
+          if (matchBoth) return matchBoth;
         }
+
+        // Совпадение по заказчику
+        if (custLower) {
+          var matchCust = contractorLists.find(function(pl) {
+            var tag = String(pl.customer_tag || pl.name || '').toLowerCase();
+            return tag && (tag.includes(custLower) || custLower.includes(tag));
+          });
+          if (matchCust) return matchCust;
+        }
+
+        // Совпадение по региону
+        if (regLower) {
+          var matchReg = contractorLists.find(function(pl) {
+            var reg = String(pl.region || pl.name || '').toLowerCase();
+            return reg && (reg.includes(regLower) || regLower.includes(reg));
+          });
+          if (matchReg) return matchReg;
+        }
+
         return contractorLists[0];
       }
     }
 
-    // 2. Поиск базового прайса по умолчанию
-    var defPl = pricelists.find(function(pl) { return pl.is_default && pl.is_active; });
-    if (defPl) return defPl;
+    // 2. Поиск базового (рекомендованного руководством) прайса
+    // Базовые прайсы: имеют флаг is_default или не привязаны к конкретному исполнителю
+    var baseLists = pricelists.filter(function(pl) {
+      return pl.is_active && (pl.is_default || !pl.contractor_id);
+    });
 
-    // 3. Fallback: первый активный
+    if (baseLists.length > 0) {
+      // 2.1. Точное совпадение: Заказчик + Регион (например: Север + Сбербанк)
+      if (custLower && regLower) {
+        var baseBoth = baseLists.find(function(pl) {
+          var tag = String(pl.customer_tag || '').toLowerCase();
+          var reg = String(pl.region || '').toLowerCase();
+          return (tag && (tag.includes(custLower) || custLower.includes(tag))) &&
+                 (reg && (reg.includes(regLower) || regLower.includes(reg)));
+        });
+        if (baseBoth) return baseBoth;
+      }
+
+      // 2.2. Совпадение по региону (например: Север / Поволжье / Сибирь)
+      if (regLower) {
+        var baseReg = baseLists.find(function(pl) {
+          var reg = String(pl.region || pl.name || '').toLowerCase();
+          return reg && (reg.includes(regLower) || regLower.includes(reg));
+        });
+        if (baseReg) return baseReg;
+      }
+
+      // 2.3. Совпадение по заказчику (например: Сбербанк)
+      if (custLower) {
+        var baseCust = baseLists.find(function(pl) {
+          var tag = String(pl.customer_tag || pl.name || '').toLowerCase();
+          return tag && (tag.includes(custLower) || custLower.includes(tag));
+        });
+        if (baseCust) return baseCust;
+      }
+
+      // 2.4. Дефолтный прайс
+      var defPl = baseLists.find(function(pl) { return pl.is_default; });
+      if (defPl) return defPl;
+
+      return baseLists[0];
+    }
+
+    // 3. Fallback: любой первый активный прайс
     var anyActive = pricelists.find(function(pl) { return pl.is_active; });
     return anyActive || pricelists[0] || null;
   };
@@ -72,14 +129,16 @@
         worksAmount: customPrice,
         transportAmount: 0,
         priceListName: 'Фиксированная договорная цена',
+        isRecommended: false,
         lines: [
           { name: params.customDesc || 'Согласованная стоимость работ по договору', qty: 1, unit: 'объект', price: customPrice, sum: customPrice }
         ]
       };
     }
 
-    var pl = window.findSubcontractPriceList(params.contractorId, params.customerTag);
+    var pl = window.findSubcontractPriceList(params.contractorId, params.customerTag, params.region);
     var items = (pl && Array.isArray(pl.items)) ? pl.items : [];
+    var isRecommended = Boolean(pl && (pl.is_default || !pl.contractor_id));
 
     // Хелпер для поиска позиции прайса
     function findItem(code) {
@@ -165,6 +224,7 @@
       transportAmount: transportAmount,
       priceListId: pl ? pl.id : null,
       priceListName: pl ? pl.name : 'Базовый типовой прайс',
+      isRecommended: isRecommended,
       lines: lines
     };
   };
@@ -215,7 +275,7 @@
       return '<option value="' + c.id + '" ' + (String(filterContractor) === String(c.id) ? 'selected' : '') + '>' + escHtml(c.name_short) + '</option>';
     }).join('');
 
-    return '<div style="animation:fadeIn 0.15s ease; padding:4px 4px 28px 4px">' +
+    return '<div style="animation:fadeIn 0.15s ease; padding:0 0 2rem 0; margin-bottom:1.25rem">' +
       // Заголовок
       '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;margin-bottom:1.5rem">' +
         '<div>' +
@@ -373,11 +433,26 @@
   window.pageSubPricelists = function() {
     var pricelists = S.subPricelists || [];
     var q = String(S.subPriceSearch || '').trim().toLowerCase();
-    var filterType = S.subPriceFilter || 'all';
+    var filterType = S.subPriceFilter || 'all'; // all | base | personal
+    var filterRegion = S.subPriceRegion || 'all';
+    var filterCustomer = S.subPriceCustomer || 'all';
+    var viewMode = S.subPriceViewMode || 'table'; // table (по умолчанию) | cards
+
+    // Собираем уникальные регионы и заказчиков для фильтров
+    var distinctRegions = [];
+    var distinctCustomers = [];
+    pricelists.forEach(function(pl) {
+      if (pl.region && !distinctRegions.includes(pl.region)) distinctRegions.push(pl.region);
+      if (pl.customer_tag && !distinctCustomers.includes(pl.customer_tag)) distinctCustomers.push(pl.customer_tag);
+    });
 
     var filtered = pricelists.filter(function(pl) {
-      if (filterType === 'default' && !pl.is_default) return false;
-      if (filterType === 'personal' && pl.is_default) return false;
+      var isBase = Boolean(pl.is_default || !pl.contractor_id);
+      if (filterType === 'base' && !isBase) return false;
+      if (filterType === 'personal' && isBase) return false;
+      if (filterRegion !== 'all' && String(pl.region || '') !== String(filterRegion)) return false;
+      if (filterCustomer !== 'all' && String(pl.customer_tag || '') !== String(filterCustomer)) return false;
+
       if (q) {
         var match = (pl.name && pl.name.toLowerCase().includes(q)) ||
                     (pl.customer_tag && pl.customer_tag.toLowerCase().includes(q)) ||
@@ -389,16 +464,26 @@
     });
 
     var totalCount = pricelists.length;
-    var defaultPl = pricelists.find(function(p) { return p.is_default; });
-    var personalCount = pricelists.filter(function(p) { return !p.is_default; }).length;
+    var baseCount = pricelists.filter(function(p) { return Boolean(p.is_default || !p.contractor_id); }).length;
+    var personalCount = pricelists.filter(function(p) { return Boolean(p.contractor_id); }).length;
+    var regionsCount = distinctRegions.length || 1;
 
-    return '<div style="animation:fadeIn 0.15s ease; padding:4px 4px 28px 4px">' +
+    // Опции фильтров
+    var regionOpts = distinctRegions.map(function(r) {
+      return '<option value="' + escHtml(r) + '" ' + (filterRegion === r ? 'selected' : '') + '>📍 ' + escHtml(r) + '</option>';
+    }).join('');
+
+    var customerOpts = distinctCustomers.map(function(c) {
+      return '<option value="' + escHtml(c) + '" ' + (filterCustomer === c ? 'selected' : '') + '>🏷️ ' + escHtml(c) + '</option>';
+    }).join('');
+
+    return '<div style="animation:fadeIn 0.15s ease; padding:0 0 2rem 0; margin-bottom:1.25rem">' +
       // Заголовок
       '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;margin-bottom:1.5rem">' +
         '<div>' +
           '<h1 class="page-title" style="margin:0;display:flex;align-items:center;gap:10px;font-size:1.45rem;font-weight:800"><span>📊 Прайсы субподряда</span></h1>' +
           '<div style="font-size:.84rem;color:var(--text-3);margin-top:4px">' +
-            'Тарифные сетки СМР: дифференцированная шкала портов (1–3 / >3 шт), монтаж шкафов ТКШ, дорога (12 ₽/км) и суточные' +
+            'Реестр тарифных сеток СМР: базовые (рекомендации руководства по регионам и заказчикам) и персональные прайсы исполнителей' +
           '</div>' +
         '</div>' +
         '<div style="display:flex;gap:10px;align-items:center">' +
@@ -410,119 +495,432 @@
       // Сводные карточки
       '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:14px;margin-bottom:1.5rem">' +
         '<div class="card" style="padding:16px 20px;border-radius:12px;border:1.5px solid var(--border);background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.03)">' +
-          '<div style="font-size:.74rem;color:var(--text-3);font-weight:700;text-transform:uppercase;letter-spacing:.03em">Всего прайс-листов</div>' +
+          '<div style="font-size:.74rem;color:var(--text-3);font-weight:700;text-transform:uppercase;letter-spacing:.03em">Всего прайсов</div>' +
           '<div style="font-size:1.75rem;font-weight:800;color:var(--text);margin-top:6px">' + totalCount + '</div>' +
-          '<div style="font-size:.74rem;color:var(--text-3);margin-top:4px">Доступно для назначения</div>' +
+          '<div style="font-size:.74rem;color:var(--text-3);margin-top:4px">В реестре системы</div>' +
         '</div>' +
         '<div class="card" style="padding:16px 20px;border-radius:12px;border:1.5px solid #86efac;background:#f0fdf4;box-shadow:0 2px 8px rgba(22,101,52,0.04)">' +
-          '<div style="font-size:.74rem;color:#166534;font-weight:700;text-transform:uppercase;letter-spacing:.03em">Базовый прайс</div>' +
-          '<div style="font-size:.98rem;font-weight:800;color:#15803d;margin-top:6px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden" title="' + escHtml(defaultPl ? defaultPl.name : '') + '">' +
-            (defaultPl ? escHtml(defaultPl.name) : 'Не назначен') +
-          '</div>' +
-          '<div style="font-size:.74rem;color:#166534;margin-top:4px">Используется по умолчанию</div>' +
+          '<div style="font-size:.74rem;color:#166534;font-weight:700;text-transform:uppercase;letter-spacing:.03em">Базовые (Рекомендованные)</div>' +
+          '<div style="font-size:1.75rem;font-weight:800;color:#15803d;margin-top:6px">' + baseCount + '</div>' +
+          '<div style="font-size:.74rem;color:#166534;margin-top:4px">Сетки руководства по регионам</div>' +
         '</div>' +
         '<div class="card" style="padding:16px 20px;border-radius:12px;border:1.5px solid #bfdbfe;background:#eff6ff;box-shadow:0 2px 8px rgba(30,64,175,0.04)">' +
-          '<div style="font-size:.74rem;color:#1e40af;font-weight:700;text-transform:uppercase;letter-spacing:.03em">Персональных прайсов</div>' +
+          '<div style="font-size:.74rem;color:#1e40af;font-weight:700;text-transform:uppercase;letter-spacing:.03em">Персональные прайсы</div>' +
           '<div style="font-size:1.75rem;font-weight:800;color:#1d4ed8;margin-top:6px">' + personalCount + '</div>' +
-          '<div style="font-size:.74rem;color:#1e40af;margin-top:4px">Привязаны к исполнителям</div>' +
+          '<div style="font-size:.74rem;color:#1e40af;margin-top:4px">Индивидуальные соглашения</div>' +
         '</div>' +
         '<div class="card" style="padding:16px 20px;border-radius:12px;border:1.5px solid var(--border);background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.03)">' +
-          '<div style="font-size:.74rem;color:var(--text-3);font-weight:700;text-transform:uppercase;letter-spacing:.03em">Позиций в стандарте</div>' +
-          '<div style="font-size:1.75rem;font-weight:800;color:var(--text);margin-top:6px">22</div>' +
-          '<div style="font-size:.74rem;color:var(--text-3);margin-top:4px">Порты, шкафы, дорога, суточные</div>' +
+          '<div style="font-size:.74rem;color:var(--text-3);font-weight:700;text-transform:uppercase;letter-spacing:.03em">Охвачено регионов</div>' +
+          '<div style="font-size:1.75rem;font-weight:800;color:var(--text);margin-top:6px">' + regionsCount + '</div>' +
+          '<div style="font-size:.74rem;color:var(--text-3);margin-top:4px">Север, Поволжье, Сибирь...</div>' +
         '</div>' +
       '</div>' +
 
-      // Фильтры
+      // Фильтры и переключатель вида
       '<div class="card mb-3" style="padding:14px 18px;border-radius:12px;border:1.5px solid var(--border);background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.02)">' +
-        '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">' +
-          '<div style="flex:1;min-width:240px">' +
-            '<input type="text" id="sub_price_q" value="' + escHtml(S.subPriceSearch || '') + '" ' +
-              'placeholder="🔍 Поиск по названию прайса, исполнителю или тегу..." ' +
-              'oninput="S.subPriceSearch=this.value; renderApp()" ' +
-              'style="width:100%;padding:8px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
+        '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between">' +
+          '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex:1">' +
+            '<div style="flex:1;min-width:240px">' +
+              '<input type="text" id="sub_price_q" value="' + escHtml(S.subPriceSearch || '') + '" ' +
+                'placeholder="🔍 Поиск по названию прайса, исполнителю, региону..." ' +
+                'oninput="S.subPriceSearch=this.value; renderApp()" ' +
+                'style="width:100%;padding:8px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
+            '</div>' +
+            '<div style="min-width:180px">' +
+              '<select onchange="S.subPriceFilter=this.value; renderApp()" style="width:100%;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.84rem;background:#fff">' +
+                '<option value="all" ' + (filterType === 'all' ? 'selected' : '') + '>Все типы прайсов</option>' +
+                '<option value="base" ' + (filterType === 'base' ? 'selected' : '') + '>⭐ Только базовые (рекомендации)</option>' +
+                '<option value="personal" ' + (filterType === 'personal' ? 'selected' : '') + '>👤 Только персональные</option>' +
+              '</select>' +
+            '</div>' +
+            '<div style="min-width:170px">' +
+              '<select onchange="S.subPriceRegion=this.value; renderApp()" style="width:100%;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.84rem;background:#fff">' +
+                '<option value="all">Все регионы</option>' +
+                regionOpts +
+              '</select>' +
+            '</div>' +
+            '<div style="min-width:170px">' +
+              '<select onchange="S.subPriceCustomer=this.value; renderApp()" style="width:100%;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.84rem;background:#fff">' +
+                '<option value="all">Все заказчики</option>' +
+                customerOpts +
+              '</select>' +
+            '</div>' +
+            (q || filterType !== 'all' || filterRegion !== 'all' || filterCustomer !== 'all' ?
+              '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid var(--border);border-radius:8px;padding:8px 14px" onclick="S.subPriceSearch=\'\';S.subPriceFilter=\'all\';S.subPriceRegion=\'all\';S.subPriceCustomer=\'all\';renderApp()">Сбросить</button>' : '') +
           '</div>' +
-          '<div style="min-width:200px">' +
-            '<select onchange="S.subPriceFilter=this.value; renderApp()" style="width:100%;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.84rem;background:#fff">' +
-              '<option value="all" ' + (filterType === 'all' ? 'selected' : '') + '>Все прайс-листы</option>' +
-              '<option value="default" ' + (filterType === 'default' ? 'selected' : '') + '>Только базовый (по умолчанию)</option>' +
-              '<option value="personal" ' + (filterType === 'personal' ? 'selected' : '') + '>Только персональные</option>' +
-            '</select>' +
+
+          // Переключатель Таблица / Плитка
+          '<div style="display:flex;border:1.5px solid var(--border);border-radius:8px;overflow:hidden">' +
+            '<button type="button" class="btn btn-sm" style="padding:6px 12px;border-radius:0;border:none;' + (viewMode === 'table' ? 'background:#2563eb;color:#fff;font-weight:700' : 'background:#fff;color:var(--text)') + '" onclick="S.subPriceViewMode=\'table\';renderApp()" title="Табличный реестр (рекомендуется)">☰ Таблица</button>' +
+            '<button type="button" class="btn btn-sm" style="padding:6px 12px;border-radius:0;border:none;' + (viewMode === 'cards' ? 'background:#2563eb;color:#fff;font-weight:700' : 'background:#fff;color:var(--text)') + '" onclick="S.subPriceViewMode=\'cards\';renderApp()" title="Плиточный вид">⊞ Плитка</button>' +
           '</div>' +
-          (q || filterType !== 'all' ?
-            '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid var(--border);border-radius:8px;padding:8px 14px" onclick="S.subPriceSearch=\'\';S.subPriceFilter=\'all\';renderApp()">Сбросить</button>' : '') +
         '</div>' +
       '</div>' +
 
-      // Сетка прайс-листов
-      '<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(360px, 1fr));gap:18px">' +
-        (filtered.length ? filtered.map(function(pl) {
-          var items = pl.items || [];
-          var p5e = items.find(function(it){ return it.work_code === 'port_5e'; }) || { price_tier_1: 3000, price_tier_2: 2500 };
-          var p6 = items.find(function(it){ return it.work_code === 'port_6' || it.work_code === 'port_optics'; }) || { price_tier_1: 3500, price_tier_2: 3000 };
-          var km = items.find(function(it){ return it.work_code === 'km_rate'; }) || { price_tier_1: 12 };
-          var daily = items.find(function(it){ return it.work_code === 'daily_rate'; }) || { price_tier_1: 700 };
-
-          var isDef = Boolean(pl.is_default);
-
-          return '<div class="card" style="background:#fff;border:' + (isDef ? '2px solid #3b82f6' : '1.5px solid var(--border)') + ';border-radius:14px;padding:20px 22px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:' + (isDef ? '0 6px 20px rgba(59,130,246,0.12)' : '0 2px 8px rgba(0,0,0,0.03)') + '">' +
-            '<div>' +
-              '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px">' +
-                '<div style="flex:1">' +
-                  '<div style="font-weight:800;font-size:1.02rem;color:var(--text);line-height:1.35">' + escHtml(pl.name) + '</div>' +
-                  (pl.contractor_name ?
-                    '<div style="font-size:.80rem;color:#1e40af;font-weight:600;margin-top:4px">👤 Исполнитель: ' + escHtml(pl.contractor_name) + '</div>' :
-                    (isDef ? '<div style="font-size:.80rem;color:#15803d;font-weight:600;margin-top:4px">⭐ Общесистемный (по умолчанию)</div>' : '<div style="font-size:.80rem;color:var(--text-3);margin-top:4px">Общий прайс-лист</div>')) +
-                '</div>' +
-                (isDef ? '<span class="badge b-blue" style="font-size:.72rem;padding:4px 10px;white-space:nowrap;font-weight:700">По умолчанию</span>' : '<span class="badge b-gray" style="font-size:.72rem;padding:4px 8px">Активен</span>') +
-              '</div>' +
-
-              (pl.customer_tag ? '<div style="margin-bottom:12px"><span style="display:inline-flex;align-items:center;gap:4px;font-size:.74rem;color:#334155;background:#f1f5f9;border:1px solid #cbd5e1;padding:3px 9px;border-radius:12px;font-weight:600">🏷️ ' + escHtml(pl.customer_tag) + '</span></div>' : '') +
-
-              // Превью тарифов
-              '<div style="background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;padding:12px 16px;margin:12px 0 16px 0;font-size:.82rem;display:flex;flex-direction:column;gap:8px">' +
-                '<div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:5px;border-bottom:1px dashed #e2e8f0">' +
-                  '<span style="color:var(--text-2)">Порт СКС 5e:</span>' +
-                  '<span style="font-weight:700;color:var(--text)">' + p5e.price_tier_1 + ' ₽ <span style="font-weight:400;color:var(--text-3)">(1–3)</span> / ' + p5e.price_tier_2 + ' ₽ <span style="font-weight:400;color:var(--text-3)">(>3)</span></span>' +
-                '</div>' +
-                '<div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:5px;border-bottom:1px dashed #e2e8f0">' +
-                  '<span style="color:var(--text-2)">Порт кат. 6 / Оптика:</span>' +
-                  '<span style="font-weight:700;color:var(--text)">' + p6.price_tier_1 + ' ₽ / ' + p6.price_tier_2 + ' ₽</span>' +
-                '</div>' +
-                '<div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:5px;border-bottom:1px dashed #e2e8f0">' +
-                  '<span style="color:var(--text-2)">Дорога (>10 км):</span>' +
-                  '<span style="font-weight:700;color:var(--text)">' + km.price_tier_1 + ' ₽ / км</span>' +
-                '</div>' +
-                '<div style="display:flex;justify-content:space-between;align-items:center">' +
-                  '<span style="color:var(--text-2)">Суточные командировки:</span>' +
-                  '<span style="font-weight:700;color:var(--text)">' + daily.price_tier_1 + ' ₽ / день</span>' +
-                '</div>' +
-              '</div>' +
+      // ─── РЕЖИМ 1: ТАБЛИЧНЫЙ РЕЕСТР (УДОБНО ДЛЯ БОЛЬШОГО КОЛИЧЕСТВА) ─────────
+      (viewMode === 'table' ?
+        '<div class="card tbl-wrap" style="background:#fff;border-radius:12px;border:1.5px solid var(--border);overflow:hidden;overflow-x:auto;box-shadow:0 2px 8px rgba(0,0,0,0.03)">' +
+          '<div style="padding:12px 18px;border-bottom:1px solid var(--border);background:#fafafa;display:flex;justify-content:space-between;align-items:center">' +
+            '<div style="font-weight:700;font-size:.88rem;color:var(--text)">' +
+              'Реестр прайс-листов субподряда (' + filtered.length + ')' +
             '</div>' +
+          '</div>' +
+          '<table style="width:100%;border-collapse:collapse;font-size:.83rem">' +
+            '<thead><tr style="background:#f8fafc;border-bottom:1.5px solid var(--border);color:var(--text-3);font-size:.74rem;text-transform:uppercase;letter-spacing:.03em">' +
+              '<th style="padding:12px 16px;text-align:left;min-width:210px">Название прайс-листа</th>' +
+              '<th style="padding:12px 16px;text-align:left;min-width:140px">Тип прайса</th>' +
+              '<th style="padding:12px 16px;text-align:left;min-width:130px">Регион</th>' +
+              '<th style="padding:12px 16px;text-align:left;min-width:130px">Заказчик</th>' +
+              '<th style="padding:12px 16px;text-align:left;min-width:180px">Исполнитель</th>' +
+              '<th style="padding:12px 16px;text-align:left;min-width:260px">Ключевые тарифы СМР (превью)</th>' +
+              '<th style="padding:12px 16px;text-align:center;width:75px">Позиций</th>' +
+              '<th style="padding:12px 16px;text-align:right;min-width:200px">Действия</th>' +
+            '</tr></thead>' +
+            '<tbody>' +
+              (filtered.length ? filtered.map(function(pl) {
+                var items = pl.items || [];
+                var p5e = items.find(function(it){ return it.work_code === 'port_5e'; }) || { price_tier_1: 3000, price_tier_2: 2500 };
+                var p6 = items.find(function(it){ return it.work_code === 'port_6' || it.work_code === 'port_optics'; }) || { price_tier_1: 3500, price_tier_2: 3000 };
+                var km = items.find(function(it){ return it.work_code === 'km_rate'; }) || { price_tier_1: 12 };
+                var daily = items.find(function(it){ return it.work_code === 'daily_rate'; }) || { price_tier_1: 700 };
 
-            // Нижняя плашка с кнопками
-            '<div>' +
-              '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-top:8px;border-top:1px solid #f1f5f9;font-size:.78rem;color:var(--text-3)">' +
-                '<span>Всего позиций: <b>' + items.length + '</b></span>' +
-                (pl.contract_number ? '<span style="font-weight:600">Договор № ' + escHtml(pl.contract_number) + '</span>' : '') +
+                var isBase = Boolean(pl.is_default || !pl.contractor_id);
+                var typeBadge = isBase ?
+                  '<span class="badge" style="background:#f0fdf4;color:#166534;border:1px solid #86efac;padding:3px 8px;border-radius:6px;font-weight:700;font-size:.74rem">⭐ Базовый (Реком.)</span>' :
+                  '<span class="badge" style="background:#f5f3ff;color:#6b21a8;border:1px solid #d8b4fe;padding:3px 8px;border-radius:6px;font-weight:700;font-size:.74rem">👤 Персональный</span>';
+
+                var regionHtml = pl.region ?
+                  '<span style="font-weight:600;color:var(--text)">📍 ' + escHtml(pl.region) + '</span>' :
+                  '<span style="color:var(--text-3)">Все регионы (РФ)</span>';
+
+                var customerHtml = pl.customer_tag ?
+                  '<span class="badge" style="background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;padding:3px 8px;border-radius:6px;font-size:.74rem;font-weight:600">🏷️ ' + escHtml(pl.customer_tag) + '</span>' :
+                  '<span style="color:var(--text-3)">Все заказчики</span>';
+
+                var contractorHtml = pl.contractor_name ?
+                  '<div><div style="font-weight:600;color:var(--text)">' + escHtml(pl.contractor_name) + '</div>' + (pl.contract_number ? '<div style="font-size:.74rem;color:var(--text-3);margin-top:2px">Договор № ' + escHtml(pl.contract_number) + '</div>' : '') + '</div>' :
+                  '<span style="color:var(--text-3);font-size:.78rem">Все исполнители региона</span>';
+
+                return '<tr style="border-bottom:1px solid var(--border);transition:background .1s" onmouseover="this.style.background=\'#f9fafb\'" onmouseout="this.style.background=\'#fff\'">' +
+                  '<td style="padding:12px 16px">' +
+                    '<div style="font-weight:700;color:var(--text);font-size:.88rem">' + escHtml(pl.name) + '</div>' +
+                  '</td>' +
+                  '<td style="padding:12px 16px">' +
+                    typeBadge +
+                  '</td>' +
+                  '<td style="padding:12px 16px">' +
+                    regionHtml +
+                  '</td>' +
+                  '<td style="padding:12px 16px">' +
+                    customerHtml +
+                  '</td>' +
+                  '<td style="padding:12px 16px">' +
+                    contractorHtml +
+                  '</td>' +
+                  '<td style="padding:12px 16px">' +
+                    '<div style="display:flex;gap:5px;flex-wrap:wrap;font-size:.76rem">' +
+                      '<span style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;padding:2px 7px;border-radius:5px" title="Порт СКС 5e (1–3 / >3 шт)">5e: <b>' + p5e.price_tier_1 + ' / ' + p5e.price_tier_2 + ' ₽</b></span>' +
+                      '<span style="background:#f8fafc;color:#334155;border:1px solid #e2e8f0;padding:2px 7px;border-radius:5px" title="Порт кат. 6 / Оптика">Кат.6: <b>' + p6.price_tier_1 + ' / ' + p6.price_tier_2 + ' ₽</b></span>' +
+                      '<span style="background:#f8fafc;color:#334155;border:1px solid #e2e8f0;padding:2px 7px;border-radius:5px" title="Дорога свыше 10 км">Км: <b>' + km.price_tier_1 + ' ₽</b></span>' +
+                      '<span style="background:#f8fafc;color:#334155;border:1px solid #e2e8f0;padding:2px 7px;border-radius:5px" title="Суточные командировки">Сут: <b>' + daily.price_tier_1 + ' ₽</b></span>' +
+                    '</div>' +
+                  '</td>' +
+                  '<td style="padding:12px 16px;text-align:center">' +
+                    '<span class="badge b-blue" style="font-size:.72rem;padding:3px 7px">' + (items.length || 0) + ' поз.</span>' +
+                  '</td>' +
+                  '<td style="padding:12px 16px;text-align:right">' +
+                    '<div style="display:flex;gap:6px;justify-content:flex-end;align-items:center">' +
+                      '<button type="button" class="btn btn-xs btn-primary" style="padding:5px 10px;font-weight:600;border-radius:6px" onclick="openSubPriceListItemsModal(' + pl.id + ')">📋 Позиции</button>' +
+                      '<button type="button" class="btn btn-xs btn-ghost" style="border:1.5px solid var(--border);padding:5px 8px;border-radius:6px" onclick="openSubPriceListModal(' + pl.id + ')" title="Редактировать параметры прайса">⚙️</button>' +
+                      '<button type="button" class="btn btn-xs btn-ghost" style="border:1.5px solid #bfdbfe;color:#1d4ed8;padding:5px 8px;border-radius:6px" onclick="cloneSubPriceList(' + pl.id + ')" title="Клонировать прайс (создать копию для другого региона)">📄 Копия</button>' +
+                      '<button type="button" class="btn btn-xs btn-ghost" style="color:var(--red);border:1.5px solid #fecaca;padding:5px 8px;border-radius:6px" onclick="deleteSubPriceList(' + pl.id + ')" title="Удалить прайс">🗑️</button>' +
+                    '</div>' +
+                  '</td>' +
+                '</tr>';
+              }).join('') :
+              '<tr><td colspan="8" style="padding:36px;text-align:center;color:var(--text-3)">' +
+                (q ? 'По вашему запросу прайс-листов не найдено' : 'Прайс-листы пока не созданы. Нажмите «+ Создать прайс-лист»') +
+              '</td></tr>') +
+            '</tbody>' +
+          '</table>' +
+        '</div>' :
+
+        // ─── РЕЖИМ 2: ПЛИТОЧНЫЙ ВИД ───────────────────────────────────────────
+        '<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(360px, 1fr));gap:18px">' +
+          (filtered.length ? filtered.map(function(pl) {
+            var items = pl.items || [];
+            var p5e = items.find(function(it){ return it.work_code === 'port_5e'; }) || { price_tier_1: 3000, price_tier_2: 2500 };
+            var p6 = items.find(function(it){ return it.work_code === 'port_6' || it.work_code === 'port_optics'; }) || { price_tier_1: 3500, price_tier_2: 3000 };
+            var km = items.find(function(it){ return it.work_code === 'km_rate'; }) || { price_tier_1: 12 };
+            var daily = items.find(function(it){ return it.work_code === 'daily_rate'; }) || { price_tier_1: 700 };
+
+            var isBase = Boolean(pl.is_default || !pl.contractor_id);
+
+            return '<div class="card" style="background:#fff;border:' + (isBase ? '2px solid #86efac' : '1.5px solid var(--border)') + ';border-radius:14px;padding:20px 22px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:' + (isBase ? '0 4px 16px rgba(22,101,52,0.06)' : '0 2px 8px rgba(0,0,0,0.03)') + '">' +
+              '<div>' +
+                '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px">' +
+                  '<div style="flex:1">' +
+                    '<div style="font-weight:800;font-size:1.02rem;color:var(--text);line-height:1.35">' + escHtml(pl.name) + '</div>' +
+                    (pl.contractor_name ?
+                      '<div style="font-size:.80rem;color:#1e40af;font-weight:600;margin-top:4px">👤 Исполнитель: ' + escHtml(pl.contractor_name) + '</div>' :
+                      '<div style="font-size:.80rem;color:#15803d;font-weight:600;margin-top:4px">⭐ Базовый (рекомендован руководством)</div>') +
+                  '</div>' +
+                  (isBase ? '<span class="badge b-green" style="font-size:.72rem;padding:4px 10px;white-space:nowrap;font-weight:700">Базовый</span>' : '<span class="badge b-purple" style="font-size:.72rem;padding:4px 8px">Персональный</span>') +
+                '</div>' +
+
+                '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">' +
+                  (pl.region ? '<span style="font-size:.74rem;color:#0369a1;background:#e0f2fe;border:1px solid #bae6fd;padding:3px 8px;border-radius:12px;font-weight:600">📍 ' + escHtml(pl.region) + '</span>' : '<span style="font-size:.74rem;color:var(--text-3);background:#f1f5f9;padding:3px 8px;border-radius:12px">📍 Все регионы</span>') +
+                  (pl.customer_tag ? '<span style="font-size:.74rem;color:#334155;background:#f1f5f9;border:1px solid #cbd5e1;padding:3px 8px;border-radius:12px;font-weight:600">🏷️ ' + escHtml(pl.customer_tag) + '</span>' : '') +
+                '</div>' +
+
+                // Превью тарифов
+                '<div style="background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:.82rem;display:flex;flex-direction:column;gap:8px">' +
+                  '<div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:5px;border-bottom:1px dashed #e2e8f0">' +
+                    '<span style="color:var(--text-2)">Порт СКС 5e:</span>' +
+                    '<span style="font-weight:700;color:var(--text)">' + p5e.price_tier_1 + ' ₽ <span style="font-weight:400;color:var(--text-3)">(1–3)</span> / ' + p5e.price_tier_2 + ' ₽ <span style="font-weight:400;color:var(--text-3)">(>3)</span></span>' +
+                  '</div>' +
+                  '<div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:5px;border-bottom:1px dashed #e2e8f0">' +
+                    '<span style="color:var(--text-2)">Порт кат. 6 / Оптика:</span>' +
+                    '<span style="font-weight:700;color:var(--text)">' + p6.price_tier_1 + ' ₽ / ' + p6.price_tier_2 + ' ₽</span>' +
+                  '</div>' +
+                  '<div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:5px;border-bottom:1px dashed #e2e8f0">' +
+                    '<span style="color:var(--text-2)">Дорога (>10 км):</span>' +
+                    '<span style="font-weight:700;color:var(--text)">' + km.price_tier_1 + ' ₽ / км</span>' +
+                  '</div>' +
+                  '<div style="display:flex;justify-content:space-between;align-items:center">' +
+                    '<span style="color:var(--text-2)">Суточные командировки:</span>' +
+                    '<span style="font-weight:700;color:var(--text)">' + daily.price_tier_1 + ' ₽ / день</span>' +
+                  '</div>' +
+                '</div>' +
               '</div>' +
-              '<div style="display:flex;gap:8px;align-items:center">' +
-                '<button type="button" class="btn btn-sm btn-primary" style="flex:1;padding:8px 12px;font-weight:600;border-radius:8px" onclick="openSubPriceListItemsModal(' + pl.id + ')">📋 Позиции (' + items.length + ')</button>' +
-                '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid var(--border);padding:8px 12px;border-radius:8px" onclick="openSubPriceListModal(' + pl.id + ')">⚙️ Настройки</button>' +
-                (!isDef ? '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid var(--border);padding:8px 10px;border-radius:8px" title="Сделать основным по умолчанию" onclick="setSubPriceListDefault(' + pl.id + ')">⭐</button>' : '') +
-                (!isDef ? '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red);border:1.5px solid #fecaca;padding:8px 10px;border-radius:8px" title="Удалить прайс" onclick="deleteSubPriceList(' + pl.id + ')">🗑️</button>' : '') +
+
+              // Нижняя плашка с кнопками
+              '<div>' +
+                '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-top:8px;border-top:1px solid #f1f5f9;font-size:.78rem;color:var(--text-3)">' +
+                  '<span>Всего позиций: <b>' + items.length + '</b></span>' +
+                  (pl.contract_number ? '<span style="font-weight:600">Договор № ' + escHtml(pl.contract_number) + '</span>' : '') +
+                '</div>' +
+                '<div style="display:flex;gap:6px;align-items:center">' +
+                  '<button type="button" class="btn btn-sm btn-primary" style="flex:1;padding:8px 10px;font-weight:600;border-radius:8px" onclick="openSubPriceListItemsModal(' + pl.id + ')">📋 Позиции (' + items.length + ')</button>' +
+                  '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid var(--border);padding:8px 10px;border-radius:8px" onclick="openSubPriceListModal(' + pl.id + ')">⚙️</button>' +
+                  '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid #bfdbfe;color:#1d4ed8;padding:8px 10px;border-radius:8px" title="Клонировать прайс" onclick="cloneSubPriceList(' + pl.id + ')">📄</button>' +
+                  '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red);border:1.5px solid #fecaca;padding:8px 10px;border-radius:8px" title="Удалить прайс" onclick="deleteSubPriceList(' + pl.id + ')">🗑️</button>' +
+                '</div>' +
               '</div>' +
-            '</div>' +
-          '</div>';
-        }).join('') :
-        '<div style="grid-column:1/-1;padding:48px;text-align:center;color:var(--text-3);background:#fff;border-radius:12px;border:1.5px solid var(--border)">' +
-          'Прайс-листы не найдены. Нажмите «+ Создать прайс-лист»' +
+            '</div>';
+          }).join('') :
+          '<div style="grid-column:1/-1;padding:48px;text-align:center;color:var(--text-3);background:#fff;border-radius:12px;border:1.5px solid var(--border)">' +
+            'Прайс-листы не найдены. Нажмите «+ Создать прайс-лист»' +
+          '</div>') +
         '</div>') +
-      '</div>' +
     '</div>';
   };
 
-  // ─── 4. МОДАЛКА: СОЗДАНИЕ / РЕДАКТИРОВАНИЕ ДОГОВОРА СУБПОДРЯДА ───────────────
+  // ─── 4. МОДАЛКА: СОЗДАНИЕ / РЕДАКТИРОВАНИЕ / КЛОНИРОВАНИЕ ПРАЙС-ЛИСТА ─────────
+
+  window.cloneSubPriceList = function(sourceId) {
+    window.openSubPriceListModal(null, sourceId);
+  };
+
+  window.toggleSubPriceType = function(val) {
+    var cWrap = document.getElementById('spl_contractor_wrap');
+    if (cWrap) {
+      cWrap.style.display = (val === 'personal') ? 'block' : 'none';
+    }
+  };
+
+  window.openSubPriceListModal = function(priceListId, copyFromId) {
+    var pl = priceListId ? (S.subPricelists || []).find(function(x){ return x.id === priceListId; }) : null;
+    var srcPl = copyFromId ? (S.subPricelists || []).find(function(x){ return x.id === copyFromId; }) : null;
+    var isEdit = Boolean(pl);
+    var isClone = Boolean(srcPl);
+
+    var subContractors = (S.contractors || []).filter(function(x) {
+      return x && x.type !== 'customer' && !String(x.inn || '').startsWith('CUST-');
+    });
+
+    var selectedContractorId = pl ? pl.contractor_id : (srcPl ? srcPl.contractor_id : null);
+    var contractorOpts = subContractors.map(function(ct) {
+      var sel = (selectedContractorId === ct.id) ? 'selected' : '';
+      return '<option value="' + ct.id + '" ' + sel + '>' + escHtml(ct.name_short) + ' (ИНН ' + escHtml(ct.inn || '—') + ')</option>';
+    }).join('');
+
+    // Список прайсов для выбора источника позиций
+    var sourceOpts = (S.subPricelists || []).map(function(p) {
+      var sel = (copyFromId && copyFromId === p.id) || (!copyFromId && p.is_default) ? 'selected' : '';
+      return '<option value="' + p.id + '" ' + sel + '>' + escHtml(p.name) + (p.region ? ' (' + escHtml(p.region) + ')' : '') + '</option>';
+    }).join('');
+
+    var defaultName = '';
+    if (isEdit) defaultName = pl.name;
+    else if (isClone) defaultName = 'Копия: ' + srcPl.name;
+
+    var defaultRegion = pl ? (pl.region || '') : (srcPl ? (srcPl.region || '') : '');
+    var defaultTag = pl ? (pl.customer_tag || '') : (srcPl ? (srcPl.customer_tag || '') : '');
+    var isBase = pl ? Boolean(pl.is_default || !pl.contractor_id) : (srcPl ? Boolean(srcPl.is_default || !srcPl.contractor_id) : true);
+
+    var modalTitle = isEdit ? 'Настройки прайс-листа' : (isClone ? 'Клонирование прайс-листа' : 'Новый прайс-лист субподряда');
+
+    var modalHtml = '<div class="modal-overlay modal-backdrop" id="_sub_price_modal_backdrop" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(2px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px">' +
+      '<div class="modal-box card" style="background:#fff;border-radius:14px;max-width:620px;width:100%;max-height:92vh;box-shadow:0 16px 40px rgba(0,0,0,0.22);overflow:hidden;display:flex;flex-direction:column">' +
+        '<div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1.5px solid var(--border);background:#fafafa;cursor:move;user-select:none">' +
+          '<h3 class="modal-title" style="margin:0;font-size:1.1rem;display:flex;align-items:center;gap:8px">' +
+            '<span>📊</span> <span>' + modalTitle + '</span>' +
+          '</h3>' +
+          '<button type="button" class="btn-close btn btn-sm btn-ghost" onclick="var b=document.getElementById(\'_sub_price_modal_backdrop\'); if(b) b.remove();">✕</button>' +
+        '</div>' +
+
+        '<div class="modal-body" style="padding:20px 24px;overflow-y:auto;flex:1">' +
+          '<form id="sub_price_form" onsubmit="saveSubPriceList(event, ' + (isEdit ? pl.id : 'null') + ')">' +
+            '<input type="hidden" id="spl_copy_from_id" value="' + (copyFromId || '') + '">' +
+
+            '<div style="display:flex;flex-direction:column;gap:14px;margin-bottom:16px">' +
+              // 1. Выбор типа прайса (Базовый vs Персональный)
+              '<div>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:6px">Тип прайса *</label>' +
+                '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+                  '<label style="border:1.5px solid ' + (isBase ? '#15803d' : 'var(--border)') + ';background:' + (isBase ? '#f0fdf4' : '#fff') + ';border-radius:8px;padding:10px 12px;cursor:pointer;display:flex;align-items:flex-start;gap:8px" onclick="document.getElementById(\'rb_base\').checked=true;toggleSubPriceType(\'base\')">' +
+                    '<input type="radio" id="rb_base" name="spl_type" value="base" ' + (isBase ? 'checked' : '') + ' onchange="toggleSubPriceType(this.value)" style="margin-top:2px">' +
+                    '<div>' +
+                      '<div style="font-weight:700;font-size:.84rem;color:#166534">⭐ Базовый (Рекомендованный)</div>' +
+                      '<div style="font-size:.72rem;color:var(--text-3);margin-top:2px">Утвержден руководством по умолчанию для региона/заказчика</div>' +
+                    '</div>' +
+                  '</label>' +
+                  '<label style="border:1.5px solid ' + (!isBase ? '#6b21a8' : 'var(--border)') + ';background:' + (!isBase ? '#faf5ff' : '#fff') + ';border-radius:8px;padding:10px 12px;cursor:pointer;display:flex;align-items:flex-start;gap:8px" onclick="document.getElementById(\'rb_personal\').checked=true;toggleSubPriceType(\'personal\')">' +
+                    '<input type="radio" id="rb_personal" name="spl_type" value="personal" ' + (!isBase ? 'checked' : '') + ' onchange="toggleSubPriceType(this.value)" style="margin-top:2px">' +
+                    '<div>' +
+                      '<div style="font-weight:700;font-size:.84rem;color:#6b21a8">👤 Персональный прайс</div>' +
+                      '<div style="font-size:.72rem;color:var(--text-3);margin-top:2px">Индивидуальные ставки конкретного субподрядчика</div>' +
+                    '</div>' +
+                  '</label>' +
+                '</div>' +
+              '</div>' +
+
+              // 2. Исполнитель (только для персонального)
+              '<div id="spl_contractor_wrap" style="display:' + (isBase ? 'none' : 'block') + '">' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Исполнитель (Субподрядчик) *</label>' +
+                '<select id="spl_contractor_id" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
+                  '<option value="">-- Выберите субподрядчика из базы --</option>' +
+                  contractorOpts +
+                '</select>' +
+              '</div>' +
+
+              // 3. Название прайса
+              '<div>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Название прайс-листа *</label>' +
+                '<input type="text" id="spl_name" required value="' + escHtml(defaultName) + '" placeholder="Например: Базовый прайс СМР (Север / ХМАО)" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
+              '</div>' +
+
+              // 4. Регион действия + быстрые подсказки
+              '<div>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Регион действия (территория)</label>' +
+                '<input type="text" id="spl_region" value="' + escHtml(defaultRegion) + '" placeholder="Например: Север (ХМАО / ЯНАО), Поволжье, Сибирь..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
+                '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">' +
+                  '<button type="button" class="btn btn-xs btn-ghost" style="border:1px solid var(--border);font-size:.72rem;padding:2px 8px" onclick="document.getElementById(\'spl_region\').value=\'Север (ХМАО / ЯНАО)\'">Север (ХМАО/ЯНАО)</button>' +
+                  '<button type="button" class="btn btn-xs btn-ghost" style="border:1px solid var(--border);font-size:.72rem;padding:2px 8px" onclick="document.getElementById(\'spl_region\').value=\'Поволжье\'">Поволжье</button>' +
+                  '<button type="button" class="btn btn-xs btn-ghost" style="border:1px solid var(--border);font-size:.72rem;padding:2px 8px" onclick="document.getElementById(\'spl_region\').value=\'Сибирь\'">Сибирь</button>' +
+                  '<button type="button" class="btn btn-xs btn-ghost" style="border:1px solid var(--border);font-size:.72rem;padding:2px 8px" onclick="document.getElementById(\'spl_region\').value=\'Москва и МО\'">Москва и МО</button>' +
+                  '<button type="button" class="btn btn-xs btn-ghost" style="border:1px solid var(--border);font-size:.72rem;padding:2px 8px" onclick="document.getElementById(\'spl_region\').value=\'Урал\'">Урал</button>' +
+                  '<button type="button" class="btn btn-xs btn-ghost" style="border:1px solid var(--border);font-size:.72rem;padding:2px 8px" onclick="document.getElementById(\'spl_region\').value=\'Дальний Восток\'">Дальний Восток</button>' +
+                  '<button type="button" class="btn btn-xs btn-ghost" style="border:1px solid var(--border);font-size:.72rem;padding:2px 8px" onclick="document.getElementById(\'spl_region\').value=\'Все регионы\'">Все регионы</button>' +
+                '</div>' +
+              '</div>' +
+
+              // 5. Заказчик / Направление + быстрые подсказки
+              '<div>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Заказчик / Направление работ</label>' +
+                '<input type="text" id="spl_customer_tag" value="' + escHtml(defaultTag) + '" placeholder="ПАО Сбербанк, ОСФР, Россельхоз, Разовые объекты..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
+                '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">' +
+                  '<button type="button" class="btn btn-xs btn-ghost" style="border:1px solid var(--border);font-size:.72rem;padding:2px 8px" onclick="document.getElementById(\'spl_customer_tag\').value=\'ПАО Сбербанк\'">ПАО Сбербанк</button>' +
+                  '<button type="button" class="btn btn-xs btn-ghost" style="border:1px solid var(--border);font-size:.72rem;padding:2px 8px" onclick="document.getElementById(\'spl_customer_tag\').value=\'ОСФР\'">ОСФР</button>' +
+                  '<button type="button" class="btn btn-xs btn-ghost" style="border:1px solid var(--border);font-size:.72rem;padding:2px 8px" onclick="document.getElementById(\'spl_customer_tag\').value=\'Росприроднадзор\'">Росприроднадзор</button>' +
+                  '<button type="button" class="btn btn-xs btn-ghost" style="border:1px solid var(--border);font-size:.72rem;padding:2px 8px" onclick="document.getElementById(\'spl_customer_tag\').value=\'Коммерческие объекты\'">Коммерческие</button>' +
+                '</div>' +
+              '</div>' +
+
+              // 6. Источник копирования позиций (если создается новый или клон)
+              (!isEdit ?
+                '<div style="background:#eff6ff;padding:12px 14px;border-radius:8px;border:1.5px solid #bfdbfe">' +
+                  '<label style="display:block;font-size:.76rem;font-weight:700;color:#1e40af;margin-bottom:4px">Скопировать 22 позиции тарифов из прайса:</label>' +
+                  '<select id="spl_source_select" onchange="document.getElementById(\'spl_copy_from_id\').value=this.value" style="width:100%;padding:7px 10px;border:1.5px solid #93c5fd;border-radius:6px;font-size:.84rem;background:#fff">' +
+                    sourceOpts +
+                  '</select>' +
+                  '<div style="font-size:.72rem;color:#1e40af;margin-top:4px">Все позиции будут автоматически продублированы, после чего вы сможете изменить ставки в 1 клик</div>' +
+                '</div>' : '') +
+            '</div>' +
+
+            '<div style="display:flex;justify-content:flex-end;gap:10px;border-top:1.5px solid var(--border);padding-top:14px">' +
+              '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid var(--border);padding:8px 16px;border-radius:8px" onclick="var b=document.getElementById(\'_sub_price_modal_backdrop\'); if(b) b.remove();">Отмена</button>' +
+              '<button type="submit" class="btn btn-sm btn-primary" style="padding:8px 18px;font-weight:700;border-radius:8px">' + (isEdit ? 'Сохранить изменения' : (isClone ? 'Создать копию' : 'Создать прайс-лист')) + '</button>' +
+            '</div>' +
+          '</form>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+    var oldB = document.getElementById('_sub_price_modal_backdrop');
+    if (oldB) oldB.remove();
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    var bEl = document.getElementById('_sub_price_modal_backdrop');
+    var box = bEl ? bEl.querySelector('.modal-box') : null;
+    if (box && window.makeWindowDraggableAndMinimizable) {
+      window.makeWindowDraggableAndMinimizable(box, {
+        title: modalTitle,
+        icon: '📊',
+        backdrop: bEl,
+        onClose: function() { bEl.remove(); }
+      });
+    }
+  };
+
+  window.saveSubPriceList = function(e, priceListId) {
+    e.preventDefault();
+
+    var typeEl = document.querySelector('input[name="spl_type"]:checked');
+    var isBase = typeEl ? (typeEl.value === 'base') : true;
+
+    var copyFromEl = document.getElementById('spl_copy_from_id');
+    var copyFromId = copyFromEl ? (parseInt(copyFromEl.value, 10) || null) : null;
+    var sourceSelectEl = document.getElementById('spl_source_select');
+    if (!copyFromId && sourceSelectEl) {
+      copyFromId = parseInt(sourceSelectEl.value, 10) || null;
+    }
+
+    var contractorId = isBase ? null : (parseInt(document.getElementById('spl_contractor_id')?.value, 10) || null);
+
+    var payload = {
+      name: document.getElementById('spl_name').value.trim(),
+      contractor_id: contractorId,
+      customer_tag: document.getElementById('spl_customer_tag').value.trim(),
+      region: document.getElementById('spl_region').value.trim(),
+      is_default: isBase,
+      copy_from_id: copyFromId
+    };
+
+    var url = priceListId ? '/subcontract-pricelists/' + priceListId : '/subcontract-pricelists';
+    var method = priceListId ? 'PUT' : 'POST';
+
+    api(url, {
+      method: method,
+      body: JSON.stringify(payload)
+    }).then(function(res) {
+      if (res && res.error) {
+        alert('Ошибка: ' + res.error);
+        return;
+      }
+      var backdrop = document.getElementById('_sub_price_modal_backdrop') || document.getElementById('sub_price_modal_backdrop');
+      if (backdrop) backdrop.remove();
+
+      api('/subcontract-pricelists').then(function(list) {
+        if (Array.isArray(list)) S.subPricelists = list;
+        renderApp();
+      });
+    }).catch(function(err) {
+      alert('Ошибка соединения: ' + (err.message || err));
+    });
+  };
 
   window.openSubContractModal = function(contractId) {
     var c = contractId ? (S.subContracts || []).find(function(x){ return x.id === contractId; }) : null;

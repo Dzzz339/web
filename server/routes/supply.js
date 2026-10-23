@@ -225,7 +225,7 @@ router.get('/materials', authenticateToken, async (req, res) => {
 
 // POST /api/materials
 router.post('/materials', authenticateToken, async (req, res) => {
-  if (!['admin', 'director', 'logistics'].includes(req.user.role)) return res.status(403).json({ error: 'Нет доступа' });
+  if (!['admin', 'director', 'logistics', 'to_engineer'].includes(req.user.role)) return res.status(403).json({ error: 'Нет доступа' });
   try {
     const { code, name, category, unit, package_qty, package_unit, price_default, min_stock_alert } = req.body;
     const { rows } = await pool.query(`
@@ -311,7 +311,7 @@ router.get('/contractors/:id/warehouse', authenticateToken, async (req, res) => 
 
 // POST /api/stock/receipt
 router.post('/stock/receipt', authenticateToken, async (req, res) => {
-  if (!['admin', 'director', 'logistics'].includes(req.user.role)) return res.status(403).json({ error: 'Нет доступа' });
+  if (!['admin', 'director', 'logistics', 'to_engineer'].includes(req.user.role)) return res.status(403).json({ error: 'Нет доступа' });
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -539,13 +539,26 @@ router.post('/tasks/:id/materials/save-fact', authenticateToken, async (req, res
 
     if (Array.isArray(items)) {
       for (const item of items) {
-        const qty = parseFloat(item.quantity);
-        if (!isNaN(qty)) {
+        const qty = parseFloat(item.fact_qty !== undefined ? item.fact_qty : item.quantity);
+        const supplier = (item.supplier !== undefined && item.supplier !== null) ? String(item.supplier).trim() : null;
+        if (!isNaN(qty) && supplier !== null) {
+          await client.query(`
+            UPDATE task_materials 
+            SET fact_qty = $1, supplier = $4
+            WHERE task_id = $2 AND material_id = $3
+          `, [qty, taskId, item.material_id, supplier]);
+        } else if (!isNaN(qty)) {
           await client.query(`
             UPDATE task_materials 
             SET fact_qty = $1 
             WHERE task_id = $2 AND material_id = $3
           `, [qty, taskId, item.material_id]);
+        } else if (supplier !== null) {
+          await client.query(`
+            UPDATE task_materials 
+            SET supplier = $1 
+            WHERE task_id = $2 AND material_id = $3
+          `, [supplier, taskId, item.material_id]);
         }
       }
     }
@@ -625,14 +638,27 @@ router.post('/tasks/:id/materials/write-off', authenticateToken, async (req, res
       }
 
       // Обновляем факт в task_materials
-      await client.query(`
-        INSERT INTO task_materials (task_id, material_id, plan_qty, fact_qty, is_written_off, written_off_at)
-        VALUES ($1, $2, $3, $3, true, NOW())
-        ON CONFLICT (task_id, material_id) DO UPDATE SET
-          fact_qty = $3,
-          is_written_off = true,
-          written_off_at = NOW()
-      `, [taskId, item.material_id, qty]);
+      const supplier = (item.supplier !== undefined && item.supplier !== null) ? String(item.supplier).trim() : null;
+      if (supplier) {
+        await client.query(`
+          INSERT INTO task_materials (task_id, material_id, plan_qty, fact_qty, is_written_off, written_off_at, supplier)
+          VALUES ($1, $2, $3, $3, true, NOW(), $4)
+          ON CONFLICT (task_id, material_id) DO UPDATE SET
+            fact_qty = $3,
+            is_written_off = true,
+            written_off_at = NOW(),
+            supplier = $4
+        `, [taskId, item.material_id, qty, supplier]);
+      } else {
+        await client.query(`
+          INSERT INTO task_materials (task_id, material_id, plan_qty, fact_qty, is_written_off, written_off_at)
+          VALUES ($1, $2, $3, $3, true, NOW())
+          ON CONFLICT (task_id, material_id) DO UPDATE SET
+            fact_qty = $3,
+            is_written_off = true,
+            written_off_at = NOW()
+        `, [taskId, item.material_id, qty]);
+      }
     }
 
     // Автоматически суммируем себестоимость списанных материалов и обновляем tasks.tmc
@@ -1151,7 +1177,7 @@ router.get('/suppliers', authenticateToken, async (req, res) => {
 
 // POST /api/suppliers
 router.post('/suppliers', authenticateToken, async (req, res) => {
-  if (!['admin', 'director', 'logistics'].includes(req.user.role)) return res.status(403).json({ error: 'Нет доступа' });
+  if (!['admin', 'director', 'logistics', 'to_engineer'].includes(req.user.role)) return res.status(403).json({ error: 'Нет доступа' });
   try {
     const { name, contact, phone, email, lead_time_days, min_order_amount } = req.body;
     const { rows } = await pool.query(`
@@ -1196,7 +1222,7 @@ router.get('/purchase-orders', authenticateToken, async (req, res) => {
 
 // POST /api/purchase-orders
 router.post('/purchase-orders', authenticateToken, async (req, res) => {
-  if (!['admin', 'director', 'logistics'].includes(req.user.role)) return res.status(403).json({ error: 'Нет доступа' });
+  if (!['admin', 'director', 'logistics', 'to_engineer'].includes(req.user.role)) return res.status(403).json({ error: 'Нет доступа' });
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

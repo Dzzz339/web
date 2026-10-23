@@ -14,7 +14,7 @@ router.get('/marches', authenticateToken, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-router.post('/marches', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
+router.post('/marches', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics', 'to_engineer'), async (req, res) => {
   try {
     const id = 'march_' + Date.now();
     const kmRate = Math.max(0, Number(req.body.kmRate) || 70);
@@ -27,7 +27,7 @@ router.post('/marches', authenticateToken, requireRole('admin', 'director', 'man
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-router.put('/marches/:id', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
+router.put('/marches/:id', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics', 'to_engineer'), async (req, res) => {
   try {
     const d = req.body;
     const kmRate = d.kmRate !== undefined && d.kmRate !== null ? Math.max(0, Number(d.kmRate)) : null;

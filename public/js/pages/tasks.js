@@ -324,7 +324,7 @@ window.openQuickRouteMapModal = function(taskId) {
   if (!t) return;
 
   var fullAddr = t.clean_address || t.address || t.region || '';
-  var mapQueryAddr = 'Россия, ' + fullAddr;
+  var mapQueryAddr = fullAddr.startsWith('Россия') ? fullAddr : ('Россия, ' + fullAddr);
   var yandexUrl = 'https://yandex.ru/maps/?rtext=~' + encodeURIComponent(mapQueryAddr) + '&rtt=auto';
   var curRealKm = (t.realDistanceKm != null && t.realDistanceKm > 0) ? Number(t.realDistanceKm) : ((t.real_distance_km != null && t.real_distance_km > 0) ? Number(t.real_distance_km) : '');
   var curTransportRub = Number(t.distanceKm || t.distance_km || 0);
@@ -344,13 +344,19 @@ window.openQuickRouteMapModal = function(taskId) {
         '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_quick_route_map_modal\').remove()" style="font-size:1.1rem;padding:4px 8px">✕</button>' +
       '</div>' +
       '<div style="padding:16px 18px">' +
-        '<div style="background:#f1f5f9;padding:10px 14px;border-radius:8px;margin-bottom:14px">' +
-          '<div style="font-weight:600;font-size:.85rem;color:var(--text)">📍 ' + escHtml(fullAddr || 'Адрес не указан') + '</div>' +
-          (t.vsp ? '<div class="t3" style="font-size:.75rem;margin-top:2px">ВСП: ' + escHtml(t.vsp) + (t.region ? (' · Регион: ' + escHtml(t.region)) : '') + '</div>' : '') +
-          (t.geo_lat && t.geo_lat !== 'NONE' ? '<div class="t3" style="font-size:.72rem;margin-top:2px;color:var(--green)">✓ Координаты определены: ' + t.geo_lat + ', ' + t.geo_lon + '</div>' : '') +
+        '<div style="background:#f8fafc;border:1px solid var(--border);padding:10px 14px;border-radius:8px;margin-bottom:14px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+            '<label style="font-size:.75rem;font-weight:700;color:var(--text-2)">📍 Адрес объекта (для навигатора и расчета):</label>' +
+            '<span style="font-size:.7rem;color:var(--text-3)">можно скорректировать вручную</span>' +
+          '</div>' +
+          '<input type="text" id="_qmap_addr_inp" value="' + escHtml(fullAddr) + '" placeholder="Введите точный адрес объекта..." style="width:100%;padding:6px 10px;font-size:.84rem;font-weight:600;border:1px solid var(--border);border-radius:6px;background:#fff" oninput="window._updateQmapNavigatorUrl()">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;flex-wrap:wrap;gap:4px">' +
+            (t.vsp ? '<span class="t3" style="font-size:.72rem">ВСП: ' + escHtml(t.vsp) + (t.region ? (' · Регион: ' + escHtml(t.region)) : '') + '</span>' : '<span></span>') +
+            (t.geo_lat && t.geo_lat !== 'NONE' ? '<span class="t3" style="font-size:.72rem;color:var(--green)">✓ Координаты: ' + t.geo_lat + ', ' + t.geo_lon + '</span>' : '') +
+          '</div>' +
         '</div>' +
         '<div style="margin-bottom:14px;display:flex;gap:8px">' +
-          '<a href="' + yandexUrl + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="flex:1;background:#fc3f1d;color:#fff;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:6px">' +
+          '<a id="_qmap_yandex_btn" href="' + yandexUrl + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="flex:1;background:#fc3f1d;color:#fff;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:6px">' +
             '🚗 Открыть маршрут в Яндекс.Навигаторе' +
           '</a>' +
         '</div>' +
@@ -364,31 +370,42 @@ window.openQuickRouteMapModal = function(taskId) {
             '<input type="number" id="_qmap_rate_inp" value="' + curRate + '" style="width:100%;padding:7px 10px;font-size:.92rem;font-weight:700" oninput="window._recalcQuickMapTotal()">' +
           '</div>' +
         '</div>' +
-        '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">' +
+        '<div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:8px;padding:12px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">' +
           '<div>' +
-            '<div class="t3" style="font-size:.72rem">Расчётная компенсация дороги:</div>' +
-            '<div style="font-size:.72rem;color:var(--text-3)">(километры × 2 конца × ставка)</div>' +
+            '<div style="font-size:.78rem;font-weight:700;color:#1e40af">🚗 Компенсация дороги субподрядчику (расход):</div>' +
+            '<div style="font-size:.72rem;color:#2563eb">В наряд субподрядчику (километры × 2 конца × ставка)</div>' +
           '</div>' +
-          '<b id="_qmap_total_lbl" style="font-size:1.15rem;color:var(--blue)">' + (curRealKm ? fmtMoney(curRealKm * 2 * curRate) : (curTransportRub > 0 ? fmtMoney(curTransportRub) + ' (по смете)' : '0 ₽')) + '</b>' +
+          '<b id="_qmap_total_lbl" style="font-size:1.15rem;color:#1e40af">' + (curRealKm ? fmtMoney(curRealKm * 2 * curRate) : '0 ₽') + '</b>' +
         '</div>' +
-        (curTransportRub > 0 ? (
-          '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.75rem;color:#92400e;display:flex;align-items:center;justify-content:space-between">' +
-            '<span>Текущая компенсация в смете Заказчика:</span>' +
-            '<b>' + fmtMoney(curTransportRub) + '</b>' +
-          '</div>'
-        ) : '') +
-        '<label style="display:flex;align-items:center;gap:8px;font-size:.78rem;cursor:pointer;margin-bottom:16px;color:var(--text)">' +
-          '<input type="checkbox" id="_qmap_recalc_chk" style="width:16px;height:16px"' + (curTransportRub === 0 ? ' checked' : '') + '>' +
-          '<span>Обновить сумму дороги в смете по ставке (<span id="_qmap_recalc_amt_lbl">' + (curRealKm ? fmtMoney(curRealKm * 2 * curRate) : '0 ₽') + '</span>)</span>' +
-        '</label>' +
-        '<div style="display:flex;gap:8px;justify-content:flex-end">' +
-          '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_quick_route_map_modal\').remove()">Отмена</button>' +
-          '<button type="button" class="btn btn-sm btn-primary" onclick="window.saveQuickRouteMapKm(\'' + escHtml(taskId) + '\')">✓ Сохранить в заявку</button>' +
+        '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:.78rem;color:#92400e">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center">' +
+            '<span>🏛️ Компенсация дороги в смете Заказчика (вход):</span>' +
+            '<b style="font-size:.92rem">' + (curTransportRub > 0 ? fmtMoney(curTransportRub) : '0 ₽ (не учтена)') + '</b>' +
+          '</div>' +
+          '<div style="font-size:.71rem;color:#a16207;margin-top:4px">' +
+            'Смета Заказчика фиксирована договором. Если реальный километраж превышает смету, заявку можно отклонить на корректировку Заказчику.' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;justify-content:space-between;align-items:center;flex-wrap:wrap">' +
+          '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="window._rejectTaskForRoadCorrection(\'' + escHtml(taskId) + '\')" title="Отклонить заявку на корректировку сметы Заказчиком">⚠️ Отклонить на корректировку</button>' +
+          '<div style="display:flex;gap:8px">' +
+            '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_quick_route_map_modal\').remove()">Отмена</button>' +
+            '<button type="button" class="btn btn-sm btn-primary" onclick="window.saveQuickRouteMapKm(\'' + escHtml(taskId) + '\')">✓ Сохранить в заявку</button>' +
+          '</div>' +
         '</div>' +
       '</div>' +
     '</div>';
 
   document.body.appendChild(m);
+};
+
+window._updateQmapNavigatorUrl = function() {
+  var addrInp = document.getElementById('_qmap_addr_inp');
+  var btn = document.getElementById('_qmap_yandex_btn');
+  if (!addrInp || !btn) return;
+  var val = addrInp.value.trim();
+  var q = val.startsWith('Россия') ? val : ('Россия, ' + val);
+  btn.href = 'https://yandex.ru/maps/?rtext=~' + encodeURIComponent(q) + '&rtt=auto';
 };
 
 window._recalcQuickMapTotal = function() {
@@ -397,16 +414,14 @@ window._recalcQuickMapTotal = function() {
   var total = Math.round(dist * 2 * rate);
   var el = document.getElementById('_qmap_total_lbl');
   if (el) el.textContent = fmtMoney(total);
-  var el2 = document.getElementById('_qmap_recalc_amt_lbl');
-  if (el2) el2.textContent = fmtMoney(total);
 };
 
 window.saveQuickRouteMapKm = function(taskId) {
   var distVal = document.getElementById('_qmap_dist_inp').value;
   var dist = distVal !== '' ? Number(distVal) : null;
   var rate = Number(document.getElementById('_qmap_rate_inp').value) || 70;
-  var recalcChk = document.getElementById('_qmap_recalc_chk');
-  var shouldRecalc = recalcChk ? recalcChk.checked : false;
+  var addrInp = document.getElementById('_qmap_addr_inp');
+  var newAddr = addrInp ? addrInp.value.trim() : '';
 
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
   if (!t) return;
@@ -415,8 +430,10 @@ window.saveQuickRouteMapKm = function(taskId) {
     realDistanceKm: dist,
     kmRate: rate
   };
-  if (shouldRecalc && dist > 0) {
-    payload.distanceKm = Math.round(dist * 2 * rate);
+  var prevAddr = t.clean_address || t.address || '';
+  if (newAddr && newAddr !== prevAddr) {
+    payload.address = newAddr;
+    payload.clean_address = newAddr;
   }
 
   api('/tasks/' + encodeURIComponent(taskId), {
@@ -428,9 +445,9 @@ window.saveQuickRouteMapKm = function(taskId) {
     t.real_distance_km = dist;
     t.kmRate = rate;
     t.km_rate = rate;
-    if (payload.distanceKm !== undefined) {
-      t.distanceKm = payload.distanceKm;
-      t.distance_km = payload.distanceKm;
+    if (newAddr) {
+      t.address = newAddr;
+      t.clean_address = newAddr;
     }
     if (res && res.task) {
       Object.assign(t, res.task);
@@ -441,6 +458,35 @@ window.saveQuickRouteMapKm = function(taskId) {
     if (typeof showToast === 'function') showToast('✓ Данные маршрута сохранены (дистанция: ' + (dist ? (dist + ' км') : 'не указана') + ')', 'success');
   }).catch(function(err) {
     alert('Ошибка сохранения маршрута: ' + err.message);
+  });
+};
+
+window._rejectTaskForRoadCorrection = function(taskId) {
+  var distVal = document.getElementById('_qmap_dist_inp') ? document.getElementById('_qmap_dist_inp').value : '';
+  var defaultReason = 'Отклонена на корректировку сметы Заказчика (недостаточная компенсация дороги' + (distVal ? ': реальный пробег ' + distVal + ' км в один конец' : '') + ')';
+  var reason = prompt('Причина отклонения заявки на корректировку Заказчику:', defaultReason);
+  if (reason === null) return;
+  if (!reason.trim()) return alert('Причина обязательна!');
+
+  api('/tasks/' + encodeURIComponent(taskId) + '/cancel', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: reason.trim() })
+  })
+  .then(function(res) {
+    if (res && res.error) return alert('Ошибка: ' + res.error);
+    var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+    if (t) {
+      t.status = 'cancelled';
+      t.overdueReason = reason.trim();
+    }
+    var modal = document.getElementById('_quick_route_map_modal');
+    if (modal) modal.remove();
+    if (typeof showToast === 'function') showToast('⚠️ Заявка отклонена на корректировку Заказчику');
+    renderApp();
+  })
+  .catch(function(err) {
+    alert('Ошибка отклонения заявки: ' + (err.message || err));
   });
 };
 
@@ -1439,10 +1485,22 @@ function pageTasks() {
       (t.vsp ? '<div class="t3" style="font-size:.7rem;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">№ ВСП: ' + escHtml(t.vsp) + '</div>' : '') +
     '</td>';
 
-    // 5. Что делать (вид работ - компактный бейдж)
+    // 5. Что делать (вид работ - компактный бейдж) + прямая ссылка на тех.инфо
     var wt = t.workType || 'СКС';
-    var colWork = '<td style="vertical-align:top;max-width:105px">' +
-      '<span class="badge b-gray" style="font-size:.74rem;font-weight:600;display:inline-block;max-width:105px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(wt) + '">' + escHtml(wt) + '</span>' +
+    var rawTech = t.tech_link || t.techLink || t.materials_link || t.materialsLink || (t.rawData && (t.rawData['Ссылка на тех. инфо'] || t.rawData['Ссылка на тех.инфо'] || t.rawData['Ссылка на тех инфо'] || t.rawData['Ссылка на диск'])) || '';
+    var techLinkVal = String(rawTech).trim();
+    var techLinkHtml = '';
+    if (techLinkVal) {
+      techLinkHtml = '<div style="margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:115px">' +
+        '<a href="' + escHtml(techLinkVal) + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="font-size:.68rem;color:var(--blue);text-decoration:none;display:inline-flex;align-items:center;gap:3px;background:rgba(37,99,235,0.08);padding:1px 5px;border-radius:4px;border:1px solid rgba(37,99,235,0.25);max-width:115px" title="' + escHtml(techLinkVal) + '">' +
+          '<span>🔗</span> <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600">тех.инфо</span>' +
+        '</a>' +
+      '</div>';
+    }
+
+    var colWork = '<td style="vertical-align:top;max-width:115px">' +
+      '<span class="badge b-gray" style="font-size:.74rem;font-weight:600;display:inline-block;max-width:115px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(wt) + '">' + escHtml(wt) + '</span>' +
+      techLinkHtml +
     '</td>';
 
     // 6. Сколько (порты: факт / в заказе)
