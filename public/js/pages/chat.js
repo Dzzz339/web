@@ -1711,7 +1711,7 @@ function sendAiMessage() {
     removeAiLoadingIndicator();
     S.aiStreaming = false; S.aiLoading = false;
     resetAiSendBtn();
-    finalMsg = finalMsg || '⚠️ Нейросеть не вернула текст ответа. Проверьте доступность модели Ollama.';
+    finalMsg = finalMsg || '⚠️ Нейросеть не вернула текст ответа. Попробуйте повторить запрос.';
     S.aiMessages.push({
       id: incomingMessageId,
       role: 'assistant',
@@ -1749,7 +1749,7 @@ function sendAiMessage() {
             removeAiLoadingIndicator();
             S.aiStreaming = false; S.aiLoading = false;
             resetAiSendBtn();
-            finalMsg = finalMsg || '⚠️ Нейросеть не вернула текст ответа. Проверьте доступность модели Ollama.';
+            finalMsg = finalMsg || '⚠️ Нейросеть не вернула текст ответа. Попробуйте повторить запрос.';
             S.aiMessages.push({
               id: incomingMessageId,
               role: 'assistant',

@@ -1,3 +1,4 @@
+import '../config/loadEnv.js';
 import express from 'express';
 import OpenAI from 'openai';
 import { pool } from '../config/db.js';
@@ -8,18 +9,28 @@ import { generateAndRunSqlContext } from '../services/aiSqlService.js';
 const router = express.Router();
 
 // ─── ИИ-АССИСТЕНТ: провайдер DeepSeek Cloud API / OpenAI-совместимый шлюз ────
-const AI_BASE_URL = (process.env.AI_BASE_URL || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
-const AI_API_KEY  = (process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '').trim();
-const AI_MODEL    = process.env.AI_MODEL    || 'deepseek-chat';
+function getAiConfig() {
+  const url = (process.env.AI_BASE_URL || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
+  const key = (process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '').trim();
+  const model = process.env.AI_MODEL || 'deepseek-flash';
+  return { url, key, model };
+}
+
 const AI_DAILY_LIMIT = 100; // макс. сообщений в день на пользователя
 
 let _aiClient = null;
+let _cachedKey = null;
+let _cachedUrl = null;
+
 function getAiClient() {
-  if (!AI_BASE_URL) return null;
-  if (!_aiClient) {
+  const { url, key } = getAiConfig();
+  if (!url) return null;
+  if (!_aiClient || _cachedKey !== key || _cachedUrl !== url) {
+    _cachedKey = key;
+    _cachedUrl = url;
     _aiClient = new OpenAI({
-      baseURL: AI_BASE_URL,
-      apiKey: AI_API_KEY || 'sk-placeholder'
+      baseURL: url,
+      apiKey: key || 'sk-placeholder'
     });
   }
   return _aiClient;
@@ -27,14 +38,14 @@ function getAiClient() {
 
 // GET /api/ai/health — проверка связи с DeepSeek API и статус ключа
 router.get('/health', authenticateToken, async (req, res) => {
-  const targetUrl = AI_BASE_URL;
+  const { url: targetUrl, key, model } = getAiConfig();
   const isDeepSeek = targetUrl.includes('deepseek.com');
-  const hasKey = Boolean(AI_API_KEY && AI_API_KEY !== 'ollama' && AI_API_KEY !== 'sk-placeholder');
+  const hasKey = Boolean(key && key !== 'ollama' && key !== 'sk-placeholder');
 
   try {
     const client = getAiClient();
     let models = [];
-    if (hasKey) {
+    if (hasKey && client) {
       const list = await client.models.list().catch(() => null);
       if (list && list.data) models = list.data.map(m => m.id);
     }
@@ -42,9 +53,9 @@ router.get('/health', authenticateToken, async (req, res) => {
       status: 'ok',
       provider: isDeepSeek ? 'DeepSeek Cloud' : 'OpenAI-compatible',
       baseUrl: targetUrl,
-      currentModel: AI_MODEL,
+      currentModel: model,
       hasKey,
-      availableModels: models.length ? models : [AI_MODEL, 'deepseek-flash', 'deepseek-reasoner'],
+      availableModels: models.length ? models : [model, 'deepseek-flash', 'deepseek-reasoner'],
       cpuOnly: false
     });
   } catch (e) {
@@ -52,7 +63,7 @@ router.get('/health', authenticateToken, async (req, res) => {
       status: hasKey ? 'error' : 'ok',
       provider: isDeepSeek ? 'DeepSeek Cloud' : 'OpenAI Gateway',
       baseUrl: targetUrl,
-      currentModel: AI_MODEL,
+      currentModel: model,
       hasKey,
       error: e.message || String(e)
     });
@@ -274,6 +285,7 @@ function buildParseDevicesPrompt(text) {
 
 // POST /api/ai/chat — единый чат со Стоки с поддержкой текста, Vision (фото) и расчётов
 router.post('/chat', authenticateToken, async (req, res) => {
+  const { url: targetUrl, key, model: currentModel } = getAiConfig();
   const { message, mode = 'general', cardContext, image, scenario } = req.body || {};
   const text = (message || '').toString().trim();
   if (!text && !image) return res.status(400).json({ error: 'Пустое сообщение' });
@@ -289,7 +301,7 @@ router.post('/chat', authenticateToken, async (req, res) => {
   }
 
   // Проверка настройки API ключа
-  if (!AI_API_KEY || AI_API_KEY === 'sk-placeholder') {
+  if (!key || key === 'sk-placeholder') {
     return res.status(400).json({
       error: 'API-ключ DeepSeek не задан. Укажите ваш ключ в файле .env (параметр AI_API_KEY=sk-...) и перезапустите сервер.'
     });
@@ -308,7 +320,7 @@ router.post('/chat', authenticateToken, async (req, res) => {
     ];
     try {
       const completion = await aiClient.chat.completions.create({
-        model: AI_MODEL,
+        model: currentModel,
         messages: parseMessages,
         temperature: 0.1,
         stream: false
@@ -342,8 +354,17 @@ router.post('/chat', authenticateToken, async (req, res) => {
   // Определение сценария (Фотоконтроль монтажа / План БТИ / Обычный чат)
   const isPureGreeting = !image && /^(?:привет|здравствуй|здравствуйте|добрый\s+(?:день|вечер|утро)|хай|ку|салют|приветик|здорово)[!.,?\s]*$/i.test(text);
 
-  let isQc = scenario === 'qc' || (image && /(?:приемк|приёмк|оцен|фотоконтрол|качество монтаж|дефект|провер|чек-лист)/i.test(text));
-  let isBti = scenario === 'bti' || (image && /(?:бти|план этаж|планировк|расчет по план|подбор оборудования|видеонаблюдени)/i.test(text));
+  let isQc = scenario === 'qc' || (image && /(?:приемк|приёмк|оцен|фотоконтрол|качество монтаж|дефект|провер|чек-лист|стойк|шкаф|гофр|розетк|маркировк|стяжк)/i.test(text));
+  let isBti = scenario === 'bti' || (image && /(?:бти|план|схем|чертеж|чертёж|этаж|планировк|камер|видео|помещени|расчет|расчёт|подбор|смет|сколько)/i.test(text));
+
+  // Если прикреплено фото и ни один сценарий явно не указан
+  if (image && !isQc && !isBti) {
+    if (/(?:камер|план|схем|расчет|расчёт|сколько|нужно|оборудован)/i.test(text)) {
+      isBti = true;
+    } else {
+      isQc = true;
+    }
+  }
 
   let systemPrompt = buildAiSystemPrompt(mode);
   if (isQc) {
@@ -353,9 +374,9 @@ router.post('/chat', authenticateToken, async (req, res) => {
     systemPrompt = buildBtiPrompt(stockSummary);
   }
 
-  // Сборка контекста из базы данных при необходимости
+  // Сборка контекста из базы данных при необходимости (только для текстовых запросов без картинок)
   let context = '';
-  if (req.user && !isPureGreeting && !isQc) {
+  if (req.user && !isPureGreeting && !isQc && !isBti && !image) {
     try {
       const sqlContext = await generateAndRunSqlContext(text, req.user);
       if (sqlContext) {
@@ -445,7 +466,7 @@ router.post('/chat', authenticateToken, async (req, res) => {
   try {
     const userIns = await pool.query(
       `INSERT INTO ai_messages (user_id, mode, role, content, image_url) VALUES ($1,$2,'user',$3,$4) RETURNING id`,
-      [req.user.id, mode, text || (isQc ? '📷 Фотоконтроль монтажа' : '📐 Расчёт по плану БТИ'), image ? image.slice(0, 100000) : null]
+      [req.user.id, mode, text || (isQc ? '📷 Фотоконтроль монтажа' : '📐 Расчёт по плану БТИ'), image || null]
     );
     userMsgId = userIns.rows[0]?.id;
   } catch (err) {
@@ -462,15 +483,16 @@ router.post('/chat', authenticateToken, async (req, res) => {
   res.flushHeaders();
 
   let fullReply = '';
+  let fullReasoning = '';
   let tokensUsed = 0;
 
   try {
     const stream = await aiClient.chat.completions.create({
-      model: AI_MODEL,
+      model: currentModel,
       messages,
       stream: true,
       temperature: isQc ? 0.1 : 0.2,
-      max_tokens: 1800
+      max_tokens: 4500
     }, {
       signal: abortController.signal
     });
@@ -479,16 +501,25 @@ router.post('/chat', authenticateToken, async (req, res) => {
       if (clientDisconnected || abortController.signal.aborted) {
         break;
       }
-      const delta = chunk.choices && chunk.choices[0] && chunk.choices[0].delta
-        ? (chunk.choices[0].delta.content || '')
-        : '';
-      if (delta) {
-        fullReply += delta;
-        res.write('data: ' + JSON.stringify({ delta }) + '\n\n');
+      const deltaObj = chunk.choices && chunk.choices[0] && chunk.choices[0].delta;
+      const content = deltaObj ? (deltaObj.content || '') : '';
+      const reasoning = deltaObj ? (deltaObj.reasoning_content || '') : '';
+
+      if (content) {
+        fullReply += content;
+        res.write('data: ' + JSON.stringify({ delta: content }) + '\n\n');
+      } else if (reasoning) {
+        fullReasoning += reasoning;
       }
+
       if (chunk.usage && chunk.usage.total_tokens) {
         tokensUsed = chunk.usage.total_tokens;
       }
+    }
+
+    if (!fullReply && fullReasoning) {
+      fullReply = fullReasoning;
+      res.write('data: ' + JSON.stringify({ delta: fullReply }) + '\n\n');
     }
 
     // Сохраняем ответ ассистента в базу данных
@@ -529,7 +560,7 @@ router.post('/chat', authenticateToken, async (req, res) => {
     if (errMsg.includes('401') || errMsg.includes('Incorrect API key') || errMsg.includes('Authentication')) {
       errMsg = 'Ошибка авторизации API DeepSeek: проверьте правильность ключа AI_API_KEY в файле .env.';
     } else if (errMsg.includes('ECONNREFUSED') || errMsg.includes('Connection error') || errMsg.includes('fetch failed')) {
-      errMsg = `Не удалось подключиться к серверу DeepSeek (${AI_BASE_URL}). Проверьте подключение к интернету или доступность хоста.`;
+      errMsg = `Не удалось подключиться к серверу DeepSeek (${targetUrl}). Проверьте подключение к интернету или доступность хоста.`;
     }
 
     try {

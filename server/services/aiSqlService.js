@@ -1,14 +1,26 @@
+import '../config/loadEnv.js';
 import OpenAI from 'openai';
 import { pool } from '../config/db.js';
 
-const AI_BASE_URL = process.env.AI_BASE_URL || 'http://host.docker.internal:11434/v1';
-const AI_API_KEY  = process.env.AI_API_KEY  || 'ollama';
-const AI_MODEL    = process.env.AI_MODEL    || 'qwen-cpu:latest';
+function getSqlAiConfig() {
+  const url = (process.env.AI_BASE_URL || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
+  const key = (process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '').trim();
+  const model = process.env.AI_MODEL || 'deepseek-chat';
+  return { url, key, model };
+}
 
 let _aiClient = null;
+let _cachedKey = null;
+let _cachedUrl = null;
+
 function getAiClient() {
-  if (!AI_BASE_URL) return null;
-  if (!_aiClient) _aiClient = new OpenAI({ baseURL: AI_BASE_URL, apiKey: AI_API_KEY || 'ollama' });
+  const { url, key } = getSqlAiConfig();
+  if (!url) return null;
+  if (!_aiClient || _cachedKey !== key || _cachedUrl !== url) {
+    _cachedKey = key;
+    _cachedUrl = url;
+    _aiClient = new OpenAI({ baseURL: url, apiKey: key || 'sk-placeholder' });
+  }
   return _aiClient;
 }
 
@@ -214,7 +226,7 @@ ${AI_VIEWS_SCHEMA}
 
   try {
     const completion = await aiClient.chat.completions.create({
-      model: AI_MODEL,
+      model: getSqlAiConfig().model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: q }
