@@ -40,7 +40,7 @@ function pageDash(subSection) {
   var overdue = s.supply  && s.supply.overdue || 0;
   var revenue = s.revenue && s.revenue.total  || 0;
 
-  // 1. ПОДРАЗДЕЛ: ЗАКАЗЧИКИ
+  // 1. ПОДРАЗДЕЛ: ЗАКАЗЧИКИ (Строковый табличный вид с поиском, фильтрами и сортировкой)
   if (subSection === 'customers') {
     var custMap = {};
 
@@ -98,43 +98,173 @@ function pageDash(subSection) {
       }
     });
 
-    var custList = Object.values(custMap).sort(function(a, b) {
-      if (b.total !== a.total) return b.total - a.total;
+    var custList = Object.values(custMap);
+
+    // Параметры фильтрации и поиска
+    S.dashCustQ = S.dashCustQ || '';
+    S.dashCustFilter = S.dashCustFilter || 'all';
+    S.dashCustSort = S.dashCustSort || 'amount_desc';
+
+    var filteredCust = custList.filter(function(c) {
+      if (S.dashCustQ) {
+        var qLower = S.dashCustQ.toLowerCase().trim();
+        if (!c.name.toLowerCase().includes(qLower)) return false;
+      }
+      if (S.dashCustFilter === 'active' && c.inWork === 0) return false;
+      if (S.dashCustFilter === 'done' && (c.done === 0 || c.inWork > 0)) return false;
+      if (S.dashCustFilter === 'overdue' && c.overdue === 0) return false;
+      return true;
+    });
+
+    // Сортировка
+    filteredCust.sort(function(a, b) {
+      if (S.dashCustSort === 'amount_desc') return b.amount - a.amount;
+      if (S.dashCustSort === 'amount_asc') return a.amount - b.amount;
+      if (S.dashCustSort === 'total_desc') return b.total - a.total;
+      if (S.dashCustSort === 'total_asc') return a.total - b.total;
+      if (S.dashCustSort === 'inwork_desc') return b.inWork - a.inWork;
+      if (S.dashCustSort === 'overdue_desc') return b.overdue - a.overdue;
+      if (S.dashCustSort === 'contracts_desc') return b.contractsCount - a.contractsCount;
+      if (S.dashCustSort === 'name_asc') return a.name.localeCompare(b.name);
       return b.amount - a.amount;
     });
 
-    var cardsHtml = custList.map(function(c) {
+    var sumTotalAmt = custList.reduce(function(acc, c) { return acc + c.amount; }, 0);
+    var sumTotalTasks = custList.reduce(function(acc, c) { return acc + c.total; }, 0);
+    var sumDoneTasks = custList.reduce(function(acc, c) { return acc + c.done; }, 0);
+    var sumInWorkTasks = custList.reduce(function(acc, c) { return acc + c.inWork; }, 0);
+    var sumOverdueTasks = custList.reduce(function(acc, c) { return acc + c.overdue; }, 0);
+    var sumContracts = custList.reduce(function(acc, c) { return acc + c.contractsCount; }, 0);
+
+    window.onDashCustSearch = function(val) {
+      S.dashCustQ = val;
+      renderApp();
+    };
+    window.setDashCustFilter = function(filterVal) {
+      S.dashCustFilter = filterVal;
+      renderApp();
+    };
+    window.sortDashCust = function(field) {
+      if (S.dashCustSort === field + '_desc') S.dashCustSort = field + '_asc';
+      else S.dashCustSort = field + '_desc';
+      renderApp();
+    };
+
+    function custSortIndicator(f) {
+      if (!S.dashCustSort || !S.dashCustSort.startsWith(f + '_')) return '';
+      return S.dashCustSort.endsWith('_asc') ? ' ▲' : ' ▼';
+    }
+
+    var tableRows = filteredCust.map(function(c) {
       var p = c.total > 0 ? pct(c.done, c.total) : 0;
       var contractsBadge = c.contractsCount > 0
-        ? ('<button type="button" class="badge b-blue" style="font-size:.72rem;margin-left:6px;cursor:pointer;border:1px solid #93c5fd;background:#eff6ff;color:#1d4ed8;padding:2px 8px;border-radius:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px" title="Посмотреть договоры этого заказчика" onclick="event.stopPropagation(); filterAndGoContracts({customer:\'' + escHtml(c.name) + '\'})">📄 ' + c.contractsCount + ' дог. ➔</button>')
-        : '';
+        ? ('<button type="button" class="badge b-blue" style="font-size:.72rem;cursor:pointer;border:1px solid #93c5fd;background:#eff6ff;color:#1d4ed8;padding:2px 8px;border-radius:12px;font-weight:600" title="Посмотреть договоры" onclick="event.stopPropagation(); filterAndGoContracts({customer:\'' + escHtml(c.name) + '\'})">📄 ' + c.contractsCount + ' дог. ➔</button>')
+        : '<span class="t3" style="font-size:.75rem">—</span>';
+
       return `
-        <div class="card p" style="cursor:pointer; transition:transform 0.12s, box-shadow 0.12s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'" onclick="filterAndGoTasks({customer:'${escHtml(c.name)}'})">
-          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:.75rem">
-            <div>
-              <div style="display:flex;align-items:center"><span class="badge b-customer" style="margin-bottom:4px; display:inline-block">Заказчик</span>${contractsBadge}</div>
-              <div style="font-weight:700; font-size:1.1rem">${escHtml(c.name)}</div>
+        <tr style="cursor:pointer; transition:background 0.1s" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''" onclick="filterAndGoTasks({customer:'${escHtml(c.name)}'})">
+          <td style="padding:10px 14px">
+            <div style="font-weight:700; font-size:.9rem; color:var(--text); display:flex; align-items:center; gap:8px">
+              <span class="badge b-customer" style="font-size:.65rem; padding:1px 5px">Заказчик</span>
+              <span>${escHtml(c.name)}</span>
             </div>
-            <div style="font-weight:700; font-size:1.15rem; color:var(--blue)">${fmtMoney(c.amount)}</div>
-          </div>
-          <div class="g3 mb" style="gap:.5rem; font-size:.85rem">
-            <div style="background:var(--bg); padding:6px 8px; border-radius:6px">Всего: <b>${fmtN(c.total)}</b></div>
-            <div style="background:var(--bg); padding:6px 8px; border-radius:6px; color:var(--green)">Готово: <b>${fmtN(c.done)}</b></div>
-            <div style="background:var(--bg); padding:6px 8px; border-radius:6px; color:${c.overdue>0?'var(--red)':'var(--text-3)'}">Просрочено: <b>${fmtN(c.overdue)}</b></div>
-          </div>
-          ${c.total > 0 ? bar(c.done, c.total) : '<div class="t3" style="font-size:.78rem;margin:8px 0;text-align:center;background:#f8fafc;padding:4px;border-radius:4px;border:1px dashed #cbd5e1">Договор подписан · Заявки формируются</div>'}
-          <div style="text-align:right; font-size:.75rem; color:var(--text-3); margin-top:4px">${c.total > 0 ? (p + '% завершено (клик для перехода к заявкам) ➔') : 'Активный контракт (клик для перехода к заявкам) ➔'}</div>
-        </div>
+          </td>
+          <td style="text-align:center; padding:10px 8px">${contractsBadge}</td>
+          <td style="text-align:center; font-weight:700; padding:10px 8px">${fmtN(c.total)}</td>
+          <td style="text-align:center; font-weight:700; color:var(--orange); padding:10px 8px">${fmtN(c.inWork)}</td>
+          <td style="text-align:center; font-weight:700; color:var(--green); padding:10px 8px">${fmtN(c.done)}</td>
+          <td style="text-align:center; padding:10px 8px; font-weight:${c.overdue > 0 ? '700' : '400'}; color:${c.overdue > 0 ? 'var(--red)' : 'var(--text-3)'}">
+            ${c.overdue > 0 ? ('⚠️ ' + c.overdue) : '0'}
+          </td>
+          <td style="padding:10px 12px; min-width:130px">
+            ${c.total > 0 ? `<div style="display:flex; align-items:center; gap:6px">${bar(c.done, c.total)}<span style="font-size:.75rem; font-weight:700; min-width:32px">${p}%</span></div>` : '<span class="t3" style="font-size:.75rem">Договор подписан</span>'}
+          </td>
+          <td style="text-align:right; font-weight:700; font-family:monospace; font-size:.92rem; color:var(--blue); padding:10px 14px; white-space:nowrap">
+            ${fmtMoney(c.amount)}
+          </td>
+          <td style="text-align:center; padding:10px 8px; white-space:nowrap" onclick="event.stopPropagation()">
+            <button class="btn btn-xs btn-ghost" style="border:1px solid var(--border); font-size:.75rem" onclick="filterAndGoTasks({customer:'${escHtml(c.name)}'})">Заявки ➔</button>
+          </td>
+        </tr>
       `;
     }).join('');
 
     return `
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem">
-        <h1 class="page-title" style="margin:0; display:inline-flex; align-items:center; gap:8px"><span class="topbar-title-icon">${ICONS.analytics}</span><span>Аналитика: Заказчики</span></h1>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:10px">
+        <div>
+          <h1 class="page-title" style="margin:0; display:inline-flex; align-items:center; gap:8px">
+            <span class="topbar-title-icon">${ICONS.analytics}</span>
+            <span>Аналитика: Заказчики</span>
+          </h1>
+          <p class="t3" style="font-size:.85rem; margin:4px 0 0 0">Реестр генеральных заказчиков, объемы по контрактам, ход исполнения и контроль просрочки.</p>
+        </div>
         <button class="btn btn-sm btn-ghost" onclick="go('dashboard')">← Назад в Обзор</button>
       </div>
-      <p class="t3 mb" style="font-size:.85rem">Срез выполнения работ и объёмов в разрезе генеральных заказчиков.</p>
-      <div class="g2" style="gap:1rem">${cardsHtml || '<div class="card p t3">Нет данных</div>'}</div>
+
+      <!-- Сводные показатели -->
+      <div class="g4 mb" style="gap:.75rem">
+        <div class="card stat">
+          <div class="stat-val" style="color:var(--text)">${custList.length}</div>
+          <div class="stat-lbl">Всего заказчиков</div>
+          <div style="font-size:.75rem; color:var(--text-3); margin-top:2px">Договоров: ${sumContracts}</div>
+        </div>
+        <div class="card stat">
+          <div class="stat-val" style="color:var(--blue)">${fmtMoney(sumTotalAmt)}</div>
+          <div class="stat-lbl">Общий объем (вход)</div>
+          <div style="font-size:.75rem; color:var(--text-3); margin-top:2px">Контракты и заявки</div>
+        </div>
+        <div class="card stat">
+          <div class="stat-val" style="color:var(--orange)">${fmtN(sumInWorkTasks)}</div>
+          <div class="stat-lbl">Заявок в работе</div>
+          <div style="font-size:.75rem; color:var(--green); margin-top:2px">Выполнено: ${fmtN(sumDoneTasks)} из ${sumTotalTasks}</div>
+        </div>
+        <div class="card stat">
+          <div class="stat-val" style="color:${sumOverdueTasks > 0 ? 'var(--red)' : 'var(--green)'}">${sumOverdueTasks}</div>
+          <div class="stat-lbl">Просрочено заявок</div>
+          <div style="font-size:.75rem; color:var(--text-3); margin-top:2px">${sumOverdueTasks > 0 ? 'Требует внимания ПМ' : 'Все в графике'}</div>
+        </div>
+      </div>
+
+      <!-- Панель поиска и фильтров -->
+      <div class="card p-3 mb" style="background:#f8fafc; border:1px solid var(--border); border-radius:10px; margin-bottom:1rem; padding:12px 16px">
+        <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between">
+          <div style="display:flex; flex:1; min-width:280px; gap:8px; align-items:center">
+            <input type="text" placeholder="🔍 Поиск заказчика по названию..." value="${escHtml(S.dashCustQ)}" 
+                   oninput="window.onDashCustSearch(this.value)" style="flex:1; height:36px; padding:0 12px; border:1.5px solid var(--border); border-radius:6px; font-size:.85rem">
+            ${S.dashCustQ ? '<button type="button" class="btn btn-sm btn-ghost" onclick="window.onDashCustSearch(\'\')" style="height:36px">✕</button>' : ''}
+          </div>
+
+          <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center">
+            <span style="font-size:.75rem; font-weight:700; color:var(--text-3); text-transform:uppercase">Фильтр:</span>
+            <button type="button" class="btn btn-sm ${S.dashCustFilter === 'all' ? 'btn-primary' : 'btn-ghost'}" style="font-size:.78rem; padding:4px 10px" onclick="window.setDashCustFilter('all')">Все (${custList.length})</button>
+            <button type="button" class="btn btn-sm ${S.dashCustFilter === 'active' ? 'btn-primary' : 'btn-ghost'}" style="font-size:.78rem; padding:4px 10px" onclick="window.setDashCustFilter('active')">В работе (${custList.filter(x => x.inWork > 0).length})</button>
+            <button type="button" class="btn btn-sm ${S.dashCustFilter === 'overdue' ? 'btn-primary' : 'btn-ghost'}" style="font-size:.78rem; padding:4px 10px; color:${custList.filter(x => x.overdue > 0).length > 0 ? 'var(--red)' : ''}" onclick="window.setDashCustFilter('overdue')">С просрочкой (${custList.filter(x => x.overdue > 0).length})</button>
+            <button type="button" class="btn btn-sm ${S.dashCustFilter === 'done' ? 'btn-primary' : 'btn-ghost'}" style="font-size:.78rem; padding:4px 10px" onclick="window.setDashCustFilter('done')">Завершенные</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Таблица заказчиков (Строковый вид) -->
+      <div class="card tbl-wrap" style="overflow-x:auto">
+        <table class="tasks-table" style="width:100%; border-collapse:collapse">
+          <thead>
+            <tr>
+              <th style="cursor:pointer; user-select:none; text-align:left; padding:10px 14px" onclick="window.sortDashCust('name')" title="Сортировка по имени">Заказчик${custSortIndicator('name')}</th>
+              <th style="cursor:pointer; user-select:none; text-align:center; width:95px; padding:10px 8px" onclick="window.sortDashCust('contracts')" title="Сортировка по договорам">Договоры${custSortIndicator('contracts')}</th>
+              <th style="cursor:pointer; user-select:none; text-align:center; width:85px; padding:10px 8px" onclick="window.sortDashCust('total')" title="Сортировка по общему числу заявок">Заявок${custSortIndicator('total')}</th>
+              <th style="cursor:pointer; user-select:none; text-align:center; width:85px; padding:10px 8px" onclick="window.sortDashCust('inwork')" title="Сортировка по заявкам в работе">В работе${custSortIndicator('inwork')}</th>
+              <th style="text-align:center; width:80px; padding:10px 8px">Готово</th>
+              <th style="cursor:pointer; user-select:none; text-align:center; width:95px; padding:10px 8px" onclick="window.sortDashCust('overdue')" title="Сортировка по просрочке">Просрочка${custSortIndicator('overdue')}</th>
+              <th style="width:150px; padding:10px 12px">Прогресс</th>
+              <th style="cursor:pointer; user-select:none; text-align:right; width:140px; padding:10px 14px" onclick="window.sortDashCust('amount')" title="Сортировка по сумме">Объем (₽)${custSortIndicator('amount')}</th>
+              <th style="width:80px; text-align:center; padding:10px 8px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows || '<tr><td colspan="9" style="text-align:center; padding:2rem; color:var(--text-3)">Заказчиков по заданным фильтрам не найдено</td></tr>'}
+          </tbody>
+        </table>
+      </div>
     `;
   }
 

@@ -1413,6 +1413,9 @@
         '<button type="button" class="btn btn-sm btn-ghost" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="window._openBudgetDistributorModal(\'' + escHtml(taskId) + '\')"') + ' style="font-size:.78rem;font-weight:600;border:1.5px solid var(--border);padding:4px 10px;color:var(--text)" title="Рассчитать цену за единицу от согласованного бюджета">' +
           '🧮 Расчет от общей суммы' +
         '</button>' +
+        '<button type="button" class="btn btn-sm btn-primary" onclick="window.exportDoc(\'app2\', \'' + escHtml(taskId) + '\')" style="font-size:.78rem;font-weight:700;padding:4px 12px;display:inline-flex;align-items:center;gap:5px" title="Сформировать официальное Приложение № 1 (Заказ-наряд на объект) к договору субподряда">' +
+          '📄 Приложение № 1 (Заказ-наряд)' +
+        '</button>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:8px">' +
         '<span style="font-size:.78rem;color:var(--text-2);font-weight:600">Генподрядчик («Мы»):</span>' +
@@ -1512,31 +1515,24 @@
 
         '<div style="background:#f8fafc;padding:8px 12px;border:1.5px solid #cbd5e1;border-radius:6px">' +
           '<div style="font-size:.72rem;color:var(--text-2);font-weight:700;text-transform:uppercase">ИТОГО К ВЫПЛАТЕ ПО РАБОТАМ</div>' +
-          '<div id="smr_tax_total_with_' + escHtml(taskId) + '" style="font-size:1.15rem;font-weight:800;color:var(--primary);margin-top:2px">' + window.fmtMoneyPrecise(taxCalc.totalWithTax) + '</div>' +
+          '<div id="smr_tax_total_with_' + escHtml(taskId) + '" style="font-size:1.05rem;font-weight:800;color:var(--primary);margin-top:2px">' + window.fmtMoneyPrecise(taxCalc.totalWithTax) + '</div>' +
           '<div style="font-size:.68rem;color:var(--text-3)">с учетом налога / к перечислению</div>' +
         '</div>' +
       '</div>' +
 
-      // Блок округления до целых рублей (по запросу Алексея)
-      '<div id="smr_round_box_' + escHtml(taskId) + '" style="margin-top:12px;padding:10px 14px;background:#fff;border:1.5px solid #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">' +
-        '<div style="display:flex;align-items:center;gap:8px">' +
-          '<span style="font-size:1.15rem">🪙</span>' +
-          '<div>' +
-            '<div style="font-size:.82rem;font-weight:700;color:var(--text)">Округлить до целых рублей?</div>' +
-            '<div style="font-size:.72rem;color:var(--text-3)">Согласование суммы к оплате для бухгалтерской отчетности</div>' +
-          '</div>' +
+      // Блок округления до целых рублей (компактный: Да / Нет)
+      '<div id="smr_round_box_' + escHtml(taskId) + '" style="margin-top:8px;padding:6px 12px;background:#fff;border:1px solid #cbd5e1;border-radius:6px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+          '<span style="font-size:1rem">🪙</span>' +
+          '<span style="font-size:.78rem;font-weight:700;color:var(--text)">Округлить до целых рублей?</span>' +
         '</div>' +
-        '<div style="display:flex;gap:8px;align-items:center">' +
-          '<button type="button" class="btn btn-sm ' + (!taxCalc.isRounded ? 'btn-primary' : 'btn-ghost') + '" onclick="window._setSmrRounding(\'' + escHtml(taskId) + '\', false)" style="font-size:.8rem;padding:4px 12px;font-weight:' + (!taxCalc.isRounded ? '700' : '500') + ';border:1.5px solid ' + (!taxCalc.isRounded ? 'var(--primary)' : 'var(--border)') + '">' +
-            'Нет = ' + window.fmtMoneyPrecise(taxCalc.unroundedTotal) + ' (без перерасчета сметы)' +
-          '</button>' +
-          '<button type="button" class="btn btn-sm ' + (taxCalc.isRounded ? 'btn-primary' : 'btn-ghost') + '" onclick="window._setSmrRounding(\'' + escHtml(taskId) + '\', true)" style="font-size:.8rem;padding:4px 12px;font-weight:' + (taxCalc.isRounded ? '700' : '500') + ';border:1.5px solid ' + (taxCalc.isRounded ? 'var(--primary)' : 'var(--border)') + '">' +
-            'Да = ' + window.fmtMoney(Math.round(taxCalc.unroundedTotal)) + ' (перерасчет сметы)' +
-          '</button>' +
+        '<div style="display:flex;gap:6px;align-items:center">' +
+          '<button type="button" class="btn btn-xs ' + (!taxCalc.isRounded ? 'btn-primary' : 'btn-ghost') + '" onclick="window._setSmrRounding(\'' + escHtml(taskId) + '\', false)" style="padding:2px 14px;font-size:.76rem;font-weight:600" title="' + window.fmtMoneyPrecise(taxCalc.unroundedTotal) + '">Нет</button>' +
+          '<button type="button" class="btn btn-xs ' + (taxCalc.isRounded ? 'btn-primary' : 'btn-ghost') + '" onclick="window._setSmrRounding(\'' + escHtml(taskId) + '\', true)" style="padding:2px 14px;font-size:.76rem;font-weight:600" title="' + window.fmtMoney(Math.round(taxCalc.unroundedTotal)) + '">Да</button>' +
         '</div>' +
       '</div>' +
-      '<div style="display:flex;justify-content:flex-end;margin-top:10px;padding-top:8px;border-top:1px dashed var(--border)">' +
-        '<button type="button" class="btn btn-sm btn-primary" onclick="window.saveAndCreateAgreement(\'' + escHtml(taskId) + '\')" style="font-weight:700;font-size:.84rem;padding:6px 18px;display:inline-flex;align-items:center;gap:6px;box-shadow:0 2px 4px rgba(37,99,235,0.2)">' +
+      '<div style="display:flex;justify-content:flex-end;margin-top:8px;padding-top:6px;border-top:1px dashed var(--border)">' +
+        '<button type="button" class="btn btn-sm btn-primary" onclick="window.saveAndCreateAgreement(\'' + escHtml(taskId) + '\')" style="font-weight:700;font-size:.82rem;padding:5px 16px;display:inline-flex;align-items:center;gap:6px;box-shadow:0 2px 4px rgba(37,99,235,0.2)">' +
           '📄 Сохранить и создать соглашение' +
         '</button>' +
       '</div>' +
@@ -1721,20 +1717,13 @@
     var elRoundBox = document.getElementById('smr_round_box_' + taskId);
     if (elRoundBox) {
       elRoundBox.innerHTML = 
-        '<div style="display:flex;align-items:center;gap:8px">' +
-          '<span style="font-size:1.15rem">🪙</span>' +
-          '<div>' +
-            '<div style="font-size:.82rem;font-weight:700;color:var(--text)">Округлить до целых рублей?</div>' +
-            '<div style="font-size:.72rem;color:var(--text-3)">Согласование суммы к оплате для бухгалтерской отчетности</div>' +
-          '</div>' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+          '<span style="font-size:1rem">🪙</span>' +
+          '<span style="font-size:.78rem;font-weight:700;color:var(--text)">Округлить до целых рублей?</span>' +
         '</div>' +
-        '<div style="display:flex;gap:8px;align-items:center">' +
-          '<button type="button" class="btn btn-sm ' + (!taxCalc.isRounded ? 'btn-primary' : 'btn-ghost') + '" onclick="window._setSmrRounding(\'' + escHtml(taskId) + '\', false)" style="font-size:.8rem;padding:4px 12px;font-weight:' + (!taxCalc.isRounded ? '700' : '500') + ';border:1.5px solid ' + (!taxCalc.isRounded ? 'var(--primary)' : 'var(--border)') + '">' +
-            'Нет = ' + window.fmtMoneyPrecise(taxCalc.unroundedTotal) + ' (без перерасчета сметы)' +
-          '</button>' +
-          '<button type="button" class="btn btn-sm ' + (taxCalc.isRounded ? 'btn-primary' : 'btn-ghost') + '" onclick="window._setSmrRounding(\'' + escHtml(taskId) + '\', true)" style="font-size:.8rem;padding:4px 12px;font-weight:' + (taxCalc.isRounded ? '700' : '500') + ';border:1.5px solid ' + (taxCalc.isRounded ? 'var(--primary)' : 'var(--border)') + '">' +
-            'Да = ' + window.fmtMoney(Math.round(taxCalc.unroundedTotal)) + ' (перерасчет сметы)' +
-          '</button>' +
+        '<div style="display:flex;gap:6px;align-items:center">' +
+          '<button type="button" class="btn btn-xs ' + (!taxCalc.isRounded ? 'btn-primary' : 'btn-ghost') + '" onclick="window._setSmrRounding(\'' + escHtml(taskId) + '\', false)" style="padding:2px 14px;font-size:.76rem;font-weight:600" title="' + window.fmtMoneyPrecise(taxCalc.unroundedTotal) + '">Нет</button>' +
+          '<button type="button" class="btn btn-xs ' + (taxCalc.isRounded ? 'btn-primary' : 'btn-ghost') + '" onclick="window._setSmrRounding(\'' + escHtml(taskId) + '\', true)" style="padding:2px 14px;font-size:.76rem;font-weight:600" title="' + window.fmtMoney(Math.round(taxCalc.unroundedTotal)) + '">Да</button>' +
         '</div>';
     }
 
@@ -1743,7 +1732,102 @@
 
   window._toggleSmrAddMenu = function(taskId) {
     var m = document.getElementById('smr_add_menu_' + taskId);
-    if (m) m.style.display = (m.style.display === 'none' ? 'block' : 'none');
+    if (!m) return;
+    if (m.style.display !== 'none') {
+      m.style.display = 'none';
+      return;
+    }
+    m.style.display = 'block';
+
+    if (!window._cachedSubcontractPriceLists) {
+      m.innerHTML = '<div style="padding:10px;text-align:center;color:var(--text-3);font-size:.78rem">Загрузка позиций из прайсов субподряда...</div>';
+      api('/subcontract-pricelists').then(function(lists) {
+        window._cachedSubcontractPriceLists = Array.isArray(lists) ? lists : [];
+        window._renderSmrAddMenuItems(taskId);
+      }).catch(function() {
+        window._cachedSubcontractPriceLists = [];
+        window._renderSmrAddMenuItems(taskId);
+      });
+    } else {
+      window._renderSmrAddMenuItems(taskId);
+    }
+  };
+
+  window._renderSmrAddMenuItems = function(taskId, filterQ) {
+    var m = document.getElementById('smr_add_menu_' + taskId);
+    if (!m) return;
+    var q = (filterQ || '').toLowerCase().trim();
+
+    var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+    var contrName = t.contractor || (t.subcontract && t.subcontract.contractor_name) || '';
+
+    // Собираем все позиции из загруженных прайсов субподряда
+    var allItems = [];
+    var priceLists = window._cachedSubcontractPriceLists || [];
+    priceLists.forEach(function(pl) {
+      if (Array.isArray(pl.items)) {
+        pl.items.forEach(function(it) {
+          allItems.push({
+            name: it.name,
+            unit: it.unit || 'шт',
+            price: Number(it.price) || 0,
+            category: it.category || pl.name,
+            price_list_name: pl.name
+          });
+        });
+      }
+    });
+
+    // Дефолтный каталог (если прайсы еще пусты)
+    if (!allItems.length) {
+      allItems = [
+        { name: 'Монтаж напольного ТКШ 42-48U', unit: 'шт', price: 10000, category: 'Шкафы ТКШ' },
+        { name: 'Монтаж напольного ТКШ 32U', unit: 'шт', price: 8000, category: 'Шкафы ТКШ' },
+        { name: 'Монтаж навесного ТКШ 18-22U', unit: 'шт', price: 6500, category: 'Шкафы ТКШ' },
+        { name: 'Замена ТКШ с переносом', unit: 'шт', price: 10000, category: 'Шкафы ТКШ' },
+        { name: 'Монтаж порта СКС кат. 5е', unit: 'порт', price: 2500, category: 'СКС и Оптика' },
+        { name: 'Монтаж порта СКС кат. 6/6А', unit: 'порт', price: 3000, category: 'СКС и Оптика' },
+        { name: 'Оптический порт (дуплекс) OS2/OM3', unit: 'порт', price: 3000, category: 'СКС и Оптика' },
+        { name: 'Прокладка витой пары UTP 4 пары', unit: 'м', price: 50, category: 'СКС и Оптика' },
+        { name: 'Установка розетки RJ-45 с расключением', unit: 'шт', price: 350, category: 'СКС и Оптика' },
+        { name: 'Монтаж кабель-канала до 40мм', unit: 'м', price: 120, category: 'СКС и Оптика' },
+        { name: 'Монтаж и расшивка патч-панели 24 порта', unit: 'шт', price: 2500, category: 'СКС и Оптика' },
+        { name: 'Тестирование и маркировка портов (Fluke)', unit: 'порт', price: 150, category: 'Пусконаладка' },
+        { name: 'Транспортные расходы (свыше 10 км)', unit: 'км', price: 12, category: 'Транспорт' },
+        { name: 'Суточные расходы монтажника (день)', unit: 'день', price: 700, category: 'Транспорт' },
+        { name: 'Проживание в гостинице / найм жилья', unit: 'сут', price: 2500, category: 'Транспорт' }
+      ];
+    }
+
+    if (q) {
+      allItems = allItems.filter(function(it) {
+        return (it.name || '').toLowerCase().includes(q) || (it.category || '').toLowerCase().includes(q);
+      });
+    }
+
+    var byCategory = {};
+    allItems.forEach(function(it) {
+      var cat = it.category || 'Прочее';
+      if (!byCategory[cat]) byCategory[cat] = [];
+      byCategory[cat].push(it);
+    });
+
+    var groupsHtml = Object.keys(byCategory).map(function(cat) {
+      var catItems = byCategory[cat];
+      return '<div style="font-size:.72rem;font-weight:700;color:var(--text-3);padding:4px 8px;text-transform:uppercase;background:#f8fafc;border-radius:4px;margin-top:4px">' + escHtml(cat) + '</div>' +
+        catItems.map(function(it) {
+          return '<div style="padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f1f5f9" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._addCardSmrLine(\'' + escHtml(taskId) + '\', null, { name: \'' + escHtml(it.name).replace(/'/g, "\\'") + '\', unit: \'' + escHtml(it.unit).replace(/'/g, "\\'") + '\', price: ' + it.price + ' }); document.getElementById(\'smr_add_menu_' + escHtml(taskId) + '\').style.display=\'none\'">' +
+            '<span style="font-weight:600;color:var(--text)">' + escHtml(it.name) + '</span>' +
+            '<span style="font-weight:700;color:var(--primary);margin-left:8px;white-space:nowrap">' + fmtMoney(it.price) + ' / ' + escHtml(it.unit) + '</span>' +
+          '</div>';
+        }).join('');
+    }).join('');
+
+    m.innerHTML = '<div style="padding:6px;border-bottom:1px solid var(--border);margin-bottom:4px;display:flex;gap:6px">' +
+      '<input type="text" placeholder="🔍 Поиск по позициям прайса..." value="' + escHtml(filterQ || '') + '" oninput="window._renderSmrAddMenuItems(\'' + escHtml(taskId) + '\', this.value)" style="flex:1;padding:4px 8px;font-size:.78rem;border:1px solid var(--border);border-radius:4px" autofocus>' +
+      '<button type="button" class="btn btn-xs btn-ghost" onclick="window.openQuickSubcontractCreateModal(\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')" style="font-size:.74rem;white-space:nowrap;color:var(--green);font-weight:700" title="Создать новый прайс субподряда">+ Создать прайс</button>' +
+    '</div>' +
+    '<div style="max-height:300px;overflow-y:auto">' + (groupsHtml || '<div style="padding:10px;text-align:center;color:var(--text-3);font-size:.78rem">Ничего не найдено</div>') + '</div>';
   };
 
   window._updateCardSmrLine = function(taskId, idx, field, val) {
@@ -1801,12 +1885,25 @@
     window._renderCardSmrTable(taskId);
   };
 
-  window._addCardSmrLine = function(taskId, itemKey) {
+  window._addCardSmrLine = function(taskId, itemKey, customObj) {
     window._taskSmrSpec = window._taskSmrSpec || {};
     if (!window._taskSmrSpec[taskId]) window._taskSmrSpec[taskId] = [];
     var spec = window._taskSmrSpec[taskId];
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
     window._curWizTask = t;
+
+    if (customObj) {
+      spec.push({
+        name: customObj.name,
+        qty: Number(customObj.qty) || 1,
+        unit: customObj.unit || 'шт',
+        price: Number(customObj.price) || 0,
+        sum: Math.round((Number(customObj.qty) || 1) * (Number(customObj.price) || 0) * 100) / 100
+      });
+      if (typeof window._markSmrDirty === 'function') window._markSmrDirty(taskId);
+      window._renderCardSmrTable(taskId);
+      return;
+    }
 
     var catalog = {
       // Шкафы ТКШ
@@ -2290,54 +2387,27 @@
         '</div>' +
       '</div>';
 
-      // Блок калькулятора портов и параметров объекта
-      html += '<div id="wiz_calc_params_box" style="border:1px solid var(--border);border-radius:8px;padding:12px;background:#f8fafc">' +
-        '<div style="font-weight:700;font-size:.82rem;color:var(--text);margin-bottom:8px">Объемы и параметры заявки для Заказ-наряда:</div>' +
-        '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));gap:8px;margin-bottom:8px">' +
+      // Сумма по Заказ-наряду (из сметы заявки или договорная)
+      var existingSmrTotal = 0;
+      if (window._taskSmrSpec && window._taskSmrSpec[taskId]) {
+        window._taskSmrSpec[taskId].forEach(function(x){ existingSmrTotal += (Number(x.qty)||1)*(Number(x.price)||0); });
+      }
+      if (!existingSmrTotal && curTask && curTask.rawData && curTask.rawData.subTotal) {
+        existingSmrTotal = Number(curTask.rawData.subTotal) || 0;
+      }
+
+      html += '<div id="wiz_calc_params_box" style="border:1px solid var(--border);border-radius:8px;padding:12px;background:#f8fafc;margin-top:4px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">' +
           '<div>' +
-            '<label style="display:block;font-size:.74rem;color:var(--text-3);margin-bottom:2px">Кол-во портов</label>' +
-            '<input type="number" id="wiz_ports" value="' + defaultPorts + '" min="0" style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;font-weight:700" oninput="window._wizUpdateSummary()">' +
+            '<div style="font-weight:700;font-size:.84rem;color:var(--text)">Сумма Заказ-наряда к договору подряда:</div>' +
+            '<div class="t3" style="font-size:.73rem">Определяется сметой работ на вкладке «Исполнение» или договорной суммой</div>' +
           '</div>' +
-          '<div>' +
-            '<label style="display:block;font-size:.74rem;color:var(--text-3);margin-bottom:2px">Тип порта</label>' +
-            '<select id="wiz_port_type" style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:.82rem" onchange="window._wizUpdateSummary()">' +
-              '<option value="port_5e">СКС 5е (2500/3000 ₽)</option>' +
-              '<option value="port_6">СКС 6 (3000/3500 ₽)</option>' +
-              '<option value="port_6a">СКС 6А (3000/3500 ₽)</option>' +
-              '<option value="port_optics">Оптика OS2/OM3 (3000/3500 ₽)</option>' +
-              '<option value="port_reinstall">Демонтаж/Монтаж (1000/1200 ₽)</option>' +
-            '</select>' +
-          '</div>' +
-          '<div>' +
-            '<label style="display:block;font-size:.74rem;color:var(--text-3);margin-bottom:2px">Шкаф ТКШ</label>' +
-            '<select id="wiz_cab" style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:.82rem" onchange="window._wizUpdateSummary()">' +
-              '<option value="">(Без шкафа)</option>' +
-              '<option value="tksh_42u">Монтаж напольного 42U (+10 000 ₽)</option>' +
-              '<option value="tksh_32u">Монтаж напольного 32U (+8 000 ₽)</option>' +
-              '<option value="tksh_18u">Монтаж навесного 18-22U (+6 500 ₽)</option>' +
-              '<option value="tksh_swap">Замена ТКШ (+10 000 ₽)</option>' +
-            '</select>' +
-          '</div>' +
-          '<div>' +
-            '<label style="display:block;font-size:.74rem;color:var(--text-3);margin-bottom:2px">Удаленность (км)</label>' +
-            '<input type="number" id="wiz_km" value="' + defaultKm + '" min="0" style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem" oninput="window._wizUpdateSummary()">' +
+          '<div style="display:flex;align-items:center;gap:8px">' +
+            '<input type="number" id="wiz_manual_total" value="' + (existingSmrTotal || '') + '" placeholder="' + (existingSmrTotal ? existingSmrTotal : '0') + '" style="width:160px;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.9rem;font-weight:700;text-align:right" oninput="window._wizUpdateSummary(\'manual_total\')">' +
+            '<span style="font-weight:700;color:var(--text-2);font-size:.9rem">₽</span>' +
           '</div>' +
         '</div>' +
-        '<div style="background:#fff;border:1px dashed #3b82f6;border-radius:6px;padding:8px 10px;margin-top:8px;margin-bottom:8px">' +
-          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
-            '<label style="font-size:.76rem;font-weight:700;color:var(--text)">Индивидуальная договорная цена (ручной ввод):</label>' +
-            '<span class="t3" style="font-size:.68rem">Необязательно — если сумма оговорена индивидуально</span>' +
-          '</div>' +
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
-            '<div>' +
-              '<input type="number" id="wiz_manual_rate" placeholder="Ставка за порт (₽)" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:4px;font-size:.82rem" oninput="window._wizUpdateSummary(\'manual_rate\')">' +
-            '</div>' +
-            '<div>' +
-              '<input type="number" id="wiz_manual_total" placeholder="Или фиксированная сумма (₽)" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:4px;font-size:.82rem;font-weight:700" oninput="window._wizUpdateSummary(\'manual_total\')">' +
-            '</div>' +
-          '</div>' +
-        '</div>' +
-        '<div id="wiz_calc_summary" style="font-weight:700;font-size:.92rem;color:var(--blue);text-align:right">Итого к начислению: 0 ₽</div>' +
+        '<div id="wiz_calc_summary" style="font-weight:700;font-size:.88rem;color:var(--blue);text-align:right;margin-top:8px">Итого к начислению: ' + (existingSmrTotal ? fmtMoney(existingSmrTotal) : '0 ₽') + '</div>' +
       '</div>';
 
       html += '</div>';
@@ -2373,54 +2443,13 @@
       return;
     }
 
-    var ports = document.getElementById('wiz_ports') ? parseFloat(document.getElementById('wiz_ports').value) || 0 : 0;
-    var portType = document.getElementById('wiz_port_type') ? document.getElementById('wiz_port_type').value : 'port_5e';
-    var cab = document.getElementById('wiz_cab') ? document.getElementById('wiz_cab').value : '';
-    var km = document.getElementById('wiz_km') ? document.getElementById('wiz_km').value : 0;
-    var cId = document.getElementById('wiz_contractor_id') ? document.getElementById('wiz_contractor_id').value : '';
-    var curTask = window._curWizTask || {};
-
-    var mRateEl = document.getElementById('wiz_manual_rate');
     var mTotalEl = document.getElementById('wiz_manual_total');
-    var mRate = mRateEl ? (parseFloat(mRateEl.value) || 0) : 0;
     var mTotal = mTotalEl ? (parseFloat(mTotalEl.value) || 0) : 0;
 
-    if (src === 'manual_rate' && mRate > 0) {
-      mTotal = Math.round(mRate * (ports || 1));
-      if (mTotalEl) mTotalEl.value = mTotal;
-    } else if (src === 'manual_total' && mTotal > 0 && ports > 0) {
-      mRate = Math.round(mTotal / ports);
-      if (mRateEl) mRateEl.value = mRate;
-    }
-
-    var res = calcSmrLocal({
-      contractorId: cId,
-      customerTag: curTask.customer || curTask.customer_tag || '',
-      region: curTask.region || curTask.chain || '',
-      ports: ports,
-      portType: portType,
-      cabinetType: cab,
-      distanceKm: km
-    });
-
-    var isRec = res.isRecommended;
-    var plName = res.priceListName || (isRec ? 'Базовый (рекомендованный)' : 'Прайс');
-    var plBadge = ' <span class="badge" style="font-size:.72rem;padding:2px 7px;border-radius:4px;' +
-      (isRec ? 'background:#f0fdf4;color:#166534;border:1px solid #86efac' : 'background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe') + '">' +
-      (isRec ? '⭐ Реком.: ' : '👤 Прайс: ') + escHtml(plName) + '</span>';
-
     if (mTotal > 0) {
-      sumEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">' +
-        '<div>' + plBadge + '</div>' +
-        '<div>По прайсу: <span style="text-decoration:line-through;opacity:.65">' + fmtMoney(res.totalAmount) + '</span> → <span style="color:var(--green)">Согласовано вручную: ' + fmtMoney(mTotal) + '</span></div>' +
-      '</div>';
+      sumEl.innerHTML = 'Согласованная сумма по Заказ-наряду: <span style="color:var(--green);font-weight:700">' + fmtMoney(mTotal) + '</span>';
     } else {
-      sumEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">' +
-        '<div>' + plBadge + '</div>' +
-        '<div>Расчет по тарифу: <span style="color:var(--blue);font-weight:700">' + fmtMoney(res.totalAmount) + '</span>' +
-          (res.transportAmount > 0 ? (' <span class="t3" style="font-size:.75rem">(в т.ч. выезд ' + fmtMoney(res.transportAmount) + ')</span>') : '') +
-        '</div>' +
-      '</div>';
+      sumEl.innerHTML = 'Сумма определяется сметой на вкладке «Исполнение»';
     }
   };
 
@@ -2455,11 +2484,11 @@
     var modeEl = document.querySelector('input[name="wiz_mode"]:checked');
     var mode = modeEl ? modeEl.value : 'price';
 
-    var ports = document.getElementById('wiz_ports') ? parseInt(document.getElementById('wiz_ports').value, 10) : 0;
-    var portType = document.getElementById('wiz_port_type') ? document.getElementById('wiz_port_type').value : 'port_5e';
-    var cab = document.getElementById('wiz_cab') ? document.getElementById('wiz_cab').value : '';
-    var km = document.getElementById('wiz_km') ? parseFloat(document.getElementById('wiz_km').value) : 0;
     var curTask = window._curWizTask || (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+    var ports = Number(curTask.fact || curTask.inOrder || curTask.ports || 0);
+    var portType = curTask.port_type || 'port_5e';
+    var cab = curTask.cabinet_type || '';
+    var km = parseFloat(curTask.distance_km || 0);
 
     var calcRes = calcSmrLocal({
       contractorId: cId,
@@ -2511,10 +2540,14 @@
     var mRate = document.getElementById('wiz_manual_rate') ? parseFloat(document.getElementById('wiz_manual_rate').value) : 0;
     if (mTotal > 0) {
       finalPrice = mTotal;
-      calcDetails = Object.assign({}, calcRes, { manualOverride: { total: mTotal, rate: mRate, originalCalc: calcRes.totalAmount } });
+      calcDetails = Object.assign({}, calcRes, { manualOverride: { total: mTotal, rate: ports > 0 ? Math.round(mTotal / ports) : mTotal, originalCalc: calcRes.totalAmount } });
     } else if (mRate > 0) {
       finalPrice = Math.round(mRate * (ports || 1));
       calcDetails = Object.assign({}, calcRes, { manualOverride: { total: finalPrice, rate: mRate, originalCalc: calcRes.totalAmount } });
+    } else if (!finalPrice && window._taskSmrSpec && window._taskSmrSpec[taskId]) {
+      var specSum = 0;
+      window._taskSmrSpec[taskId].forEach(function(x){ specSum += (Number(x.qty)||1)*(Number(x.price)||0); });
+      if (specSum > 0) finalPrice = specSum;
     }
 
     var specId = document.getElementById('wiz_specialist_id') ? document.getElementById('wiz_specialist_id').value : '';
@@ -2563,6 +2596,11 @@
         t.rawData.subRate = mRate || (ports > 0 ? Math.round(finalPrice / ports) : finalPrice);
         t.rawData.subTotal = finalPrice;
       }
+
+      // Синхронизируем во всех элементах интерфейса (вкладка Информация)
+      var inpContr = document.getElementById('task_edit_contractor') || document.querySelector('input[name="contractor"]');
+      if (inpContr) inpContr.value = cName;
+      if (S.cardDraft) S.cardDraft.contractor = cName;
 
       var modalEl = document.getElementById('_subcontract_wizard_modal');
       if (modalEl) modalEl.remove();

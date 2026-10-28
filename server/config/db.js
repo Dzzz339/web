@@ -540,6 +540,7 @@ export async function initDB() {
   await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS date_start DATE`);
   await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS date_finish DATE`);
   await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS contractor_name TEXT`);
+  await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS contractor_inn TEXT`);
 
   // Реестр сформированных и прикрепленных документов
   await pool.query(`
@@ -667,6 +668,10 @@ export async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_items_contractor_id ON task_items(contractor_id)`);
   await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS article TEXT`);
   await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS supplier TEXT`);
+  await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS article_plan TEXT`);
+  await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS article_fact TEXT`);
+  await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS shipment_date DATE`);
+  await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS shipment_method TEXT`);
 
 
   await pool.query(`

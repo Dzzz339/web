@@ -30,6 +30,7 @@ import documentsRoutes from './routes/documents.js';
 import contractsRoutes from './routes/contracts.js';
 import subcontractDmsRoutes from './routes/subcontractDms.js';
 import adminRoutes from './routes/admin.js';
+import previewRoutes from './routes/preview.js';
 
 const app = express();
 const server = createServer(app);
@@ -108,6 +109,7 @@ app.use('/api', documentsRoutes);
 app.use('/api', contractsRoutes);
 app.use('/api', subcontractDmsRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api', previewRoutes);
 
 // Инициализация WebSockets чата
 setupChatSocket(io);

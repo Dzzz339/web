@@ -48,7 +48,13 @@ window.onCardOwnCompanyChange = function(val) {
 };
 
 window.toggleTaskEditLock = function() {
-  S._taskEditUnlocked = !S._taskEditUnlocked;
+  if (S._taskEditUnlocked === undefined || S._taskEditUnlocked === true) {
+    S._taskEditUnlocked = false;
+    if (typeof showToast === 'function') showToast('🔒 Заявка заблокирована от редактирования', 'info');
+  } else {
+    S._taskEditUnlocked = true;
+    if (typeof showToast === 'function') showToast('🔓 Заявка разблокирована для редактирования', 'info');
+  }
   renderApp();
 };
 
@@ -291,7 +297,159 @@ window.cardOpenCloudFolderModal = function(taskId, fieldKey) {
   if (old) old.remove();
 
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); }) || {};
-  var fieldLabels = {
+  
+window.confirmSmrDate = function(taskId, dateVal) {
+  var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); });
+  var payload = { smrActualEndDate: dateVal };
+  if (t) {
+    t.smrActualEndDate = dateVal;
+    t.smr_actual_end_date = dateVal;
+    t.smrDateConfirmed = true;
+    if (!t.statusSmr || t.statusSmr === 'in_progress') {
+      t.statusSmr = 'done';
+      t.status_smr = 'done';
+      payload.statusSmr = 'done';
+    }
+  }
+  var inp = document.getElementById('cardSmrActualEndDate');
+  if (inp) inp.value = dateVal;
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(function(res) {
+    if (res && res.task) {
+      if (t) Object.assign(t, res.task);
+      var idx = (S.tasks || []).findIndex(function(x) { return String(x.id) === String(taskId); });
+      if (idx !== -1) S.tasks[idx] = res.task;
+    }
+    if (typeof showToast === 'function') showToast('Дата завершения СМР подтверждена: ' + dateVal.split('-').reverse().join('.'), 'success');
+    if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
+    renderApp();
+  }).catch(function(err) {
+    console.error('Ошибка подтверждения даты СМР:', err);
+    if (typeof showToast === 'function') showToast('Ошибка сохранения: ' + err.message, 'error');
+  });
+};
+
+window.confirmSmrFact = function(taskId, factVal) {
+  var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); });
+  var num = Number(factVal);
+  var payload = { fact: num };
+  if (t) {
+    t.fact = num;
+    t.factConfirmed = true;
+  }
+  var inp = document.querySelector('#smrClosingBlock input[name=fact]');
+  if (inp) inp.value = factVal;
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(function(res) {
+    if (res && res.task) {
+      if (t) Object.assign(t, res.task);
+      var idx = (S.tasks || []).findIndex(function(x) { return String(x.id) === String(taskId); });
+      if (idx !== -1) S.tasks[idx] = res.task;
+    }
+    if (typeof showToast === 'function') showToast('Объем портов подтвержден: ' + factVal + ' шт.', 'success');
+    if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
+    renderApp();
+  }).catch(function(err) {
+    console.error('Ошибка подтверждения факта портов:', err);
+    if (typeof showToast === 'function') showToast('Ошибка сохранения: ' + err.message, 'error');
+  });
+};
+
+window.rejectSmrFact = function(taskId) {
+  var val = prompt('Укажите фактическое подтвержденное количество портов (по КЖ/фото):', '0');
+  if (val === null) return;
+  var num = parseInt(val, 10);
+  if (isNaN(num) || num < 0) return alert('Введите корректное число портов.');
+  var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); });
+  if (t) {
+    t.fact = num;
+    t.factConfirmed = true;
+  }
+  var inp = document.querySelector('#smrClosingBlock input[name=fact]');
+  if (inp) inp.value = num;
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fact: num })
+  }).then(function(res) {
+    if (res && res.task) {
+      if (t) Object.assign(t, res.task);
+      var idx = (S.tasks || []).findIndex(function(x) { return String(x.id) === String(taskId); });
+      if (idx !== -1) S.tasks[idx] = res.task;
+    }
+    if (typeof showToast === 'function') showToast('Объем скорректирован менеджером: ' + num + ' шт.', 'info');
+    if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
+    renderApp();
+  }).catch(function(err) {
+    console.error('Ошибка корректировки факта портов:', err);
+    if (typeof showToast === 'function') showToast('Ошибка сохранения: ' + err.message, 'error');
+  });
+};
+
+window.generateSequentialPorts = function(taskId) {
+  var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+  var count = Number(t.fact || t.inOrder || t.ports || 14);
+  if (!count || count <= 0) count = 14;
+
+  if (!confirm('Сгенерировать ' + count + ' портов с последовательной нумерацией (Порт 1 .. Порт ' + count + ')?\nТекущие строки КЖ будут заменены.')) return;
+
+  var ports = [];
+  for (var i = 1; i <= count; i++) {
+    var pNum = String(i);
+    var mark = '1.' + (i < 10 ? '0' + i : i);
+    ports.push({
+      portNumber: pNum,
+      marking: mark,
+      room: 'Помещение 1',
+      cabinet: 'ТКШ-1',
+      unit: '24U',
+      patchPanel: 'ПП-1',
+      cableLength: 25,
+      crimping: 'T568B',
+      testingStatus: 'pass'
+    });
+  }
+
+  api('/tasks/' + taskId + '/ports/batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ports: ports, replaceExisting: true })
+  }).then(function(res) {
+    if (typeof showToast === 'function') {
+      showToast('Сгенерировано ' + count + ' портов в КЖ', 'success');
+    }
+    refreshPortsList(taskId);
+    if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
+  }).catch(function(err) {
+    alert('Ошибка генерации портов: ' + (err.message || err));
+  });
+};
+
+window.downloadCableJournalTemplate = function() {
+  if (!window.XLSX) {
+    return alert('Библиотека XLSX еще загружается. Пожалуйста, подождите 2 секунды.');
+  }
+  var sampleRows = [
+    ['№', 'Порт / Розетка', 'Маркировка', 'Помещение', 'Шкаф / ТКШ', 'Юнит', 'Кросс / Панель', 'Длина трассы, м', 'Схема обжима', 'Результат теста (Fluke)'],
+    [1, '1', '1.01', 'Кабинет 101', 'ТКШ-1', '24U', 'ПП-1 (порт 1)', 18.5, 'T568B', 'PASS'],
+    [2, '2', '1.02', 'Кабинет 101', 'ТКШ-1', '24U', 'ПП-1 (порт 2)', 19.2, 'T568B', 'PASS'],
+    [3, '3', '1.03', 'Кабинет 102', 'ТКШ-1', '24U', 'ПП-1 (порт 3)', 24.0, 'T568B', 'PASS'],
+    [4, '4', '1.04', 'Кабинет 102', 'ТКШ-1', '24U', 'ПП-1 (порт 4)', 26.5, 'T568B', 'PASS'],
+    [5, '5', '1.05', 'Кабинет 103', 'ТКШ-1', '24U', 'ПП-1 (порт 5)', 31.0, 'T568B', 'PASS']
+  ];
+  var ws = XLSX.utils.aoa_to_sheet(sampleRows);
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Кабельный журнал');
+  XLSX.writeFile(wb, 'Шаблон_Кабельного_Журнала.xlsx');
+};
+
+var fieldLabels = {
     priemka: 'Приёмка (фотоматериалы)',
     obsledovanie: 'Обследование объекта (акт, фото)',
     dostup: 'Допуск на объект (письма, заявки)'
@@ -461,6 +619,17 @@ window.selectCardContract = function(cId) {
         S.cardDraft.customer = matchedC.customer_name;
         if (t) t.customer = matchedC.customer_name;
       }
+      if (matchedC.amount && (!t.amount || Number(t.amount) === 0)) {
+        var contractAmount = Number(matchedC.amount) || 0;
+        S.cardDraft.amount = contractAmount;
+        if (t) t.amount = contractAmount;
+        var ports = parseFloat(t.inOrder || t.ports || t.fact) || 0;
+        if (ports > 0 && contractAmount > 0) {
+          var uPrice = Math.round(contractAmount / ports);
+          S.cardDraft.pricePerUnit = uPrice;
+          if (t) t.pricePerUnit = uPrice;
+        }
+      }
       if (matchedC.our_entity_name) {
         var foundOwn = (S.ownCompanies || []).find(function(oc){ return oc.name_short === matchedC.our_entity_name; });
         if (foundOwn) {
@@ -573,9 +742,6 @@ function exportTask(id) {
 
 
 function setCardTab(tabName) {
-  if (S.cardDraft && (Object.keys(S.cardDraft).filter(function(k){ return k !== '_smrTaskId'; }).length > 0 || S.cardDraft._smrDirty)) {
-    if (typeof window.saveCard === 'function') window.saveCard(true);
-  }
   S.cardTab = tabName;
   var btns = document.querySelectorAll('.card-tab-btn');
   for (var i = 0; i < btns.length; i++) {
@@ -597,7 +763,9 @@ function setCardTab(tabName) {
     setTimeout(function(){ window._activeLeafletMap.invalidateSize(); }, 60);
   }
   if ((tabName === 'items' || tabName === 'supply') && S.cardId) {
-    loadCardMaterials(S.cardId);
+    if (!S.cardDraft || !S.cardDraft._tmcDirty) {
+      loadCardMaterials(S.cardId);
+    }
     refreshTaskItemsList(S.cardId);
     if (tabName === 'items') {
       loadCardSubcontracts(S.cardId);
@@ -613,6 +781,9 @@ function setCardTab(tabName) {
   if (tabName === 'history' && S.cardId) {
     if (window.refreshCardHistory) window.refreshCardHistory(S.cardId);
   }
+  if (typeof window.updateCardSaveBar === 'function') {
+    window.updateCardSaveBar();
+  }
 }
 window.setCardTab = setCardTab;
 
@@ -623,6 +794,7 @@ function openCard(id) {
     if (window.savePageScroll) window.savePageScroll(targetId);
   }
   S.cardId = id;
+  S.lastOpenedTaskId = id;
   if (!S.cardTab) S.cardTab = 'main';
   S.cardDraft = {};
   S.cardConfirmOpen = false;
@@ -674,15 +846,35 @@ function openCard(id) {
 }
 
 function returnFromCard() {
-  if (S.cardDraft && Object.keys(S.cardDraft).length > 0) {
-    if (typeof window.saveCard === 'function') window.saveCard(true);
+  var hasDraft = S.cardDraft && (
+    Object.keys(S.cardDraft).filter(function(k){ return !k.startsWith('_'); }).length > 0 ||
+    !!S.cardDraft._smrDirty ||
+    !!S.cardDraft._tmcDirty
+  );
+  if (hasDraft) {
+    if (confirm('В заявке есть несохранённые изменения!\n\nНажмите «ОК», чтобы сохранить их в базу данных перед выходом,\nили «Отмена», чтобы сбросить несохранённые правки.')) {
+      if (typeof window.saveCard === 'function') {
+        window.saveCard(false).then(function() {
+          _doReturn();
+        });
+        return;
+      }
+    } else {
+      if (typeof window._resetCardDraft === 'function') window._resetCardDraft();
+      else S.cardDraft = {};
+    }
   }
-  var orig = S._cardOriginPage || 'tasks';
-  var targetId = (orig === 'kanban') ? ('kcard_' + S.cardId) : ('task_row_' + S.cardId);
-  go(orig);
-  setTimeout(function() {
-    if (window.restorePageScroll) window.restorePageScroll(targetId);
-  }, 40);
+  _doReturn();
+
+  function _doReturn() {
+    S.lastOpenedTaskId = null;
+    var orig = S._cardOriginPage || 'tasks';
+    var targetId = (orig === 'kanban') ? ('kcard_' + S.cardId) : ('task_row_' + S.cardId);
+    go(orig);
+    setTimeout(function() {
+      if (window.restorePageScroll) window.restorePageScroll(targetId);
+    }, 40);
+  }
 }
 window.returnFromCard = returnFromCard;
 
@@ -885,9 +1077,10 @@ function pageCard() {
     var ph = (typeof getFieldPlaceholder === 'function') ? getFieldPlaceholder(key) : '';
 
     var isAdminOrDirector = S.user && (S.user.role === 'admin' || S.user.role === 'director');
-    var isViewLocked = !isAdminOrDirector && (t.assignmentStatus === 'accepted' && !S._taskEditUnlocked);
-    var canEdit = canUserEditField(S.user, key);
-    if (!canEdit || (isViewLocked && !['status', 'fact', 'dataVyhoda', 'obsledovanie', 'dostup', 'priemka', 'deadline'].includes(key))) {
+    var isManuallyLocked = (S._taskEditUnlocked === false);
+    var isViewLocked = isManuallyLocked || (!isAdminOrDirector && t.assignmentStatus === 'accepted' && S._taskEditUnlocked !== true);
+    var canEdit = canUserEditField(S.user, key) && !isManuallyLocked;
+    if (!canEdit || (isViewLocked && !isManuallyLocked && !['status', 'fact', 'dataVyhoda', 'obsledovanie', 'dostup', 'priemka', 'deadline'].includes(key))) {
       var displayVal = val;
       if (type === 'checkbox') {
         displayVal = val ? '✅ Да' : '❌ Нет';
@@ -929,7 +1122,7 @@ function pageCard() {
         displayVal = escHtml(String(displayVal));
       }
 
-      var lockTitle = isViewLocked ? 'Поле защищено от изменений после входного контроля' : 'Поле защищено вашей ролью';
+      var lockTitle = isManuallyLocked ? 'Заявка заблокирована от редактирования (нажмите «Разблокировать» вверху)' : (isViewLocked ? 'Поле защищено от изменений после входного контроля' : 'Поле защищено вашей ролью');
       if (compact) {
         var nowrapStyle = (key === 'address' || key === 'contact' || type === 'textarea') ? '' : 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
         return '<div class="field-compact">' +
@@ -1559,8 +1752,8 @@ function pageCard() {
 
         entryActions = '<div style="display:inline-flex;gap:4px;align-items:center">' +
           stageActionBtn +
-          '<button type="button" class="btn btn-xs btn-ghost" onclick="toggleTaskEditLock()" style="padding:2px 8px;font-size:.72rem;border:1px solid ' + (S._taskEditUnlocked ? '#fca5a5' : '#bbf7d0') + ';background:#fff;color:' + (S._taskEditUnlocked ? '#b91c1c' : '#15803d') + ';font-weight:600" title="' + (S._taskEditUnlocked ? 'Заблокировать поля' : 'Разблокировать поля для редактирования') + '">' +
-            (S._taskEditUnlocked ? '🔓 Заблокировать' : '✏️ Правка полей') +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="toggleTaskEditLock()" style="padding:2px 8px;font-size:.72rem;border:1px solid ' + (S._taskEditUnlocked === false ? '#bbf7d0' : '#fca5a5') + ';background:' + (S._taskEditUnlocked === false ? '#f0fdf4' : '#fff') + ';color:' + (S._taskEditUnlocked === false ? '#15803d' : '#b91c1c') + ';font-weight:600" title="' + (S._taskEditUnlocked === false ? 'Разблокировать поля для редактирования' : 'Заблокировать поля от случайных изменений') + '">' +
+            (S._taskEditUnlocked === false ? '✏️ Разблокировать' : '🔒 Заблокировать') +
           '</button>' +
         '</div>';
       }
@@ -1620,6 +1813,7 @@ function pageCard() {
 
   var rawExtraRows = (function() {
     var knownKeys = [
+      'номер заявки','номер','id','наименование','название','дата_внесения','дата внесения','дата с пп','текущая дата','текущяя дата',
       'регион','адрес','тип объекта','тип работ','тип работ ','тип',
       '№ госб','госб','№всп','№ всп','всп',
       'дата заявки','дата окончания работ','текущяя дата','текущая дата',
@@ -1739,6 +1933,25 @@ function pageCard() {
   var contrPhoneHtml = renderContrPhoneHtml(false);
 
   var isAccepted = (t.assignmentStatus === 'accepted' || t.assignment_status === 'accepted');
+  var attachmentsBlock = '<div class="card p" id="attachmentsBlock" style="border:1.5px solid var(--border);background:#fff">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;flex-wrap:wrap;gap:8px">' +
+      '<div style="display:flex;align-items:center;gap:8px">' +
+        '<span style="font-size:1.15rem">📁</span>' +
+        '<div>' +
+          '<div class="sec-title" style="margin:0;font-size:.95rem;font-weight:700">Файлы ТЗ договора и материалы заявки</div>' +
+          '<div style="font-size:.72rem;color:var(--text-3)">Документы из Генерального контракта (ТЗ, сметы) и файлы объекта</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:4px;flex-wrap:wrap">' +
+        '<label class="btn btn-sm btn-ghost" style="padding:2px 7px;font-size:.74rem;border:1px solid var(--border);cursor:pointer">📷 Фото<input type="file" multiple accept="image/*" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'photo_report\',this.files)"></label>' +
+        '<label class="btn btn-sm btn-ghost" style="padding:2px 7px;font-size:.74rem;border:1px solid var(--border);cursor:pointer">🗺️ Схема<input type="file" multiple accept="image/*,.pdf,.dwg" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'scheme\',this.files)"></label>' +
+        '<label class="btn btn-sm btn-ghost" style="padding:2px 7px;font-size:.74rem;border:1px solid var(--border);cursor:pointer">📋 Чек-лист<input type="file" multiple accept="image/*,.pdf,.xlsx,.xls,.docx" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'checklist\',this.files)"></label>' +
+        '<label class="btn btn-sm btn-primary" style="padding:2px 8px;font-size:.74rem;cursor:pointer">+ Добавить файл<input type="file" multiple accept="*/*" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'act\',this.files)"></label>' +
+      '</div>' +
+    '</div>' +
+    '<div id="attachmentsList" class="t3" style="min-height:50px;font-size:.82rem">Загрузка материалов...</div>' +
+  '</div>';
+
   var customerInflowCard = '<div class="card p" style="border:1.5px solid var(--border);background:#fff">' +
     '<div class="sec-title" style="margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center">' +
       '<span style="display:flex;align-items:center;gap:6px">💰 Параметры заказа по договору (Вход)</span>' +
@@ -1862,7 +2075,10 @@ function pageCard() {
         '<!-- 2. Параметры заказа по договору (Вход) -->' +
         customerInflowCard +
 
-        '<!-- 3. Data Lineage -->' +
+        '<!-- 3. Файлы ТЗ договора и материалы заявки (Пункты 14, 15) -->' +
+        attachmentsBlock +
+
+        '<!-- 4. Data Lineage -->' +
         (isWorker ? '' : '<div class="card p" style="background:#f8fafc;border:1.5px solid var(--border)">' +
           '<div class="sec-title" style="margin-bottom:.3rem;display:flex;align-items:center;gap:6px">📌 Происхождение заявки (Data Lineage)</div>' +
           '<div style="display:flex;flex-direction:column;gap:4px;font-size:.76rem">' +
@@ -1878,23 +2094,24 @@ function pageCard() {
   var itemsBlock = '<div class="card p" style="margin-bottom:1rem;border:1.5px solid var(--border)">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:.75rem">' +
       '<div style="display:flex;align-items:center;gap:10px">' +
-        '<div class="sec-title" style="margin:0;font-size:1.05rem">👷 Состав работ СМР и расценки</div>' +
+        '<div class="sec-title" style="margin:0;font-size:1.05rem">📦 Материалы и оборудование</div>' +
         '<span id="cardItemsCountBadge" class="badge b-gray" style="font-size:.74rem">0 позиций</span>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:6px">' +
         (!isLocked && S.user && ['admin','director','manager','to_engineer'].includes(String(S.user.role||'').toLowerCase())
-          ? ('<label class="btn btn-sm btn-ghost" style="cursor:pointer" title="Загрузить перечень работ СМР из Excel">' +
+          ? ('<label class="btn btn-sm btn-ghost" style="cursor:pointer" title="Загрузить перечень материалов из Excel">' +
                '📥 Загрузить из Excel' +
                '<input type="file" accept=".xlsx,.xls" style="display:none" onchange="uploadMaterialsExcel(this.files[0], \'' + eid + '\')">' +
              '</label>' +
-             '<button class="btn btn-sm btn-primary" onclick="openAddItemModal(\'' + eid + '\')">+ Добавить работу / СМР</button>')
+             '<button class="btn btn-sm btn-ghost" onclick="window.openSberTemplateModal(\'' + eid + '\')" title="Заполнить типовой спецификацией материалов (Сбербанк: Банкомат, РМ, Wi-Fi, ВОЛС)">⚡ По типовику Сбера</button>' +
+             '<button class="btn btn-sm btn-primary" onclick="openAddItemModal(\'' + eid + '\')">+ Добавить</button>')
           : '') +
       '</div>' +
     '</div>' +
     '<div id="cardItemsSummaryBar" style="display:flex;gap:16px;background:var(--bg);padding:8px 12px;border-radius:6px;margin-bottom:.75rem;font-size:.8rem;flex-wrap:wrap;align-items:center">' +
-      '<div>Сумма Заказчика (вход): <b id="cardSummaryCust" style="color:var(--text)">0 ₽</b></div>' +
-      '<div>Сумма подрядчикам: <b id="cardSummaryCont" style="color:var(--text-2)">0 ₽</b></div>' +
-      '<div>Плановая маржа: <b id="cardSummaryMargin" style="color:var(--green)">0 ₽</b></div>' +
+      '<div>Сумма себестоимости материалов: <b id="cardSummaryCont" style="color:var(--text)">0 ₽</b></div>' +
+      '<div>В т.ч. для Заказчика: <b id="cardSummaryCust" style="color:var(--text-2)">0 ₽</b></div>' +
+      '<div>Маржа по ТМЦ: <b id="cardSummaryMargin" style="color:var(--green)">0 ₽</b></div>' +
     '</div>' +
     '<div id="taskItemsList" class="t3">Загрузка позиций…</div>' +
     '<div id="cardContractorOrdersBar" style="margin-top:.75rem;display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.78rem"></div>' +
@@ -1969,10 +2186,20 @@ function pageCard() {
   '</div>';
 
   var smrClosingBlock = (function() {
-    var rawDate = t.smrActualEndDate || t.smr_actual_end_date || '';
+    var rawDate = t.smrActualEndDate || t.dataVyhoda || t.smr_actual_end_date || t.data_vyhoda || '';
     var formattedDate = rawDate ? String(rawDate).slice(0, 10) : '';
+    var reportedDate = t.contractorEndDate || t.dataVyhoda || t.data_vyhoda || (t.rawData && (t.rawData.contractorEndDate || t.rawData.dataVyhoda)) || '';
+    var reportedDateStr = reportedDate ? String(reportedDate).slice(0, 10) : '';
+    var isDateConfirmed = Boolean(t.smrDateConfirmed || (formattedDate && reportedDateStr && formattedDate === reportedDateStr));
+
+    var reportedPorts = t.contractorFact != null ? t.contractorFact : (t.fact != null ? t.fact : (t.inOrder || 0));
+    var curFact = t.fact != null ? t.fact : (t.inOrder || 0);
+    var isFactConfirmed = Boolean(t.factConfirmed || (curFact !== '' && Number(curFact) === Number(reportedPorts)));
+
     var curStage = Number(t.stage_num !== undefined ? t.stage_num : t.stageNum) || 0;
     var stageTitle = (ID_STAGES[curStage] && ID_STAGES[curStage].name) || ('Этап ' + curStage);
+    var kjPortsCount = (window._curTaskPorts && window._curTaskPorts[t.id] !== undefined) ? window._curTaskPorts[t.id] : (window._curPortsCount || 0);
+    var hasPortsDesync = (kjPortsCount > 0 && curFact !== '' && Number(curFact) !== Number(kjPortsCount));
 
     return '<div class="card p mb" id="smrClosingBlock" style="border:1.5px solid var(--border);border-radius:8px;background:var(--surface,#fff);margin-bottom:1rem">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;padding-bottom:.5rem;border-bottom:1.5px solid var(--border);flex-wrap:wrap;gap:8px">' +
@@ -1985,6 +2212,7 @@ function pageCard() {
           '</div>' +
         '</div>' +
         '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="window.openIdModerationModal(\'' + eid + '\')" style="font-weight:700;color:var(--blue);border:1px solid var(--blue)">👁️ Модерация ИД</button>' +
           (curStage < 3
             ? '<button type="button" class="btn btn-sm btn-primary" onclick="window._takeTaskToStage(\'' + eid + '\', 3)" style="font-weight:700">🏁 Перевести в «Закрытие СМР»</button>'
             : '<span class="badge b-green" style="font-size:.75rem;padding:4px 8px">✓ Этап: ' + escHtml(stageTitle) + '</span>'
@@ -1992,23 +2220,47 @@ function pageCard() {
         '</div>' +
       '</div>' +
       '<div id="smrChecklistContainer" style="margin-bottom:1rem"></div>' +
-      '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:12px;margin-bottom:1rem;background:var(--bg,#f8fafc);padding:10px 12px;border-radius:6px;border:1px solid var(--border)">' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:12px;margin-bottom:1rem;background:var(--bg,#f8fafc);padding:10px 12px;border-radius:6px;border:1px solid var(--border)">' +
         '<div>' +
-          '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">📅 Фактическая дата завершения СМР:</label>' +
-          '<input type="date" class="inp" id="cardSmrActualEndDate" value="' + escHtml(formattedDate) + '" onchange="updateField(\'' + eid + '\', \'smrActualEndDate\', this.value)" style="padding:4px 8px;font-size:.84rem;width:100%">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+            '<label style="font-size:.78rem;font-weight:700;color:var(--text-2);margin:0">📅 Фактическая дата завершения СМР:</label>' +
+            (reportedDateStr ? ('<span class="badge ' + (isDateConfirmed ? 'b-green' : 'b-amber') + '" style="font-size:.7rem;padding:1px 6px">' + (isDateConfirmed ? '✓ Подтверждена' : 'Заявлена: ' + reportedDateStr.split('-').reverse().join('.')) + '</span>') : '') +
+          '</div>' +
+          '<input type="date" class="inp" name="smrActualEndDate" data-key="smrActualEndDate" id="cardSmrActualEndDate" value="' + escHtml(formattedDate) + '" style="padding:4px 8px;font-size:.84rem;width:100%">' +
+          (reportedDateStr && !isDateConfirmed ? (
+            '<div style="display:flex;gap:4px;margin-top:4px">' +
+              '<button type="button" class="btn btn-xs btn-primary" onclick="window.confirmSmrDate(\'' + eid + '\', \'' + reportedDateStr + '\')" style="font-size:.7rem;padding:2px 6px">✓ Подтвердить дату</button>' +
+              '<button type="button" class="btn btn-xs btn-ghost" onclick="var inp=document.getElementById(\'cardSmrActualEndDate\');if(inp){inp.focus();}" style="font-size:.7rem;padding:2px 6px">✏️ Скорректировать</button>' +
+            '</div>'
+          ) : '') +
         '</div>' +
         '<div>' +
-          '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">🔌 Фактически смонтировано (портов):</label>' +
-          '<input type="number" class="inp" min="0" value="' + (t.fact != null ? t.fact : (t.inOrder || 0)) + '" onchange="updateField(\'' + eid + '\', \'fact\', this.value)" style="padding:4px 8px;font-size:.84rem;width:100%">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+            '<label style="font-size:.78rem;font-weight:700;color:var(--text-2);margin:0">🔌 Фактически смонтировано (портов):</label>' +
+            (reportedPorts ? ('<span class="badge ' + (isFactConfirmed ? 'b-green' : 'b-amber') + '" style="font-size:.7rem;padding:1px 6px">' + (isFactConfirmed ? '✓ Подтверждено' : 'Заявлено: ' + reportedPorts + ' шт.') + '</span>') : '') +
+          '</div>' +
+          '<input type="number" class="inp" min="0" name="fact" data-key="fact" value="' + (t.fact != null ? t.fact : (t.inOrder || 0)) + '" style="padding:4px 8px;font-size:.84rem;width:100%">' +
+          (reportedPorts && !isFactConfirmed ? (
+            '<div style="display:flex;gap:4px;margin-top:4px">' +
+              '<button type="button" class="btn btn-xs btn-primary" onclick="window.confirmSmrFact(\'' + eid + '\', ' + reportedPorts + ')" style="font-size:.7rem;padding:2px 6px">✓ Подтвердить</button>' +
+              '<button type="button" class="btn btn-xs btn-ghost" onclick="var inp=document.querySelector(\'#smrClosingBlock input[name=fact]\');if(inp){inp.focus();inp.select();}" style="font-size:.7rem;padding:2px 6px">✏️ Скорректировать</button>' +
+              '<button type="button" class="btn btn-xs btn-ghost" style="color:var(--red)" onclick="window.rejectSmrFact(\'' + eid + '\')" style="font-size:.7rem;padding:2px 6px">✗ Отклонить</button>' +
+            '</div>'
+          ) : '') +
         '</div>' +
         '<div>' +
           '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:4px">📋 Статус монтажных работ:</label>' +
-          '<select class="inp" onchange="updateField(\'' + eid + '\', \'statusSmr\', this.value)" style="padding:4px 8px;font-size:.84rem;width:100%">' +
+          '<select class="inp" name="statusSmr" data-key="statusSmr" style="padding:4px 8px;font-size:.84rem;width:100%">' +
             '<option value="in_progress"' + (t.statusSmr === 'in_progress' ? ' selected' : '') + '>🔧 В процессе монтажа</option>' +
             '<option value="done"' + (t.statusSmr === 'done' || curStage >= 2 ? ' selected' : '') + '>✅ СМР полностью завершены</option>' +
             '<option value="issues"' + (t.statusSmr === 'issues' ? ' selected' : '') + '>⚠️ Есть замечания / доработки</option>' +
           '</select>' +
         '</div>' +
+        (hasPortsDesync ? (
+          '<div style="grid-column:1/-1;background:#fffbeb;border:1px solid #fde68a;border-radius:4px;padding:6px 10px;font-size:.76rem;color:#92400e;display:flex;align-items:center;gap:6px">' +
+            '<span>⚠️</span> <b>Внимание: Рассинхрон объема!</b> В Кабельном журнале <b>' + kjPortsCount + '</b> портов, а в факте указано <b>' + curFact + '</b>. Сверьте по исполнительной схеме и фотоотчету.' +
+          '</div>'
+        ) : '') +
       '</div>' +
       '<div id="portsBlock">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;flex-wrap:wrap;gap:8px">' +
@@ -2016,11 +2268,13 @@ function pageCard() {
             '<span>📊 КЖ / Кабельный журнал и протокол измерений портов</span>' +
             '<span id="portsCountBadge" class="badge b-gray" style="font-size:.72rem">0 портов</span>' +
           '</div>' +
-          '<div style="display:flex;gap:6px;align-items:center">' +
+          '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
+            '<button type="button" class="btn btn-sm btn-outline" onclick="window.generateSequentialPorts(\'' + eid + '\')" title="Сгенерировать последовательные порты по факту">⚡ ' + (Number(curFact) > 0 ? (curFact + ' портов по факту') : 'Сгенерировать порты') + '</button>' +
             '<label class="btn btn-sm btn-ghost" style="cursor:pointer" title="Загрузить кабельный журнал из Excel">' +
               '📥 Загрузить КЖ из Excel' +
               '<input type="file" accept=".xlsx,.xls" style="display:none" onchange="uploadCableJournalExcel(this.files[0], \'' + eid + '\')">' +
             '</label>' +
+            '<button type="button" class="btn btn-sm btn-ghost" onclick="window.downloadCableJournalTemplate()" title="Скачать типовой шаблон кабельного журнала">📄 Шаблон Excel</button>' +
             '<button type="button" class="btn btn-sm btn-primary" onclick="addPortRow(\'' + eid + '\')">+ Добавить порт</button>' +
           '</div>' +
         '</div>' +
@@ -2034,17 +2288,6 @@ function pageCard() {
     '<div id="cardSubcontractsContainer" style="display:none"></div>' +
     itemsBlock +
     smrClosingBlock +
-    '<div class="card p mb" id="attachmentsBlock">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
-        '<div class="sec-title" style="margin:0;font-size:1rem;display:flex;align-items:center;gap:6px">📷 Файлы и фотоотчёты к заявке (ТЗ, схемы, чек-листы)</div>' +
-      '</div>' +
-      '<div id="attachmentsList" class="t3">Загрузка…</div>' +
-      '<div style="display:flex;gap:.4rem;margin-top:.8rem;flex-wrap:wrap">' +
-        '<label class="btn btn-sm btn-ghost">📷 Фото<input type="file" multiple accept="image/*" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'photo_report\',this.files)"></label>' +
-        '<label class="btn btn-sm btn-ghost">🗺️ Схема<input type="file" multiple accept="image/*,.pdf,.dwg" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'scheme\',this.files)"></label>' +
-        '<label class="btn btn-sm btn-ghost">📋 Чек-лист<input type="file" multiple accept="image/*,.pdf,.xlsx,.xls,.docx" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'checklist\',this.files)"></label>' +
-      '</div>' +
-    '</div>' +
   '</div>';
 
   var paneSupply = '<div id="cardTabPane-supply" class="card-tab-pane" style="display:' + (curTab === 'supply' ? 'block' : 'none') + '">' +
@@ -2078,7 +2321,8 @@ function pageCard() {
         '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'completion_act\')" title="Акт выполненных работ к заказу на работы («Сдал/Принял»)">🤝 Акт вып. работ</button>' +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'invoice\')" title="Сформировать счёт на оплату">💰 Счёт</button>' +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'tmc_act\')" title="Отчет монтажника по израсходованным материалам (Акт ТМЦ)">📦 Отчет монтажника (ТМЦ)</button>' +
-        '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'id_registry\')" title="Альбом исполнительной документации СКС">📑 Альбом ИД</button>' +
+        '<button type="button" class="btn btn-sm btn-primary" onclick="window.openIdModerationModal(\'' + eid + '\')" style="background:#0f766e;font-weight:700" title="Интерактивная модерация комплекта ИД (Сплит-скрин)">👁️ Модерация ИД</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="window.generateAndOpenIdAlbumPdf(\'' + eid + '\')" title="Сформировать альбом ИД в .PDF формате" style="color:#b91c1c;border:1px solid #fecaca;background:#fef2f2;font-weight:700">📑 Альбом ИД (.PDF)</button>' +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\'' + eid + '\')" title="Допуск на объект: Письмо на допуск, Заказ-наряд или Наряд-допуск" style="border:1px solid #fed7aa;background:#fff7ed;color:#c2410c;font-weight:700">🪪 Допуск на объект ▾</button>' +
         '<button type="button" class="btn btn-sm btn-outline" onclick="openUploadTaskDocModal(\'' + eid + '\')" title="Учесть входящий счет, акт выполненных работ или скан от контрагента" style="font-weight:700;border:1.5px dashed var(--blue);color:var(--blue)">📎 Учесть Счет / Акт контрагента</button>' +
       '</div>' +
@@ -2550,14 +2794,15 @@ function pageCard() {
   '</div>';
 
   var hasDraft = S.cardDraft && (
-    Object.keys(S.cardDraft).filter(function(k){ return k !== '_smrTaskId'; }).length > 0 ||
-    !!S.cardDraft._smrDirty
+    Object.keys(S.cardDraft).filter(function(k){ return !k.startsWith('_'); }).length > 0 ||
+    !!S.cardDraft._smrDirty ||
+    !!S.cardDraft._tmcDirty
   );
   var unsavedBar = hasDraft
     ? '<div class="unsaved-bar" id="card_unsaved_bar">' +
-        '<span>У вас есть несохранённые изменения</span>' +
-        '<button class="btn btn-sm" id="cardSaveBtn" onclick="window.saveCard(false)">Сохранить</button>' +
-        '<button class="btn btn-sm btn-ghost" id="cardResetBtn" onclick="window._resetCardDraft()">Сбросить</button>' +
+        '<span>⚠️ У вас есть несохранённые изменения</span>' +
+        '<button class="btn btn-sm" id="cardSaveBtn" onclick="window.saveCard(false)">💾 Сохранить</button>' +
+        '<button class="btn btn-sm btn-ghost" id="cardResetBtn" onclick="window._resetCardDraft()">↩️ Сбросить</button>' +
       '</div>'
     : '';
 
@@ -2613,7 +2858,7 @@ function refreshTaskItemsList(taskId) {
   api('/tasks/' + encodeURIComponent(taskId) + '/items')
     .then(function(items) {
       if (!Array.isArray(items) || !items.length) {
-        el.innerHTML = '<div class="t3" style="padding:.6rem 0;font-size:.82rem">Позиции работ пока не внесены. Нажмите «+ Добавить работу / ТМЦ», чтобы детализировать состав заявки.</div>';
+        el.innerHTML = '<div class="t3" style="padding:.6rem 0;font-size:.82rem">Позиции материалов пока не внесены. Нажмите «+ Добавить» или «⚡ По типовику Сбера», чтобы сформировать спецификацию.</div>';
         updateItemsSummary(taskId, []);
         return;
       }
@@ -2640,9 +2885,6 @@ function refreshTaskItemsList(taskId) {
       }
 
       var rows = items.map(function(it, idx) {
-        var statusColor = it.status === 'done' ? 'var(--green)' : it.status === 'progress' ? 'var(--orange)' : 'var(--text-3)';
-        var statusLabel = it.status === 'done' ? '✓ Выполнено' : it.status === 'progress' ? '⚙ В работе' : '⏳ План';
-
         var itContrId = it.contractor_id || (defaultContrObj ? defaultContrObj.id : null);
         var itContrName = it.contractor_name || (defaultContrObj ? defaultContrObj.name_short : null);
 
@@ -2652,35 +2894,50 @@ function refreshTaskItemsList(taskId) {
             return '<option value="' + c.id + '"' + selected + '>' + escHtml(c.name_short) + '</option>';
           }).join('');
 
-        var margin = (Number(it.amount_customer) || 0) - (Number(it.amount_contractor) || 0);
         var selectDisabled = isLocked ? ' disabled' : '';
 
-        var metaBadges = '';
-        if (it.article || it.supplier) {
-          metaBadges = '<div style="font-size:.68rem;margin-top:2px;display:flex;gap:4px;flex-wrap:wrap">' +
-            (it.article ? '<span class="badge" style="background:#f1f5f9;color:var(--text);font-size:.68rem;padding:1px 5px;border:1px solid var(--border)">Арт: <b>' + escHtml(it.article) + '</b></span>' : '') +
-            (it.supplier ? '<span class="badge" style="background:#f0fdf4;color:#166534;font-size:.68rem;padding:1px 5px;border:1px solid #bbf7d0">Поставщик: <b>' + escHtml(it.supplier) + '</b></span>' : '') +
+        var artPlan = it.article_plan || it.article || '';
+        var artFact = it.article_fact || '';
+        var artBadges = '';
+        if (artPlan || artFact) {
+          artBadges = '<div style="font-size:.68rem;display:flex;gap:4px;flex-direction:column">' +
+            (artPlan ? '<span class="badge" style="background:#f1f5f9;color:var(--text);font-size:.68rem;padding:1px 5px;border:1px solid var(--border)">План: <b>' + escHtml(artPlan) + '</b></span>' : '') +
+            (artFact ? '<span class="badge" style="background:#eff6ff;color:#1e40af;font-size:.68rem;padding:1px 5px;border:1px solid #bfdbfe">Факт: <b>' + escHtml(artFact) + '</b></span>' : '') +
           '</div>';
+        } else {
+          artBadges = '<span class="t3" style="font-size:.7rem">—</span>';
         }
+
+        var shipmentInfo = '';
+        var sDate = it.shipment_date ? String(it.shipment_date).slice(0, 10).split('-').reverse().join('.') : '';
+        var sMethod = it.shipment_method || '';
+        if (sDate || sMethod) {
+          shipmentInfo = '<div style="font-size:.72rem;line-height:1.2">' +
+            (sDate ? '<div style="font-weight:600;color:var(--text)">📅 ' + escHtml(sDate) + '</div>' : '') +
+            (sMethod ? '<div style="color:var(--text-3);font-size:.68rem">🚚 ' + escHtml(sMethod) + '</div>' : '') +
+          '</div>';
+        } else {
+          shipmentInfo = '<span class="t3" style="font-size:.7rem">—</span>';
+        }
+
+        var unitPrice = Number(it.price_contractor || it.price_customer || 0);
+        var lineSum = Number(it.amount_contractor || it.amount_customer || ((Number(it.quantity) || 1) * unitPrice));
 
         return '<tr style="border-bottom:1px solid var(--border);font-size:.78rem">' +
           '<td style="padding:4px 6px;font-weight:600;color:var(--text-3);text-align:center">' + (idx + 1) + '</td>' +
           '<td style="padding:4px 6px;max-width:240px">' +
             '<div style="font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(it.work_type) + '">' + escHtml(it.work_type) + '</div>' +
-            metaBadges +
-            (it.comment ? '<div style="font-size:.7rem;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(it.comment) + '</div>' : '') +
+            (it.supplier ? '<span class="badge" style="background:#f0fdf4;color:#166534;font-size:.68rem;padding:1px 5px;border:1px solid #bbf7d0;margin-top:2px;display:inline-block">Поставщик: <b>' + escHtml(it.supplier) + '</b></span>' : '') +
           '</td>' +
+          '<td style="padding:4px 6px;white-space:nowrap">' + artBadges + '</td>' +
           '<td style="padding:4px 6px;white-space:nowrap;font-weight:600">' + (it.quantity || 1) + ' ' + escHtml(it.unit || 'шт.') + '</td>' +
-          '<td style="padding:4px 6px;white-space:nowrap;color:var(--text)">' + fmtMoney(it.amount_customer) + '</td>' +
+          '<td style="padding:4px 6px;white-space:nowrap;color:var(--text-2)">' + fmtMoney(unitPrice) + '</td>' +
+          '<td style="padding:4px 6px;white-space:nowrap;font-weight:700;color:var(--text)">' + fmtMoney(lineSum) + '</td>' +
+          '<td style="padding:4px 6px;white-space:nowrap">' + shipmentInfo + '</td>' +
           '<td style="padding:4px 6px">' +
             '<select class="field-input"' + selectDisabled + ' style="width:100%;max-width:145px;padding:2px 4px;font-size:.74rem;height:24px" onchange="updateItemContractor(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ',this.value)">' +
               contOptions +
             '</select>' +
-          '</td>' +
-          '<td style="padding:4px 6px;white-space:nowrap;color:var(--text-2)">' + fmtMoney(it.amount_contractor) + '</td>' +
-          '<td style="padding:4px 6px;white-space:nowrap;font-weight:600;color:' + (margin >= 0 ? 'var(--green)' : 'var(--red)') + '">' + fmtMoney(margin) + '</td>' +
-          '<td style="padding:4px 6px;white-space:nowrap">' +
-            '<span style="font-size:.72rem;color:' + statusColor + ';font-weight:600">' + statusLabel + '</span>' +
           '</td>' +
           '<td style="padding:4px 6px;text-align:right;white-space:nowrap">' +
             (!isLocked ? '<button class="btn btn-xs btn-ghost" onclick="openEditItemModal(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ')" title="Редактировать">✏️</button>' : '') +
@@ -2693,13 +2950,13 @@ function refreshTaskItemsList(taskId) {
         '<table style="width:100%;border-collapse:collapse;text-align:left;line-height:1.25">' +
           '<thead><tr style="background:var(--bg);font-size:.72rem;color:var(--text-3);border-bottom:1.5px solid var(--border)">' +
             '<th style="padding:5px 6px;width:24px;text-align:center">№</th>' +
-            '<th style="padding:5px 6px">Вид работ / позиция</th>' +
-            '<th style="padding:5px 6px;width:75px">Кол-во</th>' +
-            '<th style="padding:5px 6px;width:85px">Заказчик</th>' +
-            '<th style="padding:5px 6px;width:150px">Подрядчик (исп.)</th>' +
-            '<th style="padding:5px 6px;width:85px">Подрядчику</th>' +
-            '<th style="padding:5px 6px;width:80px">Маржа</th>' +
-            '<th style="padding:5px 6px;width:85px">Статус</th>' +
+            '<th style="padding:5px 6px">Наименование материала</th>' +
+            '<th style="padding:5px 6px;width:120px">Артикул (план/факт)</th>' +
+            '<th style="padding:5px 6px;width:80px">Кол-во</th>' +
+            '<th style="padding:5px 6px;width:80px">Цена (₽)</th>' +
+            '<th style="padding:5px 6px;width:90px">Сумма (₽)</th>' +
+            '<th style="padding:5px 6px;width:130px">Отгрузка</th>' +
+            '<th style="padding:5px 6px;width:150px">Подрядчик</th>' +
             '<th style="padding:5px 6px;width:55px;text-align:right"></th>' +
           '</tr></thead>' +
           '<tbody>' + rows + '</tbody>' +
@@ -2784,42 +3041,65 @@ function openAddItemModal(taskId) {
   if (oldM) oldM.remove();
 
   var html = '<div class="modal-overlay" id="' + modalId + '" onclick="if(event.target===this)this.remove()">' +
-    '<div class="modal-box" style="max-width:540px;width:95%;padding:20px;border-radius:10px">' +
+    '<div class="modal-box" style="max-width:580px;width:95%;padding:22px;border-radius:12px">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
-        '<div style="font-weight:700;font-size:1.1rem">📦 Добавить позицию (Работа / ТМЦ)</div>' +
+        '<div style="font-weight:700;font-size:1.1rem">📦 Добавить материал / оборудование</div>' +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'' + modalId + '\').remove()">✕</button>' +
       '</div>' +
       '<form id="form_add_task_item" onsubmit="submitTaskItemForm(event, \'' + escHtml(taskId) + '\')">' +
         '<div style="margin-bottom:10px">' +
-          '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Наименование работы или материала (ТМЦ) *</label>' +
-          '<input type="text" id="m_item_name" required placeholder="Например: Патч-корд UTP кат 6 или Монтаж лотка" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+          '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Наименование материала или оборудования *</label>' +
+          '<input type="text" id="m_item_name" required placeholder="Например: Кабель витая пара UTP cat.6 LSZH" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
         '</div>' +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">' +
           '<div>' +
-            '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Артикул / Код</label>' +
-            '<input type="text" id="m_item_article" placeholder="Например: CS1-1C6AU-11" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+            '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Артикул (план)</label>' +
+            '<input type="text" id="m_item_article_plan" placeholder="CS1-1C6AU-11..." style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+          '</div>' +
+          '<div>' +
+            '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Артикул (факт)</label>' +
+            '<input type="text" id="m_item_article_fact" placeholder="Фактически смонтированный..." style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">' +
+          '<div>' +
+            '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Дата отгрузки</label>' +
+            '<input type="date" id="m_item_shipment_date" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+          '</div>' +
+          '<div>' +
+            '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Способ отгрузки / логистика</label>' +
+            '<input list="shipmentMethodsDL" id="m_item_shipment_method" placeholder="СДЭК, Деловые линии, Склад..." style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+            '<datalist id="shipmentMethodsDL">' +
+              '<option value="СДЭК">' +
+              '<option value="Деловые Линии">' +
+              '<option value="ПЭК">' +
+              '<option value="Самовывоз со склада">' +
+              '<option value="Доставка поставщика">' +
+              '<option value="Курьер">' +
+            '</datalist>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">' +
+          '<div>' +
+            '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Количество *</label>' +
+            '<input type="number" id="m_item_qty" step="any" min="0" value="1" required style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+          '</div>' +
+          '<div>' +
+            '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Ед. изм.</label>' +
+            '<input type="text" id="m_item_unit" value="шт." list="unitsListDL" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+            '<datalist id="unitsListDL"><option value="шт."><option value="м"><option value="компл."><option value="уп."><option value="порт"></datalist>' +
           '</div>' +
           '<div>' +
             '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Поставщик</label>' +
-            '<input list="suppliersListDL" id="m_item_supplier" placeholder="Инсистем, Склад, Анлан..." style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+            '<input list="suppliersListDL" id="m_item_supplier" placeholder="Инсистем, Склад..." style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
             '<datalist id="suppliersListDL">' +
               '<option value="Инсистем">' +
               '<option value="Склад">' +
               '<option value="Анлан">' +
               '<option value="Линдекс">' +
               '<option value="ЭТМ">' +
+              '<option value="Заказчик">' +
             '</datalist>' +
-          '</div>' +
-        '</div>' +
-        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">' +
-          '<div>' +
-            '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Количество *</label>' +
-            '<input type="number" id="m_item_qty" step="any" min="0" value="1" required style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
-          '</div>' +
-          '<div>' +
-            '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Единица изм.</label>' +
-            '<input type="text" id="m_item_unit" value="шт." list="unitsListDL" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
-            '<datalist id="unitsListDL"><option value="шт."><option value="м"><option value="компл."><option value="уп."><option value="порт"></datalist>' +
           '</div>' +
         '</div>' +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">' +
@@ -2855,7 +3135,11 @@ function submitTaskItemForm(e, taskId, itemId) {
   var name = (document.getElementById('m_item_name').value || '').trim();
   if (!name) return alert('Наименование позиции обязательно');
 
-  var article = (document.getElementById('m_item_article').value || '').trim();
+  var artPlan = (document.getElementById('m_item_article_plan') ? document.getElementById('m_item_article_plan').value : '').trim();
+  var artFact = (document.getElementById('m_item_article_fact') ? document.getElementById('m_item_article_fact').value : '').trim();
+  var shipDate = document.getElementById('m_item_shipment_date') ? (document.getElementById('m_item_shipment_date').value || null) : null;
+  var shipMethod = (document.getElementById('m_item_shipment_method') ? document.getElementById('m_item_shipment_method').value : '').trim() || null;
+
   var supplier = (document.getElementById('m_item_supplier').value || '').trim();
   var qty = parseFloat(document.getElementById('m_item_qty').value) || 1;
   var unit = (document.getElementById('m_item_unit').value || 'шт.').trim();
@@ -2867,7 +3151,11 @@ function submitTaskItemForm(e, taskId, itemId) {
 
   var payload = {
     work_type: name,
-    article: article || null,
+    article: artPlan || artFact || null,
+    article_plan: artPlan || null,
+    article_fact: artFact || null,
+    shipment_date: shipDate,
+    shipment_method: shipMethod,
     supplier: supplier || null,
     quantity: qty,
     unit: unit,
@@ -2919,35 +3207,40 @@ function openEditItemModal(taskId, itemId) {
       var oldM = document.getElementById(modalId);
       if (oldM) oldM.remove();
 
+      var sDateVal = it.shipment_date ? String(it.shipment_date).slice(0, 10) : '';
+
       var html = '<div class="modal-overlay" id="' + modalId + '" onclick="if(event.target===this)this.remove()">' +
-        '<div class="modal-box" style="max-width:540px;width:95%;padding:20px;border-radius:10px">' +
+        '<div class="modal-box" style="max-width:580px;width:95%;padding:22px;border-radius:12px">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
-            '<div style="font-weight:700;font-size:1.1rem">✏️ Редактировать позицию (Работа / ТМЦ)</div>' +
+            '<div style="font-weight:700;font-size:1.1rem">✏️ Редактировать материал / оборудование</div>' +
             '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'' + modalId + '\').remove()">✕</button>' +
           '</div>' +
           '<form id="form_edit_task_item" onsubmit="submitTaskItemForm(event, \'' + escHtml(taskId) + '\', ' + itemId + ')">' +
             '<div style="margin-bottom:10px">' +
-              '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Наименование работы или материала (ТМЦ) *</label>' +
+              '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Наименование материала или оборудования *</label>' +
               '<input type="text" id="m_item_name" required value="' + escHtml(it.work_type || '') + '" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
             '</div>' +
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">' +
               '<div>' +
-                '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Артикул / Код</label>' +
-                '<input type="text" id="m_item_article" value="' + escHtml(it.article || '') + '" placeholder="Например: CS1-1C6AU-11" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Артикул (план)</label>' +
+                '<input type="text" id="m_item_article_plan" value="' + escHtml(it.article_plan || it.article || '') + '" placeholder="CS1-1C6AU-11..." style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
               '</div>' +
               '<div>' +
-                '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Поставщик</label>' +
-                '<input list="suppliersListDL" id="m_item_supplier" value="' + escHtml(it.supplier || '') + '" placeholder="Инсистем, Склад, Анлан..." style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
-                '<datalist id="suppliersListDL">' +
-                  '<option value="Инсистем">' +
-                  '<option value="Склад">' +
-                  '<option value="Анлан">' +
-                  '<option value="Линдекс">' +
-                  '<option value="ЭТМ">' +
-                '</datalist>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Артикул (факт)</label>' +
+                '<input type="text" id="m_item_article_fact" value="' + escHtml(it.article_fact || '') + '" placeholder="Фактически смонтированный..." style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
               '</div>' +
             '</div>' +
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">' +
+              '<div>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Дата отгрузки</label>' +
+                '<input type="date" id="m_item_shipment_date" value="' + sDateVal + '" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+              '</div>' +
+              '<div>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Способ отгрузки / логистика</label>' +
+                '<input list="shipmentMethodsDL" id="m_item_shipment_method" value="' + escHtml(it.shipment_method || '') + '" placeholder="СДЭК, Деловые линии, Склад..." style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+              '</div>' +
+            '</div>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">' +
               '<div>' +
                 '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Количество *</label>' +
                 '<input type="number" id="m_item_qty" step="any" min="0" value="' + (it.quantity || 1) + '" required style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
@@ -2955,6 +3248,10 @@ function openEditItemModal(taskId, itemId) {
               '<div>' +
                 '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Единица изм.</label>' +
                 '<input type="text" id="m_item_unit" value="' + escHtml(it.unit || 'шт.') + '" list="unitsListDL" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+              '</div>' +
+              '<div>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Поставщик</label>' +
+                '<input list="suppliersListDL" id="m_item_supplier" value="' + escHtml(it.supplier || '') + '" placeholder="Инсистем, Склад..." style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
               '</div>' +
             '</div>' +
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">' +
@@ -2987,6 +3284,164 @@ function openEditItemModal(taskId, itemId) {
       alert('Ошибка загрузки позиции: ' + (err.message || err));
     });
 }
+
+window.openSberTemplateModal = function(taskId) {
+  var oldM = document.getElementById('modal_sber_presets');
+  if (oldM) oldM.remove();
+
+  var html = '<div class="modal-overlay" id="modal_sber_presets" onclick="if(event.target===this)this.remove()">' +
+    '<div class="modal-box" style="max-width:620px;width:95%;padding:22px;border-radius:12px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
+        '<div>' +
+          '<div style="font-weight:700;font-size:1.1rem;display:flex;align-items:center;gap:6px">' +
+            '<span>⚡</span> Типовые спецификации материалов Сбера' +
+          '</div>' +
+          '<div class="t3" style="font-size:.78rem;margin-top:2px">Сформировать спецификацию по стандарту СКС ПАО Сбербанк</div>' +
+        '</div>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'modal_sber_presets\').remove()">✕</button>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">' +
+        '<div style="border:1.5px solid var(--border);border-radius:8px;padding:12px;background:var(--bg);cursor:pointer;transition:all .15s" onclick="document.getElementById(\'sber_preset_type\').value=\'atm\';window._updateSberPresetDesc()">' +
+          '<div style="font-weight:700;font-size:.88rem;margin-bottom:4px">🏧 Банкомат / УС</div>' +
+          '<div class="t3" style="font-size:.74rem">Розетка 2хRJ-45, кабель UTP cat.6 (40м), патч-корды 4шт, Keystone, короб/гофра</div>' +
+        '</div>' +
+        '<div style="border:1.5px solid var(--border);border-radius:8px;padding:12px;background:var(--bg);cursor:pointer;transition:all .15s" onclick="document.getElementById(\'sber_preset_type\').value=\'workplaces\';window._updateSberPresetDesc()">' +
+          '<div style="font-weight:700;font-size:.88rem;margin-bottom:4px">💻 Рабочие места (РМ)</div>' +
+          '<div class="t3" style="font-size:.74rem">По 2 порта на РМ: розетки, кабель cat.6 (45м/РМ), патч-корды, патч-панели 19", короб</div>' +
+        '</div>' +
+        '<div style="border:1.5px solid var(--border);border-radius:8px;padding:12px;background:var(--bg);cursor:pointer;transition:all .15s" onclick="document.getElementById(\'sber_preset_type\').value=\'wifi_cctv\';window._updateSberPresetDesc()">' +
+          '<div style="font-weight:700;font-size:.88rem;margin-bottom:4px">📶 Wi-Fi / Видеокамеры</div>' +
+          '<div class="t3" style="font-size:.74rem">Точки AP/IP-камеры: кабель cat.6 (50м/тчк), разъемы RJ-45, модули Keystone, гофра d20</div>' +
+        '</div>' +
+        '<div style="border:1.5px solid var(--border);border-radius:8px;padding:12px;background:var(--bg);cursor:pointer;transition:all .15s" onclick="document.getElementById(\'sber_preset_type\').value=\'vols\';window._updateSberPresetDesc()">' +
+          '<div style="font-weight:700;font-size:.88rem;margin-bottom:4px">🌐 ВОЛС / Оптика</div>' +
+          '<div class="t3" style="font-size:.74rem">Оптический кабель 8/16 волокон (150м), кроссы 19", пигтейлы, патч-корды LC/SC, КДЗС</div>' +
+        '</div>' +
+      '</div>' +
+      '<form onsubmit="window.applySberPreset(event, \'' + escHtml(taskId) + '\')">' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">' +
+          '<div>' +
+            '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Выбранный типовик</label>' +
+            '<select id="sber_preset_type" onchange="window._updateSberPresetDesc()" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+              '<option value="atm">🏧 Подключение банкомата / УС</option>' +
+              '<option value="workplaces">💻 Рабочие места (РМ, по 2 порта)</option>' +
+              '<option value="wifi_cctv">📶 Точки Wi-Fi / Видеокамеры</option>' +
+              '<option value="vols">🌐 ВОЛС (Оптическая магистраль)</option>' +
+            '</select>' +
+          '</div>' +
+          '<div>' +
+            '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Количество единиц</label>' +
+            '<input type="number" id="sber_preset_count" min="1" max="500" value="1" required style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+          '</div>' +
+        '</div>' +
+        '<div id="sber_preset_preview" style="background:#f8fafc;border:1px dashed var(--border);padding:10px 14px;border-radius:6px;font-size:.78rem;margin-bottom:14px;color:var(--text-2)">' +
+        '</div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+          '<label style="display:flex;align-items:center;gap:6px;font-size:.78rem;cursor:pointer">' +
+            '<input type="checkbox" id="sber_replace_existing"> Заменить существующие материалы' +
+          '</label>' +
+          '<div style="display:flex;gap:8px">' +
+            '<button type="button" class="btn btn-ghost" onclick="document.getElementById(\'modal_sber_presets\').remove()">Отмена</button>' +
+            '<button type="submit" class="btn btn-primary">⚡ Сформировать спецификацию</button>' +
+          '</div>' +
+        '</div>' +
+      '</form>' +
+    '</div>' +
+  '</div>';
+
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  window._updateSberPresetDesc = function() {
+    var type = document.getElementById('sber_preset_type').value;
+    var cnt = parseInt(document.getElementById('sber_preset_count').value, 10) || 1;
+    var pEl = document.getElementById('sber_preset_preview');
+    if (!pEl) return;
+    if (type === 'atm') {
+      pEl.innerHTML = '<b>Состав на ' + cnt + ' банкомат(а/ов):</b><br>' +
+        '• Розетка RJ-45 cat.6 (2 порта): ' + (1 * cnt) + ' шт.<br>' +
+        '• Кабель витая пара UTP cat.6 LSZH: ' + (40 * cnt) + ' м<br>' +
+        '• Патч-корд RJ-45 cat.6 (1м/2м/3м): ' + (4 * cnt) + ' шт.<br>' +
+        '• Модуль Keystone RJ-45 cat.6: ' + (2 * cnt) + ' шт.<br>' +
+        '• Кабель-канал/гофротруба ПВХ d20: ' + (15 * cnt) + ' м';
+    } else if (type === 'workplaces') {
+      pEl.innerHTML = '<b>Состав на ' + cnt + ' рабочих мест (РМ, ' + (cnt * 2) + ' портов):</b><br>' +
+        '• Розетка настенная 2хRJ-45 cat.6: ' + cnt + ' шт.<br>' +
+        '• Кабель витая пара UTP 4 пары кат.6 LSZH: ' + (cnt * 45) + ' м<br>' +
+        '• Патч-корд коммутационный 1м кат.6: ' + (cnt * 2) + ' шт.<br>' +
+        '• Патч-корд абонентский 3м кат.6: ' + (cnt * 2) + ' шт.<br>' +
+        '• Патч-панель 24 порта кат.6 19" 1U: ' + Math.max(1, Math.ceil((cnt * 2) / 24)) + ' шт.<br>' +
+        '• Короб кабельный 100х50: ' + (cnt * 5) + ' м';
+    } else if (type === 'wifi_cctv') {
+      pEl.innerHTML = '<b>Состав на ' + cnt + ' точек AP / камер:</b><br>' +
+        '• Точка доступа Wi-Fi / Камера IP: ' + cnt + ' шт.<br>' +
+        '• Кабель витая пара UTP кат.6 LSZH: ' + (cnt * 50) + ' м<br>' +
+        '• Разъем RJ-45 cat.6 с колпачком: ' + (cnt * 2) + ' шт.<br>' +
+        '• Модуль Keystone RJ-45 кат.6: ' + cnt + ' шт.<br>' +
+        '• Гофротруба ПВХ d20 с протяжкой: ' + (cnt * 30) + ' м';
+    } else if (type === 'vols') {
+      pEl.innerHTML = '<b>Состав на ' + cnt + ' оптическую линию(й):</b><br>' +
+        '• Кабель оптический 8 волокон 9/125 SM: ' + (cnt * 150) + ' м<br>' +
+        '• Оптический кросс 19" 1U на 8/16 портов: ' + (cnt * 2) + ' шт.<br>' +
+        '• Пигтейл оптический SM SC/UPC (или LC/UPC): ' + (cnt * 16) + ' шт.<br>' +
+        '• Оптический патч-корд дуплексный 2м: ' + (cnt * 4) + ' шт.<br>' +
+        '• Комплект гильз КДЗС: ' + (cnt * 16) + ' шт.';
+    }
+  };
+  window._updateSberPresetDesc();
+  var cntInput = document.getElementById('sber_preset_count');
+  if (cntInput) cntInput.addEventListener('input', window._updateSberPresetDesc);
+};
+
+window.applySberPreset = function(e, taskId) {
+  e.preventDefault();
+  var type = document.getElementById('sber_preset_type').value;
+  var cnt = parseInt(document.getElementById('sber_preset_count').value, 10) || 1;
+  var replaceExisting = document.getElementById('sber_replace_existing').checked;
+
+  var items = [];
+  if (type === 'atm') {
+    items.push({ work_type: 'Розетка настенная 2хRJ-45 cat.6', article_plan: 'SBR-SOCK-2X6', quantity: 1 * cnt, unit: 'шт.', supplier: 'Инсистем', price_customer: 480, price_contractor: 350 });
+    items.push({ work_type: 'Кабель витая пара UTP 4 пары cat.6 LSZH нг(А)-HFLTx', article_plan: 'CS1-1C6AU-11', quantity: 40 * cnt, unit: 'м', supplier: 'Инсистем', price_customer: 72, price_contractor: 55 });
+    items.push({ work_type: 'Патч-корд RJ-45 cat.6 LSZH серый 2м / 3м', article_plan: 'SBR-PC6-2M', quantity: 4 * cnt, unit: 'шт.', supplier: 'Инсистем', price_customer: 240, price_contractor: 180 });
+    items.push({ work_type: 'Модуль Keystone RJ-45 cat.6 неэкранированный', article_plan: 'KEYSTONE-C6-UTP', quantity: 2 * cnt, unit: 'шт.', supplier: 'Инсистем', price_customer: 190, price_contractor: 130 });
+    items.push({ work_type: 'Короб кабельный ПВХ 25х16 / гофротруба d20 с протяжкой', article_plan: 'PVC-BOX-2516', quantity: 15 * cnt, unit: 'м', supplier: 'Склад', price_customer: 85, price_contractor: 60 });
+  } else if (type === 'workplaces') {
+    items.push({ work_type: 'Розетка настенная 2хRJ-45 cat.6 (рабочее место РМ)', article_plan: 'SBR-SOCK-2X6-RM', quantity: cnt, unit: 'шт.', supplier: 'Инсистем', price_customer: 520, price_contractor: 380 });
+    items.push({ work_type: 'Кабель витая пара UTP 4 пары cat.6 LSZH нг(А)-HFLTx', article_plan: 'CS1-1C6AU-11', quantity: cnt * 45, unit: 'м', supplier: 'Инсистем', price_customer: 72, price_contractor: 55 });
+    items.push({ work_type: 'Патч-корд коммутационный 1м cat.6 LSZH', article_plan: 'PC-C6-1M-LSZH', quantity: cnt * 2, unit: 'шт.', supplier: 'Инсистем', price_customer: 195, price_contractor: 140 });
+    items.push({ work_type: 'Патч-корд абонентский 3м cat.6 LSZH', article_plan: 'PC-C6-3M-LSZH', quantity: cnt * 2, unit: 'шт.', supplier: 'Инсистем', price_customer: 260, price_contractor: 190 });
+    items.push({ work_type: 'Патч-панель 24 порта cat.6 19" 1U', article_plan: 'PP-24-C6-1U', quantity: Math.max(1, Math.ceil((cnt * 2) / 24)), unit: 'шт.', supplier: 'Инсистем', price_customer: 3200, price_contractor: 2400 });
+    items.push({ work_type: 'Короб кабельный 100х50 мм с разделительной перегородкой', article_plan: 'BOX-100X50-DIV', quantity: cnt * 5, unit: 'м', supplier: 'Склад', price_customer: 380, price_contractor: 290 });
+  } else if (type === 'wifi_cctv') {
+    items.push({ work_type: 'Точка доступа Wi-Fi / IP-видеокамера Сбер', article_plan: 'AP-CCTV-DEV', quantity: cnt, unit: 'шт.', supplier: 'Заказчик', price_customer: 0, price_contractor: 0 });
+    items.push({ work_type: 'Кабель витая пара UTP 4 пары cat.6 LSZH нг(А)-HFLTx', article_plan: 'CS1-1C6AU-11', quantity: cnt * 50, unit: 'м', supplier: 'Инсистем', price_customer: 72, price_contractor: 55 });
+    items.push({ work_type: 'Разъем RJ-45 cat.6 с защитным колпачком', article_plan: 'RJ45-C6-BOOT', quantity: cnt * 2, unit: 'шт.', supplier: 'Инсистем', price_customer: 45, price_contractor: 30 });
+    items.push({ work_type: 'Модуль Keystone RJ-45 cat.6 в патч-панель', article_plan: 'KEYSTONE-C6-UTP', quantity: cnt, unit: 'шт.', supplier: 'Инсистем', price_customer: 190, price_contractor: 130 });
+    items.push({ work_type: 'Гофротруба ПВХ d20 мм с протяжкой', article_plan: 'CORR-PVC-20', quantity: cnt * 30, unit: 'м', supplier: 'Склад', price_customer: 28, price_contractor: 20 });
+  } else if (type === 'vols') {
+    items.push({ work_type: 'Кабель оптический 8 волокон 9/125 SM для внутренней/внешней прокладки', article_plan: 'FO-8F-SM-LSZH', quantity: cnt * 150, unit: 'м', supplier: 'Инсистем', price_customer: 95, price_contractor: 75 });
+    items.push({ work_type: 'Оптический кросс 19" 1U на 8/16 портов SC/LC', article_plan: 'ODF-19-1U-16', quantity: cnt * 2, unit: 'шт.', supplier: 'Инсистем', price_customer: 2800, price_contractor: 2100 });
+    items.push({ work_type: 'Пигтейл оптический SM SC/UPC (или LC/UPC) 1.5м', article_plan: 'PIGTAIL-SM-SC', quantity: cnt * 16, unit: 'шт.', supplier: 'Инсистем', price_customer: 140, price_contractor: 95 });
+    items.push({ work_type: 'Оптический патч-корд дуплексный LC-LC / SC-LC 2м', article_plan: 'FO-PATCH-2M', quantity: cnt * 4, unit: 'шт.', supplier: 'Инсистем', price_customer: 420, price_contractor: 310 });
+    items.push({ work_type: 'Комплект гильз КДЗС 45мм / 60мм', article_plan: 'KDZS-60MM', quantity: cnt * 16, unit: 'шт.', supplier: 'Инсистем', price_customer: 25, price_contractor: 15 });
+  }
+
+  api('/tasks/' + encodeURIComponent(taskId) + '/items/batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items: items, replaceExisting: replaceExisting })
+  })
+  .then(function(res) {
+    if (res && res.error) return alert('Ошибка создания позиций: ' + res.error);
+    var m = document.getElementById('modal_sber_presets');
+    if (m) m.remove();
+    refreshTaskItemsList(taskId);
+    if (typeof showToast === 'function') showToast('✓ Сформировано ' + (res.count || items.length) + ' типовых позиций Сбера');
+  })
+  .catch(function(err) {
+    alert('Ошибка: ' + (err.message || err));
+  });
+};
 
 function uploadMaterialsExcel(file, taskId) {
   if (!file) return;
@@ -3114,17 +3569,114 @@ function deleteItemModal(taskId, itemId) {
 }
 
 
-function openAttachment(id, fromContract, contractId) {
-  var url = fromContract
-    ? ('/api/contracts/' + encodeURIComponent(contractId) + '/attachments/' + encodeURIComponent(id) + '/download')
-    : ('/api/attachments/' + encodeURIComponent(id) + '/file');
-  fetch(url, { headers: { 'Authorization': 'Bearer ' + S.token } })
-    .then(function(r){ 
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.blob(); 
+
+window.openFilePreviewModal = function(source, id, filePath, fileName) {
+  var old = document.getElementById('_file_preview_modal');
+  if (old) old.remove();
+
+  var modal = document.createElement('div');
+  modal.id = '_file_preview_modal';
+  modal.className = 'modal-overlay';
+  modal.style.zIndex = '99999';
+  modal.innerHTML = '<div class="modal-box" style="max-width:1050px;width:95%;max-height:92vh;display:flex;flex-direction:column;padding:0;border-radius:12px;background:#f8fafc;overflow:hidden">' +
+    '<div style="padding:14px 20px;background:#fff;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">' +
+      '<div style="display:flex;align-items:center;gap:10px;min-width:0">' +
+        '<span style="font-size:1.3rem">👁️</span>' +
+        '<div style="min-width:0">' +
+          '<div style="font-weight:700;font-size:1rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(fileName || 'Предпросмотр документа') + '</div>' +
+          '<div style="font-size:.74rem;color:var(--text-3)">Встроенный просмотрщик документов Stockeasy</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:8px">' +
+        '<a id="_fprev_dl_btn" href="#" download style="display:none" class="btn btn-sm btn-ghost">📥 Скачать</a>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_file_preview_modal\').remove()" style="font-size:1.2rem;line-height:1">&times;</button>' +
+      '</div>' +
+    '</div>' +
+    '<div id="_fprev_body" style="flex:1;overflow:auto;padding:20px;min-height:350px;background:#f1f5f9;display:flex;align-items:center;justify-content:center">' +
+      '<div style="text-align:center;color:var(--text-3)"><div class="spin" style="margin:0 auto 12px"></div>Загрузка и подготовка предпросмотра документа...</div>' +
+    '</div>' +
+  '</div>';
+
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
+
+  var query = '';
+  if (filePath) query = 'file_path=' + encodeURIComponent(filePath);
+  else if (source && id) query = 'source=' + encodeURIComponent(source) + '&id=' + encodeURIComponent(id);
+
+  api('/preview/attachment?' + query)
+    .then(function(res) {
+      var body = document.getElementById('_fprev_body');
+      var dlBtn = document.getElementById('_fprev_dl_btn');
+      if (!body) return;
+
+      if (res.downloadUrl && dlBtn) {
+        dlBtn.href = res.downloadUrl;
+        dlBtn.style.display = 'inline-flex';
+      }
+
+      if (res.type === 'docx') {
+        body.style.display = 'block';
+        body.style.padding = '24px';
+        body.innerHTML = res.html || '<div style="color:var(--red);text-align:center">Документ пуст</div>';
+      } else if (res.type === 'xlsx') {
+        body.style.display = 'block';
+        body.style.padding = '14px';
+        body.style.background = '#fff';
+        if (res.sheets && res.sheets.length > 0) {
+          var tabs = '<div style="display:flex;gap:4px;margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:6px;overflow-x:auto">' +
+            res.sheets.map(function(sh, idx) {
+              return '<button type="button" class="btn btn-xs ' + (idx === 0 ? 'btn-primary' : 'btn-ghost') + '" onclick="window._switchModalXlsxTab(' + idx + ', this)" style="font-size:.74rem;padding:3px 10px">' + escHtml(sh.name) + ' (' + sh.displayedRows + ' стр.)</button>';
+            }).join('') +
+          '</div>';
+          var panes = res.sheets.map(function(sh, idx) {
+            return '<div id="_m_xlsx_sh_' + idx + '" class="_modal_xlsx_pane" style="display:' + (idx === 0 ? 'block' : 'none') + ';overflow:auto;max-height:72vh;font-size:.8rem">' +
+              sh.html +
+              (sh.isTruncated ? '<div style="padding:8px;background:#fffbeb;font-size:.74rem;color:#b45309;text-align:center;margin-top:8px">Показаны первые ' + sh.displayedRows + ' строк из ' + sh.totalRows + '. Для полного анализа скачайте файл.</div>' : '') +
+            '</div>';
+          }).join('');
+          body.innerHTML = tabs + panes;
+        } else {
+          body.innerHTML = '<div style="color:var(--red);text-align:center">Таблица не содержит данных</div>';
+        }
+      } else if (res.type === 'pdf') {
+        body.style.display = 'block';
+        body.style.padding = '0';
+        body.innerHTML = '<iframe src="' + res.url + '" style="width:100%;height:80vh;border:none;background:#525659"></iframe>';
+      } else if (res.type === 'image') {
+        body.innerHTML = '<img src="' + res.url + '" style="max-width:100%;max-height:78vh;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.15)">';
+      } else {
+        body.innerHTML = '<div style="text-align:center;padding:2rem">' +
+          '<div style="font-size:3rem;margin-bottom:8px">📁</div>' +
+          '<div style="font-weight:700;font-size:1.1rem;margin-bottom:6px">' + escHtml(res.fileName || 'Файл') + '</div>' +
+          '<div style="color:var(--text-3);font-size:.85rem;margin-bottom:16px">Формат не поддерживает мгновенный просмотр в браузере</div>' +
+          '<a href="' + res.downloadUrl + '" download class="btn btn-primary" style="padding:8px 18px">📥 Скачать файл</a>' +
+        '</div>';
+      }
     })
-    .then(function(blob){ window.open(URL.createObjectURL(blob), '_blank'); })
-    .catch(function(err){ alert('Не удалось открыть файл: ' + err.message); });
+    .catch(function(err) {
+      var body = document.getElementById('_fprev_body');
+      if (body) body.innerHTML = '<div style="color:var(--red);text-align:center;padding:2rem">Ошибка загрузки файла: ' + escHtml(err.message) + '</div>';
+    });
+};
+
+window._switchModalXlsxTab = function(idx, btn) {
+  var parent = btn.parentElement;
+  if (parent) {
+    parent.querySelectorAll('button').forEach(function(b){ b.className = 'btn btn-xs btn-ghost'; });
+    btn.className = 'btn btn-xs btn-primary';
+  }
+  var container = document.getElementById('_fprev_body');
+  if (container) {
+    container.querySelectorAll('._modal_xlsx_pane').forEach(function(p){ p.style.display = 'none'; });
+    var target = document.getElementById('_m_xlsx_sh_' + idx);
+    if (target) target.style.display = 'block';
+  }
+};
+
+function openAttachment(id, fromContract, contractId, fileName) {
+  var source = fromContract ? 'contract' : 'task';
+  window.openFilePreviewModal(source, id, null, fileName || 'Документ');
 }
 
 window.approveTaskPhotoReport = function(taskId) {
@@ -3394,12 +3946,16 @@ function _updatePortsTotalsUI(taskId) {
 }
 
 function addPortRow(taskId) {
+  var rows = document.querySelectorAll('#portsTableBody tr');
+  var nextNum = rows.length + 1;
+  var nextMark = '1.' + (nextNum < 10 ? '0' + nextNum : nextNum);
+
   api('/tasks/' + taskId + '/ports', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      portNumber: '',
-      marking: '',
+      portNumber: String(nextNum),
+      marking: nextMark,
       room: '',
       cabinet: '',
       unit: '',
@@ -3410,6 +3966,7 @@ function addPortRow(taskId) {
     })
   }).then(function() {
     refreshPortsList(taskId);
+    if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
   });
 }
 
@@ -3518,7 +4075,28 @@ function uploadCableJournalExcel(file, taskId) {
       }
 
       if (!parsedPorts.length) {
-        return alert('Не удалось распознать строки кабельного журнала в файле. Проверьте заголовки колонок (Порт, Маркировка, Помещение, Шкаф, Юнит, Кросс, Длина, Обжим, Правильность).');
+        var errHtml = '<div style="font-size:.85rem;line-height:1.5">' +
+          '<p style="color:var(--red);font-weight:700">❌ Не удалось распознать структуру кабельного журнала в Excel-файле.</p>' +
+          '<p>Таблица должна содержать обязательные столбцы для корректного импорта:</p>' +
+          '<ul style="margin:8px 0 12px 18px;color:var(--text-2)">' +
+            '<li><b>Порт / Номер розетки</b> (например, <i>1, 2, 3</i> или <i>Порт 1</i>)</li>' +
+            '<li><b>Маркировка</b> (например, <i>1.01, 1.02</i>)</li>' +
+            '<li><b>Помещение / Комната</b> (например, <i>Кабинет 101</i>)</li>' +
+            '<li><b>Шкаф / ТКШ</b> (например, <i>ТКШ-1</i>)</li>' +
+            '<li><b>Длина трассы, м</b> (например, <i>24.5</i>)</li>' +
+            '<li><b>Результат теста</b> (например, <i>PASS, Годен, OK</i>)</li>' +
+          '</ul>' +
+          '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">' +
+            '<button class="btn btn-sm btn-primary" onclick="window.downloadCableJournalTemplate()">📥 Скачать шаблон КЖ (.xlsx)</button>' +
+            '<button class="btn btn-sm btn-ghost" onclick="closeModal()">Закрыть</button>' +
+          '</div>' +
+        '</div>';
+        if (typeof openModal === 'function') {
+          openModal('Неверный формат файла КЖ', errHtml);
+        } else {
+          alert('Не удалось распознать строки кабельного журнала в файле. Скачайте типовой шаблон по кнопке «Шаблон Excel» в шапке КЖ.');
+        }
+        return;
       }
 
       var replaceExisting = confirm(
@@ -3650,29 +4228,35 @@ window._ensureCardUnsavedBar = function(taskId) {
     bar = document.createElement('div');
     bar.className = 'unsaved-bar';
     bar.id = 'card_unsaved_bar';
-    bar.innerHTML = '<span>У вас есть несохранённые изменения</span>' +
-      '<button class="btn btn-sm" id="cardSaveBtn" onclick="window.saveCard(false)">Сохранить</button>' +
-      '<button class="btn btn-sm btn-ghost" id="cardResetBtn" onclick="window._resetCardDraft()">Сбросить</button>';
+    bar.innerHTML = '<span>⚠️ У вас есть несохранённые изменения</span>' +
+      '<button class="btn btn-sm" id="cardSaveBtn" onclick="window.saveCard(false)">💾 Сохранить</button>' +
+      '<button class="btn btn-sm btn-ghost" id="cardResetBtn" onclick="window._resetCardDraft()">↩️ Сбросить</button>';
     document.body.appendChild(bar);
   }
   bar.style.display = 'flex';
 };
 
 window._resetCardDraft = function() {
-  if (S.cardId) {
-    if (window._taskSmrSpec) delete window._taskSmrSpec[S.cardId];
-    if (window._taskThirdPartySpec) delete window._taskThirdPartySpec[S.cardId];
-    if (window._taskSmrTaxConfig) delete window._taskSmrTaxConfig[S.cardId];
-    if (window._taskSmrRoundConfig) delete window._taskSmrRoundConfig[S.cardId];
-    if (window._taskSmrSpecUnrounded) delete window._taskSmrSpecUnrounded[S.cardId];
+  var taskId = S.cardId;
+  if (taskId) {
+    if (window._taskSmrSpec) delete window._taskSmrSpec[taskId];
+    if (window._taskThirdPartySpec) delete window._taskThirdPartySpec[taskId];
+    if (window._taskSmrTaxConfig) delete window._taskSmrTaxConfig[taskId];
+    if (window._taskSmrRoundConfig) delete window._taskSmrRoundConfig[taskId];
+    if (window._taskSmrSpecUnrounded) delete window._taskSmrSpecUnrounded[taskId];
   }
+  var wasTmcDirty = !!(S.cardDraft && S.cardDraft._tmcDirty);
   S.cardDraft = {};
   S.cardConfirmOpen = false;
   var bar = document.getElementById('card_unsaved_bar');
   if (bar) bar.style.display = 'none';
-  if (S.cardId && typeof loadCardSubcontracts === 'function') {
-    loadCardSubcontracts(S.cardId);
+  if (taskId && typeof loadCardSubcontracts === 'function') {
+    loadCardSubcontracts(taskId);
   }
+  if (taskId && wasTmcDirty && typeof loadCardMaterials === 'function') {
+    loadCardMaterials(taskId);
+  }
+  if (typeof showToast === 'function') showToast('↩️ Несохранённые изменения сброшены', 'info');
   renderApp();
 };
 
@@ -3681,12 +4265,15 @@ function saveCard(silent) {
   if (!t) return Promise.resolve();
 
   var isSmrDirty = !!(S.cardDraft && S.cardDraft._smrDirty);
+  var isTmcDirty = !!(S.cardDraft && S.cardDraft._tmcDirty);
   var data = Object.assign({}, S.cardDraft);
   delete data._smrDirty;
   delete data._smrTaskId;
+  delete data._tmcDirty;
+  delete data._tmcTaskId;
 
   var hasFieldDraft = Object.keys(data).length > 0;
-  if (!hasFieldDraft && !isSmrDirty) { 
+  if (!hasFieldDraft && !isSmrDirty && !isTmcDirty) { 
     S.cardConfirmOpen = false; 
     if (!silent) renderApp(); 
     return Promise.resolve(); 
@@ -3740,17 +4327,28 @@ function saveCard(silent) {
 
   var saveInd = document.getElementById('card_autosave_indicator');
   if (saveInd) {
-    saveInd.textContent = '⏳ Сохранение...';
+    saveInd.textContent = '⏳ Сохранение в базу данных...';
     saveInd.style.color = '#b45309';
   }
 
-  // Если смета изменялась, параллельно сохраняем спецификацию субподряда
-  var smrPromise = (isSmrDirty && typeof window._saveCardSmrSpec === 'function')
-    ? window._saveCardSmrSpec(taskId, { silent: true })
-    : Promise.resolve();
+  // Параллельно сохраняем спецификацию субподряда и фактический расход ТМЦ
+  var promises = [];
+  if (isSmrDirty && typeof window._saveCardSmrSpec === 'function') {
+    promises.push(window._saveCardSmrSpec(taskId, { silent: true }));
+  }
+  if (isTmcDirty && typeof window.saveTaskMaterialsFact === 'function') {
+    promises.push(window.saveTaskMaterialsFact(taskId, { silent: true }));
+  }
 
-  return smrPromise.then(function() {
-    return api('/tasks/' + S.cardId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+  return Promise.all(promises).then(function() {
+    if (hasFieldDraft || isSmrDirty) {
+      return api('/tasks/' + S.cardId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+    }
+    return Promise.resolve({ success: true, task: t });
   })
     .then(function(res){
       if (res && res.task) {
@@ -3771,7 +4369,7 @@ function saveCard(silent) {
       }
       if (!silent) {
         renderApp();
-        if (typeof showToast === 'function') showToast('✓ Смета и изменения успешно сохранены', 'success');
+        if (typeof showToast === 'function') showToast('✓ Все изменения успешно сохранены в базу данных', 'success');
       }
       if (S.cardTab === 'history' && window.refreshCardHistory) {
         window.refreshCardHistory(t.id);
@@ -4120,6 +4718,15 @@ function loadCardMaterials(taskId) {
   if (!cont) return;
   cont.innerHTML = '<div class="t3">Загрузка спецификации…</div>';
 
+  if (!window._curTaskTotalCableLen) window._curTaskTotalCableLen = {};
+  api('/tasks/' + taskId + '/ports').then(function(ports) {
+    if (Array.isArray(ports)) {
+      var cLen = 0;
+      ports.forEach(function(p) { if (p.cable_length) cLen += Number(p.cable_length) || 0; });
+      window._curTaskTotalCableLen[taskId] = cLen;
+    }
+  }).catch(function(){});
+
   Promise.all([
     fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials', { headers: { 'Authorization': 'Bearer ' + S.token } }).then(function(r){ return r.json(); }),
     fetch('/api/tasks/' + encodeURIComponent(taskId) + '/checklist', { headers: { 'Authorization': 'Bearer ' + S.token } }).then(function(r){ return r.json(); })
@@ -4209,6 +4816,7 @@ function loadCardMaterials(taskId) {
         '<th style="padding:6px 4px">Поставщик / Склад</th>' +
         '<th style="padding:6px 4px;text-align:right">План (норма)</th>' +
         '<th style="padding:6px 4px;text-align:right">Факт расход</th>' +
+        '<th style="padding:6px 4px;text-align:right">Остаток (склад)</th>' +
         '<th style="padding:6px 4px;text-align:right">Цена за ед.</th>' +
         '<th style="padding:6px 4px;text-align:right">Сумма (₽)</th>' +
       '</tr></thead><tbody>';
@@ -4234,11 +4842,34 @@ function loadCardMaterials(taskId) {
 
       var supplierCell = isDone
         ? '<span class="badge b-blue" style="font-size:.74rem;white-space:nowrap">' + escHtml(curSupplier || 'Склад компании') + '</span>'
-        : '<select id="supp_mat_' + m.material_id + '" onchange="window.updateMaterialSupplier(\'' + encodeURIComponent(taskId) + '\', ' + m.material_id + ', this.value)" style="padding:3px 6px;font-size:.78rem;border:1px solid var(--border);border-radius:4px;background:#fff;max-width:145px;cursor:pointer">' + suppOptionsHtml + '</select>';
+        : '<select id="supp_mat_' + m.material_id + '" onchange="window._onTmcFactChange(\'' + encodeURIComponent(taskId) + '\')" style="padding:3px 6px;font-size:.78rem;border:1px solid var(--border);border-radius:4px;background:#fff;max-width:145px;cursor:pointer">' + suppOptionsHtml + '</select>';
 
       var factInput = isDone
         ? '<span style="font-weight:700;color:var(--green)">' + curQty + ' ' + m.unit + '</span>'
-        : '<input type="number" step="any" min="0" value="' + curQty + '" id="fact_mat_' + m.material_id + '" style="width:65px;padding:3px 6px;text-align:right;font-size:.82rem">';
+        : '<input type="number" step="any" min="0" value="' + curQty + '" id="fact_mat_' + m.material_id + '" oninput="window._onTmcFactChange(\'' + encodeURIComponent(taskId) + '\')" onchange="window._onTmcFactChange(\'' + encodeURIComponent(taskId) + '\')" style="width:65px;padding:3px 6px;text-align:right;font-size:.82rem">';
+
+      var planQty = parseFloat(m.plan_qty) || 0;
+      var remainder = planQty - curQty;
+      var remainderHtml = remainder >= 0
+        ? '<span style="color:var(--green);font-weight:600">' + (remainder % 1 === 0 ? remainder : remainder.toFixed(1)) + ' ' + m.unit + '</span>'
+        : '<span style="color:var(--red);font-weight:600">Перерасход (+' + Math.abs(remainder % 1 === 0 ? remainder : remainder.toFixed(1)) + ' ' + m.unit + ')</span>';
+
+      var isCable = (m.name && m.name.toLowerCase().includes('кабель')) || (m.code && m.code.includes('CABLE')) || (m.unit === 'м' && m.name && m.name.toLowerCase().includes('витая'));
+      var kjTotalCableLen = (window._curTaskTotalCableLen && window._curTaskTotalCableLen[taskId] !== undefined)
+        ? window._curTaskTotalCableLen[taskId]
+        : (window._curTotalCableLen || 0);
+
+      var cableMatchHtml = '';
+      if (isCable && kjTotalCableLen > 0) {
+        if (Math.abs(curQty - kjTotalCableLen) < 0.1) {
+          cableMatchHtml = '<div style="font-size:.69rem;color:var(--green);font-weight:600;margin-top:2px">✓ Метраж совпадает с КЖ (' + kjTotalCableLen + ' м)</div>';
+        } else {
+          cableMatchHtml = '<div style="font-size:.69rem;color:var(--amber);font-weight:600;margin-top:2px">' +
+            '⚠️ По КЖ: ' + kjTotalCableLen + ' м ' +
+            (!isDone ? '<a href="javascript:void(0)" onclick="var inp=document.getElementById(\'fact_mat_' + m.material_id + '\');if(inp){inp.value=' + kjTotalCableLen + ';window._onTmcFactChange(\'' + encodeURIComponent(taskId) + '\');}" style="text-decoration:underline;color:var(--blue);margin-left:4px">[вставить]</a>' : '') +
+          '</div>';
+        }
+      }
 
       html += '<tr style="border-bottom:1px solid var(--border)">' +
         '<td style="padding:6px 4px;color:var(--text-3);font-size:.74rem">' + (idx + 1) + '</td>' +
@@ -4248,14 +4879,15 @@ function loadCardMaterials(taskId) {
         '</td>' +
         '<td style="padding:6px 4px">' + supplierCell + '</td>' +
         '<td style="padding:6px 4px;text-align:right;white-space:nowrap;color:var(--text-2)">' + m.plan_qty + ' ' + m.unit + '</td>' +
-        '<td style="padding:6px 4px;text-align:right;white-space:nowrap">' + factInput + '</td>' +
+        '<td style="padding:6px 4px;text-align:right;white-space:nowrap">' + factInput + cableMatchHtml + '</td>' +
+        '<td style="padding:6px 4px;text-align:right;white-space:nowrap">' + remainderHtml + '</td>' +
         '<td style="padding:6px 4px;text-align:right;white-space:nowrap;color:var(--text-3);font-size:.76rem">' + price.toLocaleString('ru-RU') + ' ₽</td>' +
         '<td style="padding:6px 4px;text-align:right;white-space:nowrap;font-weight:700;color:var(--text)">' + itemSum.toLocaleString('ru-RU') + ' ₽</td>' +
       '</tr>';
     });
 
     html += '<tr style="background:var(--bg);font-weight:700;border-top:2px solid var(--border)">' +
-      '<td colspan="6" style="padding:8px 6px;text-align:right">ИТОГО себестоимость ТМЦ по объекту:</td>' +
+      '<td colspan="7" style="padding:8px 6px;text-align:right">ИТОГО себестоимость ТМЦ по объекту:</td>' +
       '<td style="padding:8px 6px;text-align:right;font-size:.92rem;color:var(--blue)">' + totalTmcSum.toLocaleString('ru-RU') + ' ₽</td>' +
     '</tr>';
 
@@ -4264,20 +4896,12 @@ function loadCardMaterials(taskId) {
     if (allWrittenOff) {
       html += '<div style="background:#ecfdf5;color:#065f46;padding:10px 14px;border-radius:6px;font-size:.8rem;font-weight:600;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;border:1px solid #86efac">' +
         '<div style="display:flex;align-items:center;gap:6px"><span>✅</span> ТМЦ списаны со склада в подотчет объекта на сумму <b>' + totalTmcSum.toLocaleString('ru-RU') + ' ₽</b></div>' +
-        '<div style="display:flex;gap:6px">' +
-          '<button class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + encodeURIComponent(taskId) + '\', \'tmc_act\')" title="Сформировать печатную форму М-15">📦 Форма М-15 (Word)</button>' +
-          '<button class="btn btn-sm btn-ghost" onclick="recalculateTaskMaterials(\'' + encodeURIComponent(taskId) + '\')">🔄 Пересчитать по нормам</button>' +
-        '</div>' +
       '</div>';
     } else {
       html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">' +
         '<div style="display:flex;gap:6px">' +
           '<button class="btn btn-sm btn-primary" onclick="writeOffTaskMaterials(\'' + encodeURIComponent(taskId) + '\')" title="Списать фактически израсходованные ТМЦ с фиксацией в себестоимости">✅ Списать ТМЦ по факту</button>' +
           '<button class="btn btn-sm" onclick="saveTaskMaterialsFact(\'' + encodeURIComponent(taskId) + '\')" title="Сохранить введенные количества факта без списания со склада">💾 Сохранить факт</button>' +
-        '</div>' +
-        '<div style="display:flex;gap:6px">' +
-          '<button class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + encodeURIComponent(taskId) + '\', \'tmc_act\')" title="Сформировать накладную на списание ТМЦ">📦 Форма М-15</button>' +
-          '<button class="btn btn-sm btn-ghost" onclick="recalculateTaskMaterials(\'' + encodeURIComponent(taskId) + '\')" title="Пересчитать плановые нормы по типовику и объему заявки">🔄 Пересчитать по нормам</button>' +
         '</div>' +
       '</div>';
     }
@@ -4305,11 +4929,23 @@ function recalculateTaskMaterials(taskId) {
   });
 }
 
-function saveTaskMaterialsFact(taskId) {
-  fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials', { headers: { 'Authorization': 'Bearer ' + S.token } })
+window._onTmcFactChange = function(taskId) {
+  if (!S.cardDraft) S.cardDraft = {};
+  S.cardDraft._tmcDirty = true;
+  S.cardDraft._tmcTaskId = taskId;
+  if (typeof window.updateCardSaveBar === 'function') {
+    window.updateCardSaveBar();
+  } else if (typeof window._ensureCardUnsavedBar === 'function') {
+    window._ensureCardUnsavedBar(taskId);
+  }
+};
+
+function saveTaskMaterialsFact(taskId, options) {
+  options = options || {};
+  return fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials', { headers: { 'Authorization': 'Bearer ' + S.token } })
     .then(function(r){ return r.json(); })
     .then(function(materials) {
-      if (!materials || !materials.length) return;
+      if (!materials || !materials.length) return Promise.resolve({ success: true });
       var items = [];
       materials.forEach(function(m) {
         var inp = document.getElementById('fact_mat_' + m.material_id);
@@ -4319,23 +4955,32 @@ function saveTaskMaterialsFact(taskId) {
         items.push({ material_id: m.material_id, fact_qty: isNaN(qty) ? 0 : qty, supplier: supp });
       });
 
-      fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials/save-fact', {
+      return fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials/save-fact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.token },
         body: JSON.stringify({ items: items })
       })
       .then(function(r){ return r.json(); })
       .then(function(res) {
-        if (res.success) {
-          if (typeof showToast === 'function') showToast('✅ Фактический расход и поставщики ТМЦ сохранены');
-          else alert('✅ Фактический расход и поставщики ТМЦ сохранены!');
+        if (res && res.success) {
+          if (!options.silent) {
+            if (typeof showToast === 'function') showToast('✅ Фактический расход и поставщики ТМЦ сохранены', 'success');
+            else alert('✅ Фактический расход и поставщики ТМЦ сохранены!');
+          }
+          if (S.cardDraft) {
+            delete S.cardDraft._tmcDirty;
+            delete S.cardDraft._tmcTaskId;
+          }
+          if (typeof window.updateCardSaveBar === 'function') window.updateCardSaveBar();
           loadCardMaterials(taskId);
         } else {
-          alert('Ошибка сохранения: ' + (res.error || 'неизвестная ошибка'));
+          if (!options.silent) alert('Ошибка сохранения: ' + (res.error || 'неизвестная ошибка'));
         }
+        return res;
       })
       .catch(function(err) {
-        alert('Ошибка сохранения факта: ' + (err.message || err));
+        if (!options.silent) alert('Ошибка сохранения факта: ' + (err.message || err));
+        throw err;
       });
     });
 }
@@ -4524,7 +5169,7 @@ function renderSmrChecklist(taskId) {
   var inOrderVal = Number(t.inOrder || t.ports || 0);
   var checkPorts = (factVal !== null && factVal > 0);
 
-  var rawDate = t.dataVyhoda || t.data_vyhoda || (t.rawData && (t.rawData.dataVyhoda || t.rawData.data_vyhoda));
+  var rawDate = t.smrActualEndDate || t.dataVyhoda || t.smr_actual_end_date || t.data_vyhoda || (t.rawData && (t.rawData.smrActualEndDate || t.rawData.dataVyhoda));
   var checkDate = Boolean(rawDate);
   var deadlineVal = t.deadline || (t.rawData && t.rawData.deadline);
   var dateDesc = '';
@@ -4586,7 +5231,7 @@ function renderSmrChecklist(taskId) {
       title: '2. Фактическая дата завершения СМР',
       desc: dateDesc,
       passed: checkDate,
-      action: '<button type="button" class="btn btn-xs btn-ghost" onclick="var inp=document.getElementById(\'cardDataVyhoda\');if(inp){inp.focus();}" style="font-size:.7rem;padding:2px 6px">Указать дату</button>'
+      action: '<button type="button" class="btn btn-xs btn-ghost" onclick="var inp=document.getElementById(\'cardSmrActualEndDate\');if(inp){inp.focus();}else{inp=document.getElementById(\'cardDataVyhoda\');if(inp)inp.focus();}" style="font-size:.7rem;padding:2px 6px">Указать дату</button>'
     },
     {
       id: 'kj',
@@ -5143,7 +5788,7 @@ function _renderSubcontractModal(taskId, editId) {
       if (hidSpecId) hidSpecId.value = sp.id;
       if (fioInp) {
         fioInp.value = sp.full_name || '';
-        fioInp.style.display = 'none';
+        fioInp.style.display = 'block';
       }
       if (phoneInp) phoneInp.value = sp.phone || '';
       if (passInp) passInp.value = sp.passport_raw || sp.passport_series_number || '';
@@ -5311,7 +5956,7 @@ function _renderSubcontractModal(taskId, editId) {
               buildSpecsOptions(curSpecId) +
             '</select>' +
             '<input type="hidden" id="subm_specialist_id" value="' + escHtml(curSpecId || '') + '">' +
-            '<input type="text" id="subm_installer_fio" value="' + escHtml(curFio) + '" placeholder="Иванов Иван Иванович" style="width:100%;margin-top:4px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem;display:' + ((!curSpecId && curFio) ? 'block' : 'none') + '">' +
+            '<input type="text" id="subm_installer_fio" value="' + escHtml(curFio) + '" placeholder="Иванов Иван Иванович" style="width:100%;margin-top:4px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem;display:block">' +
           '</div>' +
           '<div>' +
             '<label style="display:block;font-size:.75rem;color:var(--text-3);margin-bottom:3px">Телефон</label>' +
@@ -5388,6 +6033,13 @@ function saveSubcontract(taskId, editId) {
   var specId = document.getElementById('subm_specialist_id') ? document.getElementById('subm_specialist_id').value : '';
   var fio = (document.getElementById('subm_installer_fio') ? document.getElementById('subm_installer_fio').value : '').trim();
 
+  if (specId && fio) {
+    var chosenSp = (S.specialists || []).find(function(s){ return String(s.id) === String(specId); });
+    if (chosenSp && chosenSp.full_name && chosenSp.full_name.trim().toLowerCase() !== fio.toLowerCase()) {
+      specId = ''; // ФИО изменено пользователем вручную — сбрасываем старый id для создания/поиска нового
+    }
+  }
+
   if (!fio && specId) {
     var chosenSp = (S.specialists || []).find(function(s){ return String(s.id) === String(specId); });
     if (chosenSp) fio = chosenSp.full_name;
@@ -5444,10 +6096,12 @@ function saveSubcontract(taskId, editId) {
     }
     loadCardSubcontracts(taskId);
     loadCardDocuments(taskId);
+    if (typeof showToast === 'function') showToast('✅ Условия субподряда и состав монтажников сохранены', 'success');
     if (typeof renderApp === 'function') renderApp();
   })
   .catch(function(err) {
-    alert('Ошибка сохранения субподряда: ' + err.message);
+    if (typeof showToast === 'function') showToast('Ошибка сохранения: ' + err.message, 'error');
+    else alert('Ошибка сохранения субподряда: ' + err.message);
   });
 }
 
@@ -6726,8 +7380,10 @@ window.refreshCardHistory = refreshCardHistory;
 if (window._cardSyncInterval) clearInterval(window._cardSyncInterval);
 window._cardSyncInterval = setInterval(function() {
   if (S.page !== 'card' || !S.cardId) return;
-  // Если пользователь прямо сейчас редактирует форму или инпут в фокусе — не сбивать фокус
+  // Если пользователь прямо сейчас редактирует форму, открыта модалка или инпут в фокусе — не сбивать состояние
   if (S.cardDraft && Object.keys(S.cardDraft).length > 0) return;
+  if (document.querySelector('.modal-overlay, .modal-backdrop, [id*="modal"], .swal2-container, #excel_import_modal')) return;
+  if (window._isImportingExcel || window._isUploadingFile) return;
   var activeTag = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toLowerCase() : '';
   if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') return;
 
@@ -6743,7 +7399,8 @@ window._cardSyncInterval = setInterval(function() {
         if (idx !== -1) S.tasks[idx] = fresh;
         var actTag = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toLowerCase() : '';
         var isFocusingInput = (actTag === 'input' || actTag === 'textarea' || actTag === 'select');
-        if (S.page === 'card' && String(S.cardId) === String(fresh.id) && !isFocusingInput && (!S.cardDraft || !Object.keys(S.cardDraft).length)) {
+        var hasModal = document.querySelector('.modal-overlay, .modal-backdrop, [id*="modal"], .swal2-container, #excel_import_modal');
+        if (S.page === 'card' && String(S.cardId) === String(fresh.id) && !isFocusingInput && !hasModal && (!S.cardDraft || !Object.keys(S.cardDraft).length)) {
           renderApp();
           if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(fresh.id);
           if (window.renderSmrChecklist) window.renderSmrChecklist(fresh.id);
@@ -6751,29 +7408,20 @@ window._cardSyncInterval = setInterval(function() {
       }
     }
   }).catch(function() {});
-}, 10000);
+}, 15000);
 
-// Синхронизация при возврате вкладки браузера в активное состояние
+// Синхронизация при возврате вкладки браузера в активное состояние (Alt+Tab защита от сброса)
 if (!window._cardFocusListenerAdded) {
   window._cardFocusListenerAdded = true;
   window.addEventListener('focus', function() {
-    if (S.page === 'card' && S.cardId && (!S.cardDraft || !Object.keys(S.cardDraft).length)) {
-      var activeTag = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toLowerCase() : '';
-      if (activeTag !== 'input' && activeTag !== 'textarea' && activeTag !== 'select') {
-        api('/tasks/' + encodeURIComponent(S.cardId)).then(function(fresh) {
-          if (fresh && !fresh.error) {
-            var idx = (S.tasks || []).findIndex(function(x) { return String(x.id) === String(S.cardId); });
-            if (idx !== -1) S.tasks[idx] = fresh;
-            var actTag = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toLowerCase() : '';
-            var isFocusingInput = (actTag === 'input' || actTag === 'textarea' || actTag === 'select');
-            if (S.page === 'card' && String(S.cardId) === String(fresh.id) && !isFocusingInput && (!S.cardDraft || !Object.keys(S.cardDraft).length)) {
-              renderApp();
-              if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(fresh.id);
-              if (window.renderSmrChecklist) window.renderSmrChecklist(fresh.id);
-            }
-          }
-        }).catch(function() {});
-      }
+    if (S.page === 'card' && S.cardId) {
+      // Обновляем данные в памяти тихо, без вызова renderApp(), чтобы не стирать открытые модалки и ввод пользователя
+      api('/tasks/' + encodeURIComponent(S.cardId)).then(function(fresh) {
+        if (fresh && !fresh.error) {
+          var idx = (S.tasks || []).findIndex(function(x) { return String(x.id) === String(S.cardId); });
+          if (idx !== -1) S.tasks[idx] = fresh;
+        }
+      }).catch(function() {});
     }
   });
 }

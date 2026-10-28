@@ -1,3 +1,20 @@
+
+window._switchContractXlsxTab = function(fileId, sheetIdx, btn) {
+  var parent = btn.parentElement;
+  if (parent) {
+    var btns = parent.querySelectorAll('button');
+    btns.forEach(function(b) { b.className = 'btn btn-xs btn-ghost'; });
+    btn.className = 'btn btn-xs btn-primary';
+  }
+  var container = document.getElementById('contract_xlsx_preview_' + fileId) || document.getElementById('modal_preview_body');
+  if (container) {
+    var panes = container.querySelectorAll('.cxlsx-sheet-pane');
+    panes.forEach(function(p) { p.style.display = 'none'; });
+    var target = document.getElementById('cxlsx_sh_' + fileId + '_' + sheetIdx);
+    if (target) target.style.display = 'block';
+  }
+};
+
 // public/js/pages/contracts.js - Справочник Договоров (Контрактов)
 
 var CONTRACT_STATUSES = [
@@ -164,6 +181,38 @@ function getContractStatusBadge(status) {
 
 var contractSearchTimeout = null;
 
+function resolveContractUserFio(u) {
+  if (!u) return '';
+  if (u.fullName && u.fullName.trim()) return u.fullName.trim();
+  if (u.full_name && u.full_name.trim()) return u.full_name.trim();
+  if (u.name && u.name.trim() && u.name !== u.username) return u.name.trim();
+  if (u.username === 'alex') return 'Чайка А. Н.';
+  return u.username || ('Пользователь #' + u.id);
+}
+
+function formatContractManagerName(c) {
+  if (!c) return '';
+  var mgrId = c.manager_id;
+  if (mgrId && S.users) {
+    var u = S.users.find(function(x) { return Number(x.id) === Number(mgrId); });
+    if (u) return resolveContractUserFio(u);
+  }
+  var raw = c.manager_display_name || c.manager_name || '';
+  if (raw) {
+    if (raw.toLowerCase() === 'alex') return 'Чайка А. Н.';
+    if (S.users) {
+      var u2 = S.users.find(function(x) { 
+        return (x.username && x.username.toLowerCase() === raw.toLowerCase()) || 
+               (x.fullName && x.fullName.toLowerCase() === raw.toLowerCase()) ||
+               (x.full_name && x.full_name.toLowerCase() === raw.toLowerCase()); 
+      });
+      if (u2) return resolveContractUserFio(u2);
+    }
+    return raw;
+  }
+  return '';
+}
+
 function pageContracts() {
   S.contractSearch = S.contractSearch || '';
   S.contractType = S.contractType || 'all';
@@ -175,10 +224,15 @@ function pageContracts() {
   S.contractPriority = S.contractPriority || 'all';
   S.contractLawType = S.contractLawType || 'all';
 
-  // Менеджеры для фильтра
-  var usersList = (S.contractFilterOptions && S.contractFilterOptions.users) || S.users || [];
+  // Менеджеры для фильтра: только менеджеры/руководители, исключая монтажников и субподряд
+  var allowedManagerRoles = ['admin', 'director', 'manager', 'pm'];
+  var rawUsersList = (S.contractFilterOptions && S.contractFilterOptions.users) || S.users || [];
+  var usersList = rawUsersList.filter(function(u) {
+    var r = (u.role || '').toLowerCase();
+    return allowedManagerRoles.includes(r);
+  });
   var managerOptionsHtml = usersList.map(function(u) {
-    var uName = u.name || u.fullName || u.username;
+    var uName = resolveContractUserFio(u);
     var isSel = (String(S.contractManager) === String(u.id) || S.contractManager === uName) ? 'selected' : '';
     return `<option value="${u.id}" ${isSel}>👤 ${escHtml(uName)}</option>`;
   }).join('');
@@ -995,7 +1049,7 @@ function renderContractsTable() {
     `;
 
     // Заказчик, сторона 2 и менеджер
-    var mgrName = c.manager_display_name || c.manager_name;
+    var mgrName = formatContractManagerName(c);
     var managerChip = mgrName ? `
       <div style="margin-top:4px">
         <button class="btn-ghost" onclick="event.stopPropagation(); openAssignContractManagerModal(${c.id}, ${c.manager_id || 'null'})"
@@ -1143,12 +1197,76 @@ function renderContractsTable() {
 /**
  * Открытие модалки карточки договора (просмотр со всеми вкладками)
  */
+
+window._onContractFieldChange = function(contractId, fieldName, value) {
+  S.contractDraft = S.contractDraft || {};
+  S.contractDraft[contractId] = S.contractDraft[contractId] || {};
+  S.contractDraft[contractId][fieldName] = value;
+
+  var bar = document.getElementById('contract_unsaved_bar');
+  if (bar) bar.style.display = 'flex';
+};
+
+window.saveContractDraft = function(contractId) {
+  if (!S.contractDraft || !S.contractDraft[contractId]) return;
+  var payload = S.contractDraft[contractId];
+
+  api('/contracts/' + contractId, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(function(res) {
+    if (res && res.error) {
+      if (typeof showToast === 'function') showToast('Ошибка сохранения: ' + res.error, 'error');
+      else alert('Ошибка сохранения: ' + res.error);
+    } else {
+      delete S.contractDraft[contractId];
+      var bar = document.getElementById('contract_unsaved_bar');
+      if (bar) bar.style.display = 'none';
+      if (typeof showToast === 'function') showToast('✅ Изменения в договоре успешно сохранены', 'success');
+      fetchContracts();
+      openContractModal(contractId, S.contractActiveTab || 'main');
+    }
+  }).catch(function(err) {
+    if (typeof showToast === 'function') showToast('Ошибка: ' + err.message, 'error');
+    else alert('Ошибка: ' + err.message);
+  });
+};
+
+window.resetContractDraft = function(contractId) {
+  if (S.contractDraft && S.contractDraft[contractId]) {
+    delete S.contractDraft[contractId];
+  }
+  var bar = document.getElementById('contract_unsaved_bar');
+  if (bar) bar.style.display = 'none';
+  if (typeof showToast === 'function') showToast('↩️ Изменения сброшены', 'info');
+  openContractModal(contractId, S.contractActiveTab || 'main');
+};
+
 function openContractModal(id, activeTab) {
   activeTab = activeTab || 'main';
   if (typeof window.savePageScroll === 'function') window.savePageScroll('contract_row_' + id);
   var modalBackdrop = document.getElementById('contract_detail_modal_backdrop');
   var modalEl = document.getElementById('contract_detail_modal');
-  if (!modalBackdrop || !modalEl) return;
+  if (!modalBackdrop || !modalEl) {
+    modalBackdrop = document.getElementById('contract_detail_modal_backdrop');
+    if (!modalBackdrop) {
+      modalBackdrop = document.createElement('div');
+      modalBackdrop.id = 'contract_detail_modal_backdrop';
+      modalBackdrop.style.cssText = 'display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center; padding:16px';
+      modalBackdrop.onclick = function(e) { if (e.target === this) closeContractModal(); };
+
+      modalEl = document.createElement('div');
+      modalEl.id = 'contract_detail_modal';
+      modalEl.className = 'modal-box';
+      modalEl.style.cssText = 'display:none; max-width:1100px; width:100%; max-height:92vh; overflow-y:auto; padding:0; border-radius:12px; background:var(--bg)';
+
+      modalBackdrop.appendChild(modalEl);
+      document.body.appendChild(modalBackdrop);
+    } else {
+      modalEl = document.getElementById('contract_detail_modal');
+    }
+  }
 
   modalEl.style.display = '';
   modalEl.innerHTML = `<div style="padding:3rem; text-align:center"><div class="spin" style="margin:0 auto 10px"></div>Загрузка договора...</div>`;
@@ -1188,7 +1306,7 @@ function openContractModal(id, activeTab) {
             <div style="display:inline-flex; align-items:center; gap:6px; background:#f8fafc; padding:3px 8px; border-radius:8px; border:1px solid var(--border)">
               <span style="font-size:.7rem; color:var(--text-3); font-weight:700; text-transform:uppercase">Закон:</span>
               <select id="modal_contract_law_select_${c.id}"
-                      onchange="quickChangeContractLawType(${c.id}, this.value)"
+                      onchange="_onContractFieldChange(${c.id}, 'contract_law_type', this.value)"
                       style="border:none; background:transparent; font-size:.8rem; font-weight:700; cursor:pointer; outline:none; padding:2px; color:#4338ca"
                       title="Кликните для выбора закона">
                 ${CONTRACT_LAW_TYPES.map(function(l) {
@@ -1200,7 +1318,7 @@ function openContractModal(id, activeTab) {
             <div style="display:inline-flex; align-items:center; gap:6px; background:#f8fafc; padding:3px 8px; border-radius:8px; border:1px solid var(--border)">
               <span style="font-size:.7rem; color:var(--text-3); font-weight:700; text-transform:uppercase">Приоритет:</span>
               <select id="modal_contract_prio_select_${c.id}"
-                      onchange="quickChangeContractPriority(${c.id}, this.value)"
+                      onchange="_onContractFieldChange(${c.id}, 'closing_priority', this.value)"
                       style="border:none; background:transparent; font-size:.8rem; font-weight:700; cursor:pointer; outline:none; padding:2px; color:var(--text)"
                       title="Приоритет закрытия пакета документов">
                 <option value="P1" ${c.closing_priority === 'P1' ? 'selected' : ''}>🔴 P1 Срочно</option>
@@ -1214,7 +1332,7 @@ function openContractModal(id, activeTab) {
             <div style="display:inline-flex; align-items:center; gap:6px; background:#f8fafc; padding:3px 8px; border-radius:8px; border:1px solid var(--border)">
               <span style="font-size:.7rem; color:var(--text-3); font-weight:700; text-transform:uppercase">Статус:</span>
               <select id="modal_contract_status_select_${c.id}"
-                      onchange="quickChangeContractStatus(${c.id}, this.value)"
+                      onchange="_onContractFieldChange(${c.id}, 'status', this.value)"
                       style="border:none; background:transparent; font-size:.8rem; font-weight:700; cursor:pointer; outline:none; padding:2px; color:var(--text)"
                       title="Кликните для быстрой смены статуса договора">
                 ${CONTRACT_STATUSES.map(function(st) {
@@ -1255,6 +1373,13 @@ function openContractModal(id, activeTab) {
         ${activeTab === 'lots' ? renderContractTabLots(c, lots) : ''}
         ${activeTab === 'tasks' ? renderContractTabTasks(c, tasks) : ''}
       </div>
+
+      <!-- ПЛАШКА НЕСОХРАНЕННЫХ ИЗМЕНЕНИЙ В ДОГОВОРЕ (ПУНКТ 4) -->
+      <div class="unsaved-bar" id="contract_unsaved_bar" style="display:${(S.contractDraft && S.contractDraft[c.id] && Object.keys(S.contractDraft[c.id]).length > 0) ? 'flex' : 'none'};position:sticky;bottom:0;z-index:999;box-shadow:0 -4px 12px rgba(0,0,0,0.15);margin:0 -24px -24px;border-radius:0 0 12px 12px}">
+        <span>У вас есть несохранённые изменения в договоре</span>
+        <button class="btn btn-sm" id="contractSaveBtn" onclick="saveContractDraft(${c.id})">💾 Сохранить</button>
+        <button class="btn btn-sm btn-ghost" id="contractResetBtn" onclick="resetContractDraft(${c.id})">↩️ Сбросить</button>
+      </div>
     `;
 
     if (activeTab === 'main') {
@@ -1280,13 +1405,14 @@ function renderContractTabMain(c, dDate, dEnd) {
   var dgisUrl  = 'https://2gis.ru/search/' + encodeURIComponent('Россия, ' + placeForMap);
   var yandexUrl = 'https://yandex.ru/maps/?text=' + encodeURIComponent('Россия, ' + placeForMap);
 
-  var managerBadge = c.manager_name ? `
+  var formattedMgrName = formatContractManagerName(c);
+  var managerBadge = formattedMgrName ? `
     <div class="card p" style="display:flex; justify-content:space-between; align-items:center; background:#f0fdf4; border:1.5px solid #bbf7d0; border-radius:8px; padding:10px 14px">
       <div style="display:flex; align-items:center; gap:10px">
         <span style="font-size:1.3rem">👤</span>
         <div>
           <div style="font-size:.68rem; color:var(--text-3); font-weight:700; text-transform:uppercase">Ответственный менеджер</div>
-          <div style="font-weight:700; color:#15803d; font-size:.92rem">${escHtml(c.manager_name)}</div>
+          <div style="font-weight:700; color:#15803d; font-size:.92rem">${escHtml(formattedMgrName)}</div>
         </div>
       </div>
       <button class="btn btn-sm btn-ghost" onclick="openAssignContractManagerModal(${c.id}, ${c.manager_id || 'null'})" style="font-size:.78rem">Изменить</button>
@@ -1496,7 +1622,7 @@ function renderContractTabTerms(c) {
         ${escHtml(c.terms_text || 'Особые условия договора не внесены. Нажмите «Редактировать текст», чтобы вписать гарантии, штрафы, условия сдачи или спецификацию.')}
       </div>
       <div id="terms_edit_box" style="display:none; margin-top:8px">
-        <textarea id="terms_textarea" style="width:100%; min-height:120px; padding:10px; border:1.5px solid var(--orange); border-radius:8px; font-size:.85rem; line-height:1.4">${escHtml(c.terms_text || '')}</textarea>
+        <textarea id="terms_textarea" oninput="_onContractFieldChange(${c.id}, 'terms_text', this.value)" style="width:100%; min-height:120px; padding:10px; border:1.5px solid var(--orange); border-radius:8px; font-size:.85rem; line-height:1.4">${escHtml(c.terms_text || '')}</textarea>
         <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px">
           <button class="btn btn-sm btn-ghost" onclick="toggleEditTermsText(${c.id}, false)">Отмена</button>
           <button class="btn btn-sm" onclick="saveTermsText(${c.id})">Сохранить условия</button>
@@ -2454,12 +2580,16 @@ function openContractForm(id) {
   var isEdit = Boolean(id);
   var c = isEdit && S.contracts ? S.contracts.find(x => x.id === id) : null;
 
-  var users = S.users || [];
+  var allowedManagerRoles = ['admin', 'director', 'manager', 'pm'];
+  var users = (S.users || []).filter(function(u) {
+    var r = (u.role || '').toLowerCase();
+    return allowedManagerRoles.includes(r);
+  });
   var managerOptions = '<option value="">-- Без ответственного менеджера --</option>';
   users.forEach(function(u) {
     var isSel = (c && c.manager_id === u.id) ? 'selected' : '';
     var roleName = (STOCK_ROLES[u.role] ? STOCK_ROLES[u.role].name : u.role) || '';
-    var name = u.fullName || u.username || ('Пользователь #' + u.id);
+    var name = resolveContractUserFio(u);
     managerOptions += `<option value="${u.id}" data-name="${escHtml(name)}" ${isSel}>${escHtml(name + (roleName ? ' (' + roleName + ')' : ''))}</option>`;
   });
 
@@ -3190,6 +3320,81 @@ function renderContractAttachmentsListAndPreview(c, attachments) {
           </div>
         </div>
       `;
+    } else if (/\.(docx)$/i.test(cleanActiveName) || activeFile.mime_type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      previewHtml = `
+        <div style="margin-top:14px; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:#fff">
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 14px; background:#f8fafc; border-bottom:1px solid var(--border); font-size:.82rem; font-weight:600">
+            <div style="display:flex; align-items:center; gap:8px">
+              <span>📄 Документ Word: <strong>${escHtml(cleanActiveName)}</strong></span>
+              <span class="badge b-blue" style="font-size:.7rem">${formatFileSize(activeFile.size_bytes)}</span>
+            </div>
+            <div style="display:flex; gap:8px">
+              <button type="button" class="btn btn-xs btn-ghost" onclick="window.openFilePreviewModal('contract', ${activeFile.id}, '${activeFile.file_path}', '${escHtml(cleanActiveName)}')">↗ На весь экран</button>
+              <a href="/uploads/${activeFile.file_path}" download="${escHtml(cleanActiveName)}" class="btn btn-xs">📥 Скачать</a>
+            </div>
+          </div>
+          <div id="contract_docx_preview_${activeFile.id}" style="padding:20px; max-height:480px; overflow-y:auto; background:#f1f5f9">
+            <div style="text-align:center; padding:2rem; color:var(--text-3)"><div class="spin" style="margin:0 auto 10px"></div>Загрузка предпросмотра Word...</div>
+          </div>
+        </div>
+      `;
+      setTimeout(function() {
+        api('/preview/attachment?source=contract&id=' + activeFile.id).then(function(res) {
+          var box = document.getElementById('contract_docx_preview_' + activeFile.id);
+          if (!box) return;
+          if (res && res.html) {
+            box.innerHTML = res.html;
+          } else {
+            box.innerHTML = '<div style="color:var(--red); padding:1rem; text-align:center">Не удалось сформировать предпросмотр</div>';
+          }
+        }).catch(function(err) {
+          var box = document.getElementById('contract_docx_preview_' + activeFile.id);
+          if (box) box.innerHTML = '<div style="color:var(--red); padding:1rem; text-align:center">Ошибка предпросмотра: ' + escHtml(err.message) + '</div>';
+        });
+      }, 50);
+    } else if (/\.(xlsx|xls)$/i.test(cleanActiveName) || activeFile.mime_type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || activeFile.mime_type === 'application/vnd.ms-excel') {
+      previewHtml = `
+        <div style="margin-top:14px; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:#fff">
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 14px; background:#f8fafc; border-bottom:1px solid var(--border); font-size:.82rem; font-weight:600">
+            <div style="display:flex; align-items:center; gap:8px">
+              <span>📊 Таблица Excel: <strong>${escHtml(cleanActiveName)}</strong></span>
+              <span class="badge b-green" style="font-size:.7rem">${formatFileSize(activeFile.size_bytes)}</span>
+            </div>
+            <div style="display:flex; gap:8px">
+              <button type="button" class="btn btn-xs btn-ghost" onclick="window.openFilePreviewModal('contract', ${activeFile.id}, '${activeFile.file_path}', '${escHtml(cleanActiveName)}')">↗ На весь экран</button>
+              <a href="/uploads/${activeFile.file_path}" download="${escHtml(cleanActiveName)}" class="btn btn-xs">📥 Скачать</a>
+            </div>
+          </div>
+          <div id="contract_xlsx_preview_${activeFile.id}" style="padding:10px; max-height:480px; overflow:auto; background:#fff">
+            <div style="text-align:center; padding:2rem; color:var(--text-3)"><div class="spin" style="margin:0 auto 10px"></div>Загрузка таблицы Excel...</div>
+          </div>
+        </div>
+      `;
+      setTimeout(function() {
+        api('/preview/attachment?source=contract&id=' + activeFile.id).then(function(res) {
+          var box = document.getElementById('contract_xlsx_preview_' + activeFile.id);
+          if (!box) return;
+          if (res && res.sheets && res.sheets.length > 0) {
+            var tabsHtml = '<div style="display:flex; gap:4px; margin-bottom:8px; border-bottom:1px solid var(--border); padding-bottom:6px; overflow-x:auto">' +
+              res.sheets.map(function(sh, idx) {
+                return '<button type="button" class="btn btn-xs ' + (idx === 0 ? 'btn-primary' : 'btn-ghost') + '" onclick="window._switchContractXlsxTab(' + activeFile.id + ', ' + idx + ', this)" style="font-size:.72rem; padding:2px 8px">' + escHtml(sh.name) + ' (' + sh.displayedRows + ' стр.)</button>';
+              }).join('') +
+            '</div>';
+            var sheetsHtml = res.sheets.map(function(sh, idx) {
+              return '<div id="cxlsx_sh_' + activeFile.id + '_' + idx + '" class="cxlsx-sheet-pane" style="display:' + (idx === 0 ? 'block' : 'none') + '; overflow:auto; max-height:420px; font-size:.78rem">' +
+                sh.html +
+                (sh.isTruncated ? '<div style="padding:6px; background:#fffbeb; font-size:.72rem; color:#b45309; text-align:center">Показаны первые ' + sh.displayedRows + ' из ' + sh.totalRows + ' строк. Скачайте файл для полного просмотра.</div>' : '') +
+              '</div>';
+            }).join('');
+            box.innerHTML = tabsHtml + sheetsHtml;
+          } else {
+            box.innerHTML = '<div style="color:var(--red); padding:1rem; text-align:center">Таблица пуста или не содержит данных</div>';
+          }
+        }).catch(function(err) {
+          var box = document.getElementById('contract_xlsx_preview_' + activeFile.id);
+          if (box) box.innerHTML = '<div style="color:var(--red); padding:1rem; text-align:center">Ошибка предпросмотра: ' + escHtml(err.message) + '</div>';
+        });
+      }, 50);
     } else {
       previewHtml = `
         <div style="margin-top:14px; padding:2rem; text-align:center; background:#f8fafc; border-radius:8px; border:1px solid var(--border)">
@@ -3274,13 +3479,17 @@ function openAssignContractManagerModal(contractId, currentManagerId) {
     document.body.appendChild(backdrop);
   }
 
-  var users = S.users || [];
+  var allowedManagerRoles = ['admin', 'director', 'manager', 'pm'];
+  var users = (S.users || []).filter(function(u) {
+    var r = (u.role || '').toLowerCase();
+    return allowedManagerRoles.includes(r);
+  });
   var options = '<option value="">-- Без ответственного менеджера --</option>';
   users.forEach(function(u) {
     var isSel = (u.id === Number(currentManagerId)) ? 'selected' : '';
     var roleName = (STOCK_ROLES[u.role] ? STOCK_ROLES[u.role].name : u.role) || '';
     var roleLabel = roleName ? (' (' + roleName + ')') : '';
-    var name = u.fullName || u.username || ('Пользователь #' + u.id);
+    var name = resolveContractUserFio(u);
     options += '<option value="' + u.id + '" data-name="' + escHtml(name) + '" ' + isSel + '>' + escHtml(name + roleLabel) + '</option>';
   });
 
@@ -5307,6 +5516,8 @@ function unlinkTaskFromContractPrompt(taskId, contractId) {
 }
 
 // Экспорт функций в глобальную область
+window.openContractModal = openContractModal;
+window.closeContractModal = closeContractModal;
 window.openLinkTaskToContractModal = openLinkTaskToContractModal;
 window.closeLinkTaskToContractModal = closeLinkTaskToContractModal;
 window.handleLinkTaskSearchInput = handleLinkTaskSearchInput;

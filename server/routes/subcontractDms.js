@@ -797,4 +797,394 @@ router.post('/tasks/:taskId/subcontract-wizard', authenticateToken, async (req, 
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 🏛️ ТАРИФЫ СБЕРБАНКА 2026 И ВХОДНОЙ АУДИТ СМЕТ ЗАКАЗЧИКА
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function normalizeSberRegion(rawRegion, rawAddress) {
+  const str = `${rawRegion || ''} ${rawAddress || ''}`.toLowerCase();
+  if (str.includes('чита') || str.includes('забайкал')) return 'Чита';
+  if (str.includes('бурят') || str.includes('улан-уд')) return 'Улан-Удэ';
+  if (str.includes('томск')) return 'Томск';
+  if (str.includes('ижевск') || str.includes('удмурт')) return 'Ижевск';
+  if (str.includes('волог') || str.includes('череповец')) return 'Вологда';
+  if (str.includes('курск')) return 'Курск';
+  if (str.includes('липецк')) return 'Липецк';
+  if (str.includes('анадыр') || str.includes('чукот')) return 'Анадырь';
+  if (str.includes('барнаул') || str.includes('алтайский край')) return 'Барнаул';
+  if (str.includes('смоленск')) return 'Смоленск';
+  if (str.includes('архангельск') || str.includes('северодвинск')) return 'Архангельск';
+  if (str.includes('сургут') || str.includes('ханты') || str.includes('хмао') || str.includes('югр')) return 'Ханты-Мансийск Сургут';
+  if (str.includes('салехард') || str.includes('уренгой') || str.includes('янао') || str.includes('надым')) return 'Н Уренгой Салехард';
+  if (str.includes('орел') || str.includes('орёл')) return 'Орел';
+  if (str.includes('горно-алтайск') || str.includes('республика алтай')) return 'Горно-Алтайск';
+  if (str.includes('калуг')) return 'Калуга';
+  if (str.includes('омск')) return 'Омск';
+  if (str.includes('курган')) return 'Курган';
+  if (str.includes('ленинградск') || str.includes(' ло ') || str.includes('ло,') || str.includes('выборг') || str.includes('гатчин')) return 'ЛО Санкт-Петербург';
+  if (str.includes('петербург') || str.includes('спб')) return 'Санкт-Петербург';
+  if (str.includes('кемеров') || str.includes('кузбасс') || str.includes('новокузнецк') || str.includes('белово')) return 'Кемерово';
+  if (str.includes('перм') || str.includes('березники')) return 'Пермь';
+  if (str.includes('красноярск') || str.includes('норильск')) return 'Красноярск';
+  if (str.includes('мурманск')) return 'Мурманск';
+  if (str.includes('тула') || str.includes('тульск')) return 'Тула';
+  if (str.includes('твер')) return 'Тверь';
+  if (str.includes('абакан') || str.includes('хакас')) return 'Абакан';
+  if (str.includes('кызыл') || str.includes('тыва') || str.includes('тува')) return 'Кызыл';
+  if (str.includes('рязан')) return 'Рязань';
+  if (str.includes('калининград')) return 'Калининград';
+  if (str.includes('сыктывкар') || str.includes('коми') || str.includes('ухт') || str.includes('воркут') || str.includes('печор') || str.includes('усинск') || str.includes('нарьян-мар')) return 'Сыктывкар';
+  if (str.includes('петрозаводск') || str.includes('карели')) return 'Петрозаводск';
+  if (str.includes('псков') || str.includes('великие луки')) return 'Псков';
+  if (str.includes('новгород') || str.includes('боровичи')) return 'Великий Новгород';
+  if (str.includes('луганск') || str.includes('лнр')) return 'Луганск';
+  if (str.includes('донецк') || str.includes('днр')) return 'Донецк';
+  if (str.includes('крым') || str.includes('симферополь') || str.includes('севастополь')) return 'Симферополь';
+  return null;
+}
+
+export async function performTariffAudit({ taskId, region, address, workType, portsCount, amount, distanceKm }) {
+  const sberRegion = normalizeSberRegion(region, address);
+  const actualAmount = Number(amount || 0);
+  const ports = Number(portsCount || 1) > 0 ? Number(portsCount || 1) : 1;
+  const dist = Number(distanceKm || 0);
+
+  if (!sberRegion) {
+    return {
+      status: 'unknown_region',
+      badge_class: 'bg-secondary text-white',
+      label: 'ℹ️ Индивидуально',
+      region: region || 'Не указан',
+      sber_region: null,
+      contract: null,
+      expected_total: actualAmount,
+      actual_amount: actualAmount,
+      diff: 0,
+      diff_percent: 0,
+      message: 'Регион не входит в утвержденную сетку Сбербанка на 2026 год либо расценка договорная.'
+    };
+  }
+
+  // Получаем номер контракта Сбера
+  const regMeta = await pool.query(
+    'SELECT contract_agreement_number, contract_title FROM customer_tariffs WHERE region = $1 LIMIT 1',
+    [sberRegion]
+  );
+  const contractNumber = regMeta.rows[0]?.contract_agreement_number || 'ГК-СБЕР-2026';
+
+  // 1. Проверяем удаленный населенный пункт
+  let remoteItem = null;
+  if (address) {
+    const remTariffs = await pool.query(
+      'SELECT * FROM customer_tariffs WHERE region = $1 AND is_remote_location = true',
+      [sberRegion]
+    );
+    const addrLower = address.toLowerCase();
+    for (const r of remTariffs.rows) {
+      const loc = (r.location_name || '').toLowerCase();
+      const keywords = loc.split(/[,.\s]+/).filter(w => w.length > 3 && !['россия', 'район', 'область', 'край', 'поселок', 'деревня', 'город', 'пгт'].includes(w));
+      if (keywords.length > 0 && keywords.some(k => addrLower.includes(k))) {
+        remoteItem = r;
+        break;
+      }
+    }
+  }
+
+  // 2. СМР тариф
+  let tier = 'до 48';
+  if (ports >= 49 && ports <= 96) tier = '49-96';
+  else if (ports >= 97 && ports <= 144) tier = '97-144';
+  else if (ports > 144) tier = '145+';
+
+  let category = 'СКС';
+  const wtLower = (workType || '').toLowerCase();
+  if (wtLower.includes('оптик') || wtLower.includes('волокн') || wtLower.includes('os2') || wtLower.includes('om3')) category = 'Оптика';
+  else if (wtLower.includes('шкаф') || wtLower.includes('стойк')) category = 'Шкафы';
+
+  const smrTariffRes = await pool.query(`
+    SELECT * FROM customer_tariffs 
+    WHERE region = $1 AND work_category = $2 AND tier_range = $3
+    LIMIT 1
+  `, [sberRegion, category, tier]);
+
+  const smrTariff = smrTariffRes.rows[0];
+  const smrUnitPrice = smrTariff ? Number(smrTariff.price) : 0;
+  const smrExpected = smrUnitPrice * ports;
+
+  // 3. Логистика / Дорога
+  let roadExpected = 0;
+  let roadDetails = null;
+
+  if (remoteItem) {
+    roadExpected = Number(remoteItem.price);
+    roadDetails = {
+      type: 'remote_fixed',
+      location: remoteItem.location_name,
+      price: roadExpected,
+      work_name: remoteItem.work_name
+    };
+  } else if (dist > 0) {
+    let distTier = '0-50 км';
+    if (dist > 50 && dist <= 100) distTier = '50-100 км';
+    else if (dist > 100 && dist <= 200) distTier = '100-200 км';
+    else if (dist > 200 && dist <= 300) distTier = '200-300 км';
+    else if (dist > 300) distTier = 'более 300 км';
+
+    const distTariffRes = await pool.query(`
+      SELECT * FROM customer_tariffs
+      WHERE region = $1 AND work_category = 'Логистика (расстояние)' AND tier_range = $2
+      LIMIT 1
+    `, [sberRegion, distTier]);
+
+    if (distTariffRes.rows[0]) {
+      roadExpected = Number(distTariffRes.rows[0].price);
+      roadDetails = {
+        type: 'distance_tier',
+        tier: distTier,
+        km: dist,
+        price: roadExpected
+      };
+    } else {
+      roadExpected = dist * 70;
+      roadDetails = {
+        type: 'km_calc',
+        km: dist,
+        rate: 70,
+        price: roadExpected
+      };
+    }
+  }
+
+  const expectedTotal = smrExpected + roadExpected;
+  const diff = actualAmount - expectedTotal;
+  const diffPercent = expectedTotal > 0 ? Math.round((diff / expectedTotal) * 100) : 0;
+
+  const isDirectMatch = Math.abs(diff) <= 100;
+  const isSmrOnlyMatch = Math.abs(actualAmount - smrExpected) <= 100;
+  const isUnitMatch = Math.abs(actualAmount - smrUnitPrice) <= 100;
+
+  let status = 'match';
+  let badgeClass = 'bg-success text-white';
+  let label = '✅ По тарифу Сбера';
+  let message = `Смета соответствует утвержденному контракту Сбербанка 2026 (${contractNumber}).`;
+
+  if (actualAmount === 0) {
+    status = 'zero';
+    badgeClass = 'bg-warning text-dark';
+    label = '⚠️ Нет суммы';
+    message = `Сумма в заявке не заполнена. Тариф Сбера: ${expectedTotal.toLocaleString('ru-RU')} ₽ (СМР: ${smrExpected.toLocaleString('ru-RU')} ₽ + Дорога: ${roadExpected.toLocaleString('ru-RU')} ₽).`;
+  } else if (isDirectMatch || isSmrOnlyMatch || isUnitMatch) {
+    status = 'match';
+    badgeClass = 'bg-success text-white';
+    label = '✅ По тарифу Сбера';
+    message = `Смета ${actualAmount.toLocaleString('ru-RU')} ₽ полностью соответствует контракту Сбера (${contractNumber}).`;
+  } else if (diff < -100) {
+    status = 'underpriced';
+    badgeClass = 'bg-danger text-white';
+    label = `⚠️ Занижено на ${Math.abs(diffPercent)}% (${Math.abs(Math.round(diff)).toLocaleString('ru-RU')} ₽)`;
+    message = `Внимание! Банк занизил смету на ${Math.abs(Math.round(diff)).toLocaleString('ru-RU')} ₽ относительно официального контракта Сбербанка ${contractNumber}. Утвержденный тариф: ${expectedTotal.toLocaleString('ru-RU')} ₽.`;
+  } else if (diff > 100) {
+    status = 'overpriced';
+    badgeClass = 'bg-info text-white';
+    label = `🟢 Выше тарифа (+${diffPercent}%)`;
+    message = `Сумма в заявке (${actualAmount.toLocaleString('ru-RU')} ₽) выше расчетного тарифа (${expectedTotal.toLocaleString('ru-RU')} ₽). Включены доп. работы или согласованные компенсации.`;
+  }
+
+  return {
+    status,
+    badge_class: badgeClass,
+    label,
+    message,
+    sber_region: sberRegion,
+    contract_agreement_number: contractNumber,
+    actual_amount: actualAmount,
+    expected_total: expectedTotal,
+    diff,
+    diff_percent: diffPercent,
+    smr: {
+      category,
+      tier,
+      ports,
+      unit_price: smrUnitPrice,
+      expected: smrExpected,
+      work_name: smrTariff?.work_name || 'Базовая стоимость работ СКС'
+    },
+    road: roadDetails || { type: 'none', price: 0 }
+  };
+}
+
+// 1. Получить реестр тарифов Сбербанка 2026 (с фильтрацией и пагинацией)
+router.get('/customer-tariffs', authenticateToken, async (req, res) => {
+  try {
+    const { region, category, search, limit = 100, offset = 0 } = req.query;
+    let sql = 'SELECT * FROM customer_tariffs WHERE 1=1';
+    const params = [];
+
+    if (region && region !== 'all') {
+      params.push(region);
+      sql += ` AND region = $${params.length}`;
+    }
+    if (category && category !== 'all') {
+      params.push(category);
+      sql += ` AND work_category = $${params.length}`;
+    }
+    if (search) {
+      params.push(`%${search.trim()}%`);
+      sql += ` AND (work_name ILIKE $${params.length} OR location_name ILIKE $${params.length} OR contract_agreement_number ILIKE $${params.length})`;
+    }
+
+    const countRes = await pool.query(sql.replace('SELECT *', 'SELECT COUNT(*)'), params);
+    const total = parseInt(countRes.rows[0].count, 10);
+
+    params.push(parseInt(limit, 10));
+    sql += ` ORDER BY is_remote_location ASC, work_category ASC, id ASC LIMIT $${params.length}`;
+    params.push(parseInt(offset, 10));
+    sql += ` OFFSET $${params.length}`;
+
+    const { rows } = await pool.query(sql, params);
+    res.json({ total, rows });
+  } catch (err) {
+    console.error('Error fetching customer tariffs:', err);
+    res.status(500).json({ error: 'Ошибка получения тарифов: ' + err.message });
+  }
+});
+
+// 2. Получить список 37 регионов Сбербанка с номерами контрактов
+router.get('/customer-tariffs/regions', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT 
+        region,
+        min(contract_agreement_number) AS contract_agreement_number,
+        min(contract_title) AS contract_title,
+        count(*) AS total_items,
+        count(*) FILTER (WHERE is_remote_location = true) AS remote_locations_count,
+        min(price) FILTER (WHERE work_category = 'СКС' AND tier_range = 'до 48') AS base_port_price
+      FROM customer_tariffs
+      GROUP BY region
+      ORDER BY region ASC
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching tariff regions:', err);
+    res.status(500).json({ error: 'Ошибка получения регионов тарифов' });
+  }
+});
+
+// 3. Выполнить аудит сметы заявки по тарифной сетке Сбербанка
+router.post('/customer-tariffs/audit', authenticateToken, async (req, res) => {
+  try {
+    const { taskId, region, address, workType, portsCount, amount, distanceKm } = req.body;
+    const auditResult = await performTariffAudit({ taskId, region, address, workType, portsCount, amount, distanceKm });
+    res.json(auditResult);
+  } catch (err) {
+    console.error('Error auditing tariff:', err);
+    res.status(500).json({ error: 'Ошибка аудита тарифа: ' + err.message });
+  }
+});
+
+// 4. Аудит конкретной заявки по ID
+router.get('/customer-tariffs/audit-task/:id', authenticateToken, async (req, res) => {
+  try {
+    const taskRes = await pool.query('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
+    if (!taskRes.rows.length) return res.status(404).json({ error: 'Заявка не найдена' });
+    const t = taskRes.rows[0];
+    const auditResult = await performTariffAudit({
+      taskId: t.id,
+      region: t.region,
+      address: t.address,
+      workType: t.work_type,
+      portsCount: t.in_order,
+      amount: t.amount,
+      distanceKm: t.distance_km
+    });
+    res.json(auditResult);
+  } catch (err) {
+    console.error('Error auditing task tariff:', err);
+    res.status(500).json({ error: 'Ошибка аудита: ' + err.message });
+  }
+});
+
+// 5. Создать прайс субподряда из тарифа Сбера по региону с целевой маржой
+router.post('/customer-tariffs/generate-subcontract-price', authenticateToken, async (req, res) => {
+  try {
+    const {
+      region,
+      name,
+      marginPercent = 60,
+      contractorId = null,
+      isDefault = false
+    } = req.body;
+
+    if (!region) return res.status(400).json({ error: 'Регион обязателен' });
+
+    // Получаем тарифы Сбера для указанного региона
+    const tariffsRes = await pool.query(`
+      SELECT * FROM customer_tariffs 
+      WHERE region = $1 AND is_remote_location = false
+      ORDER BY id ASC
+    `, [region]);
+
+    if (!tariffsRes.rows.length) {
+      return res.status(404).json({ error: `Тарифы Сбербанка для региона "${region}" не найдены` });
+    }
+
+    const subFactor = Math.max(0.1, (100 - Number(marginPercent || 60)) / 100);
+    const plName = name || `Прайс субподряда 2026 (${region}) — маржа ${marginPercent}%`;
+
+    // Создаем новый прайс-лист в contractor_price_lists
+    const insPl = await pool.query(`
+      INSERT INTO contractor_price_lists (name, customer_tag, region, contractor_id, is_default, is_active)
+      VALUES ($1, $2, $3, $4, $5, true)
+      RETURNING id
+    `, [plName, `ПАО Сбербанк (${region})`, region, contractorId ? parseInt(contractorId, 10) : null, !!isDefault]);
+
+    const newPlId = insPl.rows[0].id;
+
+    // Генерируем элементы прайса
+    let sortOrder = 1;
+    for (const t of tariffsRes.rows) {
+      const origPrice = Number(t.price);
+      let pTier1 = Math.round((origPrice * subFactor) / 50) * 50;
+      let pTier2 = Math.round((pTier1 * 0.9) / 50) * 50;
+      let isVar = t.work_category && t.work_category.includes('Логистика');
+
+      let workCode = 'WORK_' + sortOrder;
+      if (t.work_category === 'СКС') workCode = 'PORT_5E_' + (t.tier_range || '1');
+      else if (t.work_category === 'Оптика') workCode = 'PORT_OPT_' + (t.tier_range || '1');
+      else if (t.work_category === 'Шкафы') workCode = 'CAB_INSTALL_' + sortOrder;
+      else if (t.work_category.includes('Логистика')) workCode = 'ROAD_KM_' + sortOrder;
+
+      await pool.query(`
+        INSERT INTO price_list_items (
+          price_list_id, work_code, work_name, unit, price_tier_1, price_tier_2,
+          tier_threshold, is_variable_cost, comment, sort_order
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `, [
+        newPlId,
+        workCode,
+        t.work_name,
+        t.unit || 'шт',
+        pTier1,
+        pTier2,
+        t.tier_range === 'до 48' ? 48 : (t.tier_range === '49-96' ? 96 : 3),
+        isVar,
+        `Сформирован из тарифа Сбера 2026: ${origPrice.toLocaleString('ru-RU')} ₽ (маржа: ${marginPercent}%)`,
+        sortOrder++
+      ]);
+    }
+
+    res.json({
+      success: true,
+      priceListId: newPlId,
+      name: plName,
+      itemsCount: tariffsRes.rows.length
+    });
+  } catch (err) {
+    console.error('Error generating subcontract price from tariffs:', err);
+    res.status(500).json({ error: 'Ошибка генерации прайса: ' + err.message });
+  }
+});
+
 export default router;

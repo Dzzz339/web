@@ -715,6 +715,7 @@ function pageTasks() {
     if (pr  && t.priority !== pr)  return false;
     if (reg && t.region   !== reg) return false;
     if (mgr && t.manager  !== mgr) return false;
+    if (yr && t.sheet !== yr && String(t.year || '') !== yr) return false;
     if (cust) {
       var effCust = t.customer;
       var tCid = t.contract_id != null ? t.contract_id : t.contractId;
@@ -802,6 +803,21 @@ function pageTasks() {
   });
   var pms = Array.from(pmSet).filter(Boolean).sort();
   if (hasUnassignedPm) pms.push('Не назначен');
+
+  var mgrSet = new Set();
+  (S.tasks || []).forEach(function(t) {
+    var m = (t.manager || '').trim();
+    if (m) mgrSet.add(m);
+  });
+  var managers = Array.from(mgrSet).sort();
+
+  var yearSet = new Set();
+  (S.tasks || []).forEach(function(t) {
+    var s = (t.sheet || '').trim();
+    if (s) yearSet.add(s);
+    else if (t.year) yearSet.add(String(t.year));
+  });
+  var years = Array.from(yearSet).sort();
 
   // Сортировка по выбранной колонке (по умолчанию — свежие даты сверху date_desc)
   if (S.taskSort) {
@@ -1530,7 +1546,11 @@ function pageTasks() {
     var colTotal = '';
 
     if (appMode === 'customer') {
-      colPrice = '<td style="vertical-align:top;white-space:nowrap;color:var(--text-2);font-size:.8rem">' + (fin.unitPrice > 0 ? (fmtMoney(fin.unitPrice) + '<span class="t3" style="font-size:.68rem">/ед</span>') : '<span class="t3">—</span>') + '</td>';
+      var tariffBadge = (typeof window.renderQuickTaskTariffBadge === 'function') ? window.renderQuickTaskTariffBadge(t) : '';
+      colPrice = '<td style="vertical-align:top;white-space:nowrap;color:var(--text-2);font-size:.8rem">' +
+        (fin.unitPrice > 0 ? (fmtMoney(fin.unitPrice) + '<span class="t3" style="font-size:.68rem">/ед</span>') : '<span class="t3">—</span>') +
+        tariffBadge +
+      '</td>';
       var roadLine = '';
       var trMoney = fin.transport;
       if (realKm && trMoney === realKm && realKm <= 1000) {

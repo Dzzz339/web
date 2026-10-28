@@ -127,7 +127,7 @@ router.get('/contracts', authenticateToken, async (req, res) => {
     const listQuery = `
       SELECT 
         c.*,
-        COALESCE(c.manager_name, u.full_name, u.username) AS manager_display_name,
+        COALESCE(NULLIF(u.full_name, ''), NULLIF(c.manager_name, ''), u.username) AS manager_display_name,
         (SELECT COUNT(*) FROM tasks t WHERE t.contract_id = c.id) AS linked_tasks_count,
         COALESCE(aggr.agreements, '[]'::jsonb) AS agreements
       FROM contracts c
@@ -179,7 +179,7 @@ router.get('/contracts', authenticateToken, async (req, res) => {
           SELECT customer_name FROM contracts WHERE customer_name IS NOT NULL AND customer_name != '' ${year && year !== 'all' ? `AND (EXTRACT(YEAR FROM contract_date) = ${parseInt(year, 10)} OR internal_number ~ '(?:^|\\D)${String(parseInt(year, 10)).slice(-2)}-\\d+')` : ''} LIMIT 300
         ) sub_cust) AS customers,
         (SELECT jsonb_agg(jsonb_build_object('id', sub_u.id, 'name', sub_u.name, 'role', sub_u.role)) FROM (
-          SELECT u.id, COALESCE(u.full_name, u.username) AS name, u.role FROM users u ORDER BY COALESCE(u.full_name, u.username)
+          SELECT u.id, COALESCE(NULLIF(u.full_name, ''), u.username) AS name, u.role FROM users u WHERE u.role IN ('admin', 'director', 'manager', 'pm') ORDER BY COALESCE(NULLIF(u.full_name, ''), u.username)
         ) sub_u) AS users
     `;
 

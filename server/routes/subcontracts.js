@@ -126,6 +126,12 @@ router.post('/tasks/:taskId/subcontracts', authenticateToken, requireRole('admin
         if (!installer_phone) installer_phone = spMatch.rows[0].phone;
         if (!installer_passport) installer_passport = spMatch.rows[0].passport_raw || spMatch.rows[0].passport_series_number;
         if (!auto_number) auto_number = spMatch.rows[0].auto_number;
+      } else {
+        const newSp = await pool.query(
+          'INSERT INTO specialists (full_name, phone, passport_raw, auto_number, contractor_id) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+          [installer_fio.trim(), installer_phone || null, installer_passport || null, auto_number || null, contractor_id || null]
+        );
+        specialist_id = newSp.rows[0].id;
       }
     }
 
@@ -213,6 +219,19 @@ router.put('/subcontracts/:id', authenticateToken, requireRole('admin', 'directo
       if (cRes.rows.length) {
         contractor_id = cRes.rows[0].id;
         contractor_name = cRes.rows[0].name_short;
+      }
+    }
+
+    if (!specialist_id && installer_fio && installer_fio.trim()) {
+      const spMatch = await pool.query('SELECT id, phone, passport_raw, passport_series_number, auto_number FROM specialists WHERE LOWER(TRIM(full_name)) = LOWER(TRIM($1)) LIMIT 1', [installer_fio.trim()]);
+      if (spMatch.rows.length) {
+        specialist_id = spMatch.rows[0].id;
+      } else {
+        const newSp = await pool.query(
+          'INSERT INTO specialists (full_name, phone, passport_raw, auto_number, contractor_id) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+          [installer_fio.trim(), installer_phone || null, installer_passport || null, auto_number || null, contractor_id || null]
+        );
+        specialist_id = newSp.rows[0].id;
       }
     }
 

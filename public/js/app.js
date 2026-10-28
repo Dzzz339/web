@@ -73,7 +73,8 @@ function init() {
       (S.user && (S.user.role === 'admin' || S.user.role === 'director')) ? api('/users').catch(function(){ return []; }) : Promise.resolve([]),
       api('/own-companies').catch(function(){ return []; }),
       api('/subcontract-contracts').catch(function(){ return []; }),
-      api('/subcontract-pricelists').catch(function(){ return []; })
+      api('/subcontract-pricelists').catch(function(){ return []; }),
+      api('/customer-tariffs/regions').catch(function(){ return []; })
     ];
 
     Promise.all(requests).then(function(res) {
@@ -89,6 +90,7 @@ function init() {
       var netOwnCompanies = Array.isArray(res[9]) ? res[9] : [];
       var netSubContracts = Array.isArray(res[10]) ? res[10] : [];
       var netSubPricelists = Array.isArray(res[11]) ? res[11] : [];
+      var netCustomerTariffRegions = Array.isArray(res[12]) ? res[12] : [];
 
       S.stats = netStats;
       S.tasks = netTasks;
@@ -103,6 +105,7 @@ function init() {
       S.ownCompanies = netOwnCompanies;
       S.subContracts = netSubContracts;
       S.subPricelists = netSubPricelists;
+      S.customerTariffRegions = netCustomerTariffRegions;
 
       // Обновляем локальный кэш свежими данными с сервера
       if (Array.isArray(netTasks) && netTasks.length) idbSet('tasks', netTasks);
@@ -185,16 +188,16 @@ function isPageAllowedForRole(page, role) {
     return !['data', 'logs'].includes(page);
   }
   if (r === 'manager') {
-    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'chat', 'aichat', 'help'].includes(page) || page.startsWith('dash-');
+    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'chat', 'aichat', 'help'].includes(page) || page.startsWith('dash-');
   }
   if (r === 'to_engineer' || r === 'logistics') {
-    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'supply', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'chat', 'aichat', 'help'].includes(page) || page.startsWith('dash-');
+    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'supply', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'data', 'chat', 'aichat', 'help'].includes(page) || page.startsWith('dash-');
   }
   if (r === 'designer') {
-    return ['contracts', 'sub_contracts', 'sub_pricelists', 'tasks', 'card', 'kanban', 'chat', 'aichat', 'help'].includes(page);
+    return ['contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'tasks', 'card', 'kanban', 'chat', 'aichat', 'help'].includes(page);
   }
   if (r === 'accountant') {
-    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'tasks', 'card', 'contractors', 'chat', 'help'].includes(page) || page.startsWith('dash-');
+    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'tasks', 'card', 'contractors', 'chat', 'help'].includes(page) || page.startsWith('dash-');
   }
   return true;
 }
@@ -202,7 +205,39 @@ function isPageAllowedForRole(page, role) {
 window.getDefaultPageForRole = getDefaultPageForRole;
 window.isPageAllowedForRole = isPageAllowedForRole;
 
+function updateCardSaveBar() {
+  var bar = document.getElementById('card_unsaved_bar');
+  var hasDraft = S.cardDraft && (
+    Object.keys(S.cardDraft).filter(function(k){ return !k.startsWith('_'); }).length > 0 ||
+    !!S.cardDraft._smrDirty ||
+    !!S.cardDraft._tmcDirty
+  );
+  if (hasDraft) {
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'card_unsaved_bar';
+      bar.className = 'unsaved-bar';
+      bar.innerHTML = '<span>⚠️ У вас есть несохранённые изменения</span>' +
+        '<button class="btn btn-sm" id="cardSaveBtn" onclick="window.saveCard(false)">💾 Сохранить</button>' +
+        '<button class="btn btn-sm btn-ghost" id="cardResetBtn" onclick="window._resetCardDraft()">↩️ Сбросить</button>';
+      document.body.appendChild(bar);
+    }
+    bar.style.display = 'flex';
+  } else {
+    if (bar) bar.style.display = 'none';
+  }
+}
+window.updateCardSaveBar = updateCardSaveBar;
+
 function go(page) {
+  if (S.page === 'card' && S.cardId) {
+    S.lastOpenedTaskId = S.cardId;
+  }
+  if (page === 'tasks' && S.lastOpenedTaskId && S.page !== 'card') {
+    // Восстановление контекста открытой заявки при переходе между разделами
+    S.cardId = S.lastOpenedTaskId;
+    page = 'card';
+  }
   if (S.page === 'card' && S.cardDraft && Object.keys(S.cardDraft).length > 0) {
     if (typeof window.saveCard === 'function') window.saveCard(true);
   }
@@ -329,7 +364,7 @@ function renderNav() {
         }
         // Специалист ТО / Логист (объединенные права: Цепи + Обзор + Маршруты)
         if (role === 'to_engineer' || role === 'logistics') {
-          return ['dashboard', 'contracts', 'tasks', 'kanban', 'marches', 'supply', 'sub_contracts', 'sub_pricelists', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
+          return ['dashboard', 'contracts', 'tasks', 'kanban', 'marches', 'supply', 'data', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
         }
         // Проектировщик
         if (role === 'designer') {
@@ -501,6 +536,7 @@ function renderApp() {
   else if (S.page === 'contracts') setApp(pageContracts());
   else if (S.page === 'sub_contracts') setApp(pageSubContracts());
   else if (S.page === 'sub_pricelists') setApp(pageSubPricelists());
+  else if (S.page === 'customer_tariffs') setApp(pageCustomerTariffs());
   else if (S.page === 'contractors') setApp(pageContractors());
   else if (S.page === 'supply')    setApp(pageSupply());
   else if (S.page === 'kanban')    setApp(pageKanban());
@@ -819,17 +855,19 @@ function bindEvents() {
   if (addBtn) addBtn.addEventListener('click', addTask);
   var ntask = document.getElementById('ntask');
   if (ntask) ntask.addEventListener('keypress', function(e){ if(e.key==='Enter') addTask(); });
-    // Живое редактирование карточки заявки
+    // Живое отслеживание изменений карточки заявки (с показом плашки сохранения)
+  // Живое отслеживание изменений карточки заявки (с показом плашки сохранения)
   var cardForm = document.getElementById('cardForm');
   if (cardForm) {
-    var _cardAutoSaveTimer = null;
     cardForm.addEventListener('change', function(e) {
       var el = e.target;
-      if (!el.name) return;
+      if (el.closest && (el.closest('#portsBlock') || el.closest('#taskMaterialsBlock'))) return;
+      var fieldName = el.name || el.dataset.key || el.getAttribute('data-field');
+      if (!fieldName) return;
       var newVal = (el.type === 'checkbox') ? el.checked : el.value;
-      var t = S.tasks.find(function(x){ return String(x.id) === String(S.cardId); });
+      var t = (S.tasks || []).find(function(x){ return String(x.id) === String(S.cardId); });
       if (!t) return;
-      var origVal = t[el.name];
+      var origVal = t[fieldName];
       var isBool = typeof newVal === 'boolean';
       var same = false;
       if (isBool) {
@@ -838,40 +876,45 @@ function bindEvents() {
         var oStr = origVal ? String(origVal).slice(0, 10) : '';
         var nStr = newVal ? String(newVal).slice(0, 10) : '';
         same = (oStr === nStr);
+      } else if (el.type === 'number') {
+        same = (newVal === '' && (origVal === null || origVal === undefined || origVal === '')) || (Number(origVal) === Number(newVal));
       } else {
-        same = (String(origVal||'') === String(newVal));
+        same = (String(origVal || '') === String(newVal));
       }
       if (same) {
-        delete S.cardDraft[el.name];
+        delete S.cardDraft[fieldName];
       } else {
-        S.cardDraft[el.name] = newVal;
-        // Мгновенное автосохранение изменений в базу данных и журнал истории
-        clearTimeout(_cardAutoSaveTimer);
-        _cardAutoSaveTimer = setTimeout(function() {
-          if (typeof window.saveCard === 'function') window.saveCard(true);
-        }, 300);
+        S.cardDraft[fieldName] = newVal;
       }
+      updateCardSaveBar();
     });
 
-    // Для текстовых полей и комментариев — автосохранение с дебаунсом при вводе
+    // Для текстовых и числовых полей — отмечаем несохраненные изменения при вводе
     cardForm.addEventListener('input', function(e) {
       var el = e.target;
-      if (!el.name || el.type === 'checkbox' || el.type === 'radio') return;
-      S.cardDraft[el.name] = el.value;
-      clearTimeout(_cardAutoSaveTimer);
-      _cardAutoSaveTimer = setTimeout(function() {
-        if (typeof window.saveCard === 'function') window.saveCard(true);
-      }, 1200);
-    });
-
-    // При потере фокуса инпутом — немедленный сброс дебаунса и моментальное сохранение
-    cardForm.addEventListener('focusout', function(e) {
-      var el = e.target;
-      if (!el.name || el.type === 'checkbox' || el.type === 'radio') return;
-      if (S.cardDraft && Object.prototype.hasOwnProperty.call(S.cardDraft, el.name)) {
-        clearTimeout(_cardAutoSaveTimer);
-        if (typeof window.saveCard === 'function') window.saveCard(true);
+      if (el.closest && (el.closest('#portsBlock') || el.closest('#taskMaterialsBlock'))) return;
+      if (el.type === 'checkbox' || el.type === 'radio') return;
+      var fieldName = el.name || el.dataset.key || el.getAttribute('data-field');
+      if (!fieldName) return;
+      var t = (S.tasks || []).find(function(x){ return String(x.id) === String(S.cardId); });
+      if (!t) return;
+      var origVal = t[fieldName];
+      var same = false;
+      if (el.type === 'date') {
+        var oStr = origVal ? String(origVal).slice(0, 10) : '';
+        var nStr = el.value ? String(el.value).slice(0, 10) : '';
+        same = (oStr === nStr);
+      } else if (el.type === 'number') {
+        same = (el.value === '' && (origVal === null || origVal === undefined || origVal === '')) || (Number(origVal) === Number(el.value));
+      } else {
+        same = (String(origVal || '') === String(el.value || ''));
       }
+      if (same) {
+        delete S.cardDraft[fieldName];
+      } else {
+        S.cardDraft[fieldName] = el.value;
+      }
+      updateCardSaveBar();
     });
   }
   var cardSaveBtn = document.getElementById('cardSaveBtn');
@@ -879,7 +922,7 @@ function bindEvents() {
     if (typeof window.saveCard === 'function') window.saveCard(false); 
   });
   var cardResetBtn = document.getElementById('cardResetBtn');
-  if (cardResetBtn) cardResetBtn.addEventListener('click', function(){ S.cardDraft = {}; S.cardConfirmOpen = false; renderApp(); });
+  if (cardResetBtn) cardResetBtn.addEventListener('click', function(){ if (typeof window._resetCardDraft === 'function') window._resetCardDraft(); else { S.cardDraft = {}; S.cardConfirmOpen = false; renderApp(); } });
   var cardConfirmCancelBtn = document.getElementById('cardConfirmCancelBtn');
   if (cardConfirmCancelBtn) cardConfirmCancelBtn.addEventListener('click', function(){ S.cardConfirmOpen = false; renderApp(); });
   var cardConfirmOkBtn = document.getElementById('cardConfirmOkBtn');

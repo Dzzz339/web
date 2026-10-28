@@ -731,7 +731,7 @@ const updateFields = [];
       UPDATE tasks SET ${updateFields.join(', ')} WHERE id = $${pIdx}
     `, updateValues);
 
-    // Синхронизация с таблицей contractor_subcontracts при смене или снятии подрядчика
+    // Синхронизация с таблицей task_subcontracts при смене или снятии подрядчика
     if (hasContractor) {
       if (cleanContractor) {
         try {
@@ -744,20 +744,20 @@ const updateFields = [];
           const cInn = cObj ? cObj.inn : null;
 
           const { rows: existingSubs } = await pool.query(
-            'SELECT id FROM contractor_subcontracts WHERE task_id = $1 ORDER BY id DESC LIMIT 1',
+            'SELECT id FROM task_subcontracts WHERE task_id = $1 ORDER BY id DESC LIMIT 1',
             [req.params.id]
           );
 
           if (existingSubs.length > 0) {
             await pool.query(
-              `UPDATE contractor_subcontracts 
+              `UPDATE task_subcontracts 
                SET contractor_name = $1, contractor_id = $2, contractor_inn = $3, status = 'active', updated_at = NOW() 
                WHERE id = $4`,
               [cleanContractor, cId, cInn, existingSubs[0].id]
             );
           } else {
             await pool.query(
-              `INSERT INTO contractor_subcontracts (task_id, contractor_id, contractor_name, contractor_inn, work_type, status)
+              `INSERT INTO task_subcontracts (task_id, contractor_id, contractor_name, contractor_inn, work_type, status)
                VALUES ($1, $2, $3, $4, 'Монтаж СКС', 'active')`,
               [req.params.id, cId, cleanContractor, cInn]
             );
@@ -769,7 +769,7 @@ const updateFields = [];
         // Подрядчик снят с заявки
         try {
           await pool.query(
-            `UPDATE contractor_subcontracts SET status = 'cancelled', updated_at = NOW() WHERE task_id = $1`,
+            `UPDATE task_subcontracts SET status = 'cancelled', updated_at = NOW() WHERE task_id = $1`,
             [req.params.id]
           );
         } catch(subErr) {
@@ -1858,7 +1858,11 @@ router.post('/tasks/:id/items', authenticateToken, requireRole('admin', 'directo
       status = 'pending',
       comment = null,
       article = null,
-      supplier = null
+      supplier = null,
+      article_plan = null,
+      article_fact = null,
+      shipment_date = null,
+      shipment_method = null
     } = req.body;
 
     if (!work_type || !work_type.trim()) {
@@ -1867,6 +1871,9 @@ router.post('/tasks/:id/items', authenticateToken, requireRole('admin', 'directo
 
     const calcAmountCust = Number(amount_customer) || (Number(quantity) * Number(price_customer));
     const calcAmountCont = Number(amount_contractor) || (Number(quantity) * Number(price_contractor));
+    const effectiveArtPlan = article_plan ? String(article_plan).trim() : (article ? String(article).trim() : null);
+    const effectiveArtFact = article_fact ? String(article_fact).trim() : null;
+    const effectiveShipMethod = shipment_method ? String(shipment_method).trim() : null;
 
     const { rows } = await pool.query(
       `INSERT INTO task_items (
@@ -1875,8 +1882,9 @@ router.post('/tasks/:id/items', authenticateToken, requireRole('admin', 'directo
         contractor_id, contractor_name,
         price_contractor, amount_contractor,
         distance_km, status, comment,
-        article, supplier
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+        article, supplier,
+        article_plan, article_fact, shipment_date, shipment_method
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
       RETURNING *`,
       [
         req.params.id, work_type.trim(), Number(quantity) || 1, unit || 'шт.',
@@ -1884,7 +1892,8 @@ router.post('/tasks/:id/items', authenticateToken, requireRole('admin', 'directo
         contractor_id ? parseInt(contractor_id, 10) : null, contractor_name ? contractor_name.trim() : null,
         Number(price_contractor) || 0, calcAmountCont,
         Number(distance_km) || 0, status || 'pending', comment || null,
-        article ? String(article).trim() : null, supplier ? String(supplier).trim() : null
+        effectiveArtPlan, supplier ? String(supplier).trim() : null,
+        effectiveArtPlan, effectiveArtFact, shipment_date || null, effectiveShipMethod
       ]
     );
 
@@ -1920,6 +1929,10 @@ router.post('/tasks/:id/items/batch', authenticateToken, requireRole('admin', 'd
       const priceCont = Number(it.price_contractor || it.priceContractor || 0) || 0;
       const amountCont = Number(it.amount_contractor || it.amountContractor || (qty * priceCont)) || 0;
       const article = it.article ? String(it.article).trim() : null;
+      const artPlan = it.article_plan ? String(it.article_plan).trim() : article;
+      const artFact = it.article_fact ? String(it.article_fact).trim() : null;
+      const shipDate = it.shipment_date || null;
+      const shipMethod = it.shipment_method ? String(it.shipment_method).trim() : null;
       const supplier = it.supplier ? String(it.supplier).trim() : null;
 
       const { rows } = await pool.query(
@@ -1928,15 +1941,17 @@ router.post('/tasks/:id/items/batch', authenticateToken, requireRole('admin', 'd
           price_customer, amount_customer,
           contractor_id, contractor_name,
           price_contractor, amount_contractor,
-          article, supplier, status
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending')
+          article, supplier, status,
+          article_plan, article_fact, shipment_date, shipment_method
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending',$13,$14,$15,$16)
         RETURNING *`,
         [
           req.params.id, name, qty, unit,
           priceCust, amountCust,
           it.contractor_id || null, it.contractor_name || null,
           priceCont, amountCont,
-          article, supplier
+          artPlan, supplier,
+          artPlan, artFact, shipDate, shipMethod
         ]
       );
       if (rows[0]) inserted.push(rows[0]);
@@ -1969,7 +1984,11 @@ router.put('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', '
       status,
       comment,
       article,
-      supplier
+      supplier,
+      article_plan,
+      article_fact,
+      shipment_date,
+      shipment_method
     } = req.body;
 
     const calcAmountCust = amount_customer !== undefined ? Number(amount_customer) : undefined;
@@ -1991,8 +2010,12 @@ router.put('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', '
         comment           = COALESCE($12, comment),
         article           = CASE WHEN $15::boolean THEN $13 ELSE article END,
         supplier          = CASE WHEN $16::boolean THEN $14 ELSE supplier END,
+        article_plan      = CASE WHEN $19::boolean THEN $17 ELSE article_plan END,
+        article_fact      = CASE WHEN $20::boolean THEN $18 ELSE article_fact END,
+        shipment_date     = CASE WHEN $22::boolean THEN $21::date ELSE shipment_date END,
+        shipment_method   = CASE WHEN $24::boolean THEN $23 ELSE shipment_method END,
         updated_at        = NOW()
-      WHERE id = $17 AND task_id = $18
+      WHERE id = $25 AND task_id = $26
       RETURNING *`,
       [
         work_type ? work_type.trim() : null,
@@ -2011,12 +2034,18 @@ router.put('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', '
         supplier ? String(supplier).trim() : null,
         article !== undefined,
         supplier !== undefined,
+        article_plan !== undefined ? (article_plan ? String(article_plan).trim() : null) : null,
+        article_fact !== undefined ? (article_fact ? String(article_fact).trim() : null) : null,
+        article_plan !== undefined,
+        article_fact !== undefined,
+        shipment_date !== undefined ? (shipment_date || null) : null,
+        shipment_date !== undefined,
+        shipment_method !== undefined ? (shipment_method ? String(shipment_method).trim() : null) : null,
+        shipment_method !== undefined,
         req.params.itemId,
         req.params.id
       ]
     );
-
-    if (!rows.length) return res.status(404).json({ error: 'Позиция не найдена' });
 
     // Авто-пересчет суммы в tasks
     await pool.query(
