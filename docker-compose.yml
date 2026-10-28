@@ -25,7 +25,7 @@ services:
 
   web:
     build: .
-    image: stockeasy-web:latest
+    image: ghcr.io/dzzz339/web:latest
     container_name: stockeasy-web
     restart: always
     ports:
@@ -35,9 +35,9 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:M9L4E22DPU4sUrU3tAnN@db:5432/stockeasy_db
       - AI_SERVICE_URL=http://ai:8000
-      - AI_BASE_URL=${AI_BASE_URL:-https://api.deepseek.com/v1}
-      - AI_MODEL=${AI_MODEL:-deepseek-flash}
-      - AI_API_KEY=${AI_API_KEY}
+      - AI_BASE_URL=https://api.deepseek.com/v1
+      - AI_MODEL=deepseek-chat
+      - AI_API_KEY=${AI_API_KEY:-sk-3b7f1dde7d36424885e7ffbf3bc78511}
       - JWT_SECRET=hahahksdjscndufn4738
       - DADATA_API_KEY=5312de9ffa05f9a68cc381ddbb8484385f032bd8
       - RESEND_API_KEY=re_jQNMxkMm_4j4g2PW88VWxTCf7JJHCyQ11

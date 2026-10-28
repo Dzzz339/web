@@ -129,9 +129,7 @@ function pageChat() {
             </div>
             <div style="display:flex; align-items:center; gap:8px;">
               <button type="button" class="btn btn-sm btn-ghost" onclick="clearAiChatHistory()" style="font-size:.72rem; padding:3px 8px; color:var(--text-3);" title="Очистить диалог со Стоки">🗑️ Очистить</button>
-              <div id="ai-health-status" style="font-size:.72rem; padding:3px 10px; border-radius:12px; background:#f3f4f6; color:#6b7280; font-weight:600; cursor:pointer;" onclick="checkAiHealth(true)" title="Проверить статус связи с Ollama">
-                ⏳ Проверка связи...
-              </div>
+
             </div>
           </div>
 
@@ -234,9 +232,7 @@ function pageAiChat() {
       </div>
       <div style="display:flex; align-items:center; gap:8px;">
         <button type="button" class="btn btn-sm btn-ghost" onclick="clearAiChatHistory()" style="font-size:.75rem; padding:4px 10px; color:var(--text-3);" title="Очистить диалог со Стоки">🗑️ Очистить</button>
-        <div id="ai-health-status" style="font-size:.75rem; padding:4px 12px; border-radius:12px; background:#f3f4f6; color:#6b7280; font-weight:600; cursor:pointer;" onclick="checkAiHealth(true)" title="Проверить статус связи с Ollama">
-          ⏳ Проверка связи...
-        </div>
+
       </div>
     </div>
 

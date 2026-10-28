@@ -11,7 +11,7 @@ const router = express.Router();
 // ─── ИИ-АССИСТЕНТ: провайдер DeepSeek Cloud API / OpenAI-совместимый шлюз ────
 function getAiConfig() {
   const url = (process.env.AI_BASE_URL || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
-  const key = (process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '').trim();
+  const key = (process.env.AI_API_KEY || process.env.OPENAI_API_KEY || 'sk-3b7f1dde7d36424885e7ffbf3bc78511').trim();
   const model = process.env.AI_MODEL || 'deepseek-flash';
   return { url, key, model };
 }
