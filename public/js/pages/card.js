@@ -3176,7 +3176,10 @@ function refreshAttachmentsList(taskId) {
       html += '<div style="margin-bottom:12px">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
           '<div style="font-weight:700;font-size:.82rem;color:var(--text)">📷 Фотоотчет и схемы с объекта (' + photoList.length + ' шт.)</div>' +
+          '<div style="display:flex;gap:6px;align-items:center;">' +
+          '<button type="button" class="btn btn-xs btn-outline" onclick="window.runAiPhotoQcForTask(\'' + escHtml(taskId) + '\')" style="color:var(--orange-dark);border-color:var(--orange);background:var(--orange-bg);font-size:.72rem;font-weight:700" title="Проверить качество монтажа на фото через ИИ Стоки">🤖 ИИ-Фотоконтроль</button>' +
           '<button type="button" class="btn btn-xs btn-outline" onclick="window.approveTaskPhotoReport(\'' + escHtml(taskId) + '\')" style="color:#16a34a;border-color:#86efac;font-size:.72rem;font-weight:700" title="Подтвердить приемку фотоотчета куратором">✓ Принять фотоотчет</button>' +
+        '</div>' +
         '</div>' +
         '<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(110px, 1fr));gap:8px">' +
         photoList.map(function(a) {
@@ -3193,6 +3196,7 @@ function refreshAttachmentsList(taskId) {
             '<a href="javascript:void(0)" onclick="' + downloadCall + '" style="font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.2;font-size:.74rem" title="' + escHtml(cleanName) + '">' + escHtml(cleanName) + '</a>' +
             '<div style="margin-top:4px;display:flex;justify-content:space-between;align-items:center">' +
               '<span style="font-size:.65rem;color:var(--text-3)">' + (a.size_bytes ? Math.round(a.size_bytes/1024) + ' КБ' : '') + '</span>' +
+              '<button type="button" onclick="window.runAiPhotoQcSingle(\'' + escHtml(taskId) + '\', ' + a.id + ')" class="btn btn-xs btn-ghost" style="padding:1px 4px;font-size:.68rem;color:var(--orange-dark);font-weight:600" title="Отправить это фото Стоки на проверку качества">🤖 ИИ-Оценка</button>' +
               '<button type="button" onclick="' + downloadCall + '" class="btn btn-xs btn-ghost" style="padding:1px 4px;font-size:.68rem;color:var(--blue)">Открыть ↗</button>' +
             '</div>' +
           '</div>';
@@ -6774,3 +6778,45 @@ if (!window._cardFocusListenerAdded) {
   });
 }
 
+
+
+// ─── ИНТЕГРАЦИЯ КАРТОЧКИ ЗАЯВКИ С ИИ СТОКИ (ФОТОКОНТРОЛЬ) ───────────────────
+window.runAiPhotoQcSingle = function(taskId, attachmentId) {
+  var url = '/api/attachments/' + encodeURIComponent(attachmentId) + '/file';
+  fetch(url, { headers: { 'Authorization': 'Bearer ' + S.token } })
+    .then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.blob();
+    })
+    .then(function(blob) {
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        S.aiPendingImage = e.target.result;
+        S.aiPendingImageName = 'Фото к заявке #' + taskId;
+        S.aiCurrentScenario = 'qc';
+        S.aiSelectedTaskId = taskId;
+        go('aichat');
+        setTimeout(function() {
+          var input = document.getElementById('ai_text_input');
+          if (input) input.value = 'Проверь качество монтажа по этому фото заявки #' + taskId + ' (маркировка, гофра, затяжка стяжек, отсутствие провисаний)';
+          if (typeof renderAiImagePreview === 'function') renderAiImagePreview();
+          if (typeof updateAiToolChipsUI === 'function') updateAiToolChipsUI();
+        }, 120);
+      };
+      reader.readAsDataURL(blob);
+    })
+    .catch(function(err) {
+      alert('Не удалось загрузить фото для ИИ: ' + err.message);
+    });
+};
+
+window.runAiPhotoQcForTask = function(taskId) {
+  S.aiSelectedTaskId = taskId;
+  S.aiCurrentScenario = 'qc';
+  go('aichat');
+  setTimeout(function() {
+    var input = document.getElementById('ai_text_input');
+    if (input) input.value = 'Проверь фотоотчет монтажа по заявке #' + taskId;
+    if (typeof updateAiToolChipsUI === 'function') updateAiToolChipsUI();
+  }, 120);
+};

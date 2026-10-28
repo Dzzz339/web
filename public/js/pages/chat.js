@@ -177,8 +177,11 @@ function pageChat() {
         </div>
 
         <!-- ИИ-ввод -->
-        <div id="ai-input-area" style="padding:10px 16px; border-top:1px solid var(--border); display:flex; gap:10px; background:#fff">
-          <input id="ai_text_input" type="text" placeholder="Задайте вопрос Стоки..." style="flex:1" onkeydown="if(event.key==='Enter') sendAiMessage(); if(event.key==='Escape') stopAiGeneration();">
+        <div id="ai-image-preview-container" class="ai-image-preview-container" style="display:none"></div>
+        <div id="ai-input-area" style="padding:10px 16px; border-top:1px solid var(--border); display:flex; gap:10px; background:#fff; align-items:center;">
+          <input type="file" id="ai-file-input-chat" accept="image/*" style="display:none" onchange="handleAiImageFileSelect(this.files)">
+          <button type="button" class="btn btn-sm btn-ghost" onclick="triggerAiImageUpload()" title="Прикрепить фото или план БТИ (Ctrl+V)" style="padding:6px 10px; font-size:1.1rem;">📷</button>
+          <input id="ai_text_input" type="text" placeholder="Задайте вопрос Стоки или прикрепите фото (Ctrl+V)..." style="flex:1" onkeydown="if(event.key==='Enter') sendAiMessage(); if(event.key==='Escape') stopAiGeneration();">
           <button class="btn" id="ai-send-btn" onclick="sendAiMessage()">Отправить ➔</button>
         </div>
         ` : `
@@ -265,6 +268,19 @@ function pageAiChat() {
           </div>
           <button class="btn btn-sm btn-analytics-styled" onclick="insertAiCardContext()" title="Подставить данные заявки в вопрос">${ICONS.clip} <span>Вставить контекст</span></button>
         </div>
+
+        <!-- КНОПОЧНЫЕ ИНСТРУМЕНТЫ СТОКИ (CV / QC / BTI / ОСТАТКИ) -->
+        <div class="ai-tool-chips">
+          <button type="button" class="ai-tool-chip ${S.aiCurrentScenario === 'qc' ? 'active' : ''}" onclick="selectAiScenario('qc')" title="Фото-контроль узла монтажа (стойка, розетка, гофра, маркировка ССМ 1.1)">
+            📷 Фото-контроль приёмки
+          </button>
+          <button type="button" class="ai-tool-chip ${S.aiCurrentScenario === 'bti' ? 'active' : ''}" onclick="selectAiScenario('bti')" title="Подбор камер и расчет материалов по плану БТИ или фото помещения">
+            📐 Расчёт по плану БТИ
+          </button>
+          <button type="button" class="ai-tool-chip" onclick="selectAiScenario('stock')" title="Свободный остаток на Центральном складе (quantity - reserved_qty)">
+            🏢 Свободные остатки
+          </button>
+        </div>
       </div>
 
       <!-- ПАНЕЛЬ АВТОМАТИЗАЦИИ (WORKFLOW) -->
@@ -282,9 +298,14 @@ function pageAiChat() {
       </div>
 
 
+      <!-- Превью прикрепленного изображения -->
+      <div id="ai-image-preview-container" class="ai-image-preview-container" style="display:none"></div>
+
       <!-- Ввод -->
-      <div id="ai-input-area" style="padding:10px 16px; border-top:1px solid var(--border); display:flex; gap:10px; background:#fff">
-        <input id="ai_text_input" type="text" placeholder="Задайте вопрос Стоки..." style="flex:1" onkeydown="if(event.key==='Enter') sendAiMessage(); if(event.key==='Escape') stopAiGeneration();">
+      <div id="ai-input-area" style="padding:10px 16px; border-top:1px solid var(--border); display:flex; gap:10px; background:#fff; align-items:center;">
+        <input type="file" id="ai-file-input-chat" accept="image/*" style="display:none" onchange="handleAiImageFileSelect(this.files)">
+        <button type="button" class="btn btn-sm btn-ghost" onclick="triggerAiImageUpload()" title="Прикрепить фото или план БТИ (Ctrl+V)" style="padding:6px 10px; font-size:1.1rem;">📷</button>
+        <input id="ai_text_input" type="text" placeholder="Задайте вопрос Стоки или прикрепите фото (Ctrl+V)..." style="flex:1" onkeydown="if(event.key==='Enter') sendAiMessage(); if(event.key==='Escape') stopAiGeneration();">
         <button class="btn" id="ai-send-btn" onclick="sendAiMessage()">Отправить ➔</button>
       </div>
     </div>
@@ -1059,6 +1080,45 @@ function setAiMode(mode) {
 
 function initAiChat() {
   initAiTaskPicker();
+
+  // Регистрация слушателя вставки из буфера обмена Ctrl+V (картинки, скриншоты)
+  if (!window._aiPasteListenerAttached) {
+    window._aiPasteListenerAttached = true;
+    document.addEventListener('paste', function(e) {
+      var isAiActive = Boolean(document.getElementById('ai_text_input'));
+      if (!isAiActive) return;
+      var clipboardData = e.clipboardData || (e.originalEvent && e.originalEvent.clipboardData);
+      if (!clipboardData || !clipboardData.items) return;
+      for (var i = 0; i < clipboardData.items.length; i++) {
+        var item = clipboardData.items[i];
+        if (item.type && item.type.indexOf('image') !== -1) {
+          var blob = item.getAsFile();
+          if (blob) {
+            handleAiImageFileSelect([blob]);
+            e.preventDefault();
+            break;
+          }
+        }
+      }
+    });
+  }
+
+  // Регистрация Drag & Drop для перетаскивания изображений
+  if (!window._aiDropListenerAttached) {
+    window._aiDropListenerAttached = true;
+    window.addEventListener('dragover', function(e) {
+      if (document.getElementById('ai-messages')) e.preventDefault();
+    });
+    window.addEventListener('drop', function(e) {
+      var box = document.getElementById('ai-messages');
+      if (!box) return;
+      var files = e.dataTransfer && e.dataTransfer.files;
+      if (files && files.length && files[0].type.startsWith('image/')) {
+        e.preventDefault();
+        handleAiImageFileSelect(files);
+      }
+    });
+  }
   setAiMode('general');
   if (S.workflowOpen) {
     renderWorkflowPanel();
@@ -1079,6 +1139,7 @@ function initAiChat() {
             id: m.id,
             role: m.role,
             content: m.content,
+            image: m.image_url,
             rating: m.rating,
             ratingComment: m.rating_comment,
             time: time
@@ -1226,21 +1287,30 @@ function checkAiHealth(showAlert) {
   .then(function(data) {
     if (!badge) return;
     if (data.status === 'ok') {
-      badge.style.background = '#dcfce7';
-      badge.style.color = '#15803d';
-      var cpuLabel = (data.cpuOnly || data.cpu) ? ' · CPU' : '';
-      badge.textContent = '🟢 Ollama онлайн (' + (data.currentModel || 'qwen') + cpuLabel + ')';
-      badge.title = 'Базовый адрес: ' + data.baseUrl + '\nТекущая модель: ' + data.currentModel + (cpuLabel ? ' (режим CPU)' : '') + '\nДоступные модели: ' + (data.availableModels || []).join(', ') + '\nНажмите для повторной проверки';
-      if (showAlert) {
-        alert('✅ Связь с Ollama установлена!\n\nБазовый URL: ' + data.baseUrl + '\nТекущая модель: ' + data.currentModel + (cpuLabel ? ' (работает на CPU)' : '') + '\nДоступные модели:\n' + (data.availableModels || []).join('\n'));
+      if (data.hasKey) {
+        badge.style.background = '#dcfce7';
+        badge.style.color = '#15803d';
+        badge.textContent = '🟢 DeepSeek онлайн (' + (data.currentModel || 'deepseek-chat') + ')';
+        badge.title = 'Провайдер: ' + (data.provider || 'DeepSeek Cloud') + '\nМодель: ' + data.currentModel + '\nБазовый URL: ' + data.baseUrl + '\nVision: активен (фотоконтроль, БТИ)\nНажмите для повторной проверки';
+        if (showAlert) {
+          alert('✅ Связь с DeepSeek Cloud установлена!\n\nМодель: ' + data.currentModel + '\nБазовый URL: ' + data.baseUrl + '\nДоступные возможности: Текст, Vision (CV фотоконтроль приёмки, планы БТИ), Сметы.');
+        }
+      } else {
+        badge.style.background = '#fef3c7';
+        badge.style.color = '#b45309';
+        badge.textContent = '🟡 DeepSeek: укажите AI_API_KEY';
+        badge.title = 'Сервер настроен на DeepSeek Cloud, но ключ AI_API_KEY не задан в .env\nНажмите для подсказки';
+        if (showAlert) {
+          alert('⚠️ DeepSeek Cloud готов к работе, но не указан AI_API_KEY!\n\n1. Откройте файл .env на сервере.\n2. Укажите ваш ключ: AI_API_KEY=sk-...\n3. Перезапустите сервер (start.bat).');
+        }
       }
     } else {
       badge.style.background = '#fee2e2';
       badge.style.color = '#b91c1c';
-      badge.textContent = '🔴 Ollama недоступна';
+      badge.textContent = '🔴 DeepSeek ошибка связи';
       badge.title = 'Ошибка: ' + (data.error || 'не отвечает') + '\nURL: ' + data.baseUrl + '\nНажмите для подсказки';
       if (showAlert) {
-        alert('⚠️ Ollama недоступна!\n\nБазовый URL: ' + data.baseUrl + '\nОшибка: ' + data.error + '\n\nИнструкция для исправления на сервере:\n1. Запустите Ollama на сервере.\n2. В Windows задайте системную переменную OLLAMA_HOST=0.0.0.0 и перезапустите Ollama.\n3. Пересоздайте контейнер web в терминале сервера: docker compose up -d');
+        alert('⚠️ Ошибка соединения с DeepSeek API!\n\nБазовый URL: ' + data.baseUrl + '\nОшибка: ' + data.error + '\n\nПроверьте подключение к интернету и правильность AI_API_KEY в файле .env.');
       }
     }
   })
@@ -1290,6 +1360,13 @@ function removeAiLoadingIndicator() {
 
 function formatAiMessageContent(rawText) {
   var escaped = escHtml(rawText || '');
+  // Подсветка вердиктов фотоконтроля
+  escaped = escaped.replace(/(✅\s*ПРИНЯТО\s*БЕЗ\s*ЗАМЕЧАНИЙ[^\n]*)/gi, '<div class="ai-qc-badge-pass">$1</div>');
+  escaped = escaped.replace(/(⚠️\s*ТРЕБУЕТСЯ\s*УСТРАНЕНИЕ\s*ЗАМЕЧАНИЙ[^\n]*)/gi, '<div class="ai-qc-badge-warning">$1</div>');
+  escaped = escaped.replace(/(✅\s*ПРИНЯТО[^\n]*)/gi, function(match) {
+    if (match.includes('ai-qc-badge')) return match;
+    return '<div class="ai-qc-badge-pass">' + match + '</div>';
+  });
   // Находим [#12345] или [Заявка #12345] или #12345 и превращаем в кликабельные кнопки для перехода к карточке заявки
   return escaped.replace(/\[?(?:заявка\s*)?#(\d{1,8})\]?/gi, function(match, id) {
     return '<button type="button" class="ai-task-link-badge" onclick="openCard(\'' + id + '\')" title="Открыть карточку заявки #' + id + '">#' + id + '</button>';
@@ -1316,7 +1393,10 @@ function renderAiMessages() {
     var bg = isUser ? 'var(--orange-bg)' : '#fff';
     var align = isUser ? 'flex-end' : 'flex-start';
     var border = isUser ? '1px solid #fed7aa' : '1px solid var(--border)';
-    var contentHtml = m.isHtml ? m.isHtml : ('<div style="font-size:.85rem; color:var(--text); white-space:pre-wrap; word-break:break-word" class="ai-msg-content">' + (isUser ? escHtml(m.content) : formatAiMessageContent(m.content)) + '</div>');
+    var imgHtml = (m.image || m.image_url)
+      ? '<div class="ai-msg-image-wrap"><img src="' + escHtml(m.image || m.image_url) + '" class="ai-msg-image-thumb" onclick="window.open(this.src,\'_blank\')" title="Нажмите, чтобы открыть фото в полном размере"></div>'
+      : '';
+    var contentHtml = m.isHtml ? m.isHtml : (imgHtml + '<div style="font-size:.85rem; color:var(--text); white-space:pre-wrap; word-break:break-word" class="ai-msg-content">' + (isUser ? escHtml(m.content) : formatAiMessageContent(m.content)) + '</div>');
     var stoppedTag = m.stopped ? '<div class="ai-stopped-tag">⏹️ Генерация остановлена</div>' : '';
 
     var footerHtml = '';
@@ -1513,7 +1593,11 @@ function sendAiMessage() {
   var input = document.getElementById('ai_text_input');
   if (!input) return;
   var text = input.value.trim();
-  if (!text || S.aiLoading || S.aiStreaming) return;
+  var attachedImage = S.aiPendingImage;
+  var attachedScenario = S.aiCurrentScenario;
+
+  // Разрешаем отправку, если есть текст ИЛИ прикрепленное фото
+  if ((!text && !attachedImage) || S.aiLoading || S.aiStreaming) return;
 
   var mode = S.aiMode || 'general';
   var cardCtx = null;
@@ -1534,11 +1618,27 @@ function sendAiMessage() {
     }
   }
 
+  // Текст по умолчанию, если отправлено только фото
+  var displayText = text;
+  if (!displayText && attachedImage) {
+    if (attachedScenario === 'qc') displayText = '📷 Проверь качество монтажа узла на фото (маркировка, трасса, крепёж)';
+    else if (attachedScenario === 'bti') displayText = '📐 Выполни расчёт оборудования и материалов по плану / схеме помещения';
+    else displayText = '📷 Анализ прикреплённого изображения';
+  }
+
   // Добавляем сообщение пользователя
   S.aiMessages = S.aiMessages || [];
-  S.aiMessages.push({ role: 'user', content: text, time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) });
+  S.aiMessages.push({
+    role: 'user',
+    content: displayText,
+    image: attachedImage,
+    time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
+  });
   renderAiMessages();
   input.value = '';
+
+  // Очищаем превью вложения
+  clearAiPendingImage();
 
   // Переключаем кнопку в режим "Остановить"
   setAiButtonToStopMode();
@@ -1564,7 +1664,7 @@ function sendAiMessage() {
     fetch('/api/ai/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.token },
-      body: JSON.stringify({ message: text, mode: mode, cardContext: cardCtx }),
+      body: JSON.stringify({ message: displayText, mode: mode, cardContext: cardCtx, image: attachedImage || undefined, scenario: attachedScenario || undefined }),
       signal: _aiAbortController.signal
     })
     .then(function(r) {
@@ -1626,7 +1726,7 @@ function sendAiMessage() {
   fetch('/api/ai/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.token },
-    body: JSON.stringify({ message: text, mode: mode, cardContext: cardCtx }),
+    body: JSON.stringify({ message: displayText, mode: mode, cardContext: cardCtx, image: attachedImage || undefined, scenario: attachedScenario || undefined }),
     signal: _aiAbortController.signal
   }).then(function(r) {
     if (r.status === 429) { throw { limit: true, message: 'Достигнут дневной лимит сообщений' }; }
@@ -3182,5 +3282,107 @@ function reserveMaterials(btn, materials) {
       btn.innerHTML = '📋 Зарезервировать под заявку';
     }
     alert('Ошибка соединения: ' + err.message);
+  });
+}
+
+
+// ─── ФОТОКОНТРОЛЬ И АНАЛИЗ ПЛАНОВ БТИ (VISION) ──────────────────────────────
+S.aiPendingImage = null;
+S.aiPendingImageName = '';
+S.aiCurrentScenario = null; // 'qc' | 'bti' | null
+
+function triggerAiImageUpload() {
+  var fileInp = document.getElementById('ai-file-input-chat');
+  if (fileInp) fileInp.click();
+}
+
+function handleAiImageFileSelect(files, forcedScenario) {
+  if (!files || !files.length) return;
+  var file = files[0];
+  if (!file.type || !file.type.startsWith('image/')) {
+    alert('Пожалуйста, выберите файл изображения (JPG, PNG, WebP и т.д.)');
+    return;
+  }
+  if (file.size > 15 * 1024 * 1024) {
+    alert('Размер изображения превышает 15 МБ. Выберите файл меньшего размера.');
+    return;
+  }
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    S.aiPendingImage = e.target.result;
+    S.aiPendingImageName = file.name || 'image.jpg';
+    if (forcedScenario) {
+      S.aiCurrentScenario = forcedScenario;
+    } else if (!S.aiCurrentScenario) {
+      S.aiCurrentScenario = 'qc';
+    }
+    renderAiImagePreview();
+    updateAiToolChipsUI();
+  };
+  reader.readAsDataURL(file);
+}
+
+function renderAiImagePreview() {
+  var box = document.getElementById('ai-image-preview-container');
+  if (!box) return;
+  if (!S.aiPendingImage) {
+    box.style.display = 'none';
+    box.innerHTML = '';
+    return;
+  }
+  var scLabel = S.aiCurrentScenario === 'bti' ? '📐 Расчёт по плану БТИ' : '📷 Фото-контроль приёмки';
+  box.style.display = 'flex';
+  box.innerHTML = `
+    <div class="ai-preview-thumb-box">
+      <img src="${S.aiPendingImage}" class="ai-preview-thumb-img" alt="Превью">
+    </div>
+    <div class="ai-preview-meta">
+      <div class="ai-preview-title">${escHtml(S.aiPendingImageName || 'Изображение')}</div>
+      <div class="ai-preview-scenario-badge">${scLabel}</div>
+    </div>
+    <button type="button" class="ai-preview-close-btn" onclick="clearAiPendingImage()" title="Удалить фото">&times;</button>
+  `;
+}
+
+function clearAiPendingImage() {
+  S.aiPendingImage = null;
+  S.aiPendingImageName = '';
+  S.aiCurrentScenario = null;
+  var inp = document.getElementById('ai-file-input-chat');
+  if (inp) inp.value = '';
+  renderAiImagePreview();
+  updateAiToolChipsUI();
+}
+
+function selectAiScenario(scenario) {
+  if (scenario === 'stock') {
+    var input = document.getElementById('ai_text_input');
+    if (input) input.value = 'Покажи свободные остатки материалов на Центральном складе и дефициты';
+    sendAiMessage();
+    return;
+  }
+
+  S.aiCurrentScenario = scenario;
+  updateAiToolChipsUI();
+
+  var input = document.getElementById('ai_text_input');
+  if (scenario === 'qc') {
+    if (input && !input.value) input.placeholder = '📷 Прикрепите фото узла монтажа или нажмите Enter...';
+    if (!S.aiPendingImage) triggerAiImageUpload();
+  } else if (scenario === 'bti') {
+    if (input && !input.value) input.placeholder = '📐 Прикрепите план БТИ или фото помещения для расчёта...';
+    if (!S.aiPendingImage) triggerAiImageUpload();
+  }
+}
+
+function updateAiToolChipsUI() {
+  var chips = document.querySelectorAll('.ai-tool-chip');
+  chips.forEach(function(c) {
+    var isQc = c.textContent.indexOf('Фото-контроль') !== -1;
+    var isBti = c.textContent.indexOf('плану БТИ') !== -1;
+    if (isQc && S.aiCurrentScenario === 'qc') c.classList.add('active');
+    else if (isBti && S.aiCurrentScenario === 'bti') c.classList.add('active');
+    else c.classList.remove('active');
   });
 }

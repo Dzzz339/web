@@ -7,115 +7,57 @@ import { generateAndRunSqlContext } from '../services/aiSqlService.js';
 
 const router = express.Router();
 
-// ─── ИИ-АССИСТЕНТ: провайдер ─────────────────────────────────────────────────
-// По умолчанию — локальная модель через Ollama на хост-машине (host.docker.internal для Docker).
-// env перекрывает при необходимости.
-const AI_BASE_URL = process.env.AI_BASE_URL || 'http://host.docker.internal:11434/v1';
-const AI_API_KEY  = process.env.AI_API_KEY  || 'ollama';
-const AI_MODEL    = process.env.AI_MODEL    || 'qwen-cpu:latest';
-const AI_DAILY_LIMIT = 50; // макс. сообщений (роль=user) в день на пользователя
+// ─── ИИ-АССИСТЕНТ: провайдер DeepSeek Cloud API / OpenAI-совместимый шлюз ────
+const AI_BASE_URL = (process.env.AI_BASE_URL || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
+const AI_API_KEY  = process.env.AI_API_KEY  || process.env.OPENAI_API_KEY || '';
+const AI_MODEL    = process.env.AI_MODEL    || 'deepseek-chat';
+const AI_DAILY_LIMIT = 100; // макс. сообщений в день на пользователя
 
 let _aiClient = null;
 function getAiClient() {
   if (!AI_BASE_URL) return null;
-  if (!_aiClient) _aiClient = new OpenAI({ baseURL: AI_BASE_URL, apiKey: AI_API_KEY || 'ollama' });
+  if (!_aiClient) {
+    _aiClient = new OpenAI({
+      baseURL: AI_BASE_URL,
+      apiKey: AI_API_KEY || 'sk-placeholder'
+    });
+  }
   return _aiClient;
 }
 
-// GET /api/ai/health — проверка связи с Ollama и список моделей
+// GET /api/ai/health — проверка связи с DeepSeek API и статус ключа
 router.get('/health', authenticateToken, async (req, res) => {
   const targetUrl = AI_BASE_URL;
+  const isDeepSeek = targetUrl.includes('deepseek.com');
+  const hasKey = Boolean(AI_API_KEY && AI_API_KEY !== 'ollama' && AI_API_KEY !== 'sk-placeholder');
+
   try {
     const client = getAiClient();
-    const list = await client.models.list();
-    const models = [];
-    if (list && list.data) {
-      for (const m of list.data) {
-        models.push(m.id);
-      }
+    let models = [];
+    if (hasKey) {
+      const list = await client.models.list().catch(() => null);
+      if (list && list.data) models = list.data.map(m => m.id);
     }
     return res.json({
       status: 'ok',
+      provider: isDeepSeek ? 'DeepSeek Cloud' : 'OpenAI-compatible',
       baseUrl: targetUrl,
       currentModel: AI_MODEL,
-      availableModels: models,
-      cpuOnly: true
+      hasKey,
+      availableModels: models.length ? models : [AI_MODEL, 'deepseek-flash', 'deepseek-reasoner'],
+      cpuOnly: false
     });
   } catch (e) {
-    // Если host.docker.internal не доступен (напр. локальный запуск вне Docker), пробуем localhost
-    if (targetUrl.includes('host.docker.internal')) {
-      try {
-        const fallbackClient = new OpenAI({ baseURL: 'http://localhost:11434/v1', apiKey: AI_API_KEY });
-        const list = await fallbackClient.models.list();
-        const models = (list.data || []).map(m => m.id);
-        _aiClient = fallbackClient; // переключаемся на рабочий fallback
-        return res.json({
-          status: 'ok',
-          baseUrl: 'http://localhost:11434/v1',
-          currentModel: AI_MODEL,
-          availableModels: models,
-          cpuOnly: true,
-          fallback: true
-        });
-      } catch (_) {}
-    }
     return res.json({
-      status: 'error',
+      status: hasKey ? 'error' : 'ok',
+      provider: isDeepSeek ? 'DeepSeek Cloud' : 'OpenAI Gateway',
       baseUrl: targetUrl,
       currentModel: AI_MODEL,
-      cpuOnly: true,
+      hasKey,
       error: e.message || String(e)
     });
   }
 });
-
-// SQL-запросы для режима "Аналитика"
-async function runAnalyticsSql() {
-  const queries = [
-    { name: 'Общая статистика', sql: `
-      SELECT
-        COUNT(*) AS total,
-        COUNT(*) FILTER (WHERE status='done') AS done,
-        COUNT(*) FILTER (WHERE status='progress') AS active,
-        COUNT(*) FILTER (WHERE overdue_days > 0) AS overdue,
-        SUM(amount) AS revenue
-      FROM tasks WHERE archived = false` },
-    { name: 'Топ-10 регионов по объёму', sql: `
-      SELECT region, COUNT(*) AS cnt, SUM(amount) AS amount
-      FROM tasks WHERE archived = false AND region IS NOT NULL
-      GROUP BY region ORDER BY cnt DESC LIMIT 10` },
-    { name: 'Топ-10 подрядчиков по задержкам', sql: `
-      SELECT assignee, COUNT(*) AS total,
-        COUNT(*) FILTER (WHERE overdue_days > 0) AS overdue_cnt,
-        ROUND(AVG(overdue_days) FILTER (WHERE overdue_days > 0), 1) AS avg_delay_days
-      FROM tasks WHERE archived = false AND assignee IS NOT NULL
-      GROUP BY assignee HAVING COUNT(*) FILTER (WHERE overdue_days > 0) > 0
-      ORDER BY overdue_cnt DESC LIMIT 10` },
-    { name: 'Критические просрочки (топ-10)', sql: `
-      SELECT id, assignee, region, address, deadline, overdue_days
-      FROM tasks WHERE archived = false AND overdue_days > 0
-      ORDER BY overdue_days DESC LIMIT 10` },
-    { name: 'Статусы задач', sql: `
-      SELECT status, COUNT(*) AS cnt FROM tasks WHERE archived = false GROUP BY status` },
-    { name: 'Остатки материалов центрального склада (топ-10)', sql: `
-      SELECT m.name, sb.quantity, sb.reserved_qty, m.unit
-      FROM stock_balances sb
-      JOIN materials m ON m.id = sb.material_id
-      JOIN warehouses w ON w.id = sb.warehouse_id
-      WHERE w.is_central = true
-      ORDER BY sb.quantity DESC LIMIT 10` }
-  ];
-  const results = [];
-  for (const q of queries) {
-    try {
-      const { rows } = await pool.query(q.sql);
-      results.push({ section: q.name, rows });
-    } catch (e) {
-      results.push({ section: q.name, error: e.message });
-    }
-  }
-  return results;
-}
 
 // SQL-запросы для прогноза снабжения
 async function runForecastContextSql() {
@@ -189,6 +131,25 @@ async function runForecastContextSql() {
   return results;
 }
 
+// Получение сводки свободных остатков Центрального склада для расчета по плану БТИ
+async function getCentralWarehouseStockSummary() {
+  try {
+    const { rows } = await pool.query(`
+      SELECT m.name, sb.quantity, sb.reserved_qty, (sb.quantity - sb.reserved_qty) AS free_stock, m.unit
+      FROM stock_balances sb
+      JOIN materials m ON m.id = sb.material_id
+      JOIN warehouses w ON w.id = sb.warehouse_id
+      WHERE w.is_central = true AND (sb.quantity > 0 OR sb.reserved_qty > 0)
+      ORDER BY free_stock DESC
+      LIMIT 30
+    `);
+    if (!rows.length) return 'На Центральном складе свободные остатки не заведены или равны 0.';
+    return rows.map(r => `• ${r.name}: физически ${r.quantity} ${r.unit}, бронь ${r.reserved_qty} ${r.unit}, СВОБОДНО ${r.free_stock} ${r.unit}`).join('\n');
+  } catch (err) {
+    return 'Данные склада недоступны: ' + err.message;
+  }
+}
+
 // Сборка универсального system-промпта для Стоки
 function buildAiSystemPrompt(mode) {
   const RULES = `
@@ -232,6 +193,57 @@ function buildAiSystemPrompt(mode) {
 Держись делового, практичного и доброжелательного тона.` + RULES;
 }
 
+// Сборка промпта для фотоконтроля приёмки монтажа (Vision QC)
+function buildQcPrompt() {
+  return `Ты — строгий ведущий эксперт технадзора СКС и телеком-монтажа (стандарты ПАО Сбербанк, ГОСТ Р 53246-2008).
+Твоя задача — детально проанализировать фотографию узла монтажа (серверная стойка, шкаф, патч-панель, розетка, кабель-канал, ввод кабеля, бирки маркировки) и выдать структурированный акт приёмки.
+
+ОБЯЗАТЕЛЬНЫЙ ЧЕК-ЛИСТ ПРОВЕРКИ:
+1. 🏷️ Маркировка: наличие читаемых стандартных бирок/наклеек (например, «ССМ 1.1», порт/АРМ). Читается ли текст?
+2. 📏 Прокладка и гофра: отсутствие провисаний, натяг без изломов, соблюдение радиусов изгиба.
+3. 🪢 Стяжки и бандаж: ровный шаг фиксации стяжками/липучками, кабель не пережат.
+4. 🔒 Крышки и фурнитура: закрыты ли крышки коробов, установлены ли заглушки и лицевые панели.
+5. ⚡ Заземление и эстетика: наличие шины заземления шкафа (если виден шкаф), чистота узла, отсутствие строительного мусора.
+
+ФОРМАТ ВЫВОДА:
+- В первой строке выдели крупно итоговый вердикт:
+  • «✅ ПРИНЯТО БЕЗ ЗАМЕЧАНИЙ» (если критических дефектов нет)
+  • «⚠️ ТРЕБУЕТСЯ УСТРАНЕНИЕ ЗАМЕЧАНИЙ» (если обнаружены нарушения)
+- Краткое описание узла: что изображено на фото.
+- Чек-лист проверки с отметками:
+  ✅ Пункт пройден — описание
+  ❌ Пункт нарушен — конкретный дефект на фото
+- Чёткие указания монтажнику: что именно исправить перед повторной сдачей.
+Отвечай профессионально, кратко и по делу на русском языке.`;
+}
+
+// Сборка промпта для расчета по плану БТИ / фото помещения (Vision BTI / Planning)
+function buildBtiPrompt(stockSummary) {
+  return `Ты — главный инженер-проектировщик систем видеонаблюдения (СВН), СКУД и телекоммуникаций.
+Твоя задача: проанализировать план этажа/БТИ или фото помещения, определить зоны обзора и составить проектную спецификацию оборудования и расходных материалов.
+
+ИНСТРУКЦИЯ ПО АНАЛИЗУ:
+1. Определи тип помещения и ключевые зоны:
+   - Входная группа / тамбур: узкоугольная камера 4 мм или 6 мм (идентификация лиц).
+   - Кассовая зона / зона расчётов: камера 4 мм (контроль купюр и рук).
+   - Общий зал / коридор: широкоугольные купольные камеры 2.8 мм (общий обзор).
+   - Улица / фасад: цилиндрическая влагозащищенная камера IP67.
+2. Рассчитай сопутствующие материалы:
+   - Кабель UTP Cat5e: средняя трасса ~35-40 м на каждую камеру + 10% запас.
+   - Гофрированная трубка ф20: 70% от длины кабеля.
+   - Разъёмы RJ-45 / кронштейны / распаячные коробки: по 1 комплекту на камеру.
+3. СВЕРКА СО СКЛАДСКИМИ ОСТАТКАМИ (данные Центрального склада):
+${stockSummary}
+
+ФОРМАТ ВЫВОДА:
+1. Экспликация зон и предложенные точки установки камер (с фокусом 2.8 мм / 4 мм).
+2. Таблица необходимого оборудования и ТМЦ.
+3. Блок сверки со складом:
+   • 🟢 В наличии на складе (материал, количество, свободно)
+   • 🔴 Дефицит / Требуется закупка (чего не хватает и сколько нужно дозаказать).
+4. Рекомендации по монтажу и углам обзора.`;
+}
+
 // Сборка промпта для расчёта материалов (parse_devices)
 function buildParseDevicesPrompt(text) {
   return `Ты — эксперт по монтажу телекоммуникационных сетей и сметному расчету. Твоя задача: из текста заявки или сметы извлечь список оборудования и рассчитать точный перечень материалов.
@@ -260,11 +272,11 @@ function buildParseDevicesPrompt(text) {
 Отвечай ТОЛЬКО валидным JSON. Без markdown-обёрток, без комментариев.`;
 }
 
-// POST /api/ai/chat — чат с ИИ-ассистентом (единый режим Стоки с поддержкой parse_devices)
+// POST /api/ai/chat — единый чат со Стоки с поддержкой текста, Vision (фото) и расчётов
 router.post('/chat', authenticateToken, async (req, res) => {
-  const { message, mode = 'general', cardContext } = req.body || {};
+  const { message, mode = 'general', cardContext, image, scenario } = req.body || {};
   const text = (message || '').toString().trim();
-  if (!text) return res.status(400).json({ error: 'Пустое сообщение' });
+  if (!text && !image) return res.status(400).json({ error: 'Пустое сообщение' });
 
   // Дневной лимит сообщений
   const { rows: cntRows } = await pool.query(
@@ -276,9 +288,16 @@ router.post('/chat', authenticateToken, async (req, res) => {
     return res.status(429).json({ error: `Достигнут дневной лимит сообщений (${AI_DAILY_LIMIT})` });
   }
 
+  // Проверка настройки API ключа
+  if (!AI_API_KEY || AI_API_KEY === 'sk-placeholder') {
+    return res.status(400).json({
+      error: 'API-ключ DeepSeek не задан. Укажите ваш ключ в файле .env (параметр AI_API_KEY=sk-...) и перезапустите сервер.'
+    });
+  }
+
   const aiClient = getAiClient();
   if (!aiClient) {
-    return res.status(500).json({ error: 'AI не настроен (проверьте AI_BASE_URL/AI_API_KEY)' });
+    return res.status(500).json({ error: 'AI-клиент не инициализирован. Проверьте AI_BASE_URL в файле .env' });
   }
 
   // ─── parse_devices: LLM парсит текст → JSON с устройствами/материалами ─────
@@ -292,18 +311,13 @@ router.post('/chat', authenticateToken, async (req, res) => {
         model: AI_MODEL,
         messages: parseMessages,
         temperature: 0.1,
-        stream: false,
-        extra_body: {
-          options: {
-            num_gpu: 0
-          }
-        }
+        stream: false
       });
       const raw = (completion.choices[0].message.content || '').trim();
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (!jsonMatch) return res.json({ success: false, error: 'Модель не вернула JSON: ' + raw.slice(0, 200) });
       const parsed = JSON.parse(jsonMatch[0]);
-      // Сохраняем в историю
+
       await pool.query(
         `INSERT INTO ai_messages (user_id, mode, role, content) VALUES ($1,'parse_devices','user',$2)`,
         [req.user.id, text]
@@ -321,28 +335,32 @@ router.post('/chat', authenticateToken, async (req, res) => {
       });
     } catch (e) {
       console.error('[AI Parse Error]:', e.message || e);
-      let errMsg = e.message || 'Ошибка парсинга';
-      if (errMsg.includes('ECONNREFUSED') || errMsg.includes('Connection error') || errMsg.includes('fetch failed')) {
-        errMsg = `Не удалось подключиться к Ollama (${AI_BASE_URL}). Убедитесь, что Ollama запущена на сервере (порт 11434), разрешены внешние подключения (OLLAMA_HOST=0.0.0.0), и на сервере выполнен 'docker compose up -d'. Детали: ${errMsg}`;
-      }
-      return res.json({ success: false, error: errMsg });
+      return res.json({ success: false, error: 'Ошибка парсинга: ' + (e.message || String(e)) });
     }
   }
 
-  // Проверяем, не является ли сообщение простым приветствием
-  const isPureGreeting = /^(?:привет|здравствуй|здравствуйте|добрый\s+(?:день|вечер|утро)|хай|ку|салют|приветик|здорово)[!.,?\s]*$/i.test(text);
+  // Определение сценария (Фотоконтроль монтажа / План БТИ / Обычный чат)
+  const isPureGreeting = !image && /^(?:привет|здравствуй|здравствуйте|добрый\s+(?:день|вечер|утро)|хай|ку|салют|приветик|здорово)[!.,?\s]*$/i.test(text);
 
-  // Собираем точечный или сводный срез базы данных:
-  // Сначала безопасный Text-to-SQL по витринам v_ai_*, при необходимости фасад аналитики
+  let isQc = scenario === 'qc' || (image && /(?:приемк|приёмк|оцен|фотоконтрол|качество монтаж|дефект|провер|чек-лист)/i.test(text));
+  let isBti = scenario === 'bti' || (image && /(?:бти|план этаж|планировк|расчет по план|подбор оборудования|видеонаблюдени)/i.test(text));
+
+  let systemPrompt = buildAiSystemPrompt(mode);
+  if (isQc) {
+    systemPrompt = buildQcPrompt();
+  } else if (isBti) {
+    const stockSummary = await getCentralWarehouseStockSummary();
+    systemPrompt = buildBtiPrompt(stockSummary);
+  }
+
+  // Сборка контекста из базы данных при необходимости
   let context = '';
-  if (req.user && !isPureGreeting) {
+  if (req.user && !isPureGreeting && !isQc) {
     try {
-      // 1. Попытка выполнить интеллектуальный SQL-запрос к безопасным витринам
       const sqlContext = await generateAndRunSqlContext(text, req.user);
       if (sqlContext) {
         context = sqlContext;
       } else {
-        // 2. Если Text-to-SQL не потребовался (общий вопрос) — используем стандартный фасад
         const isSupplyQuery = /(?:склад|тмц|материал|кабель|дефицит|поставк|остат)/i.test(text);
         const [facadeContext, forecastCtx] = await Promise.all([
           buildContextForQuery(text, req.user),
@@ -359,15 +377,15 @@ router.post('/chat', authenticateToken, async (req, res) => {
     }
   }
 
-  // Встроенный контекст заявки (если передан с фронтенда)
+  // Контекст карточки заявки
   let card = '';
   if (cardContext && typeof cardContext === 'string') {
     card = '\n<card_context>\n' + cardContext + '\n</card_context>';
   }
 
-  // Скользящее окно истории (последние 4 сообщения) для связности диалога без переполнения контекста
+  // Скользящее окно истории (последние 4 сообщения)
   let recentHistory = [];
-  if (!isPureGreeting) {
+  if (!isPureGreeting && !isQc && !isBti) {
     try {
       const { rows: historyRows } = await pool.query(
         `SELECT role, content FROM ai_messages
@@ -382,15 +400,36 @@ router.post('/chat', authenticateToken, async (req, res) => {
     } catch (_) {}
   }
 
+  // Формирование мультимодального пользовательского контента (текст + изображение)
+  let userMessageContent = text;
+  if (image) {
+    const userParts = [];
+    if (text) {
+      userParts.push({ type: 'text', text });
+    } else {
+      userParts.push({
+        type: 'text',
+        text: isQc ? 'Проведи фотоконтроль и приёмку узла монтажа на фотографии по чек-листу.' : (isBti ? 'Проанализируй план/помещение и составь спецификацию оборудования со сверкой со складом.' : 'Опиши и проанализируй это изображение.')
+      });
+    }
+    userParts.push({
+      type: 'image_url',
+      image_url: {
+        url: image.startsWith('data:') ? image : `data:image/jpeg;base64,${image}`
+      }
+    });
+    userMessageContent = userParts;
+  }
+
   const messages = [
-    { role: 'system', content: buildAiSystemPrompt(mode) },
+    { role: 'system', content: systemPrompt },
     ...(context ? [{ role: 'system', content: '<context>\n' + context + '\n</context>' }] : []),
     ...(card ? [{ role: 'system', content: card }] : []),
     ...recentHistory,
-    { role: 'user', content: text }
+    { role: 'user', content: userMessageContent }
   ];
 
-  // Контроллер отмены для остановки запроса при разрыве или явной остановке пользователем
+  // Контроллер отмены
   const abortController = new AbortController();
   let clientDisconnected = false;
 
@@ -401,12 +440,17 @@ router.post('/chat', authenticateToken, async (req, res) => {
     }
   });
 
-  // Записываем сообщение пользователя сразу (чтобы лимит учёлся даже при обрыве)
-  const userIns = await pool.query(
-    `INSERT INTO ai_messages (user_id, mode, role, content) VALUES ($1,$2,'user',$3) RETURNING id`,
-    [req.user.id, mode, text]
-  );
-  const userMsgId = userIns.rows[0].id;
+  // Записываем сообщение пользователя в базу данных (включая миниатюру изображения)
+  let userMsgId = null;
+  try {
+    const userIns = await pool.query(
+      `INSERT INTO ai_messages (user_id, mode, role, content, image_url) VALUES ($1,$2,'user',$3,$4) RETURNING id`,
+      [req.user.id, mode, text || (isQc ? '📷 Фотоконтроль монтажа' : '📐 Расчёт по плану БТИ'), image ? image.slice(0, 100000) : null]
+    );
+    userMsgId = userIns.rows[0]?.id;
+  } catch (err) {
+    console.error('[AI Save User Msg Error]:', err.message);
+  }
 
   // Подготавливаем SSE-ответ
   res.writeHead(200, {
@@ -425,13 +469,8 @@ router.post('/chat', authenticateToken, async (req, res) => {
       model: AI_MODEL,
       messages,
       stream: true,
-      temperature: 0.3,
-      max_tokens: 700,
-      extra_body: {
-        options: {
-          num_gpu: 0
-        }
-      }
+      temperature: isQc ? 0.1 : 0.2,
+      max_tokens: 1800
     }, {
       signal: abortController.signal
     });
@@ -453,12 +492,15 @@ router.post('/chat', authenticateToken, async (req, res) => {
     }
 
     // Сохраняем ответ ассистента в базу данных
-    const asstIns = await pool.query(
-      `INSERT INTO ai_messages (user_id, mode, role, content, tokens_used)
-       VALUES ($1,$2,'assistant',$3,$4) RETURNING id, created_at`,
-      [req.user.id, mode, fullReply || '', tokensUsed]
-    );
-    const assistantMsgId = asstIns.rows[0]?.id;
+    let assistantMsgId = null;
+    try {
+      const asstIns = await pool.query(
+        `INSERT INTO ai_messages (user_id, mode, role, content, tokens_used)
+         VALUES ($1,$2,'assistant',$3,$4) RETURNING id, created_at`,
+        [req.user.id, mode, fullReply || '', tokensUsed]
+      );
+      assistantMsgId = asstIns.rows[0]?.id;
+    } catch (_) {}
 
     res.write('data: ' + JSON.stringify({ done: true, messageId: assistantMsgId }) + '\n\n');
     res.write('data: [DONE]\n\n');
@@ -474,7 +516,7 @@ router.post('/chat', authenticateToken, async (req, res) => {
             [req.user.id, mode, fullReply.trim() + ' [генерация остановлена]', tokensUsed]
           );
         } catch (_) {}
-      } else {
+      } else if (userMsgId) {
         try {
           await pool.query('DELETE FROM ai_messages WHERE id=$1', [userMsgId]);
         } catch (_) {}
@@ -484,15 +526,23 @@ router.post('/chat', authenticateToken, async (req, res) => {
 
     console.error('[AI Stream Error]:', e.message || e);
     let errMsg = e.message || 'Ошибка генерации ответа';
-    if (errMsg.includes('ECONNREFUSED') || errMsg.includes('Connection error') || errMsg.includes('fetch failed')) {
-      errMsg = `Не удалось подключиться к Ollama (${AI_BASE_URL}). Убедитесь, что Ollama запущена на сервере (порт 11434), установлена системная переменная OLLAMA_HOST=0.0.0.0, и на сервере выполнен 'docker compose up -d'. Детали: ${errMsg}`;
+    if (errMsg.includes('401') || errMsg.includes('Incorrect API key') || errMsg.includes('Authentication')) {
+      errMsg = 'Ошибка авторизации API DeepSeek: проверьте правильность ключа AI_API_KEY в файле .env.';
+    } else if (errMsg.includes('ECONNREFUSED') || errMsg.includes('Connection error') || errMsg.includes('fetch failed')) {
+      errMsg = `Не удалось подключиться к серверу DeepSeek (${AI_BASE_URL}). Проверьте подключение к интернету или доступность хоста.`;
     }
+
     try {
       res.write('data: ' + JSON.stringify({ error: errMsg }) + '\n\n');
       res.write('data: [DONE]\n\n');
       res.end();
     } catch (_) {}
-    await pool.query('DELETE FROM ai_messages WHERE id=$1', [userMsgId]);
+
+    if (userMsgId && !fullReply) {
+      try {
+        await pool.query('DELETE FROM ai_messages WHERE id=$1', [userMsgId]);
+      } catch (_) {}
+    }
   }
 });
 
@@ -501,7 +551,7 @@ router.get('/history', authenticateToken, async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 40, 100);
     const { rows } = await pool.query(
-      `SELECT id, mode, role, content, rating, rating_comment, tokens_used, created_at
+      `SELECT id, mode, role, content, image_url, rating, rating_comment, tokens_used, created_at
        FROM ai_messages
        WHERE user_id = $1
        ORDER BY id DESC
@@ -557,4 +607,3 @@ router.delete('/history', authenticateToken, async (req, res) => {
 });
 
 export default router;
-
