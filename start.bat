@@ -53,7 +53,7 @@ set JWT_SECRET=stockeasy_production_secure_jwt_secret_key_2026_q89w4e7r5t2y1u6i
 
 :: 3. Настройка ИИ-ассистента Стоки (DeepSeek Cloud API)
 if "%AI_BASE_URL%"=="" set AI_BASE_URL=https://api.deepseek.com/v1
-if "%AI_MODEL%"=="" set AI_MODEL=deepseek-chat
+if "%AI_MODEL%"=="" set AI_MODEL=deepseek-flash
 :: Если задан в .env или системе, используется AI_API_KEY
 if not "%AI_API_KEY%"=="" echo [AI] Используется API-ключ DeepSeek
 

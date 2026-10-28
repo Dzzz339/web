@@ -9,7 +9,7 @@ const router = express.Router();
 
 // ─── ИИ-АССИСТЕНТ: провайдер DeepSeek Cloud API / OpenAI-совместимый шлюз ────
 const AI_BASE_URL = (process.env.AI_BASE_URL || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
-const AI_API_KEY  = process.env.AI_API_KEY  || process.env.OPENAI_API_KEY || '';
+const AI_API_KEY  = (process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '').trim();
 const AI_MODEL    = process.env.AI_MODEL    || 'deepseek-chat';
 const AI_DAILY_LIMIT = 100; // макс. сообщений в день на пользователя
 
