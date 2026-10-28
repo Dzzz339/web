@@ -1122,7 +1122,6 @@ function initAiChat() {
     if (btn) btn.classList.add('active');
   }
   renderAiMessages();
-  checkAiHealth(false);
 
   // Загружаем историю переписки со Стоки, если ещё не загружалась в этой сессии
   if (!S.aiHistoryLoaded) {
@@ -1271,52 +1270,7 @@ function clearAiSelectedTask() {
 
 function checkAiHealth(showAlert) {
   var badge = document.getElementById('ai-health-status');
-  if (badge) {
-    badge.style.background = '#f3f4f6';
-    badge.style.color = '#6b7280';
-    badge.textContent = '⏳ Проверка связи...';
-  }
-  fetch('/api/ai/health', {
-    headers: { 'Authorization': 'Bearer ' + S.token }
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(data) {
-    if (!badge) return;
-    if (data.status === 'ok') {
-      if (data.hasKey) {
-        badge.style.background = '#dcfce7';
-        badge.style.color = '#15803d';
-        badge.textContent = '🟢 DeepSeek онлайн (' + (data.currentModel || 'deepseek-chat') + ')';
-        badge.title = 'Провайдер: ' + (data.provider || 'DeepSeek Cloud') + '\nМодель: ' + data.currentModel + '\nБазовый URL: ' + data.baseUrl + '\nVision: активен (фотоконтроль, БТИ)\nНажмите для повторной проверки';
-        if (showAlert) {
-          alert('✅ Связь с DeepSeek Cloud установлена!\n\nМодель: ' + data.currentModel + '\nБазовый URL: ' + data.baseUrl + '\nДоступные возможности: Текст, Vision (CV фотоконтроль приёмки, планы БТИ), Сметы.');
-        }
-      } else {
-        badge.style.background = '#fef3c7';
-        badge.style.color = '#b45309';
-        badge.textContent = '🟡 DeepSeek: укажите AI_API_KEY';
-        badge.title = 'Сервер настроен на DeepSeek Cloud, но ключ AI_API_KEY не задан в .env\nНажмите для подсказки';
-        if (showAlert) {
-          alert('⚠️ DeepSeek Cloud готов к работе, но не указан AI_API_KEY!\n\n1. Откройте файл .env на сервере.\n2. Укажите ваш ключ: AI_API_KEY=sk-...\n3. Перезапустите сервер (start.bat).');
-        }
-      }
-    } else {
-      badge.style.background = '#fee2e2';
-      badge.style.color = '#b91c1c';
-      badge.textContent = '🔴 DeepSeek ошибка связи';
-      badge.title = 'Ошибка: ' + (data.error || 'не отвечает') + '\nURL: ' + data.baseUrl + '\nНажмите для подсказки';
-      if (showAlert) {
-        alert('⚠️ Ошибка соединения с DeepSeek API!\n\nБазовый URL: ' + data.baseUrl + '\nОшибка: ' + data.error + '\n\nПроверьте подключение к интернету и правильность AI_API_KEY в файле .env.');
-      }
-    }
-  })
-  .catch(function(err) {
-    if (!badge) return;
-    badge.style.background = '#fee2e2';
-    badge.style.color = '#b91c1c';
-    badge.textContent = '🔴 Ошибка связи';
-    if (showAlert) alert('Не удалось выполнить проверку связи: ' + err.message);
-  });
+  if (badge) badge.remove();
 }
 
 function showAiLoadingIndicator(subtitle) {
