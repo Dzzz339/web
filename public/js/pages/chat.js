@@ -1594,9 +1594,9 @@ function sendAiMessage() {
   setAiButtonToStopMode();
 
   // Автоматическое определение расчёта спецификации оборудования / материалов
-  var isDeviceCalc = (mode === 'parse_devices') ||
+  var isDeviceCalc = !attachedImage && ((mode === 'parse_devices') ||
     /(?:расчёт|расчет|посчитай|рассчитай|смета).*(?:материал|тмц|оборудован|расходник)/i.test(text) ||
-    /(?:\d+\s*(?:арм|wifi|wi-fi|точек|камер|коммутатор|шкаф|сервер))/i.test(text);
+    /(?:\d+\s*(?:арм|wifi|wi-fi|точек|камер|коммутатор|шкаф|сервер))/i.test(text));
 
   if (isDeviceCalc) {
     mode = 'parse_devices';
@@ -1620,7 +1620,7 @@ function sendAiMessage() {
     .then(function(r) {
       if (r.status === 429) { throw { limit: true, message: 'Достигнут дневной лимит сообщений' }; }
       if (r.status === 403) { throw { message: 'Нет доступа к этому режиму' }; }
-      if (!r.ok) { return r.json().then(function(j){ throw new Error(j.error || 'Ошибка сервера'); }); }
+      if (!r.ok) { return r.text().then(function(){ throw new Error('HTTP ' + r.status); }); }
       return r.json();
     })
     .then(function(data) {
@@ -1635,8 +1635,16 @@ function sendAiMessage() {
         return;
       }
       removeAiLoadingIndicator();
+      console.error('[Стоки parse_devices error]:', err);
       S.aiMessages = S.aiMessages || [];
-      S.aiMessages.push({ role: 'assistant', content: '⚠️ Ошибка: ' + (err.message || 'Неизвестная ошибка'), time: '' });
+      var friendlyMsg = (err && err.limit)
+        ? 'Достигнут дневной лимит сообщений.'
+        : 'Извините, сейчас возникла заминка при расчёте. Пожалуйста, попробуйте повторить запрос.';
+      S.aiMessages.push({
+        role: 'assistant',
+        content: friendlyMsg,
+        time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
+      });
       renderAiMessages();
     })
     .finally(function() {
@@ -1661,7 +1669,7 @@ function sendAiMessage() {
     removeAiLoadingIndicator();
     S.aiStreaming = false; S.aiLoading = false;
     resetAiSendBtn();
-    finalMsg = finalMsg || '⚠️ Нейросеть не вернула текст ответа. Попробуйте повторить запрос.';
+    finalMsg = finalMsg || 'Извините, не удалось сформировать ответ. Пожалуйста, попробуйте повторить запрос.';
     S.aiMessages.push({
       id: incomingMessageId,
       role: 'assistant',
@@ -1681,7 +1689,7 @@ function sendAiMessage() {
   }).then(function(r) {
     if (r.status === 429) { throw { limit: true, message: 'Достигнут дневной лимит сообщений' }; }
     if (r.status === 403) { throw { message: 'Нет доступа к этому режиму' }; }
-    if (!r.ok) { return r.json().then(function(j){ throw new Error(j.error || 'Ошибка сервера'); }); }
+    if (!r.ok) { return r.text().then(function(){ throw new Error('HTTP ' + r.status); }); }
     return r;
   }).then(function(res) {
     if (!res.body || !res.body.getReader) { throw new Error('Нет streaming-поддержки'); }
@@ -1699,7 +1707,7 @@ function sendAiMessage() {
             removeAiLoadingIndicator();
             S.aiStreaming = false; S.aiLoading = false;
             resetAiSendBtn();
-            finalMsg = finalMsg || '⚠️ Нейросеть не вернула текст ответа. Попробуйте повторить запрос.';
+            finalMsg = finalMsg || 'Извините, не удалось сформировать ответ. Пожалуйста, попробуйте повторить запрос.';
             S.aiMessages.push({
               id: incomingMessageId,
               role: 'assistant',
@@ -1730,7 +1738,7 @@ function sendAiMessage() {
               incomingMessageId = obj.messageId;
             }
             if (obj.error) {
-              S.aiStreamText = '⚠️ Ошибка нейросети: ' + obj.error;
+              console.error('[Стоки SSE Error]:', obj.error); S.aiStreamText = 'Извините, возникла заминка при формировании ответа. Пожалуйста, попробуйте повторить запрос.';
               renderAiStreamingReply();
               break;
             }
@@ -1748,18 +1756,20 @@ function sendAiMessage() {
     return pump();
   }).catch(function(err) {
     if (err && (err.name === 'AbortError' || err.message === 'The user aborted a request.')) {
-      // Пользователь нажал "Остановить" — остановка обработана в stopAiGeneration
       return;
     }
     stopAiSmoothTyping();
     removeAiLoadingIndicator();
-    if (err && err.limit) {
-      S.aiMessages.push({ role: 'assistant', content: '⚠️ ' + err.message, time: '' });
-    } else if (err && err.message) {
-      S.aiMessages.push({ role: 'assistant', content: '⚠️ Ошибка: ' + err.message, time: '' });
-    } else {
-      S.aiMessages.push({ role: 'assistant', content: '⚠️ Ошибка соединения с сервером', time: '' });
-    }
+    console.error('[Стоки stream error]:', err);
+    var friendlyMsg = (err && err.limit)
+      ? 'Достигнут дневной лимит сообщений.'
+      : 'Извините, сейчас возникла заминка при обработке запроса. Пожалуйста, попробуйте отправить его ещё раз.';
+    S.aiMessages = S.aiMessages || [];
+    S.aiMessages.push({
+      role: 'assistant',
+      content: friendlyMsg,
+      time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
+    });
     S.aiStreaming = false; S.aiLoading = false;
     _aiAbortController = null;
     _aiCurrentReader = null;
@@ -2557,7 +2567,7 @@ function executeStepAsk(params, tasks) {
       startAiSmoothTyping(function(finalMsg) {
         removeAiLoadingIndicator();
         resetAiSendBtn();
-        finalMsg = finalMsg || '⚠️ Нет ответа от модели';
+        finalMsg = finalMsg || 'Извините, не удалось сформировать ответ. Пожалуйста, попробуйте повторить запрос.';
         S.aiMessages.push({
           id: stepMsgId,
           role: 'assistant',
@@ -2577,7 +2587,7 @@ function executeStepAsk(params, tasks) {
             finishAiStream(function(finalMsg) {
               removeAiLoadingIndicator();
               resetAiSendBtn();
-              finalMsg = finalMsg || '⚠️ Нет ответа от модели';
+              finalMsg = finalMsg || 'Извините, не удалось сформировать ответ. Пожалуйста, попробуйте повторить запрос.';
               S.aiMessages.push({
                 id: stepMsgId,
                 role: 'assistant',
