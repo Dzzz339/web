@@ -1,3 +1,15 @@
+
+  window._activeSubcontractIdx = window._activeSubcontractIdx || {};
+  window._setActiveSubcontract = function(taskId, idx) {
+    window._activeSubcontractIdx[taskId] = idx;
+    window.renderCardSmrCalculator(taskId);
+  };
+
+  window.addNewSubcontractToTask = function(taskId) {
+    var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+    if (!t) return;
+    openContractorPicker(taskId);
+  };
 // public/js/subcontractWizard.js
 // Интеллектуальный конструктор (Wizard) назначения подрядчика,
 // калькулятор СМР по дифференцированной шкале объемов и выбор «Собственного» юрлица (КС, К10, Ультима).
@@ -225,7 +237,8 @@
         '<button class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_contr_contracts_modal\').remove()">✕</button>' +
       '</div>' +
       '<div id="_contr_contracts_list_box" style="padding:10px;text-align:center;color:var(--text-3)">Загрузка договоров подрядчика…</div>' +
-      '<div style="display:flex;justify-content:flex-end;margin-top:12px;border-top:1px solid var(--border);padding-top:10px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;border-top:1px solid var(--border);padding-top:10px">' +
+        '<button type="button" class="btn btn-sm btn-primary" onclick="document.getElementById(\'_contr_contracts_modal\').remove();openSubContractModal(null, ' + cObj.id + ', \'' + escHtml(taskId) + '\')" style="font-weight:700">+ Заключить новый договор</button>' +
         '<button type="button" class="btn btn-ghost" onclick="document.getElementById(\'_contr_contracts_modal\').remove()">Закрыть</button>' +
       '</div>' +
     '</div>';
@@ -238,7 +251,12 @@
         if (!box) return;
 
         if (!contracts || !contracts.length) {
-          box.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-3)">У данного подрядчика нет зарегистрированных договоров.<br><button type="button" class="btn btn-sm btn-primary" onclick="document.getElementById(\'_contr_contracts_modal\').remove();openSubcontractWizardModal(\'' + escHtml(taskId) + '\')" style="margin-top:8px">+ Добавить договор в мастере</button></div>';
+          box.innerHTML = '<div style="padding:24px 16px;text-align:center;color:var(--text-2)">' +
+            '<div style="font-size:2rem;margin-bottom:8px">📑</div>' +
+            '<div style="font-weight:700;font-size:1rem;color:var(--text);margin-bottom:4px">У подрядчика нет заключенных договоров</div>' +
+            '<div style="font-size:.82rem;color:var(--text-3);max-width:420px;margin:0 auto 16px">Пока субподрядчик без договора, он не может быть назначен на объект. Заключите договор субподряда прямо сейчас:</div>' +
+            '<button type="button" class="btn btn-sm btn-primary" onclick="document.getElementById(\'_contr_contracts_modal\').remove();openSubContractModal(null, ' + cObj.id + ', \'' + escHtml(taskId) + '\')" style="padding:8px 20px;font-weight:700;font-size:.88rem">+ Заключить договор субподряда</button>' +
+          '</div>';
           return;
         }
 
@@ -286,25 +304,40 @@
     if (t) {
       t.own_company_id = Number(ownCompanyId);
     }
+    var contrName = (t && t.contractor) || '';
+    var cObj = (S.contractors || []).find(function(c){ return c.name_short === contrName; });
 
-    var curSub = (window._curCardSubcontracts || [])[0] || null;
-    if (curSub) {
-      curSub.contractor_contract_id = contractId;
-      curSub.own_company_id = Number(ownCompanyId);
-      curSub.price_list_id = priceListId;
-      curSub.contract_number = contractNumber;
-      curSub.contract_date = contractDate;
-      curSub.own_company_name = ownCompanyName;
-    }
+    var activeIdx = (window._activeSubcontractIdx && window._activeSubcontractIdx[taskId]) || 0;
+    var targetSub = (window._curCardSubcontracts || [])[activeIdx] || (window._curCardSubcontracts || [])[0] || null;
+
+    var payload = {
+      contractor_id: cObj ? cObj.id : (targetSub ? targetSub.contractor_id : null),
+      contractor_name: contrName || (targetSub ? targetSub.contractor_name : ''),
+      contractor_contract_id: Number(contractId),
+      own_company_id: Number(ownCompanyId),
+      price_list_id: priceListId ? Number(priceListId) : null
+    };
 
     var modal = document.getElementById('_contr_contracts_modal');
     if (modal) modal.remove();
 
-    if (typeof showToast === 'function') {
-      showToast('Привязан договор ' + contractNumber + ' (' + ownCompanyName + ')', 'success');
-    }
+    var url = targetSub && targetSub.id ? ('/subcontracts/' + targetSub.id) : ('/tasks/' + encodeURIComponent(taskId) + '/subcontracts');
+    var method = targetSub && targetSub.id ? 'PUT' : 'POST';
 
-    window.renderCardSmrCalculator(taskId);
+    api(url, {
+      method: method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function(saved) {
+      window.loadCardSubcontracts(taskId, function() {
+        if (typeof showToast === 'function') {
+          showToast('Договор ' + contractNumber + ' (' + ownCompanyName + ') успешно зафиксирован в базе!', 'success');
+        }
+        window.renderCardSmrCalculator(taskId);
+      });
+    }).catch(function(err) {
+      alert('Ошибка привязки договора: ' + (err.message || err));
+    });
   };
 
   window._taskSmrRoundConfig = window._taskSmrRoundConfig || {};
@@ -1089,21 +1122,20 @@
     var curOwnId = t.own_company_id || (t.customer && t.customer.toLowerCase().includes('сбер') ? 2 : 1);
     var ownList = S.ownCompanies || [];
 
-    // Данные по договору субподряда с учетом выбранного собственного юрлица
-    var isElagin = contrName && contrName.includes('Елагин');
-    var isKhomich = contrName && contrName.includes('Хомич');
+    var activeIdx = (window._activeSubcontractIdx && window._activeSubcontractIdx[taskId]) || 0;
+    if (activeIdx >= (window._curCardSubcontracts || []).length) activeIdx = 0;
+    if (window._curCardSubcontracts && window._curCardSubcontracts.length > 0) {
+      curSub = window._curCardSubcontracts[activeIdx];
+    }
 
-    var contractTitle = curSub && curSub.contract_number 
-      ? ('№ ' + escHtml(curSub.contract_number) + (curSub.contract_date ? (' от ' + escHtml(String(curSub.contract_date).slice(0,10).split('-').reverse().join('.'))) : ''))
-      : (isElagin
-          ? (curOwnId === 1 ? '№ СКС-КС-090626 от 09.06.2026 (КС)' : '№ СКС СЗ 090626 от 09.06.2026 (К10)')
-          : (isKhomich
-              ? (curOwnId === 1 ? '№ 01/07/26-Т от 01.07.2026 (КС)' : '№ СКС Сб от 08.04.2026 (К10)')
-              : 'Не привязан к договору'));
+    var hasContract = Boolean(curSub && curSub.contractor_contract_id);
+    var contractTitle = hasContract
+      ? ('№ ' + escHtml(curSub.contract_number) + (curSub.contract_date ? (' от ' + escHtml(String(curSub.contract_date).slice(0,10).split('-').reverse().join('.'))) : '') + (curSub.own_company_name ? ' (' + escHtml(curSub.own_company_name) + ')' : ''))
+      : '<span style="color:#b45309;font-weight:700">⚠️ Договор не выбран</span>';
 
-    var priceTitle = curSub && curSub.price_list_name
-      ? curSub.price_list_name
-      : (curOwnId === 1 ? 'Прайс-лист КС (Разовые/СФР)' : 'Приложение №1 (Сбер/К10)');
+    var priceTitle = (curSub && curSub.price_list_name)
+      ? escHtml(curSub.price_list_name)
+      : (hasContract ? 'По соглашению к договору' : '<span style="color:var(--text-3)">Не привязан</span>');
 
     // Адрес и маршрут на Яндекс.Картах
     var taskAddr = String(t.address || '').trim();
@@ -1142,7 +1174,25 @@
       '</div>' +
     '</div>';
 
+    var allCardSubs = window._curCardSubcontracts || [];
+    var multiSubTabsHtml = allCardSubs.length > 1 ? (
+      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:12px;background:#f8fafc;padding:6px 10px;border-radius:8px;border:1.5px solid #cbd5e1;overflow-x:auto">' +
+        '<span style="font-size:.76rem;font-weight:700;color:var(--text-2);margin-right:4px">Исполнители на объекте (' + allCardSubs.length + '):</span>' +
+        allCardSubs.map(function(s, idx) {
+          var isCurTab = (idx === activeIdx);
+          var subLabel = (idx + 1) + '. ' + (s.contractor_name || 'Подрядчик') + (s.price_agreed ? ' (' + window.fmtMoney(s.price_agreed) + ')' : '');
+          return '<button type="button" class="btn btn-xs ' + (isCurTab ? 'btn-primary' : 'btn-ghost') + '" onclick="window._setActiveSubcontract(\'' + escHtml(taskId) + '\', ' + idx + ')" style="font-weight:700;font-size:.76rem;padding:4px 10px;white-space:nowrap">' +
+            escHtml(subLabel) +
+          '</button>';
+        }).join('') +
+        '<button type="button" class="btn btn-xs btn-ghost" onclick="window.addNewSubcontractToTask(\'' + escHtml(taskId) + '\')" style="color:var(--blue);border:1px dashed #93c5fd;font-weight:700;font-size:.74rem;padding:4px 8px;white-space:nowrap">' +
+          '+ Добавить' +
+        '</button>' +
+      '</div>'
+    ) : '';
+
     var contrHeaderHtml = contrName ? (
+      multiSubTabsHtml +
       '<div style="background:#f8fafc;border:1.5px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">' +
         '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">' +
           '<div>' +
@@ -1168,20 +1218,14 @@
             '</div>' +
           '</div>' +
           '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">' +
-            '<div style="display:flex;flex-direction:column;gap:3px">' +
-              '<button type="button" class="btn btn-sm btn-ghost" onclick="window.openContractorContractPickerModal(\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')" style="font-size:.75rem;color:var(--blue);font-weight:700" title="Сменить договор с юрлицом (К10 / КС) и применить прайс-лист">📑 Сменить договор/прайс</button>' +
-              '<button type="button" class="btn btn-sm btn-ghost" onclick="window.openQuickSubcontractCreateModal(\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')" style="font-size:.72rem;color:var(--green);font-weight:700;padding:2px 8px;border:1px dashed var(--green)" title="Создать договор субподряда с данным исполнителем">+ Создать договор</button>' +
-            '</div>' +
-            '<button type="button" class="btn btn-sm btn-ghost" onclick="openContractorPicker(\'' + escHtml(taskId) + '\')" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : '') + ' style="font-size:.75rem">🔍 Сменить исполнителя</button>' +
-            '<button type="button" class="btn btn-sm btn-primary" onclick="openSubcontractWizardModal(\'' + escHtml(taskId) + '\')" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : '') + ' style="font-size:.75rem">🪄 Мастер поручения</button>' +
-            '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red);border:1px solid #fca5a5;font-size:.75rem" onclick="if(window.removeContractorFromTask)window.removeContractorFromTask(\'' + escHtml(taskId) + '\')">❌ Убрать подрядчика</button>' +
+            '<button type="button" class="btn btn-sm btn-ghost" onclick="openContractorPicker(\'' + escHtml(taskId) + '\')" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : '') + ' style="font-size:.78rem;font-weight:600">🔍 Сменить исполнителя</button>' +
+            (hasContract ? (
+              '<button type="button" class="btn btn-sm btn-ghost" onclick="window.openContractorContractPickerModal(\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')" style="font-size:.78rem;color:var(--blue);font-weight:700" title="Просмотреть или сменить договор">📑 Договор: ' + escHtml(curSub.contract_number) + '</button>'
+            ) : (
+              '<button type="button" class="btn btn-sm btn-primary" onclick="window.openContractorContractPickerModal(\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')" style="font-size:.78rem;font-weight:700;box-shadow:0 1px 3px rgba(37,99,235,0.2)" title="Выбрать действующий договор или заключить новый">📑 Выбрать договор субподряда</button>'
+            )) +
+            '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red);border:1px solid #fca5a5;font-size:.78rem" onclick="if(window.removeContractorFromTask)window.removeContractorFromTask(\'' + escHtml(taskId) + '\')">❌ Убрать</button>' +
           '</div>' +
-        '</div>' +
-        '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid #e2e8f0">' +
-          '<button type="button" class="btn btn-sm btn-ghost" onclick="window.exportDoc(\'app2\',\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')" style="font-size:.75rem" title="Сформировать Заказ-наряд (Приложение №2)">📄 Заказ-наряд</button>' +
-          '<button type="button" class="btn btn-sm btn-ghost" onclick="window.exportDoc(\'act\',\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')" style="font-size:.75rem" title="Сформировать Акт сдачи-приемки КС-2">✅ Акт КС-2</button>' +
-          '<button type="button" class="btn btn-sm btn-ghost" onclick="window.exportDoc(\'invoice\',\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')" style="font-size:.75rem" title="Сформировать Счет на оплату">💰 Счет на оплату</button>' +
-          '<button type="button" class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\'' + escHtml(taskId) + '\')" style="font-size:.75rem" title="Сформировать официальное письмо на допуск">🪪 Письмо на допуск</button>' +
         '</div>' +
       '</div>'
     ) : (
@@ -1416,6 +1460,19 @@
         '<button type="button" class="btn btn-sm btn-primary" onclick="window.exportDoc(\'app2\', \'' + escHtml(taskId) + '\')" style="font-size:.78rem;font-weight:700;padding:4px 12px;display:inline-flex;align-items:center;gap:5px" title="Сформировать официальное Приложение № 1 (Заказ-наряд на объект) к договору субподряда">' +
           '📄 Приложение № 1 (Заказ-наряд)' +
         '</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="window.downloadSubcontractDocx(\'' + escHtml(taskId) + '\')" style="font-size:.78rem;font-weight:700;padding:4px 11px;border:1.5px solid #93c5fd;color:#1d4ed8;display:inline-flex;align-items:center;gap:5px" title="Сформировать официальный Договор субподряда (.docx) с Приложениями № 1 и № 2 по форме ООО «Кабельные Системы» / ООО «К10»">' +
+          '🤝 Договор субподряда (.docx)' +
+        '</button>' +
+        '<div class="dropdown" style="position:relative;display:inline-block">' +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="window._toggleCardSmrDocsMenu(\'' + escHtml(taskId) + '\')" style="font-size:.78rem;font-weight:600;padding:4px 10px;border:1.5px solid var(--border)">' +
+            'Документы ▾' +
+          '</button>' +
+          '<div id="card_smr_docs_menu_' + escHtml(taskId) + '" style="display:none;position:absolute;left:0;top:100%;margin-top:4px;background:#fff;border:1.5px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.12);z-index:99;min-width:180px;padding:4px 0">' +
+            '<div style="padding:6px 12px;font-size:.78rem;cursor:pointer" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._toggleCardSmrDocsMenu(\'' + escHtml(taskId) + '\'); window.exportDoc(\'act\',\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')">✅ Акт сдачи-приемки (КС-2)</div>' +
+            '<div style="padding:6px 12px;font-size:.78rem;cursor:pointer" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._toggleCardSmrDocsMenu(\'' + escHtml(taskId) + '\'); window.exportDoc(\'invoice\',\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')">💰 Счет на оплату</div>' +
+            '<div style="padding:6px 12px;font-size:.78rem;cursor:pointer" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._toggleCardSmrDocsMenu(\'' + escHtml(taskId) + '\'); openAccessLetterModal(\'' + escHtml(taskId) + '\')">🪪 Письмо на допуск</div>' +
+          '</div>' +
+        '</div>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:8px">' +
         '<span style="font-size:.78rem;color:var(--text-2);font-weight:600">Генподрядчик («Мы»):</span>' +
@@ -1589,6 +1646,13 @@
           '</tr></tfoot>' +
         '</table>' +
       '</div>' +
+    '</div>' +
+
+    // Кнопка добавления второго/следующего исполнителя СМР (1 ко многим)
+    '<div style="margin-bottom:14px;display:flex;justify-content:flex-end">' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="window.addNewSubcontractToTask(\'' + escHtml(taskId) + '\')" style="color:var(--blue);border:1.5px dashed #93c5fd;font-weight:700;font-size:.78rem;padding:6px 14px;display:inline-flex;align-items:center;gap:6px">' +
+        '<span>➕ Добавить второго исполнителя на объект (Спецработы / ВОЛС / СМР)</span>' +
+      '</button>' +
     '</div>' +
 
     // Финансовый баланс по заявке (терминология: Заказчик → Генподрядчик («Мы») → Подрядчик СМР + Доп. расходы)
@@ -1968,7 +2032,8 @@
     var taxCfg = window._getTaskSmrTaxConfig(taskId);
     var taxCalc = window._calculateSmrTaxes(totalBaseAmount, taxCfg.mode, taxCfg.included, taskId);
 
-    var curSub = (window._curCardSubcontracts || [])[0] || null;
+    var activeIdx = (window._activeSubcontractIdx && window._activeSubcontractIdx[taskId]) || 0;
+    var curSub = (window._curCardSubcontracts || [])[activeIdx] || (window._curCardSubcontracts || [])[0] || null;
     var cName = (curSub && curSub.contractor_name) || t.contractor || '';
     if (!cName) {
       if (!options.silent) alert('Пожалуйста, сначала назначьте исполнителя СМР (подрядчика)!');
@@ -1976,18 +2041,21 @@
     }
 
     var cObj = (S.contractors || []).find(function(c){ return c.name_short === cName; });
-    var ownId = t.own_company_id || (t.customer && t.customer.toLowerCase().includes('сбер') ? 2 : 1);
+    var ownId = (curSub && curSub.own_company_id) || t.own_company_id || (t.customer && t.customer.toLowerCase().includes('сбер') ? 2 : 1);
     var ports = 0;
     spec.forEach(function(l){
       if (l.name && l.name.toLowerCase().includes('порт')) ports += (Number(l.qty) || 0);
     });
 
     var payload = {
+      subcontract_id: curSub ? curSub.id : null,
       contractor_id: (curSub && curSub.contractor_id) || (cObj ? cObj.id : null),
       contractor_name: cName,
       own_company_id: ownId,
       contractor_contract_id: (curSub && curSub.contractor_contract_id) || null,
       price_list_id: (curSub && curSub.price_list_id) || null,
+      agreement_number: (curSub && curSub.agreement_number) || 'Приложение № 1 (Соглашение о договорной цене)',
+      agreement_date: (curSub && curSub.agreement_date) || new Date().toISOString().slice(0, 10),
       work_type: t.work_type || 'Монтаж СКС',
       price_agreed: taxCalc.totalWithTax,
       deadline: t.deadline || null,
@@ -2764,15 +2832,94 @@ window.saveAndCreateAgreement = function(taskId) {
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
   if (!t) return;
   var contrName = t.contractor || (S.cardDraft && S.cardDraft.contractor) || '';
+  if (!contrName) {
+    return alert('Пожалуйста, сначала назначьте исполнителя СМР (подрядчика)!');
+  }
+
+  var activeIdx = (window._activeSubcontractIdx && window._activeSubcontractIdx[taskId]) || 0;
+  var curSub = (window._curCardSubcontracts || [])[activeIdx] || (window._curCardSubcontracts || [])[0] || null;
+
+  if (!curSub || !curSub.contractor_contract_id) {
+    return alert('Пожалуйста, сначала выберите договор субподряда (кнопка «Выбрать договор субподряда»)!');
+  }
+
   if (typeof window._saveCardSmrSpec === 'function') {
-    window._saveCardSmrSpec(taskId, { silent: false });
-  }
-  if (typeof showToast === 'function') {
-    showToast('Смета сохранена! Формируем Заказ-наряд (соглашение к договору)...', 'success');
-  }
-  if (typeof window.exportDoc === 'function') {
-    setTimeout(function() {
-      window.exportDoc('app2', taskId, contrName);
-    }, 400);
+    window._saveCardSmrSpec(taskId, { silent: true })
+      .then(function() {
+        if (typeof showToast === 'function') {
+          showToast('Соглашение о цене сохранено в базе данных! Формируем документ...', 'success');
+        }
+        window.previewSubcontractAgreementDocx(taskId);
+      })
+      .catch(function(err) {
+        alert('Ошибка сохранения сметы соглашения: ' + (err.message || err));
+      });
   }
 };
+
+window.previewSubcontractAgreementDocx = function(taskId) {
+  var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+  var activeIdx = (window._activeSubcontractIdx && window._activeSubcontractIdx[taskId]) || 0;
+  var curSub = (window._curCardSubcontracts || [])[activeIdx] || (window._curCardSubcontracts || [])[0] || null;
+  var subId = curSub ? curSub.id : null;
+  var cName = (t.contractor && t.contractor.trim()) || (curSub && curSub.contractor_name) || '';
+
+  if (typeof api !== 'function') return;
+  if (typeof showToast === 'function') showToast('Подготовка печатной формы документа...', 'info');
+
+  api('/tasks/' + encodeURIComponent(taskId) + '/documents/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      doc_type: 'subcontract_agreement',
+      subcontract_id: subId,
+      contractor_name: cName || undefined
+    })
+  }).then(function(res) {
+    if (res && res.download_url) {
+      if (typeof window.openFilePreviewModal === 'function') {
+        window.openFilePreviewModal(null, null, res.download_url, 'Соглашение о договорной цене — ' + (curSub && curSub.contract_number ? ('№ ' + curSub.contract_number) : taskId));
+      } else {
+        window.open(res.download_url, '_blank');
+      }
+    } else {
+      if (typeof showToast === 'function') showToast('Ошибка формирования печатной формы', 'error');
+    }
+  }).catch(function(err) {
+    alert('Ошибка генерации документа: ' + (err.message || err));
+  });
+};
+
+  window._toggleCardSmrDocsMenu = function(taskId) {
+    var m = document.getElementById('card_smr_docs_menu_' + taskId);
+    if (m) m.style.display = m.style.display === 'none' ? 'block' : 'none';
+  };
+
+  window.downloadSubcontractDocx = function(taskId) {
+    var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+    var curSub = (window._curCardSubcontracts || []).find(function(s){ return String(s.task_id) === String(taskId); }) || null;
+    var subId = curSub ? curSub.id : null;
+    var cName = (t.contractor && t.contractor.trim()) || (curSub && curSub.contractor_name) || '';
+
+    if (typeof api !== 'function') return;
+    if (typeof showToast === 'function') showToast('Формирование договора субподряда...', 'info');
+
+    api('/tasks/' + encodeURIComponent(taskId) + '/documents/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        doc_type: 'subcontract_agreement',
+        subcontract_id: subId,
+        contractor_name: cName || undefined
+      })
+    }).then(function(res) {
+      if (res && res.download_url) {
+        window.open(res.download_url, '_blank');
+        if (typeof showToast === 'function') showToast('Договор субподряда сформирован!', 'success');
+      } else {
+        if (typeof showToast === 'function') showToast('Ошибка формирования документа', 'error');
+      }
+    }).catch(function(err) {
+      alert('Ошибка формирования договора: ' + (err.message || err));
+    });
+  };

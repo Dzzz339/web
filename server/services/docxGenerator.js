@@ -2113,3 +2113,615 @@ export async function generateTmcAct({
   });
   return await Packer.toBuffer(doc);
 }
+
+export function formatSumWordsRu(n) {
+  const val = Number(n || 0);
+  const intVal = Math.floor(Math.abs(val));
+  const kopecks = Math.round((Math.abs(val) - intVal) * 100);
+  const kopStr = String(kopecks).padStart(2, '0') + ' коп.';
+
+  if (intVal === 0) return '0 (Ноль) рублей 00 коп.';
+
+  const e1f = ['', 'одна', 'две', 'три', 'четыре', 'пять', 'шесть', 'семь', 'восемь', 'девять'];
+  const e1m = ['', 'один', 'два', 'три', 'четыре', 'пять', 'шесть', 'семь', 'восемь', 'девять'];
+  const e2 = ['десять', 'одиннадцать', 'двенадцать', 'тринадцать', 'четырнадцать', 'пятнадцать', 'шестнадцать', 'семнадцать', 'восемнадцать', 'девятнадцать'];
+  const e3 = ['', '', 'двадцать', 'тридцать', 'сорок', 'пятьдесят', 'шестьдесят', 'семьдесят', 'восемьдесят', 'девяносто'];
+  const e4 = ['', 'сто', 'двести', 'триста', 'четыреста', 'пятьсот', 'шестьсот', 'семьсот', 'восемьсот', 'девятьсот'];
+
+  function morph(num, one, two, five) {
+    const n100 = num % 100;
+    if (n100 >= 11 && n100 <= 19) return five;
+    const n10 = num % 10;
+    if (n10 === 1) return one;
+    if (n10 >= 2 && n10 <= 4) return two;
+    return five;
+  }
+
+  function block(num, isFem) {
+    const arr = isFem ? e1f : e1m;
+    let r = '';
+    const h = Math.floor(num / 100);
+    if (h) r += e4[h] + ' ';
+    const t = Math.floor((num % 100) / 10);
+    const u = num % 10;
+    if (t === 1) return r + e2[u] + ' ';
+    if (t) r += e3[t] + ' ';
+    if (u) r += arr[u] + ' ';
+    return r;
+  }
+
+  const b = Math.floor(intVal / 1000000000);
+  const m = Math.floor((intVal % 1000000000) / 1000000);
+  const th = Math.floor((intVal % 1000000) / 1000);
+  const r = intVal % 1000;
+
+  let words = '';
+  if (b) words += block(b, false) + morph(b, 'миллиард', 'миллиарда', 'миллиардов') + ' ';
+  if (m) words += block(m, false) + morph(m, 'миллион', 'миллиона', 'миллионов') + ' ';
+  if (th) words += block(th, true) + morph(th, 'тысяча', 'тысячи', 'тысяч') + ' ';
+  if (r) words += block(r, false);
+  words = words.trim();
+  if (words) {
+    words = words.charAt(0).toUpperCase() + words.slice(1);
+  } else {
+    words = 'Ноль';
+  }
+
+  const rubMorph = morph(intVal, 'рубль', 'рубля', 'рублей');
+  const numStr = intVal.toLocaleString('ru-RU');
+  return `${numStr} (${words}) ${rubMorph} ${kopStr}`;
+}
+
+function formatDateRuText(d) {
+  if (!d) return '«___» ________ 202_ г.';
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return String(d);
+  const months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+  const day = String(dt.getDate()).padStart(2, '0');
+  return `«${day}» ${months[dt.getMonth()]} ${dt.getFullYear()} г.`;
+}
+
+export async function generateSubcontractAgreementDocx({
+  contract = {},
+  contractor = {},
+  ownCompany = {},
+  task = null,
+  tasks = [],
+  subcontract = null
+}) {
+  const docNum = contract.contract_number || '1026-1';
+  const docDateStr = formatDateRuText(contract.contract_date || new Date());
+
+  const genComp = {
+    name_full: ownCompany.name_full || DEFAULT_GENERAL_CONTRACTOR.name_full,
+    name_short: ownCompany.name_short || DEFAULT_GENERAL_CONTRACTOR.name_short,
+    director: ownCompany.director || DEFAULT_GENERAL_CONTRACTOR.director,
+    director_title: ownCompany.director_title || DEFAULT_GENERAL_CONTRACTOR.director_title || 'Директор',
+    address_legal: ownCompany.address_legal || DEFAULT_GENERAL_CONTRACTOR.address_legal,
+    address_postal: ownCompany.address_postal || ownCompany.address_legal || DEFAULT_GENERAL_CONTRACTOR.address_legal,
+    phone: ownCompany.phone || DEFAULT_GENERAL_CONTRACTOR.phone || '8(383) 373-27-05',
+    email: ownCompany.email || DEFAULT_GENERAL_CONTRACTOR.email || 'kab_system@ksgroup.ru.com',
+    inn: ownCompany.inn || DEFAULT_GENERAL_CONTRACTOR.inn,
+    kpp: ownCompany.kpp || DEFAULT_GENERAL_CONTRACTOR.kpp,
+    ogrn: ownCompany.ogrn || DEFAULT_GENERAL_CONTRACTOR.ogrn,
+    bank_name: ownCompany.bank_name || DEFAULT_GENERAL_CONTRACTOR.bank_name,
+    bik: ownCompany.bik || DEFAULT_GENERAL_CONTRACTOR.bik,
+    account_pay: ownCompany.account_pay || DEFAULT_GENERAL_CONTRACTOR.account_pay,
+    account_corr: ownCompany.account_corr || DEFAULT_GENERAL_CONTRACTOR.account_corr
+  };
+
+  let docCity = 'г. Новосибирск';
+  if (genComp.address_legal) {
+    const m = genComp.address_legal.match(/г\.\s*([^,]+)/);
+    if (m && m[0]) docCity = m[0].trim();
+  } else if (task && task.region) {
+    docCity = `г. ${task.region.replace(/область|край|республика/gi, '').trim()}`;
+  }
+
+  const innStr = String(contractor.inn || '').trim();
+  const orgType = (contractor.legal_form || contractor.type || '').toLowerCase();
+  const isSelfEmployed = orgType.includes('самозанят') || orgType.includes('нпд') || orgType.includes('self') || (innStr.length === 12 && !orgType.includes('ип'));
+  const isIp = orgType.includes('ип') || (!isSelfEmployed && innStr.length === 12);
+
+  let subPreamble = '';
+  const subShortName = contractor.name_short || contractor.name_full || 'Субподрядчик';
+  const subSigner = contractor.director || contractor.signer_name || contractor.name_full || 'Субподрядчик';
+
+  if (isSelfEmployed) {
+    const passportData = contractor.passport || 'паспорт РФ: серия _____ № __________, выдан ____________________';
+    const regAddr = contractor.address_legal || contractor.address || '_____________________________________________';
+    subPreamble = `Гражданин(-ка) РФ ${subSigner}, ${passportData}, зарегистрированный(-ая) по адресу: ${regAddr}, ИНН ${contractor.inn || '____________'}, применяющий(-ая) специальный налоговый режим «Налог на профессиональный доход», именуемый(-ая) в дальнейшем «Субподрядчик», с другой стороны`;
+  } else if (isIp) {
+    const ogrnipStr = contractor.ogrn ? `ОГРНИП ${contractor.ogrn}` : 'ОГРНИП ________________';
+    subPreamble = `Индивидуальный предприниматель ${subSigner}, действующий(-ая) на основании свидетельства о государственной регистрации (${ogrnipStr}), ИНН ${contractor.inn || '____________'}, именуемый(-ая) в дальнейшем «Субподрядчик», с другой стороны`;
+  } else {
+    const subBasis = contractor.acting_basis || 'Устава';
+    subPreamble = `${contractor.name_full || contractor.name_short || 'Общество с ограниченной ответственностью «_________»'}, именуемое в дальнейшем «Субподрядчик», в лице ${contractor.signer_position || 'директора'} ${subSigner}, действующего на основании ${subBasis}, с другой стороны`;
+  }
+
+  let app1Items = [];
+  let totalOrderAmount = 0;
+  const targetTask = task || (tasks && tasks[0]) || null;
+
+  if (subcontract || targetTask) {
+    app1Items = parseCalculationItems(subcontract || {}, targetTask || {});
+  }
+  if (!app1Items || app1Items.length === 0) {
+    if (targetTask) {
+      const pCount = targetTask.fact || targetTask.in_order || 1;
+      const amt = Number(targetTask.amount || 0);
+      app1Items = [{
+        num: 1,
+        title: targetTask.work_type || 'Выполнение строительно-монтажных и пусконаладочных работ',
+        unit: 'порт/объект',
+        qty: pCount,
+        price: amt > 0 ? Math.round((amt / pCount) * 100) / 100 : 0,
+        total: amt
+      }];
+    } else {
+      app1Items = [{
+        num: 1,
+        title: contract.subject || 'Строительно-монтажные и пусконаладочные работы СКС и связи',
+        unit: 'комплекс',
+        qty: 1,
+        price: 0,
+        total: 0
+      }];
+    }
+  }
+
+  totalOrderAmount = app1Items.reduce((acc, it) => acc + (Number(it.total) || 0), 0);
+  if (totalOrderAmount === 0 && subcontract && subcontract.price_agreed) {
+    totalOrderAmount = Number(subcontract.price_agreed);
+  }
+
+  const objectAddress = targetTask?.address || contract.territory || 'Адрес указывается в Заявке на объект';
+  const vatNote = (ownCompany.vat_mode === 'without_vat' || isSelfEmployed || isIp) ? 'без НДС' : 'в т.ч. НДС';
+
+  const app1TableRows = [
+    new TableRow({
+      tableHeader: true,
+      children: [
+        new TableCell({ width: { size: 6, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '№', bold: true, size: 18, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: 44, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Наименование работ и адрес объекта', bold: true, size: 18, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: 12, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Ед. изм.', bold: true, size: 18, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Кол-во', bold: true, size: 18, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: 14, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Цена (руб.)', bold: true, size: 18, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: 14, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Стоимость (руб.)', bold: true, size: 18, alignment: AlignmentType.CENTER })] })
+      ]
+    })
+  ];
+
+  app1Items.forEach((it, idx) => {
+    app1TableRows.push(new TableRow({
+      children: [
+        new TableCell({ width: { size: 6, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: String(idx + 1), size: 18, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: 44, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: `${it.title} (${objectAddress})`, size: 18 })] }),
+        new TableCell({ width: { size: 12, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: it.unit || 'шт.', size: 18, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: String(it.qty || 1), size: 18, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: 14, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: formatMoneyNum(it.price), size: 18, alignment: AlignmentType.RIGHT })] }),
+        new TableCell({ width: { size: 14, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: formatMoneyNum(it.total), size: 18, alignment: AlignmentType.RIGHT, bold: true })] })
+      ]
+    }));
+  });
+
+  app1TableRows.push(new TableRow({
+    children: [
+      new TableCell({ width: { size: 72, type: WidthType.PERCENTAGE }, columnSpan: 4, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'ИТОГО ПО ЗАЯВКЕ:', bold: true, size: 18, alignment: AlignmentType.RIGHT })] }),
+      new TableCell({ width: { size: 28, type: WidthType.PERCENTAGE }, columnSpan: 2, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: totalOrderAmount > 0 ? (formatMoneyNum(totalOrderAmount) + ' руб.') : 'По акту', bold: true, size: 18, alignment: AlignmentType.RIGHT })] })
+    ]
+  }));
+
+  const tzTableRows = [
+    new TableRow({
+      tableHeader: true,
+      children: [
+        new TableCell({ width: { size: 8, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '№', bold: true, size: 18, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: 46, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Название характеристики', bold: true, size: 18, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: 46, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Данные по объекту', bold: true, size: 18, alignment: AlignmentType.CENTER })] })
+      ]
+    }),
+    new TableRow({
+      children: [
+        new TableCell({ width: { size: 8, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '1', size: 18, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: 46, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Количество этажей здания', size: 18 })] }),
+        new TableCell({ width: { size: 46, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'В соответствии с техническим планом объекта / РД', size: 18 })] })
+      ]
+    }),
+    new TableRow({
+      children: [
+        new TableCell({ width: { size: 8, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '2', size: 18, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: 46, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Наличие фальш-потолков, в коридорах и помещениях здания', size: 18 })] }),
+        new TableCell({ width: { size: 46, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Фальш-потолок имеется частично, прокладка в кабель-каналах и за потолком', size: 18 })] })
+      ]
+    }),
+    new TableRow({
+      children: [
+        new TableCell({ width: { size: 8, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '3', size: 18, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: 46, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Наличие и расположение кроссовой комнаты здания, этажных кроссовых комнат, помещения кабельного ввода (площадь, установленное монтажное оборудование)', size: 18 })] }),
+        new TableCell({ width: { size: 46, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Кроссовая (серверная) комната, настенный/напольный шкаф 19" (ТКШ)', size: 18 })] })
+      ]
+    }),
+    new TableRow({
+      children: [
+        new TableCell({ width: { size: 8, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '4', size: 18, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: 46, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Наличие и расположение вертикальных каналов и их емкость (возможность прокладки в существующие каналы, их свободная емкость)', size: 18 })] }),
+        new TableCell({ width: { size: 46, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Имеющиеся вертикальные каналы и межэтажные гильзы в соответствии с проектом', size: 18 })] })
+      ]
+    }),
+    new TableRow({
+      children: [
+        new TableCell({ width: { size: 8, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '5', size: 18, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: 46, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Наличие и возможность использования существующих этажных кабельных каналов (лотки, короба, закладные), их свободная емкость', size: 18 })] }),
+        new TableCell({ width: { size: 46, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Разводка сети осуществляется в кабель-каналах и за фальш-потолком к рабочим местам', size: 18 })] })
+      ]
+    }),
+    new TableRow({
+      children: [
+        new TableCell({ width: { size: 8, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: '6', size: 18, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: 46, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Наличие в здании существующей ЛВС, требуемой полной или частичной замены', size: 18 })] }),
+        new TableCell({ width: { size: 46, type: WidthType.PERCENTAGE }, borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: 'Да, в соответствии с рабочей документацией', size: 18 })] })
+      ]
+    })
+  ];
+
+  const doc = new Document({
+    creator: 'StockEasy AI — Cable Systems Contract Management',
+    title: `Договор субподряда № ${docNum}`,
+    sections: [{
+      properties: {
+        page: { margin: { top: 1134, right: 850, bottom: 1134, left: 1417 } }
+      },
+      children: [
+        new Paragraph({
+          text: `ДОГОВОР СУБПОДРЯДА № ${docNum}`,
+          heading: HeadingLevel.HEADING_1,
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 150 }
+        }),
+        new Paragraph({
+          children: [
+            new TextRun({ text: docCity, bold: true, size: 20 }),
+            new TextRun({ text: '\t\t\t\t\t\t\t\t\t' }),
+            new TextRun({ text: docDateStr, bold: true, size: 20 })
+          ],
+          spacing: { after: 250 }
+        }),
+
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: `${genComp.name_full || genComp.name_short}, именуемое в дальнейшем «Генеральный подрядчик», в лице ${genComp.director_title}а ${genComp.director}, действующего(-ей) на основании Устава, с одной стороны, и `,
+              size: 20
+            }),
+            new TextRun({
+              text: `${subPreamble}, совместно именуемые «Стороны» и каждый в отдельности «Сторона», заключили настоящий Договор (далее – «Договор») о нижеследующем:`,
+              size: 20
+            })
+          ],
+          spacing: { after: 200 }
+        }),
+
+        new Paragraph({ text: '1. ПРЕДМЕТ ДОГОВОРА', bold: true, size: 20, spacing: { before: 150, after: 100 } }),
+        new Paragraph({ text: '1.1. Субподрядчик обязуется выполнить работы, указанные в заявке и техническом задании, являющихся неотъемлемой частью настоящего Договора, и сдать их результат Генеральному подрядчику, а Генеральный подрядчик обязуется принять результат работ и оплатить его.', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '1.2. Состав, объем, обеспечение материалами, срок, место выполнения и стоимость работ, выполняемых Субподрядчиком по настоящему Договору, определяется на основании утвержденных заявок/спецификаций, являющихся неотъемлемой частью настоящего Договора.', size: 20, spacing: { after: 150 } }),
+
+        new Paragraph({ text: '2. ЦЕНА ДОГОВОРА И ПОРЯДОК ОПЛАТЫ', bold: true, size: 20, spacing: { before: 150, after: 100 } }),
+        new Paragraph({ text: '2.1. Общая цена Договора состоит из сумм всех подписанных сторонами заявок/спецификаций. Расчеты между Генеральным подрядчиком и Субподрядчиком производятся в порядке, указанном в заявках/спецификациях.', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '2.2. Сумма Договора включает в себя вознаграждение Субподрядчика и все его расходы на исполнение обязательств по настоящему Договору, в том числе транспортные расходы и другие расходы, связанные с выездом представителей Субподрядчика для исполнения обязательств по настоящему Договору, другие возможные накладные расходы Субподрядчика, стоимость оборудования, расходы на гарантийные обязательства в течение заявленного гарантийного срока на выполненные работы, услуги страхования, уплату налогов, сборов и других обязательных платежей, а также прочие расходы и налоги, уплаченные или подлежащие уплате. Затраты, не включенные в сумму договора, не подлежат оплате со стороны Генерального подрядчика.', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '2.3. Цена Договора включает расходы на уплату налогов, таможенных пошлин, сборов и других обязательных платежей, транспортные и иные расходы, связанные с исполнением Договора.', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: isSelfEmployed
+          ? '2.4. Субподрядчик применяет специальный налоговый режим «Налог на профессиональный доход» (НПД). Оплата по Договору осуществляется в безналичной форме путем перечисления денежных средств на банковский счет Субподрядчика. Субподрядчик обязуется сформировать с использованием мобильного приложения «Мой налог» фискальный чек и передать его Генеральному подрядчику в день оплаты либо не позднее 9-го числа следующего месяца. В случае непредставления чека Субподрядчик возмещает Генеральному подрядчику все возникшие убытки.'
+          : '2.4. Оплата по Договору осуществляется в безналичной форме путем перечисления денежных средств на банковский счет Субподрядчика, указанный в Договоре, в порядке, указанном в заявке/спецификации.',
+          size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '2.5. Обязательства Генерального подрядчика по оплате цены Договора считаются исполненными с момента зачисления денежных средств на расчетный счет Субподрядчика.', size: 20, spacing: { after: 150 } }),
+
+        new Paragraph({ text: '3. ПРАВА И ОБЯЗАННОСТИ СТОРОН', bold: true, size: 20, spacing: { before: 150, after: 100 } }),
+        new Paragraph({ text: '3.1. Генеральный подрядчик имеет право:', bold: true, size: 20, spacing: { after: 80 } }),
+        new Paragraph({ text: '3.1.1. Требовать от Субподрядчика надлежащего исполнения обязательств в соответствии с условиями Договора, а также требовать своевременного устранения выявленных недостатков.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.1.2. Требовать от Субподрядчика представления надлежащим образом оформленных документов.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.1.3. В случае досрочного исполнения Субподрядчиком обязательств по Договору принять и оплатить работы.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.1.4. Запрашивать у Субподрядчика информацию о ходе и состоянии исполнения обязательств по Договору.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.1.5. Осуществлять контроль и надзор за качеством, порядком и сроками выполнения работ, давать указания о способе выполнения работ, не вмешиваясь при этом в оперативно-хозяйственную деятельность Субподрядчика.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.1.6. Беспрепятственного доступа к объектам работ, выполняемых Субподрядчиком по настоящему Договору, для осуществления контроля за ходом и качеством выполнения работ, в том числе с привлечением специализированных организаций.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.1.7. Требовать уплаты неустоек (штрафов, пеней) в случае просрочки Субподрядчиком обязательств, предусмотренных Договором, а также в иных случаях ненадлежащего исполнения Субподрядчиком обязательств.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.1.8. Отказаться от приемки результата работ в случаях, предусмотренных Договором и законодательством РФ, в том числе при обнаружении неустранимых недостатков.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.1.9. Направлять мотивированный отказ от подписания акта приемки выполненных работ по результатам приемки результатов выполненных работ.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.1.10. Отказаться в любое время до сдачи работ от исполнения Договора и потребовать возмещения ущерба, если Субподрядчик не приступает своевременно к исполнению обязательств или выполняет работы настолько медленно, что окончание их к сроку становится явно невозможным.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.1.11. Пользоваться иными установленными Договором и законодательством РФ правами.', size: 20, spacing: { after: 100 } }),
+
+        new Paragraph({ text: '3.2. Генеральный подрядчик обязан:', bold: true, size: 20, spacing: { after: 80 } }),
+        new Paragraph({ text: '3.2.1. Передать Субподрядчику документы, необходимые для выполнения работы.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.2.2. Обеспечить приемку представленного Субподрядчиком результата работ в соответствии с условиями Договора.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.2.3. Оплатить результат работы в соответствии с условиями Договора.', size: 20, spacing: { after: 100 } }),
+
+        new Paragraph({ text: '3.3. Субподрядчик вправе:', bold: true, size: 20, spacing: { after: 80 } }),
+        new Paragraph({ text: '3.3.1. Требовать оплаты выполненных надлежащим образом работ.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.3.2. Запрашивать у Генерального подрядчика разъяснения и уточнения относительно проведения работ в рамках Договора.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.3.3. Требовать уплаты неустоек (штрафов, пеней) в случае просрочки исполнения Генеральным подрядчиком обязательств по Договору.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.3.4. Пользоваться иными правами, установленными Договором и законодательством РФ.', size: 20, spacing: { after: 100 } }),
+
+        new Paragraph({ text: '3.4. Субподрядчик обязан:', bold: true, size: 20, spacing: { after: 80 } }),
+        new Paragraph({ text: '3.4.1. Выполнить все работы в объеме и в сроки, предусмотренные Договором и приложениями к нему, и сдать результат выполненных работ Генеральному подрядчику по акту выполненных работ.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.4.2. Обеспечивать соответствие результатов работ требованиям качества, безопасности жизни и здоровья, а также иным требованиям сертификации, безопасности (санитарным нормам и правилам, государственным стандартам и т.п.), лицензирования, установленным законодательством РФ.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.4.3. Немедленно предупредить Генерального подрядчика и до получения от него указаний приостановить работу при обнаружении неблагоприятных последствий выполнения его указаний или иных обстоятельств, грозящих годности работ.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.4.4. Обеспечить устранение недостатков, выявленных при приемке работ и в течение гарантийного срока, за свой счет.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.4.5. По запросу Генерального подрядчика предоставлять достоверную информацию о ходе исполнения своих обязательств.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.4.6. Не предоставлять другим лицам и не разглашать конфиденциальную информацию, полученную в результате исполнения Договора.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.4.7. Соблюдать правила внутреннего трудового распорядка, техники безопасности и пожарной безопасности на объекте.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.4.8. Обеспечить наличие документов, подтверждающих соответствие привлекаемых специалистов квалификационным требованиям.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.4.9. Предоставить исполнительную документацию, кабельный журнал и фотоотчеты по завершении монтажных работ.', size: 20, spacing: { after: 60 } }),
+        new Paragraph({ text: '3.4.10. Исполнять иные обязанности, предусмотренные действующим законодательством РФ и Договором.', size: 20, spacing: { after: 150 } }),
+
+        new Paragraph({ text: '4. СРОКИ ВЫПОЛНЕНИЯ РАБОТ, МЕСТО, КАЧЕСТВО И УСЛОВИЯ ВЫПОЛНЕНИЯ РАБОТ', bold: true, size: 20, spacing: { before: 150, after: 100 } }),
+        new Paragraph({ text: '4.1. Сроки выполнения работ указываются в заявках/спецификациях к настоящему Договору.', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '4.2. Качество, технические характеристики работ, результаты работ и иные показатели должны соответствовать условиям Договора, обязательным нормам и правилам, регулирующим данную деятельность (ГОСТ, ТУ), а также иным требованиям законодательства РФ.', size: 20, spacing: { after: 150 } }),
+
+        new Paragraph({ text: '5. ПОРЯДОК ПРИЕМКИ РЕЗУЛЬТАТОВ ВЫПОЛНЕННЫХ РАБОТ', bold: true, size: 20, spacing: { before: 150, after: 100 } }),
+        new Paragraph({ text: '5.1. Генеральный подрядчик осуществляет приемку выполненных работ в течение 5 (пяти) рабочих дней, следующих за днем поступления подписанного Субподрядчиком акта выполненных работ.', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: `5.2. В случае обнаружения недостатков Генеральный подрядчик извещает Субподрядчика не позднее 5 (пяти) рабочих дней. Извещение о выявленных недостатках направляется Субподрядчику электронной почтой (адрес Субподрядчика для извещений: ${contractor.email || 'указанный в разделе 13'}), такое извещение считается полученным Субподрядчиком в день его отправки. Субподрядчик обязан устранить недостатки в установленный срок.`, size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '5.3. Для проверки результатов работ Генеральный подрядчик вправе провести независимую экспертизу с привлечением экспертных организаций.', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '5.4. По результатам приемки Генеральный подрядчик подписывает документ о приемке либо мотивированный отказ с указанием причин.', size: 20, spacing: { after: 150 } }),
+
+        new Paragraph({ text: '6. ОТВЕТСТВЕННОСТЬ СТОРОН', bold: true, size: 20, spacing: { before: 150, after: 100 } }),
+        new Paragraph({ text: '6.1. За неисполнение или ненадлежащее исполнение обязательств Стороны несут ответственность в соответствии с Договором и законодательством РФ.', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '6.2. В случае просрочки исполнения Субподрядчиком обязательств (в т.ч. гарантийных) начисляется пеня в размере 0,1% от стоимости невыполненных в срок работ за каждый день просрочки.', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '6.3. Общая сумма начисленных штрафов за неисполнение обязательств не может превышать цену Договора.', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '6.4. Уплата неустойки не освобождает Стороны от исполнения лежащих на них обязательств.', size: 20, spacing: { after: 150 } }),
+
+        new Paragraph({ text: '7. ПОРЯДОК ИЗМЕНЕНИЯ И РАСТОРЖЕНИЯ ДОГОВОРА', bold: true, size: 20, spacing: { before: 150, after: 100 } }),
+        new Paragraph({ text: '7.1. Расторжение Договора допускается по соглашению Сторон, по решению суда или в одностороннем порядке в случаях, предусмотренных гражданским законодательством РФ.', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '7.2. Генеральный подрядчик вправе в одностороннем порядке отказаться от исполнения Договора, письменно уведомив об этом Субподрядчика за 5 (пять) рабочих дней.', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '7.3. Все изменения и дополнения оформляются дополнительными соглашениями в письменной форме.', size: 20, spacing: { after: 150 } }),
+
+        new Paragraph({ text: '8. РАЗРЕШЕНИЕ СПОРОВ', bold: true, size: 20, spacing: { before: 150, after: 100 } }),
+        new Paragraph({ text: '8.1. Все споры и разногласия Стороны разрешают в претензионном порядке. Срок ответа на претензию – 10 (десять) рабочих дней.', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '8.2. При недостижении согласия спор передается на рассмотрение в Арбитражный суд по месту нахождения Генерального подрядчика.', size: 20, spacing: { after: 150 } }),
+
+        new Paragraph({ text: '9. ОБСТОЯТЕЛЬСТВА НЕПРЕОДОЛИМОЙ СИЛЫ', bold: true, size: 20, spacing: { before: 150, after: 100 } }),
+        new Paragraph({ text: '9.1. Стороны освобождаются от ответственности за частичное или полное неисполнение обязательств при наступлении обстоятельств непреодолимой силы (пожары, наводнения, военные действия, акты госорганов).', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '9.2. Сторона, для которой создалась невозможность исполнения, обязана известить другую Сторону в течение 5 (пяти) рабочих дней с приложением официальных документов.', size: 20, spacing: { after: 150 } }),
+
+        new Paragraph({ text: '10. ГАРАНТИЙНЫЕ ОБЯЗАТЕЛЬСТВА', bold: true, size: 20, spacing: { before: 150, after: 100 } }),
+        new Paragraph({ text: '10.1. Срок гарантии на результат выполненных строительно-монтажных работ составляет 12 (двенадцать) месяцев с даты подписания Сторонами акта выполненных работ.', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '10.2. Гарантийный срок начинает течь с момента подписания Сторонами акта выполненных работ и распространяется на весь объем работ.', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '10.3. В случае обнаружения дефектов Субподрядчик обязан безвозмездно устранить их в течение 5 (пяти) рабочих дней после получения уведомления Генерального подрядчика.', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '10.4. При неустранении дефектов Субподрядчиком Генеральный подрядчик вправе устранить их самостоятельно либо с привлечением третьих лиц за счет Субподрядчика.', size: 20, spacing: { after: 150 } }),
+
+        new Paragraph({ text: '11. ПРОЧИЕ УСЛОВИЯ', bold: true, size: 20, spacing: { before: 150, after: 100 } }),
+        new Paragraph({ text: '11.1. Договор вступает в силу с момента заключения и действует до полного исполнения Сторонами обязательств.', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '11.2. Документооборот осуществляется в письменной форме, а также по электронной почте, указанной в Договоре. Документы, направленные по электронной почте, имеют полную юридическую силу. Срок ответа на входящий документ – не более 3 (трех) календарных дней.', size: 20, spacing: { after: 100 } }),
+        new Paragraph({ text: '11.3. При изменении адреса или банковских реквизитов Сторона обязана письменно уведомить другую Сторону в течение 24 часов.', size: 20, spacing: { after: 150 } }),
+
+        new Paragraph({ text: '12. ПРИЛОЖЕНИЯ К ДОГОВОРУ', bold: true, size: 20, spacing: { before: 150, after: 100 } }),
+        new Paragraph({ text: '12.1. Неотъемлемыми частями настоящего Договора являются:\n— Приложение № 1: Заявка на выполнение работ (Спецификация);\n— Приложение № 2: Техническое задание.', size: 20, spacing: { after: 200 } }),
+
+        new Paragraph({ text: '13. АДРЕСА И РЕКВИЗИТЫ СТОРОН:', bold: true, size: 20, spacing: { before: 150, after: 150 } }),
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({
+                  width: { size: 50, type: WidthType.PERCENTAGE },
+                  borders: CELL_BORDERS_ALL,
+                  margins: CELL_PADDING,
+                  children: [
+                    new Paragraph({ text: 'ГЕНЕРАЛЬНЫЙ ПОДРЯДЧИК:', bold: true, size: 18 }),
+                    new Paragraph({ text: `${genComp.name_full || genComp.name_short}`, bold: true, size: 18 }),
+                    new Paragraph({ text: `Адрес юр.: ${genComp.address_legal || '—'}`, size: 17 }),
+                    new Paragraph({ text: `Адрес почт.: ${genComp.address_postal || '—'}`, size: 17 }),
+                    new Paragraph({ text: `Тел.: ${genComp.phone || '—'}`, size: 17 }),
+                    new Paragraph({ text: `Эл. почта: ${genComp.email || '—'}`, size: 17 }),
+                    new Paragraph({ text: `ИНН: ${genComp.inn}  КПП: ${genComp.kpp || '—'}`, size: 17 }),
+                    new Paragraph({ text: `ОГРН: ${genComp.ogrn || '—'}`, size: 17 }),
+                    new Paragraph({ text: `Банк: ${genComp.bank_name || '—'}`, size: 17 }),
+                    new Paragraph({ text: `БИК: ${genComp.bik || '—'}`, size: 17 }),
+                    new Paragraph({ text: `Р/С: ${genComp.account_pay || '—'}`, size: 17 }),
+                    new Paragraph({ text: `К/С: ${genComp.account_corr || '—'}`, size: 17 }),
+                    new Paragraph({ text: `\n${genComp.director_title}:`, bold: true, size: 18 }),
+                    new Paragraph({ text: `_________________ / ${genComp.director} /`, size: 18 }),
+                    new Paragraph({ text: 'М.П.', size: 16, italics: true })
+                  ]
+                }),
+                new TableCell({
+                  width: { size: 50, type: WidthType.PERCENTAGE },
+                  borders: CELL_BORDERS_ALL,
+                  margins: CELL_PADDING,
+                  children: [
+                    new Paragraph({ text: 'СУБПОДРЯДЧИК:', bold: true, size: 18 }),
+                    new Paragraph({ text: `${subShortName}`, bold: true, size: 18 }),
+                    new Paragraph({ text: `Адрес: ${contractor.address_legal || '—'}`, size: 17 }),
+                    new Paragraph({ text: `Тел.: ${contractor.phone || '—'}`, size: 17 }),
+                    new Paragraph({ text: `Эл. почта: ${contractor.email || '—'}`, size: 17 }),
+                    new Paragraph({ text: `ИНН: ${contractor.inn || '—'}` + (contractor.kpp ? `  КПП: ${contractor.kpp}` : ''), size: 17 }),
+                    new Paragraph({ text: (isIp ? 'ОГРНИП: ' : 'ОГРН: ') + (contractor.ogrn || '—'), size: 17 }),
+                    new Paragraph({ text: `Банк: ${contractor.bank_name || '—'}`, size: 17 }),
+                    new Paragraph({ text: `БИК: ${contractor.bik || '—'}`, size: 17 }),
+                    new Paragraph({ text: `Р/С: ${contractor.account_pay || '—'}`, size: 17 }),
+                    new Paragraph({ text: `К/С: ${contractor.account_corr || '—'}`, size: 17 }),
+                    new Paragraph({ text: `\n${isIp ? 'Индивидуальный предприниматель' : (contractor.signer_position || 'Руководитель')}:`, bold: true, size: 18 }),
+                    new Paragraph({ text: `_________________ / ${subSigner} /`, size: 18 }),
+                    new Paragraph({ text: 'М.П.', size: 16, italics: true })
+                  ]
+                })
+              ]
+            })
+          ]
+        }),
+
+        // ─── ПРИЛОЖЕНИЕ № 1 ────────────────────────────────────────────────────────
+        new Paragraph({ children: [new PageBreak()] }),
+        new Paragraph({ text: 'Приложение № 1', bold: true, size: 20, alignment: AlignmentType.RIGHT }),
+        new Paragraph({ text: `к Договору субподряда № ${docNum}`, size: 18, alignment: AlignmentType.RIGHT }),
+        new Paragraph({ text: `от ${docDateStr}`, size: 18, alignment: AlignmentType.RIGHT, spacing: { after: 200 } }),
+
+        new Paragraph({
+          text: `ЗАЯВКА (СПЕЦИФИКАЦИЯ)`,
+          heading: HeadingLevel.HEADING_2,
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 150 }
+        }),
+        new Paragraph({
+          text: `${genComp.name_full || genComp.name_short}, именуемое в дальнейшем «Генеральный подрядчик», в лице ${genComp.director_title}а ${genComp.director}, действующего(-ей) на основании Устава, с одной стороны, и ${subShortName}, именуемый(-ое) в дальнейшем «Субподрядчик», с другой стороны, вместе именуемые «Стороны», утвердили настоящую Заявку о нижеследующем:`,
+          size: 20,
+          spacing: { after: 150 }
+        }),
+        new Paragraph({
+          text: `1. Стороны согласовали следующий перечень, объект и стоимость работ по объекту: ${objectAddress}:`,
+          size: 20,
+          spacing: { after: 150 }
+        }),
+
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: app1TableRows
+        }),
+
+        new Paragraph({ text: '', spacing: { after: 150 } }),
+        new Paragraph({
+          text: `2. Общая сумма согласно настоящей Заявке составляет ${totalOrderAmount > 0 ? formatSumWordsRu(totalOrderAmount) : 'согласно согласованной смете'}, ${vatNote}.`,
+          size: 20,
+          spacing: { after: 100 }
+        }),
+        new Paragraph({
+          text: `3. Срок выполнения Работ: 20 (Двадцать) рабочих дней с момента подписания настоящей Заявки${targetTask && targetTask.deadline ? (' (плановый срок сдачи: до ' + formatDateRuText(targetTask.deadline) + ')') : ''}.`,
+          size: 20,
+          spacing: { after: 100 }
+        }),
+        new Paragraph({
+          text: '4. Субподрядчик выполняет работы на объекте из материалов Генерального подрядчика, которые принимает по отгрузочным накладным (акту передачи ТМЦ), и по окончании работ предоставляет полный отчет по израсходованным материалам. Неиспользованные материалы подлежат возврату Генеральному подрядчику.',
+          size: 20,
+          spacing: { after: 100 }
+        }),
+        new Paragraph({
+          text: '5. Стоимость работ по данной Заявке на период действия договора является фиксированной и не подлежит изменению без письменного согласия Генерального подрядчика.',
+          size: 20,
+          spacing: { after: 100 }
+        }),
+        new Paragraph({
+          text: `6. Оплата производится путем перечисления денежных средств в размере 100% от указанной в п. 2 суммы (${totalOrderAmount > 0 ? formatMoneyNum(totalOrderAmount) + ' руб.' : 'согласно акту'}) в течение 15 (пятнадцати) календарных дней после приемки выполненных работ и подписания двустороннего акта сдачи-приемки.`,
+          size: 20,
+          spacing: { after: 100 }
+        }),
+        new Paragraph({
+          text: '7. Гарантийные обязательства на выполняемые работы составляют 12 (двенадцать) месяцев с момента подписания акта сдачи-приемки.',
+          size: 20,
+          spacing: { after: 100 }
+        }),
+        new Paragraph({
+          text: '8. Заявка составлена в двух идентичных экземплярах, имеющих одинаковую юридическую силу, по одному для каждой из Сторон. В случае противоречий в условиях Договора и Заявки приоритет имеют условия настоящей Заявки.',
+          size: 20,
+          spacing: { after: 200 }
+        }),
+
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({
+                  width: { size: 50, type: WidthType.PERCENTAGE },
+                  borders: CELL_BORDERS_ALL,
+                  margins: CELL_PADDING,
+                  children: [
+                    new Paragraph({ text: 'ГЕНЕРАЛЬНЫЙ ПОДРЯДЧИК:', bold: true, size: 18 }),
+                    new Paragraph({ text: `${genComp.name_short}`, size: 18 }),
+                    new Paragraph({ text: `\n_________________ / ${genComp.director} /\nМ.П.`, size: 18 })
+                  ]
+                }),
+                new TableCell({
+                  width: { size: 50, type: WidthType.PERCENTAGE },
+                  borders: CELL_BORDERS_ALL,
+                  margins: CELL_PADDING,
+                  children: [
+                    new Paragraph({ text: 'СУБПОДРЯДЧИК:', bold: true, size: 18 }),
+                    new Paragraph({ text: `${subShortName}`, size: 18 }),
+                    new Paragraph({ text: `\n_________________ / ${subSigner} /\nМ.П.`, size: 18 })
+                  ]
+                })
+              ]
+            })
+          ]
+        }),
+
+        // ─── ПРИЛОЖЕНИЕ № 2 ────────────────────────────────────────────────────────
+        new Paragraph({ children: [new PageBreak()] }),
+        new Paragraph({ text: 'Приложение № 2', bold: true, size: 20, alignment: AlignmentType.RIGHT }),
+        new Paragraph({ text: `к Договору субподряда № ${docNum}`, size: 18, alignment: AlignmentType.RIGHT }),
+        new Paragraph({ text: `от ${docDateStr}`, size: 18, alignment: AlignmentType.RIGHT, spacing: { after: 200 } }),
+
+        new Paragraph({
+          text: 'ТЕХНИЧЕСКОЕ ЗАДАНИЕ',
+          heading: HeadingLevel.HEADING_2,
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 100 }
+        }),
+        new Paragraph({
+          text: `на выполнение работ в сфере информационно-коммуникационных технологий (${targetTask?.work_type || 'создание ЛВС и монтаж СКС'})`,
+          alignment: AlignmentType.CENTER,
+          size: 19,
+          italics: true,
+          spacing: { after: 200 }
+        }),
+
+        new Paragraph({ text: '1. ОБЩИЕ СВЕДЕНИЯ', bold: true, size: 20, spacing: { before: 100, after: 80 } }),
+        new Paragraph({ text: `Адрес объекта: ${objectAddress}`, size: 20, spacing: { after: 150 } }),
+
+        new Paragraph({ text: '2. ХАРАКТЕРИСТИКА ОБЪЕКТА', bold: true, size: 20, spacing: { before: 100, after: 80 } }),
+        new Paragraph({
+          text: `Настоящий документ определяет требования к созданию локальной вычислительной сети (ЛВС) на объекте по адресу: ${objectAddress}.${targetTask?.fact ? (' Объем работ: ' + targetTask.fact + ' портов.') : ''} Характеристики объекта представлены в Таблице 1:`,
+          size: 20,
+          spacing: { after: 150 }
+        }),
+
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: tzTableRows
+        }),
+
+        new Paragraph({ text: '', spacing: { after: 150 } }),
+        new Paragraph({ text: '3. ГАРАНТИЙНЫЕ ОБЯЗАТЕЛЬСТВА', bold: true, size: 20, spacing: { before: 100, after: 80 } }),
+        new Paragraph({ text: '3.1. Срок гарантии на выполненную работу и смонтированные инженерные системы составляет 12 (двенадцать) месяцев с момента подписания документа о приемке (акта выполненных работ). В случае обнаружения дефектов устранение производится за счет Субподрядчика в течение 5 (пяти) рабочих дней.', size: 20, spacing: { after: 120 } }),
+
+        new Paragraph({ text: '4. ОСОБЫЕ УСЛОВИЯ', bold: true, size: 20, spacing: { before: 100, after: 80 } }),
+        new Paragraph({ text: '4.1. Работы выполняются в эксплуатируемом здании. Все необходимые согласования с администрацией объекта Субподрядчик осуществляет по согласованию с Генеральным подрядчиком.', size: 20, spacing: { after: 120 } }),
+
+        new Paragraph({ text: '5. ТЕХНИЧЕСКИЕ ХАРАКТЕРИСТИКИ И КАЧЕСТВО', bold: true, size: 20, spacing: { before: 100, after: 80 } }),
+        new Paragraph({ text: '5.1. Работы выполняются в объемах и качестве в строгом соответствии с рабочей проектной документацией, переданной Генеральным подрядчиком, требованиями ГОСТ Р 53246-2008, СНиП и ПУЭ.', size: 20, spacing: { after: 200 } }),
+
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({
+                  width: { size: 50, type: WidthType.PERCENTAGE },
+                  borders: CELL_BORDERS_ALL,
+                  margins: CELL_PADDING,
+                  children: [
+                    new Paragraph({ text: 'ГЕНЕРАЛЬНЫЙ ПОДРЯДЧИК:', bold: true, size: 18 }),
+                    new Paragraph({ text: `${genComp.name_short}`, size: 18 }),
+                    new Paragraph({ text: `\n_________________ / ${genComp.director} /\nМ.П.`, size: 18 })
+                  ]
+                }),
+                new TableCell({
+                  width: { size: 50, type: WidthType.PERCENTAGE },
+                  borders: CELL_BORDERS_ALL,
+                  margins: CELL_PADDING,
+                  children: [
+                    new Paragraph({ text: 'СУБПОДРЯДЧИК:', bold: true, size: 18 }),
+                    new Paragraph({ text: `${subShortName}`, size: 18 }),
+                    new Paragraph({ text: `\n_________________ / ${subSigner} /\nМ.П.`, size: 18 })
+                  ]
+                })
+              ]
+            })
+          ]
+        })
+      ]
+    }]
+  });
+
+  return await Packer.toBuffer(doc);
+}

@@ -1199,6 +1199,31 @@ function renderContractsTable() {
  */
 
 window._onContractFieldChange = function(contractId, fieldName, value) {
+  if (['contract_law_type', 'status', 'closing_priority'].includes(fieldName)) {
+    var payload = {};
+    payload[fieldName] = value;
+    api('/contracts/' + contractId, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function(res) {
+      if (res && res.error) {
+        showToast('Ошибка: ' + res.error, 'error');
+      } else {
+        showToast('✅ ' + (fieldName === 'contract_law_type' ? 'Закон обновлен: ' : (fieldName === 'status' ? 'Статус обновлен: ' : 'Приоритет обновлен: ')) + value, 'success');
+        if (window._activeContract && window._activeContract.id === contractId) {
+          window._activeContract[fieldName] = value;
+        }
+        var inList = (S.contracts || []).find(function(x){ return x.id === contractId; });
+        if (inList) inList[fieldName] = value;
+        renderContractsTable();
+      }
+    }).catch(function(err) {
+      showToast('Ошибка сохранения: ' + err.message, 'error');
+    });
+    return;
+  }
+
   S.contractDraft = S.contractDraft || {};
   S.contractDraft[contractId] = S.contractDraft[contractId] || {};
   S.contractDraft[contractId][fieldName] = value;
@@ -1301,6 +1326,7 @@ function openContractModal(id, activeTab) {
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
             <span class="badge b-orange" style="font-size:.85rem; font-weight:800; font-family:monospace">${escHtml(c.internal_number || '—')}</span>
             ${hasAgreements ? `<span class="badge b-yellow" style="font-size:.82rem; font-weight:700">📑 ${c.agreements.length} допсоглашений</span>` : (c.contract_number ? `<span class="badge b-gray" style="font-size:.85rem; font-weight:700">№ ${escHtml(cleanContractNumber(c.contract_number))}</span>` : '')}
+            ${c.purchase_id ? `<span class="badge b-gray" style="font-size:.80rem; font-family:monospace; background:#f1f5f9; color:#334155; border:1px solid #cbd5e1" title="Идентификатор закупки (ИКЗ / ЕИС / Номер извещения)">🆔 ИКЗ: ${escHtml(c.purchase_id)}</span>` : ''}
             <span class="badge b-blue">${escHtml(c.contract_type_summary || 'Договор')}</span>
 
             <div style="display:inline-flex; align-items:center; gap:6px; background:#f8fafc; padding:3px 8px; border-radius:8px; border:1px solid var(--border)">
@@ -1538,6 +1564,7 @@ function renderContractTabMain(c, dDate, dEnd) {
           </div>
         </div>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+          ${c.purchase_id ? `<span class="btn btn-sm btn-ghost" style="border:1px solid var(--border); font-family:monospace; font-size:.76rem" title="Идентификатор закупки">🆔 ИКЗ: ${escHtml(c.purchase_id)}</span>` : ''}
           ${c.zakupki_url ? `<a href="${escHtml(c.zakupki_url)}" target="_blank" class="btn btn-sm btn-ghost" style="border:1px solid var(--border)">🔗 Закупки / ЭТП</a>` : ''}
           ${c.cloud_url ? `
             <a href="${escHtml(c.cloud_url)}" target="_blank" class="btn btn-sm" style="border:1.5px solid #93c5fd; background:#eff6ff; color:#1d4ed8; font-weight:600; display:inline-flex; align-items:center; gap:5px" title="Открыть веб-папку Seafile в браузере">☁️ Папка Seafile</a>
@@ -2593,6 +2620,32 @@ function openContractForm(id) {
     managerOptions += `<option value="${u.id}" data-name="${escHtml(name)}" ${isSel}>${escHtml(name + (roleName ? ' (' + roleName + ')' : ''))}</option>`;
   });
 
+  var custSet = new Set();
+  custSet.add('ОСФР по Новосибирской области');
+  custSet.add('ПАО Сбербанк');
+  custSet.add('ПАО Ростелеком');
+  custSet.add('СФР');
+  if (Array.isArray(S.contractors)) {
+    S.contractors.forEach(function(k) {
+      if (k.name_short) custSet.add(k.name_short.trim());
+      if (k.name_full) custSet.add(k.name_full.trim());
+    });
+  }
+  if (Array.isArray(S.contracts)) {
+    S.contracts.forEach(function(k) {
+      if (k.customer_name) custSet.add(k.customer_name.trim());
+    });
+  }
+  if (Array.isArray(S.tasks)) {
+    S.tasks.forEach(function(k) {
+      if (k.customer) custSet.add(k.customer.trim());
+    });
+  }
+  if (c && c.customer_name) custSet.add(c.customer_name.trim());
+  var custDatalistHtml = Array.from(custSet).filter(Boolean).sort().map(function(name) {
+    return `<option value="${escHtml(name)}">`;
+  }).join('');
+
   modalEl.innerHTML = `
     <div class="modal-header" style="padding:20px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center">
       <h2 style="margin:0; font-size:1.15rem">${isEdit ? 'Редактировать договор' : 'Новый договор'}</h2>
@@ -2635,7 +2688,7 @@ function openContractForm(id) {
           <label style="font-size:.78rem; font-weight:700">Статус договора</label>
           <select id="cf_status" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem; font-weight:600">
             ${CONTRACT_STATUSES.map(function(st) {
-              var isSel = (c && String(c.status || '').trim().toLowerCase() === st.id) ? 'selected' : (!c && st.id === 'заключен' ? 'selected' : '');
+              var isSel = (c && String(c.status || '').trim().toLowerCase() === st.id) ? 'selected' : (!c && st.id === 'играется' ? 'selected' : '');
               return `<option value="${st.id}" ${isSel}>${st.label}</option>`;
             }).join('')}
           </select>
@@ -2645,11 +2698,20 @@ function openContractForm(id) {
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
         <div>
           <label style="font-size:.78rem; font-weight:700">Заказчик (Сторона 1) *</label>
-          <input type="text" id="cf_customer_name" required value="${escHtml(c ? c.customer_name : '')}" placeholder="Например: ОСФР, Ростелеком, Сбербанк и др." style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem">
+          <div style="position:relative">
+            <input type="text" id="cf_customer_name" required list="cf_customer_datalist" value="${escHtml(c ? c.customer_name : '')}" placeholder="Выберите из списка или введите название" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem">
+            <datalist id="cf_customer_datalist">
+              ${custDatalistHtml}
+            </datalist>
+          </div>
         </div>
         <div>
           <label style="font-size:.78rem; font-weight:700">Наша компания / Филиал (Сторона 2)</label>
-          <input type="text" id="cf_our_entity" value="${escHtml(c ? (c.our_entity_name || 'ООО «Ультима»') : 'ООО «Ультима»')}" placeholder="ООО «Ультима»" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem">
+          <select id="cf_own_company_id" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem; font-weight:600">
+            <option value="1" ${(c && (c.own_company_id === 1 || (c.our_entity_name && c.our_entity_name.includes('Кабельн')))) || (!c) ? 'selected' : ''}>ООО «Кабельные Системы»</option>
+            <option value="2" ${(c && (c.own_company_id === 2 || (c.our_entity_name && c.our_entity_name.includes('К10')))) ? 'selected' : ''}>ООО «К10»</option>
+            <option value="3" ${(c && (c.own_company_id === 3 || (c.our_entity_name && c.our_entity_name.includes('Ультима')))) ? 'selected' : ''}>ООО «Ультима»</option>
+          </select>
         </div>
       </div>
 
@@ -2729,12 +2791,17 @@ function openContractForm(id) {
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
         <div>
           <label style="font-size:.78rem; font-weight:700">Ссылка на закупку (zakupki.gov.ru / ЭТП)</label>
-          <input type="url" id="cf_zakupki_url" value="${escHtml(c ? c.zakupki_url : '')}" placeholder="https://..." style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem">
+          <input type="url" id="cf_zakupki_url" value="${escHtml(c ? (c.zakupki_url || '') : '')}" placeholder="https://zakupki.gov.ru/..." style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem">
         </div>
         <div>
-          <label style="font-size:.78rem; font-weight:700">Внешняя ссылка (Seafile / Облако, если нужно)</label>
-          <input type="url" id="cf_cloud_url" value="${escHtml(c ? c.cloud_url : '')}" placeholder="Необязательно (файлы можно прикрепить прямо с ПК)" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem">
+          <label style="font-size:.78rem; font-weight:700">Идентификатор закупки (ИКЗ / Номер извещения ЕИС)</label>
+          <input type="text" id="cf_purchase_id" value="${escHtml(c ? (c.purchase_id || '') : '')}" placeholder="Например: 2654060144945406010010001001" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem; font-family:monospace">
         </div>
+      </div>
+
+      <div>
+        <label style="font-size:.78rem; font-weight:700">Внешняя ссылка (Seafile / Облако, если нужно)</label>
+        <input type="url" id="cf_cloud_url" value="${escHtml(c ? (c.cloud_url || '') : '')}" placeholder="Необязательно (файлы можно прикрепить прямо с ПК)" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem">
       </div>
 
       <!-- ПРИКРЕПЛЕНИЕ ФАЙЛОВ С КОМПЬЮТЕРА -->
@@ -2830,9 +2897,11 @@ function handleContractFormSubmit(e, id) {
     contract_number: document.getElementById('cf_contract_number').value.trim(),
     contract_date: document.getElementById('cf_contract_date').value || null,
     contract_type_summary: document.getElementById('cf_type').value,
-    status: document.getElementById('cf_status') ? document.getElementById('cf_status').value : 'заключен',
+    status: document.getElementById('cf_status') ? document.getElementById('cf_status').value : 'играется',
     customer_name: document.getElementById('cf_customer_name').value.trim(),
-    our_entity_name: document.getElementById('cf_our_entity').value.trim(),
+    own_company_id: document.getElementById('cf_own_company_id') ? parseInt(document.getElementById('cf_own_company_id').value, 10) : 1,
+    our_entity_name: (document.getElementById('cf_own_company_id') && document.getElementById('cf_own_company_id').options[document.getElementById('cf_own_company_id').selectedIndex]) ? document.getElementById('cf_own_company_id').options[document.getElementById('cf_own_company_id').selectedIndex].text.trim() : 'ООО «Кабельные Системы»',
+    purchase_id: document.getElementById('cf_purchase_id') ? document.getElementById('cf_purchase_id').value.trim() : '',
     contacts_raw: document.getElementById('cf_contacts_raw') ? document.getElementById('cf_contacts_raw').value.trim() : '',
     manager_id: mgrId,
     manager_name: mgrName,
@@ -3811,8 +3880,8 @@ function renderContractChecklistSection(c) {
             5 этапов: ⏳ Требуется → 📝 Готов (файл) → 📤 Отправлен → 👁️ Принят → 🏆 Завершен. Начальный статус при выставлении галочки строго «1. Требуется».
           </div>
         </div>
-        <button class="btn btn-sm btn-ghost" onclick="promptAddContractChecklistItem(${c.id})" style="border:1px dashed var(--border); font-size:.8rem; font-weight:600">
-          + Своё требование
+        <button class="btn btn-sm" onclick="openAddContractCustomReqModal(${c.id})" style="border:1.5px dashed #3b82f6; background:#eff6ff; color:#1d4ed8; font-size:.8rem; font-weight:700">
+          ➕ Своё требование
         </button>
       </div>
 
@@ -4115,12 +4184,82 @@ function removeChecklistAttachment(contractId, key) {
   });
 }
 
-function promptAddContractChecklistItem(contractId) {
-  var label = prompt('Введите название закрывающего требования или документа:');
-  if (!label || !label.trim()) return;
-  label = label.trim();
+function openAddContractCustomReqModal(contractId) {
+  var c = (window._activeContract && String(window._activeContract.id) === String(contractId))
+    ? window._activeContract 
+    : ((S.contracts || []).find(function(x){ return String(x.id) === String(contractId); }));
+  if (!c) return;
 
-  var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
+  var backdrop = document.getElementById('contract_custom_req_modal_backdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.id = 'contract_custom_req_modal_backdrop';
+    backdrop.style.cssText = 'display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:10001; align-items:center; justify-content:center; padding:16px';
+    backdrop.onclick = function(e) { if (e.target === this) closeAddContractCustomReqModal(); };
+    document.body.appendChild(backdrop);
+  }
+
+  backdrop.style.display = 'flex';
+  backdrop.innerHTML = `
+    <div class="modal-box" style="max-width:540px; width:100%; background:#fff; border-radius:12px; padding:0; overflow:hidden; box-shadow:0 10px 25px rgba(0,0,0,0.25)">
+      <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:#fafafa">
+        <div style="font-weight:700; font-size:1.05rem; color:var(--text)">➕ Своё закрывающее требование</div>
+        <button type="button" class="btn btn-sm btn-ghost" onclick="closeAddContractCustomReqModal()" style="font-size:1.3rem; line-height:1; color:var(--text-3)">&times;</button>
+      </div>
+      <div style="padding:20px">
+        <label style="font-size:.82rem; font-weight:700; display:block; margin-bottom:6px">Название документа или требования:</label>
+        <input type="text" id="custom_req_name_input" placeholder="Например: Рабочая документация (РД)" style="width:100%; padding:9px 12px; border:1.5px solid var(--border); border-radius:8px; font-size:.9rem; outline:none; transition:border-color .15s" onkeydown="if(event.key==='Enter'){event.preventDefault();submitAddContractCustomReq(${c.id});}">
+
+        <div style="margin-top:14px">
+          <div style="font-size:.72rem; text-transform:uppercase; font-weight:700; color:var(--text-3); margin-bottom:8px">Быстрый выбор типовых закрывающих документов:</div>
+          <div style="display:flex; flex-wrap:wrap; gap:6px">
+            <button type="button" class="btn btn-xs btn-outline" onclick="selectQuickReqTemplate('Рабочая документация (РД)')" style="background:#f8fafc; font-weight:600">📄 Рабочая документация (РД)</button>
+            <button type="button" class="btn btn-xs btn-outline" onclick="selectQuickReqTemplate('Акт выполненных работ по форме заказчика')" style="background:#f8fafc; font-weight:600">📝 Акт по форме заказчика</button>
+            <button type="button" class="btn btn-xs btn-outline" onclick="selectQuickReqTemplate('Акт освидетельствования скрытых работ')" style="background:#f8fafc">📋 Акт скрытых работ</button>
+            <button type="button" class="btn btn-xs btn-outline" onclick="selectQuickReqTemplate('Исполнительные схемы и чертежи')" style="background:#f8fafc">📐 Исполнительные схемы</button>
+            <button type="button" class="btn btn-xs btn-outline" onclick="selectQuickReqTemplate('Протоколы входного контроля материалов')" style="background:#f8fafc">🔍 Входной контроль</button>
+          </div>
+        </div>
+      </div>
+      <div style="padding:14px 20px; border-top:1px solid var(--border); background:#fafafa; display:flex; justify-content:flex-end; gap:8px">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="closeAddContractCustomReqModal()">Отмена</button>
+        <button type="button" class="btn btn-sm" onclick="submitAddContractCustomReq(${c.id})" style="background:var(--blue); color:#fff; font-weight:600">Добавить в чек-лист</button>
+      </div>
+    </div>
+  `;
+
+  setTimeout(function() {
+    var inp = document.getElementById('custom_req_name_input');
+    if (inp) inp.focus();
+  }, 100);
+}
+
+function closeAddContractCustomReqModal() {
+  var backdrop = document.getElementById('contract_custom_req_modal_backdrop');
+  if (backdrop) backdrop.style.display = 'none';
+}
+
+function selectQuickReqTemplate(name) {
+  var inp = document.getElementById('custom_req_name_input');
+  if (inp) {
+    inp.value = name;
+    inp.focus();
+  }
+}
+
+function submitAddContractCustomReq(contractId) {
+  var inp = document.getElementById('custom_req_name_input');
+  var label = inp ? inp.value.trim() : '';
+  if (!label) {
+    alert('Пожалуйста, введите название закрывающего требования');
+    if (inp) inp.focus();
+    return;
+  }
+
+  var c = (window._activeContract && String(window._activeContract.id) === String(contractId))
+    ? window._activeContract 
+    : ((S.contracts || []).find(function(x){ return String(x.id) === String(contractId); }));
+
   var cl = {};
   if (c && c.checklist) {
     try {
@@ -4135,14 +4274,16 @@ function promptAddContractChecklistItem(contractId) {
 
   api('/contracts/' + contractId + '/checklist', {
     method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ checklist: cl })
   }).then(function(res) {
+    closeAddContractCustomReqModal();
     if (res && res.error) {
       showToast('Ошибка: ' + res.error, 'error');
     } else {
-      showToast('Требование добавлено', 'success');
+      showToast('✅ Требование «' + label + '» добавлено', 'success');
       if (c) c.checklist = cl;
-      var inList = (S.contracts || []).find(function(x){ return x.id === contractId; });
+      var inList = (S.contracts || []).find(function(x){ return String(x.id) === String(contractId); });
       if (inList) inList.checklist = cl;
       renderContractsTable();
       openContractModal(contractId, 'terms');
@@ -4150,6 +4291,10 @@ function promptAddContractChecklistItem(contractId) {
   }).catch(function(err) {
     showToast('Ошибка: ' + err.message, 'error');
   });
+}
+
+function promptAddContractChecklistItem(contractId) {
+  openAddContractCustomReqModal(contractId);
 }
 
 function removeContractChecklistItem(contractId, key) {
@@ -4893,6 +5038,10 @@ window.saveChecklistAttachmentLink = saveChecklistAttachmentLink;
 window.handleChecklistAttachmentUpload = handleChecklistAttachmentUpload;
 window.removeChecklistAttachment = removeChecklistAttachment;
 window.promptAddContractChecklistItem = promptAddContractChecklistItem;
+window.openAddContractCustomReqModal = openAddContractCustomReqModal;
+window.closeAddContractCustomReqModal = closeAddContractCustomReqModal;
+window.selectQuickReqTemplate = selectQuickReqTemplate;
+window.submitAddContractCustomReq = submitAddContractCustomReq;
 window.removeContractChecklistItem = removeContractChecklistItem;
 window.renderContractPaymentsSection = renderContractPaymentsSection;
 window.openAddContractPaymentModal = openAddContractPaymentModal;
@@ -5026,15 +5175,15 @@ function openCreateTaskForContractModal(contractId, agreementId) {
             <input type="text" id="ct_id" value="${escHtml(suggestedId)}" required style="width:100%; font-weight:700; border-color:var(--orange)">
           </div>
           <div>
-            <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">№ ВСП / Объекта ${(typeof getHintIcon === 'function') ? getHintIcon('vsp') : ''}</label>
-            <input type="text" id="ct_vsp" placeholder="Например: ВСП 0128" style="width:100%">
+            <label id="ct_vsp_label" class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">${defaultCust.toLowerCase().includes('сбер') ? '№ ВСП / Отделение' : 'Тип / наименование объекта'} ${(typeof getHintIcon === 'function') ? getHintIcon(defaultCust.toLowerCase().includes('сбер') ? 'vsp' : 'address') : ''}</label>
+            <input type="text" id="ct_vsp" placeholder="${defaultCust.toLowerCase().includes('сбер') ? 'Например: ВСП 0128' : 'Например: Административное здание, Склад, Офис'}" style="width:100%">
           </div>
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
           <div>
             <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Заказчик (Организация) ${(typeof getHintIcon === 'function') ? getHintIcon('customer') : ''}</label>
-            <select id="ct_customer" style="width:100%">
+            <select id="ct_customer" onchange="onContractTaskCustomerChange(this.value)" style="width:100%">
               ${custOptions.map(function(opt) {
                 var isSel = (opt.toLowerCase().trim() === defaultCust.toLowerCase().trim() || (!defaultCust && opt === 'ПАО Сбербанк')) ? 'selected' : '';
                 return `<option value="${escHtml(opt)}" ${isSel}>${escHtml(opt)}</option>`;
@@ -5111,6 +5260,18 @@ function closeCreateTaskForContractModal() {
   var backdrop = document.getElementById('contract_create_task_modal_backdrop');
   if (backdrop) backdrop.style.display = 'none';
 }
+
+window.onContractTaskCustomerChange = function(val) {
+  var isS = String(val || '').toLowerCase().includes('сбер');
+  var lbl = document.getElementById('ct_vsp_label');
+  var inp = document.getElementById('ct_vsp');
+  if (lbl) {
+    lbl.innerHTML = (isS ? '№ ВСП / Отделение' : 'Тип / наименование объекта') + ' ' + ((typeof getHintIcon === 'function') ? getHintIcon(isS ? 'vsp' : 'address') : '');
+  }
+  if (inp) {
+    inp.placeholder = isS ? 'Например: ВСП 0128' : 'Например: Административное здание, Склад, Офис';
+  }
+};
 
 function submitCreateTaskForContract(contractId) {
   var idEl = document.getElementById('ct_id');
@@ -5223,6 +5384,7 @@ function openLinkTaskToContractModal(contractId) {
     });
     return;
   }
+  window._activeContract = c;
 
   backdrop.style.display = 'flex';
   modal.innerHTML = `
@@ -5311,7 +5473,9 @@ function handleLinkTaskSearchInput(contractId) {
   
   clearTimeout(_linkTaskSearchTimeout);
   _linkTaskSearchTimeout = setTimeout(function() {
-    var c = window._activeContract;
+    var c = (window._activeContract && String(window._activeContract.id) === String(contractId))
+      ? window._activeContract
+      : ((S.contracts || []).find(function(x){ return String(x.id) === String(contractId); }));
     if (!c) return;
 
     var listEl = document.getElementById('link_task_modal_list');
@@ -5326,7 +5490,7 @@ function handleLinkTaskSearchInput(contractId) {
         listEl.innerHTML = `<div style="padding:2rem; text-align:center; color:var(--red)">Ошибка поиска: ${escHtml(err.message)}</div>`;
       }
     });
-  }, 250);
+  }, 200);
 }
 
 function renderLinkTaskModalList(c, tasks, filterQuery) {
@@ -5436,7 +5600,7 @@ function renderLinkTaskModalList(c, tasks, filterQuery) {
     html += `
       <div>
         <div style="font-size:.74rem; text-transform:uppercase; font-weight:700; color:var(--text-2); margin-bottom:8px">
-          <span>📋 Все доступные заявки (${others.length})</span>
+          <span>${filterQuery ? '🔍 Найдено по запросу' : '📋 Все доступные заявки'} (${others.length})</span>
         </div>
         ${others.map(function(t) { return renderItem(t, false); }).join('')}
       </div>

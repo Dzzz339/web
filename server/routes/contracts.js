@@ -521,7 +521,12 @@ router.post('/contracts', authenticateToken, async (req, res) => {
       status,
       lots,
       manager_id,
-      manager_name
+      manager_name,
+      contract_law_type,
+      closing_priority,
+      closing_docs_plan_date,
+      own_company_id,
+      purchase_id
     } = req.body;
 
     let finalDeadlineDate = deadline_date || null;
@@ -537,11 +542,14 @@ router.post('/contracts', authenticateToken, async (req, res) => {
         deadline_raw, deadline_date, payment_terms,
         security_amount, security_condition, discount_percent, amount,
         platform, cloud_url, contacts_raw, status, lots,
-        manager_id, manager_name
+        manager_id, manager_name,
+        contract_law_type, closing_priority, closing_docs_plan_date,
+        own_company_id, purchase_id
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
         $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
-        $25, $26
+        $25, $26,
+        $27, $28, $29, $30, $31
       )
       RETURNING *
     `, [
@@ -550,8 +558,12 @@ router.post('/contracts', authenticateToken, async (req, res) => {
       delivery_place || '', subject || '', terms_text || '', zakupki_url || '',
       deadline_raw || '', finalDeadlineDate || null, payment_terms || '',
       security_amount || 0, security_condition || '', discount_percent || 0, amount || 0,
-      platform || '', cloud_url || '', contacts_raw || '', status || 'Действует', JSON.stringify(lots || []),
-      manager_id ? parseInt(manager_id, 10) : null, manager_name || null
+      platform || '', cloud_url || '', contacts_raw || '', status || 'играется', JSON.stringify(lots || []),
+      manager_id ? parseInt(manager_id, 10) : null, manager_name || null,
+      contract_law_type || '223-ФЗ', closing_priority || 'P3',
+      (closing_docs_plan_date && closing_docs_plan_date.trim()) ? closing_docs_plan_date : null,
+      own_company_id ? parseInt(own_company_id, 10) : null,
+      purchase_id || null
     ]);
 
     res.status(201).json(rows[0]);
@@ -603,7 +615,9 @@ router.put('/contracts/:id', authenticateToken, async (req, res) => {
       closing_docs_plan_date,
       contract_law_type,
       payments,
-      penalties
+      penalties,
+      own_company_id,
+      purchase_id
     } = req.body;
 
     let finalDeadlineDate = deadline_date;
@@ -644,8 +658,10 @@ router.put('/contracts/:id', authenticateToken, async (req, res) => {
         contract_law_type = COALESCE($29, contract_law_type),
         payments = CASE WHEN $30::jsonb IS NOT NULL THEN $30::jsonb ELSE payments END,
         penalties = CASE WHEN $31::jsonb IS NOT NULL THEN $31::jsonb ELSE penalties END,
+        own_company_id = COALESCE($32, own_company_id),
+        purchase_id = COALESCE($33, purchase_id),
         updated_at = NOW()
-      WHERE id = $32
+      WHERE id = $34
       RETURNING *
     `, [
       internal_number, contract_number, contract_date || null, contract_type_summary,
@@ -660,6 +676,8 @@ router.put('/contracts/:id', authenticateToken, async (req, res) => {
       contract_law_type || null,
       payments ? JSON.stringify(payments) : null,
       penalties ? JSON.stringify(penalties) : null,
+      own_company_id ? parseInt(own_company_id, 10) : null,
+      purchase_id !== undefined ? purchase_id : null,
       id
     ]);
 
@@ -840,10 +858,11 @@ router.post('/contracts/import', authenticateToken, uploadAttachment.single('fil
 router.get('/contracts/:id/available-tasks', authenticateToken, async (req, res) => {
   try {
     const contractId = parseInt(req.params.id, 10);
-    const q = (req.query.q || '').trim();
+    const rawQ = (req.query.q || '').trim();
+    const q = rawQ.replace(/^#/, '').trim();
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
 
-    const { rows: cRows } = await pool.query('SELECT id, internal_number, customer_name, delivery_place FROM contracts WHERE id = $1', [contractId]);
+    const { rows: cRows } = await pool.query('SELECT id, internal_number, customer_name, delivery_place, our_entity_region FROM contracts WHERE id = $1', [contractId]);
     if (!cRows.length) {
       return res.status(404).json({ error: 'Договор не найден' });
     }
@@ -866,6 +885,19 @@ router.get('/contracts/:id/available-tasks', authenticateToken, async (req, res)
     if (q) {
       params.push(`%${q}%`);
       query += ` AND (t.id ILIKE $${params.length} OR t.address ILIKE $${params.length} OR t.customer ILIKE $${params.length} OR t.region ILIKE $${params.length})`;
+    } else {
+      // По умолчанию предлагаем ТОЛЬКО релевантные задачи (совпадающий заказчик или префикс номера),
+      // чтобы не заваливать чужими нерелевантными заявками из других регионов
+      if (prefix && custName) {
+        params.push(prefix, `%${custName}%`);
+        query += ` AND (t.id ILIKE $${params.length - 1} || '%' OR t.customer ILIKE $${params.length})`;
+      } else if (prefix) {
+        params.push(prefix);
+        query += ` AND (t.id ILIKE $${params.length} || '%')`;
+      } else if (custName) {
+        params.push(`%${custName}%`);
+        query += ` AND (t.customer ILIKE $${params.length})`;
+      }
     }
 
     query += `

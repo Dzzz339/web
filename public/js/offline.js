@@ -418,6 +418,13 @@ function manualSync() {
         syncOutbox().then(function() {
           fetchFreshServerData();
         });
+      } else if (r.status === 401 || r.status === 403) {
+        // Сервер отвечает! Срок токена истёк
+        S.isOnline = true;
+        updateNetworkStatusUI();
+        if (typeof showReauthModal === 'function') {
+          showReauthModal();
+        }
       } else {
         S.isOnline = false;
         updateNetworkStatusUI();
@@ -507,6 +514,9 @@ function setupOfflineListeners() {
               showToast('🟢 Сервер снова доступен!', 'success');
             }
             syncOutbox();
+          } else if (r.status === 401 || r.status === 403) {
+            // Сервер на связи! Ошибка авторизации не означает оффлайн
+            S.isOnline = true;
           } else {
             S.isOnline = false;
           }

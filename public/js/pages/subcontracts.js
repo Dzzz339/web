@@ -1,3 +1,13 @@
+  window._onSubPriceContractChange = function(sel) {
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value) return;
+    var cust = opt.getAttribute('data-customer') || '';
+    var terr = opt.getAttribute('data-territory') || '';
+    var tagEl = document.getElementById('spl_customer_tag');
+    var regEl = document.getElementById('spl_region');
+    if (tagEl && !tagEl.value && cust) tagEl.value = cust;
+    if (regEl && !regEl.value && terr) regEl.value = terr;
+  };
 // public/js/pages/subcontracts.js
 // Справочники «Договоры субподряда» и «Прайсы субподряда»
 // Сквозная связка расценок с калькулятором сметы СМР и заявками
@@ -394,6 +404,7 @@
                 '<td style="padding:14px 16px">' +
                   '<div style="font-weight:700;color:var(--text);font-size:.88rem">' + escHtml(c.contract_number || 'Б/Н') + '</div>' +
                   '<div style="font-size:.75rem;color:var(--text-3);margin-top:3px">от ' + cDate + '</div>' +
+                  (c.scan_url ? '<div style="margin-top:5px"><a href="' + escHtml(c.scan_url) + '" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:4px;font-size:.72rem;color:#15803d;font-weight:700;text-decoration:none;background:#dcfce7;border:1px solid #bbf7d0;padding:2px 7px;border-radius:4px" title="Открыть прикрепленный скан договора">📎 Скан договора</a></div>' : '') +
                 '</td>' +
                 '<td style="padding:14px 16px">' +
                   '<div style="font-weight:600;color:var(--text);font-size:.86rem">' + escHtml(c.contractor_name || '—') + '</div>' +
@@ -413,7 +424,10 @@
                   stBadge +
                 '</td>' +
                 '<td style="padding:14px 16px;text-align:right">' +
-                  '<div style="display:flex;gap:6px;justify-content:flex-end">' +
+                  '<div style="display:flex;gap:6px;justify-content:flex-end;align-items:center">' +
+                    '<a href="/api/subcontract-contracts/' + c.id + '/docx?token=' + encodeURIComponent(localStorage.getItem('token') || '') + '" target="_blank" class="btn btn-xs btn-ghost" style="border:1.5px solid #93c5fd;color:#1d4ed8;padding:5px 9px;border-radius:6px;font-weight:600;font-size:.78rem;text-decoration:none;display:inline-flex;align-items:center;gap:4px" title="Скачать типовую печатную форму договора субподряда (.docx)">' +
+                      '📄 DOCX' +
+                    '</a>' +
                     '<button type="button" class="btn btn-xs btn-ghost" style="border:1.5px solid var(--border);padding:5px 12px;border-radius:6px;font-weight:600;font-size:.78rem" onclick="openSubContractModal(' + c.id + ')">Редактировать</button>' +
                     '<button type="button" class="btn btn-xs btn-ghost" style="color:#ef4444;border:1.5px solid #fecaca;padding:5px 9px;border-radius:6px" onclick="deleteSubContract(' + c.id + ')" title="Удалить">✕</button>' +
                   '</div>' +
@@ -1018,6 +1032,20 @@
                 '</select>' +
               '</div>' +
 
+              '<div style="grid-column:1/-1;border:1.5px dashed #cbd5e1;background:#f8fafc;padding:12px 14px;border-radius:8px">' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text);margin-bottom:6px">📎 Скан / Файл подписанного договора (.pdf, .docx, .jpg, .png)</label>' +
+                (c && c.scan_url ? (
+                  '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:6px 10px;background:#f0fdf4;border:1px solid #86efac;border-radius:6px">' +
+                    '<span style="font-size:1.1rem">✅</span>' +
+                    '<div style="flex:1;font-size:.82rem;color:#166534">' +
+                      'Прикреплен файл: <a href="' + escHtml(c.scan_url) + '" target="_blank" rel="noopener noreferrer" style="font-weight:700;color:#15803d;text-decoration:underline">Открыть / Скачать скан договора</a>' +
+                    '</div>' +
+                  '</div>'
+                ) : '') +
+                '<input type="file" id="sc_file_upload" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.zip,.rar" style="font-size:.82rem;width:100%">' +
+                '<div style="font-size:.72rem;color:var(--text-3);margin-top:4px">Выберите файл для прикрепления или замены существующего скана</div>' +
+              '</div>' +
+
               (!isEdit ?
                 '<div style="grid-column:1/-1;background:#eff6ff;padding:12px 14px;border-radius:8px;border:1.5px solid #bfdbfe">' +
                   '<label style="display:flex;align-items:center;gap:10px;font-size:.84rem;font-weight:600;color:#1e40af;cursor:pointer">' +
@@ -1075,6 +1103,8 @@
 
     var url = contractId ? '/subcontract-contracts/' + contractId : '/subcontract-contracts';
     var method = contractId ? 'PUT' : 'POST';
+    var fileInput = document.getElementById('sc_file_upload');
+    var selectedFile = fileInput && fileInput.files && fileInput.files[0];
 
     api(url, {
       method: method,
@@ -1084,18 +1114,44 @@
         alert('Ошибка сохранения: ' + res.error);
         return;
       }
-      var backdrop = document.getElementById('_sub_contract_modal_backdrop') || document.getElementById('sub_contract_modal_backdrop');
-      if (backdrop) backdrop.remove();
+      var targetContractId = contractId || (res && res.id);
 
-      // Обновляем список договоров и прайсов
-      Promise.all([
-        api('/subcontract-contracts'),
-        api('/subcontract-pricelists')
-      ]).then(function(data) {
-        if (Array.isArray(data[0])) S.subContracts = data[0];
-        if (Array.isArray(data[1])) S.subPricelists = data[1];
-        renderApp();
-      });
+      function finalize() {
+        var backdrop = document.getElementById('_sub_contract_modal_backdrop') || document.getElementById('sub_contract_modal_backdrop');
+        if (backdrop) backdrop.remove();
+
+        Promise.all([
+          api('/subcontract-contracts'),
+          api('/subcontract-pricelists')
+        ]).then(function(data) {
+          if (Array.isArray(data[0])) S.subContracts = data[0];
+          if (Array.isArray(data[1])) S.subPricelists = data[1];
+          if (typeof showToast === 'function') showToast('Договор успешно сохранен!', 'success');
+          renderApp();
+        });
+      }
+
+      if (selectedFile && targetContractId) {
+        var formData = new FormData();
+        formData.append('file', selectedFile);
+        fetch('/api/subcontract-contracts/' + targetContractId + '/upload', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
+          },
+          body: formData
+        }).then(function(r) { return r.json(); }).then(function(uploadData) {
+          if (uploadData && uploadData.error) {
+            alert('Договор сохранен, но ошибка загрузки файла: ' + uploadData.error);
+          }
+          finalize();
+        }).catch(function(err) {
+          alert('Договор сохранен, но ошибка при передаче файла: ' + err.message);
+          finalize();
+        });
+      } else {
+        finalize();
+      }
     }).catch(function(err) {
       alert('Ошибка соединения: ' + (err.message || err));
     });

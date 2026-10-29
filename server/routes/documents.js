@@ -14,6 +14,7 @@ import {
   generatePowerOfAttorney,
   generateIdRegistry,
   generateContract,
+  generateSubcontractAgreementDocx,
   generateCompletionAct,
   generateInvoice,
   generateTmcAct,
@@ -246,13 +247,31 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
         orderNumber: docNumber
       });
 
-    } else if (doc_type === 'contract') {
-      docNumber = contractor.contract_number || `ДГ-${contractor.inn || '000'}-${Date.now().toString().slice(-4)}`;
-      title = `Договор подряда № ${docNumber}`;
-      buffer = await generateContract({
+    } else if (doc_type === 'contract' || doc_type === 'subcontract_agreement') {
+      // Подгружаем договор субподряда если привязан
+      let linkedContract = {};
+      if (subcontract && subcontract.contractor_contract_id) {
+        const ccRes = await pool.query('SELECT * FROM contractor_contracts WHERE id = $1', [subcontract.contractor_contract_id]);
+        if (ccRes.rows.length) linkedContract = ccRes.rows[0];
+      }
+      if (!linkedContract.id && contractor.id) {
+        const ccRes = await pool.query('SELECT * FROM contractor_contracts WHERE contractor_id = $1 ORDER BY id DESC LIMIT 1', [contractor.id]);
+        if (ccRes.rows.length) linkedContract = ccRes.rows[0];
+      }
+
+      docNumber = linkedContract.contract_number || contractor.contract_number || `ДГ-${contractor.inn || '000'}-${Date.now().toString().slice(-4)}`;
+      title = `Договор субподряда № ${docNumber}`;
+
+      buffer = await generateSubcontractAgreementDocx({
+        contract: {
+          ...linkedContract,
+          contract_number: docNumber,
+          contract_date: linkedContract.contract_date || contractor.contract_date || new Date()
+        },
         contractor: contractor || {},
-        generalContractor,
-        date: contractor.contract_date || new Date()
+        ownCompany: generalContractor,
+        task,
+        subcontract
       });
     } else if (doc_type === 'completion_act') {
       docNumber = `АКТ-${task.id}-${subcontract ? subcontract.id : '1'}`;

@@ -882,6 +882,25 @@ function pageCard() {
   var t = S.tasks.find(function(x){ return String(x.id) === String(S.cardId); });
   if (!t) return '<div class="card p"><p class="t3">Заявка не найдена.</p><button class="btn" onclick="returnFromCard()">← Назад</button></div>';
 
+  // Автоматическое восстановление локального черновика при сбое или открытии
+  if ((!S.cardDraft || Object.keys(S.cardDraft).length === 0) && S.cardId) {
+    try {
+      var savedDraftStr = localStorage.getItem('task_draft_' + S.cardId);
+      if (savedDraftStr) {
+        var parsedDraft = JSON.parse(savedDraftStr);
+        if (parsedDraft && typeof parsedDraft === 'object' && Object.keys(parsedDraft).length > 0) {
+          S.cardDraft = parsedDraft;
+          setTimeout(function() {
+            if (typeof window.updateCardSaveBar === 'function') window.updateCardSaveBar();
+            if (typeof showToast === 'function') {
+              showToast('📋 Восстановлен локальный черновик заявки №' + S.cardId, 'info');
+            }
+          }, 50);
+        }
+      }
+    } catch(e) {}
+  }
+
   var statusOpts = [
     {v: 'pending',   l: 'Не распределено'},
     {v: 'progress',  l: 'В работе'},
@@ -4248,6 +4267,9 @@ window._resetCardDraft = function() {
   var wasTmcDirty = !!(S.cardDraft && S.cardDraft._tmcDirty);
   S.cardDraft = {};
   S.cardConfirmOpen = false;
+  if (typeof window.clearCardDraftFromLocalStorage === 'function') {
+    window.clearCardDraftFromLocalStorage(taskId);
+  }
   var bar = document.getElementById('card_unsaved_bar');
   if (bar) bar.style.display = 'none';
   if (taskId && typeof loadCardSubcontracts === 'function') {
@@ -4359,6 +4381,9 @@ function saveCard(silent) {
         Object.assign(t, data);
         t.history = hist;
         t._history = hist;
+      }
+      if (typeof window.clearCardDraftFromLocalStorage === 'function') {
+        window.clearCardDraftFromLocalStorage(taskId);
       }
       if (saveInd) {
         saveInd.textContent = '✓ Сохранено в журнал';
@@ -5314,7 +5339,9 @@ function loadCardSubcontracts(taskId) {
   return api('/tasks/' + encodeURIComponent(taskId) + '/subcontracts')
     .then(function(subs) {
       window._curCardSubcontracts = Array.isArray(subs) ? subs : [];
-      var curSub = (window._curCardSubcontracts || []).find(function(s){ return String(s.task_id) === String(taskId); });
+      var activeIdx = (window._activeSubcontractIdx && window._activeSubcontractIdx[taskId]) || 0;
+      if (activeIdx >= window._curCardSubcontracts.length) activeIdx = 0;
+      var curSub = window._curCardSubcontracts[activeIdx] || (window._curCardSubcontracts || [])[0] || null;
 
       // Загружаем сохраненную спецификацию только если нет несохраненного черновика
       if (!S.cardDraft || !S.cardDraft._smrDirty) {
@@ -5820,14 +5847,19 @@ function _renderSubcontractModal(taskId, editId) {
     var saveBtn = document.getElementById('qspec_save_btn');
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Сохранение...'; }
 
+    var foundContr = (S.contractors || []).find(function(c){
+      return (selectedCName && (c.name_short === selectedCName || c.name_full === selectedCName)) ||
+             (org && (c.name_short === org || c.name_full === org));
+    });
     var data = {
       full_name: name,
       phone: phone || null,
       passport_raw: pass || null,
       passport_series_number: pass || null,
       auto_number: auto || null,
-      organization: org || (selectedCName || 'ООО "Ультима"'),
-      position: pos
+      organization: org || selectedCName || (foundContr ? foundContr.name_short : ''),
+      position: pos,
+      contractor_id: (editSub && editSub.contractor_id) || (foundContr ? foundContr.id : null)
     };
 
     api('/specialists', {

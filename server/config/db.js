@@ -144,6 +144,15 @@ export async function initDB() {
   `);
 
   await pool.query(`
+    ALTER TABLE marches ADD COLUMN IF NOT EXISTS params JSONB DEFAULT '{}';
+    ALTER TABLE marches ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'draft';
+    ALTER TABLE marches ADD COLUMN IF NOT EXISTS contractor_id INTEGER REFERENCES contractors(id) ON DELETE SET NULL;
+    ALTER TABLE marches ADD COLUMN IF NOT EXISTS contractor_name TEXT;
+    ALTER TABLE marches ADD COLUMN IF NOT EXISTS start_date DATE;
+    ALTER TABLE marches ADD COLUMN IF NOT EXISTS end_date DATE;
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS import_meta (
       id          INTEGER PRIMARY KEY DEFAULT 1,
       imported_from TEXT,

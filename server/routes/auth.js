@@ -105,7 +105,7 @@ router.post('/login', async (req, res) => {
     const token = jwt.sign(
       { id: user.id, role: user.role, fullName: user.full_name, contractorId: user.contractor_id, assignedRegions: user.assigned_regions },
       JWT_SECRET,
-      { expiresIn: '24h', algorithm: 'HS256' }
+      { expiresIn: '7d', algorithm: 'HS256' }
     );
 
     let avatarUrl = getValidAvatarUrl(user.avatar_url);
@@ -125,6 +125,27 @@ router.post('/login', async (req, res) => {
         assignedRegions: user.assigned_regions
       }
     });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+// ─── ОБНОВЛЕНИЕ ТОКЕНА (REFRESH) ───────────────────────────────────────────
+router.post(['/refresh', '/auth/refresh'], authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, username, role, full_name, contractor_id, assigned_regions FROM users WHERE id = $1',
+      [req.user.id]
+    );
+    if (!rows.length) return res.status(401).json({ error: 'Пользователь не найден', code: 'USER_NOT_FOUND' });
+    const u = rows[0];
+    const newToken = jwt.sign(
+      { id: u.id, role: u.role, fullName: u.full_name, contractorId: u.contractor_id, assignedRegions: u.assigned_regions },
+      JWT_SECRET,
+      { expiresIn: '7d', algorithm: 'HS256' }
+    );
+    res.json({ success: true, token: newToken });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

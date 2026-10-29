@@ -170,7 +170,7 @@ router.post('/tasks/:taskId/subcontracts', authenticateToken, requireRole('admin
       WHERE id = $1 AND macro_status IN ('new', 'review', 'in_progress')
     `, [taskId]);
 
-    res.status(201).json(result.rows[0]);
+    res.status(201).json(fullCreated.rows[0]);
   } catch (err) {
     console.error('Error creating subcontract:', err);
     res.status(500).json({ error: 'Ошибка назначения субподрядчика' });

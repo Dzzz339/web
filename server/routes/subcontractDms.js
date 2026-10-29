@@ -5,6 +5,8 @@ import express from 'express';
 import { pool } from '../config/db.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { calculateSubcontractAmount } from '../services/subcontractDmsService.js';
+import { uploadAttachment } from '../middleware/upload.js';
+import { generateSubcontractAgreementDocx } from '../services/docxGenerator.js';
 
 const router = express.Router();
 
@@ -363,6 +365,72 @@ router.delete('/subcontract-contracts/:id', authenticateToken, async (req, res) 
   } catch (err) {
     console.error('Error deleting contract:', err);
     res.status(500).json({ error: 'Ошибка удаления договора: ' + err.message });
+  }
+});
+
+// 4.4.1. Загрузка файла (скана) договора субподряда
+router.post('/subcontract-contracts/:id/upload', authenticateToken, uploadAttachment.single('file'), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!req.file) {
+      return res.status(400).json({ error: 'Файл не передан' });
+    }
+    const scanUrl = '/uploads/' + req.file.filename;
+    const { rows } = await pool.query(`
+      UPDATE contractor_contracts SET
+        scan_url = $1,
+        updated_at = NOW()
+      WHERE id = $2
+      RETURNING *
+    `, [scanUrl, id]);
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Договор не найден' });
+    }
+
+    res.json({
+      success: true,
+      scan_url: scanUrl,
+      original_name: req.file.originalname,
+      contract: rows[0]
+    });
+  } catch (err) {
+    console.error('Error uploading contract scan:', err);
+    res.status(500).json({ error: 'Ошибка загрузки скана договора: ' + err.message });
+  }
+});
+
+// 4.4.2. Скачать официальную печатную форму договора субподряда (.docx)
+router.get('/subcontract-contracts/:id/docx', authenticateToken, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const cRes = await pool.query('SELECT * FROM contractor_contracts WHERE id = $1', [id]);
+    if (!cRes.rows.length) return res.status(404).json({ error: 'Договор субподряда не найден' });
+    const contract = cRes.rows[0];
+
+    const contrRes = await pool.query('SELECT * FROM contractors WHERE id = $1', [contract.contractor_id]);
+    const contractor = contrRes.rows[0] || {};
+
+    let ownCompany = {};
+    if (contract.own_company_id) {
+      const ownRes = await pool.query('SELECT * FROM own_companies WHERE id = $1', [contract.own_company_id]);
+      if (ownRes.rows.length) ownCompany = ownRes.rows[0];
+    }
+
+    const buffer = await generateSubcontractAgreementDocx({
+      contract,
+      contractor,
+      ownCompany
+    });
+
+    const safeNum = (contract.contract_number || id).replace(/[\s\/\\:*?"<>|]+/g, '_');
+    const filename = `Dogovor_subpodryada_${safeNum}.docx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.send(buffer);
+  } catch (err) {
+    console.error('Error generating subcontract docx:', err);
+    res.status(500).json({ error: 'Ошибка генерации договора субподряда: ' + err.message });
   }
 });
 

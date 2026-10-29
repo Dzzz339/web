@@ -206,7 +206,7 @@ router.post('/tasks', authenticateToken, requireRole('admin', 'director', 'manag
 
     if (contractId) {
       const { rows: cRows } = await pool.query(
-        `SELECT id, customer_name, our_entity_name, own_company_id, amount, contact_person, customer_contact, region, delivery_place 
+        `SELECT id, customer_name, our_entity_name, own_company_id, amount, contacts_raw, our_entity_region, delivery_place 
          FROM contracts WHERE id = $1`, [contractId]
       );
       if (cRows.length > 0) {
@@ -225,11 +225,11 @@ router.post('/tasks', authenticateToken, requireRole('admin', 'director', 'manag
         if ((!t.amount || Number(t.amount) === 0) && c.amount && Number(c.amount) > 0) {
           t.amount = c.amount;
         }
-        if (!t.contact && (c.contact_person || c.customer_contact)) {
-          t.contact = [c.contact_person, c.customer_contact].filter(Boolean).join(', ');
+        if (!t.contact && c.contacts_raw) {
+          t.contact = c.contacts_raw;
         }
-        if (!t.region && c.region) {
-          t.region = c.region;
+        if (!t.region && c.our_entity_region) {
+          t.region = c.our_entity_region;
         }
         if (!t.address && c.delivery_place) {
           t.address = c.delivery_place;

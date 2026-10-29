@@ -116,7 +116,7 @@ export async function syncSubcontractsForTasks(pool) {
 
     const subStatus = (t.status === 'done') ? 'smr_done' : (t.status === 'progress' ? 'in_progress' : 'assigned');
     const workType = t.work_type || 'Монтаж СКС';
-    const priceAgreed = Number(t.amount) || 0;
+    const priceAgreed = 0;
 
     if (existingSubs.length > 0) {
       // Update existing subcontract with current contractor
@@ -272,7 +272,7 @@ export async function syncSingleTaskSubcontract(pool, taskId) {
 
   const subStatus = (t.status === 'done') ? 'smr_done' : (t.status === 'progress' ? 'in_progress' : 'assigned');
   const workType = t.work_type || 'Монтаж СКС';
-  const priceAgreed = Number(t.amount) || 0;
+  const priceAgreed = 0;
 
   if (existingSubs.length > 0) {
     const { rows: updated } = await pool.query(

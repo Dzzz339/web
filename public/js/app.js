@@ -8,6 +8,9 @@ function init() {
     renderApp();
     return;
   }
+  if (typeof refreshSessionToken === 'function') {
+    refreshSessionToken();
+  }
 
   loadNotifications();
   if (!window.notifInterval) {
@@ -205,6 +208,36 @@ function isPageAllowedForRole(page, role) {
 window.getDefaultPageForRole = getDefaultPageForRole;
 window.isPageAllowedForRole = isPageAllowedForRole;
 
+function backupCardDraftToLocalStorage() {
+  if (S.cardId && S.cardDraft) {
+    var hasDraft = (
+      Object.keys(S.cardDraft).filter(function(k){ return !k.startsWith('_'); }).length > 0 ||
+      !!S.cardDraft._smrDirty ||
+      !!S.cardDraft._tmcDirty
+    );
+    if (hasDraft) {
+      try {
+        localStorage.setItem('task_draft_' + S.cardId, JSON.stringify(S.cardDraft));
+      } catch(e) {}
+    } else {
+      try {
+        localStorage.removeItem('task_draft_' + S.cardId);
+      } catch(e) {}
+    }
+  }
+}
+window.backupCardDraftToLocalStorage = backupCardDraftToLocalStorage;
+
+function clearCardDraftFromLocalStorage(taskId) {
+  var id = taskId || S.cardId;
+  if (id) {
+    try {
+      localStorage.removeItem('task_draft_' + id);
+    } catch(e) {}
+  }
+}
+window.clearCardDraftFromLocalStorage = clearCardDraftFromLocalStorage;
+
 function updateCardSaveBar() {
   var bar = document.getElementById('card_unsaved_bar');
   var hasDraft = S.cardDraft && (
@@ -212,6 +245,7 @@ function updateCardSaveBar() {
     !!S.cardDraft._smrDirty ||
     !!S.cardDraft._tmcDirty
   );
+  backupCardDraftToLocalStorage();
   if (hasDraft) {
     if (!bar) {
       bar = document.createElement('div');
