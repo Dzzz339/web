@@ -1,23 +1,59 @@
+# Dependencies
 node_modules/
-.env
-db.json
-.sql
 desktop/node_modules/
+
+# Environment
+.env
+.env.*
+*.env
+
+# Local Databases & Logs
+db.json
+*.sql
+*.sqlite
+*.sqlite3
+npm-debug.log*
+yarn-debug.log*
+
+# Desktop / Builds / Distribution
 desktop/dist/
-документы/
-uploads/archive/
-uploads/templates/
-uploads/*.docx
-ТЗ/
-*.docx.txt
-*.docx
-scratch/
-*.zip
-backups/
+dist/
+build/
+out/
+
+# User feedback, screenshots, raw chats & instructions
+Фидбэк/
+[Фф]идбэк/
+feedback/
+screenshots/
+скрины/
+заметки.txt
+2 задач.txt
+Reestr_kontraktov_ot_14_10_2017.xlsx
+
+# Uploads, user docs and office files (preserving code and app assets)
 uploads/
+документы/
+ТЗ/
+backups/
 Разбор всего/
 Разбор всего 2/
+*.docx
+*.docx.txt
+*.xlsx
+*.xls
+*.zip
 *.bak
+*.tmp
+
+# Scratch & AI agent working files
+scratch/
+brain/
 repomix-output.md
-заметки.txt
-Reestr_kontraktov_ot_14_10_2017.xlsx
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
