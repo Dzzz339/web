@@ -191,13 +191,13 @@ function isPageAllowedForRole(page, role) {
     return !['data', 'logs'].includes(page);
   }
   if (r === 'manager') {
-    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'chat', 'aichat', 'help'].includes(page) || page.startsWith('dash-');
+    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'chat', 'help'].includes(page) || page.startsWith('dash-');
   }
   if (r === 'to_engineer' || r === 'logistics') {
-    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'supply', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'data', 'chat', 'aichat', 'help'].includes(page) || page.startsWith('dash-');
+    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'supply', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'data', 'chat', 'help'].includes(page) || page.startsWith('dash-');
   }
   if (r === 'designer') {
-    return ['contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'tasks', 'card', 'kanban', 'chat', 'aichat', 'help'].includes(page);
+    return ['contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'tasks', 'card', 'kanban', 'chat', 'help'].includes(page);
   }
   if (r === 'accountant') {
     return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'tasks', 'card', 'contractors', 'chat', 'help'].includes(page) || page.startsWith('dash-');
@@ -394,15 +394,15 @@ function renderNav() {
         }
         // Менеджер
         if (role === 'manager') {
-          return ['dashboard', 'contracts', 'tasks', 'kanban', 'marches', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
+          return ['dashboard', 'contracts', 'tasks', 'kanban', 'marches', 'contractors', 'chat', 'help'].includes(item.id);
         }
         // Специалист ТО / Логист (объединенные права: Цепи + Обзор + Маршруты)
         if (role === 'to_engineer' || role === 'logistics') {
-          return ['dashboard', 'contracts', 'tasks', 'kanban', 'marches', 'supply', 'data', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
+          return ['dashboard', 'contracts', 'tasks', 'kanban', 'marches', 'supply', 'data', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'contractors', 'chat', 'help'].includes(item.id);
         }
         // Проектировщик
         if (role === 'designer') {
-          return ['contracts', 'tasks', 'kanban', 'chat', 'aichat', 'help'].includes(item.id);
+          return ['contracts', 'tasks', 'kanban', 'chat', 'help'].includes(item.id);
         }
         // Финансист
         if (role === 'accountant') {
@@ -565,7 +565,7 @@ function renderApp() {
   if      (S.page === 'dashboard' || S.page.startsWith('dash-')) setApp(pageDash());
   else if (S.page === 'users')     setApp(pageUsers());
   else if (S.page === 'logs')      setApp(pageLogs());
-  else if (S.page === 'aichat')    setApp(pageAiChat());
+  else if (S.page === 'aichat')    go('tasks');
   else if (S.page === 'chat')      setApp(pageChat());
   else if (S.page === 'contracts') setApp(pageContracts());
   else if (S.page === 'sub_contracts') setApp(pageSubContracts());

@@ -84,20 +84,6 @@ function pageChat() {
               <div style="font-size:.72rem; color:var(--text-3)">Все сотрудники</div>
             </div>
           </div>
-
-          <!-- Стоки -->
-          <div onclick="go('aichat')" id="ai-sidebar-item"
-               style="padding:12px 14px; border-bottom:1px solid var(--border); cursor:pointer; display:flex; align-items:center; gap:10px; background:${S.aiActive ? 'var(--orange-bg)' : '#fff'}"
-               onmouseover="this.style.background='var(--orange-bg)'" onmouseout="if(!S.aiActive) this.style.background='#fff'">
-            <div style="background:var(--orange); color:#fff; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; padding:6px;">
-              ${ICONS.stocky}
-            </div>
-            <div>
-              <div style="font-weight:700; font-size:.9rem">Стоки</div>
-              <div style="font-size:.72rem; color:var(--text-3)">Аналитика · Снабжение · Расчёт ТМЦ</div>
-            </div>
-          </div>
-
           <div style="padding:8px 14px; font-size:.7rem; font-weight:700; color:var(--text-3); text-transform:uppercase; margin-top:8px">Личные сообщения</div>
           <div id="chat-sidebar-users">Загрузка...</div>
         </div>
