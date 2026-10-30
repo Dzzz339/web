@@ -145,9 +145,33 @@ export async function generateIdPdfAlbum({ taskId, pool }) {
   const objectAddress = task.address || task.vsp || 'г. Москва, объект ПАО Сбербанк';
   const edoNum = task.edo_number || task.edoNumber || (task.raw_data && task.raw_data.edoNumber) || '14441264';
   const genContractor = sub.own_name || 'ООО «К10»';
+  const genContractorDirector = sub.own_director || 'И.О. Городович';
   const subContractor = sub.contractor_name || task.contractor || 'Монтажная организация';
-  const installerFio = sub.installer_fio || 'Бригада СМР';
+  const installerFio = sub.installer_fio || task.assignee || 'Бригада СМР';
   const completionDate = formatDateRu(task.smr_actual_end_date || task.data_vyhoda || new Date());
+
+  // Синяя печать и факсимиле подписи (SVG штамп ГОСТ)
+  const stampSvg = `
+    <svg width="140" height="140" viewBox="0 0 200 200" style="position:absolute;bottom:-18px;left:40px;opacity:0.88;mix-blend-mode:multiply;pointer-events:none;transform:rotate(-6deg);">
+      <circle cx="100" cy="100" r="92" stroke="#1d4ed8" stroke-width="3.5" fill="none" stroke-dasharray="8 4"/>
+      <circle cx="100" cy="100" r="82" stroke="#1d4ed8" stroke-width="2" fill="none"/>
+      <path id="curveTop" d="M 30,100 A 70,70 0 0,1 170,100" fill="none"/>
+      <path id="curveBottom" d="M 170,100 A 70,70 0 0,1 30,100" fill="none"/>
+      <text fill="#1d4ed8" font-size="12" font-family="'Segoe UI',Arial,sans-serif" font-weight="bold" letter-spacing="2">
+        <textPath href="#curveTop" startOffset="50%" text-anchor="middle">РОССИЙСКАЯ ФЕДЕРАЦИЯ</textPath>
+      </text>
+      <text fill="#1d4ed8" font-size="11" font-family="'Segoe UI',Arial,sans-serif" font-weight="bold" letter-spacing="1.5">
+        <textPath href="#curveBottom" startOffset="50%" text-anchor="middle">ОГРН 1145476024407 * ИНН 5406774300</textPath>
+      </text>
+      <circle cx="100" cy="100" r="52" stroke="#1d4ed8" stroke-width="1.5" fill="none"/>
+      <text x="100" y="88" fill="#1d4ed8" font-size="13" font-family="'Segoe UI',Arial,sans-serif" font-weight="900" text-anchor="middle" letter-spacing="1">ООО «К10»</text>
+      <text x="100" y="104" fill="#1d4ed8" font-size="9" font-family="'Segoe UI',Arial,sans-serif" text-anchor="middle">ДЛЯ ДОКУМЕНТОВ</text>
+      <text x="100" y="118" fill="#1d4ed8" font-size="8" font-family="'Segoe UI',Arial,sans-serif" text-anchor="middle">г. Новосибирск</text>
+      <!-- Факсимиле подписи -->
+      <path d="M 65,135 Q 85,95 105,125 T 145,115 Q 160,110 170,122" stroke="#1e3a8a" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+      <path d="M 95,110 Q 115,140 125,100" stroke="#1e3a8a" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </svg>
+  `;
 
   // Генерация HTML альбома
   const html = `<!DOCTYPE html>
@@ -330,18 +354,19 @@ export async function generateIdPdfAlbum({ taskId, pool }) {
     </div>
 
     <div class="cover-footer">
-      <div>
+      <div style="position:relative">
         <div><b>Генеральный подрядчик (${esc(genContractor)}):</b></div>
-        <div style="margin-top:15px;border-bottom:1px solid #000;width:220px"></div>
-        <div style="font-size:8pt;color:#64748b">/ М.В. Городович /</div>
+        <div style="margin-top:20px;border-bottom:1px solid #000;width:220px"></div>
+        <div style="font-size:8pt;color:#64748b">/ ${esc(genContractorDirector)} /</div>
+        ${stampSvg}
       </div>
       <div>
         <div><b>Ответственный производитель работ:</b></div>
-        <div style="margin-top:15px;border-bottom:1px solid #000;width:220px"></div>
+        <div style="margin-top:20px;border-bottom:1px solid #000;width:220px"></div>
         <div style="font-size:8pt;color:#64748b">/ ${esc(installerFio)} /</div>
       </div>
       <div style="text-align:right">
-        <div>г. Москва</div>
+        <div>г. Новосибирск</div>
         <div>2026 год</div>
       </div>
     </div>
@@ -431,7 +456,7 @@ export async function generateIdPdfAlbum({ taskId, pool }) {
       <div class="sign-item">
         <b>От Генерального подрядчика:</b><br>
         Главный инженер проекта ООО «К10»<br>
-        <div class="sign-line"><span>(подпись / печать)</span><span>/ М.В. Городович /</span></div>
+        <div class="sign-line"><span>(подпись / печать)</span><span>/  /</span></div>
       </div>
       <div class="sign-item">
         <b>От Монтажной организации:</b><br>
@@ -528,7 +553,7 @@ export async function generateIdPdfAlbum({ taskId, pool }) {
     <div class="sign-block" style="margin-top:20px">
       <div class="sign-item">
         <b>Ответственный за ТМЦ (Генподрядчик):</b>
-        <div class="sign-line"><span>(подпись)</span><span>/ М.В. Городович /</span></div>
+        <div class="sign-line"><span>(подпись)</span><span>/  /</span></div>
       </div>
       <div class="sign-item">
         <b>Монтажная бригада:</b>
@@ -582,7 +607,7 @@ export async function generateIdPdfAlbum({ taskId, pool }) {
     <div class="sign-block" style="margin-top:25px">
       <div class="sign-item">
         <b>Схему составил (Инженер СКС):</b>
-        <div class="sign-line"><span>(подпись)</span><span>/ М.В. Городович /</span></div>
+        <div class="sign-line"><span>(подпись)</span><span>/  /</span></div>
       </div>
       <div class="sign-item">
         <b>Схему проверил (Монтажник):</b>
@@ -713,7 +738,7 @@ export async function generateIdPdfAlbum({ taskId, pool }) {
     <div class="sign-block" style="margin-top:20px">
       <div class="sign-item">
         <b>Специалист по тестированию Fluke Networks:</b>
-        <div class="sign-line"><span>(подпись)</span><span>/ М.В. Городович /</span></div>
+        <div class="sign-line"><span>(подпись)</span><span>/  /</span></div>
       </div>
       <div class="sign-item">
         <b>Представитель службы эксплуатации:</b>
