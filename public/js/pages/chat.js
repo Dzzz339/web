@@ -1311,6 +1311,9 @@ function formatAiMessageContent(rawText) {
   escaped = escaped.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
   escaped = escaped.replace(/\*(.*?)\*/g, '$1');
   // Подсветка вердиктов фотоконтроля
+  // Поддержка кликабельных ссылок вида [Название](url) от Стоки
+  escaped = escaped.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:var(--blue);font-weight:700;text-decoration:underline;">$1 ↗</a>');
+
   escaped = escaped.replace(/(✅\s*ПРИНЯТО\s*БЕЗ\s*ЗАМЕЧАНИЙ[^\n]*)/gi, '<div class="ai-qc-badge-pass">$1</div>');
   escaped = escaped.replace(/(⚠️\s*ТРЕБУЕТСЯ\s*УСТРАНЕНИЕ\s*ЗАМЕЧАНИЙ[^\n]*)/gi, '<div class="ai-qc-badge-warning">$1</div>');
   escaped = escaped.replace(/(✅\s*ПРИНЯТО[^\n]*)/gi, function(match) {
@@ -3374,3 +3377,77 @@ function updateAiToolChipsUI() {
     else c.classList.remove('active');
   });
 }
+
+
+// ─── РЕШЕНИЯ ПРОВЕРЯЮЩЕГО ВНУТРИ ЧАТА СО СТОКИ ──────────────────────────
+window.submitTaskQcDecision = function(taskId, decision) {
+  if (!taskId) return;
+  var r = String((S.user && S.user.role) || '').toLowerCase();
+  var canReview = ['admin', 'director', 'manager', 'to_engineer', 'controller'].includes(r);
+  if (!canReview) {
+    return alert('У вас нет прав проверяющего (требуется роль инженера технадзора, менеджера или руководства).');
+  }
+
+  var decisionLabels = {
+    'accepted': 'Принято без замечаний',
+    'accepted_notes': 'Принято с замечаниями',
+    'rejected': 'Отклонено на доработку'
+  };
+
+  function executeSave(notes) {
+    var payload = {
+      qcDecision: decision,
+      qcNotes: notes || '',
+      qcDecidedBy: S.user ? (S.user.full_name || S.user.username) : 'Куратор',
+      qcDecidedAt: new Date().toISOString()
+    };
+
+    if (decision === 'accepted') {
+      payload.photoReportAccepted = true;
+      payload.priemka = 'Принято (фото)';
+    } else if (decision === 'accepted_notes') {
+      payload.photoReportAccepted = true;
+      payload.priemka = 'Принято с замеч. (' + (notes ? notes.slice(0, 30) : 'гарантия') + ')';
+    } else if (decision === 'rejected') {
+      payload.photoReportAccepted = false;
+      payload.priemka = 'На доработке (' + (notes ? notes.slice(0, 30) : 'дефекты') + ')';
+    }
+
+    api('/tasks/' + encodeURIComponent(taskId), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function() {
+      var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+      if (t) {
+        t.priemka = payload.priemka;
+        if (!t.rawData) t.rawData = {};
+        t.rawData.photoReportAccepted = payload.photoReportAccepted;
+        t.rawData.qcDecision = decision;
+        t.rawData.qcNotes = notes;
+      }
+      var toastType = decision === 'accepted' ? 'success' : (decision === 'accepted_notes' ? 'info' : 'error');
+      if (typeof showToast === 'function') {
+        showToast('✓ Вердикт по объекту #' + taskId + ' зафиксирован: ' + decisionLabels[decision], toastType);
+      } else {
+        alert('Вердикт по объекту #' + taskId + ' зафиксирован: ' + decisionLabels[decision]);
+      }
+    }).catch(function(err) {
+      alert('Ошибка сохранения вердикта: ' + err.message);
+    });
+  }
+
+  if (decision === 'accepted') {
+    if (!confirm('Утвердить приемку монтажа по объекту #' + taskId + ' без замечаний?')) return;
+    executeSave('');
+  } else if (decision === 'accepted_notes') {
+    var inputNotes = prompt('Укажите замечания / гарантийные недочеты для устранения:');
+    if (inputNotes === null) return;
+    executeSave(inputNotes.trim());
+  } else if (decision === 'rejected') {
+    var reason = prompt('Укажите причину отклонения на доработку:');
+    if (reason === null) return;
+    if (!reason.trim()) return alert('Для отклонения на доработку укажите причину.');
+    executeSave(reason.trim());
+  }
+};

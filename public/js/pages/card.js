@@ -3698,93 +3698,25 @@ function openAttachment(id, fromContract, contractId, fileName) {
   window.openFilePreviewModal(source, id, null, fileName || 'Документ');
 }
 
-// Проверка роли: может ли текущий пользователь принимать или отклонять фотоотчет/монтаж
-window.canUserAcceptQc = function() {
-  if (!S.user) return false;
-  var r = String(S.user.role || '').toLowerCase();
-  // Руководство, менеджеры, инженеры ТО и админы могут принимать
-  return ['admin', 'director', 'manager', 'to_engineer', 'controller'].includes(r);
-};
-
-// Единая функция фиксации вердикта проверки (Принять / С замечаниями / На доработку)
-window.submitTaskQcDecision = function(taskId, decision, optNotes) {
-  if (!taskId) return;
-  if (!window.canUserAcceptQc()) {
-    return alert('У вас нет прав проверяющего для утверждения или отклонения монтажа (требуется роль инженера технадзора, менеджера или руководства).');
-  }
-
-  var decisionLabels = {
-    'accepted': 'Принято без замечаний',
-    'accepted_notes': 'Принято с замечаниями',
-    'rejected': 'Отклонено на доработку'
-  };
-
-  function executeSave(notes) {
-    var payload = {
-      qcDecision: decision,
-      qcNotes: notes || '',
-      qcDecidedBy: S.user ? (S.user.full_name || S.user.username) : 'Куратор',
-      qcDecidedAt: new Date().toISOString()
-    };
-
-    if (decision === 'accepted') {
-      payload.photoReportAccepted = true;
-      payload.priemka = 'Принято (фото)';
-    } else if (decision === 'accepted_notes') {
-      payload.photoReportAccepted = true;
-      payload.priemka = 'Принято с замеч. (' + (notes ? notes.slice(0, 30) : 'гарантия') + ')';
-    } else if (decision === 'rejected') {
-      payload.photoReportAccepted = false;
-      payload.priemka = 'На доработке (' + (notes ? notes.slice(0, 30) : 'дефекты') + ')';
-    }
-
-    api('/tasks/' + encodeURIComponent(taskId), {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    }).then(function() {
-      window._curPhotoReportAccepted = (decision === 'accepted' || decision === 'accepted_notes');
-      var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
-      if (t) {
-        t.priemka = payload.priemka;
-        if (!t.rawData) t.rawData = {};
-        t.rawData.photoReportAccepted = payload.photoReportAccepted;
-        t.rawData.qcDecision = decision;
-        t.rawData.qcNotes = notes;
-      }
-      if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
-      if (typeof refreshAttachmentsList === 'function') refreshAttachmentsList(taskId);
-      
-      var toastType = decision === 'accepted' ? 'success' : (decision === 'accepted_notes' ? 'info' : 'error');
-      if (typeof showToast === 'function') {
-        showToast('Вердикт проверяющего сохранен: ' + decisionLabels[decision], toastType);
-      } else {
-        alert('Вердикт проверяющего сохранен: ' + decisionLabels[decision]);
-      }
-    }).catch(function(err) {
-      alert('Ошибка сохранения вердикта: ' + err.message);
-    });
-  }
-
-  if (decision === 'accepted') {
-    if (!confirm('Утвердить приемку монтажа по объекту #' + taskId + ' без замечаний?')) return;
-    executeSave('');
-  } else if (decision === 'accepted_notes') {
-    var defaultNotes = optNotes || '';
-    var inputNotes = prompt('Укажите замечания / гарантийные недочеты для устранения:', defaultNotes);
-    if (inputNotes === null) return;
-    executeSave(inputNotes.trim());
-  } else if (decision === 'rejected') {
-    var defRejNotes = optNotes || '';
-    var reason = prompt('Укажите критические нарушения и причину отклонения на доработку:', defRejNotes);
-    if (reason === null) return;
-    if (!reason.trim()) return alert('Для отклонения на доработку обязательно укажите причину.');
-    executeSave(reason.trim());
-  }
-};
-
 window.approveTaskPhotoReport = function(taskId) {
-  window.submitTaskQcDecision(taskId, 'accepted');
+  if (!confirm('Подтвердить приемку фотоотчета с объекта?')) return;
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ photoReportAccepted: true, priemka: 'Принято (фото)' })
+  }).then(function() {
+    window._curPhotoReportAccepted = true;
+    showToast('✓ Фотоотчет успешно принят куратором', 'success');
+    var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+    if (t) {
+      t.priemka = 'Принято (фото)';
+      if (!t.rawData) t.rawData = {};
+      t.rawData.photoReportAccepted = true;
+    }
+    if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
+  }).catch(function(err) {
+    alert('Ошибка приемки фотоотчета: ' + err.message);
+  });
 };
 
 function refreshAttachmentsList(taskId) {
@@ -3815,14 +3747,10 @@ function refreshAttachmentsList(taskId) {
       html += '<div style="margin-bottom:12px">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
           '<div style="font-weight:700;font-size:.82rem;color:var(--text)">📷 Фотоотчет и схемы с объекта (' + photoList.length + ' шт.)</div>' +
-          '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
-            '<button type="button" class="btn btn-xs btn-outline" onclick="window.runAiPhotoQcForTask(\'' + escHtml(taskId) + '\')" style="color:var(--orange-dark);border-color:var(--orange);background:var(--orange-bg);font-size:.72rem;font-weight:700" title="Проверить качество монтажа на фото через ИИ Стоки">🤖 ИИ-Фотоконтроль</button>' +
-            (window.canUserAcceptQc() ? (
-              '<button type="button" class="btn btn-xs btn-outline" onclick="window.submitTaskQcDecision(\'' + escHtml(taskId) + '\', \'accepted\')" style="color:#16a34a;border-color:#86efac;background:#f0fdf4;font-size:.72rem;font-weight:700" title="Принять монтаж без замечаний">✓ Принять</button>' +
-              '<button type="button" class="btn btn-xs btn-outline" onclick="window.submitTaskQcDecision(\'' + escHtml(taskId) + '\', \'accepted_notes\')" style="color:#d97706;border-color:#fcd34d;background:#fffbeb;font-size:.72rem;font-weight:700" title="Принять с гарантийными замечаниями">⚠️ С замечанием</button>' +
-              '<button type="button" class="btn btn-xs btn-outline" onclick="window.submitTaskQcDecision(\'' + escHtml(taskId) + '\', \'rejected\')" style="color:#dc2626;border-color:#fca5a5;background:#fef2f2;font-size:.72rem;font-weight:700" title="Отклонить фотоотчет и вернуть на доработку">❌ На доработку</button>'
-            ) : '') +
-          '</div>' +
+          '<div style="display:flex;gap:6px;align-items:center;">' +
+          '<button type="button" class="btn btn-xs btn-outline" onclick="window.runAiPhotoQcForTask(\'' + escHtml(taskId) + '\')" style="color:var(--orange-dark);border-color:var(--orange);background:var(--orange-bg);font-size:.72rem;font-weight:700" title="Проверить качество монтажа на фото через ИИ Стоки">🤖 ИИ-Фотоконтроль</button>' +
+          '<button type="button" class="btn btn-xs btn-outline" onclick="window.approveTaskPhotoReport(\'' + escHtml(taskId) + '\')" style="color:#16a34a;border-color:#86efac;font-size:.72rem;font-weight:700" title="Подтвердить приемку фотоотчета куратором">✓ Принять фотоотчет</button>' +
+        '</div>' +
         '</div>' +
         '<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(110px, 1fr));gap:8px">' +
         photoList.map(function(a) {
