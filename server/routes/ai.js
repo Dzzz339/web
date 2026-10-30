@@ -315,15 +315,16 @@ router.post('/chat', authenticateToken, async (req, res) => {
 
   // ─── parse_devices: LLM парсит текст → JSON с устройствами/материалами ─────
   // ─── ИНТЕНТ: Генерация Альбома ИД или Договора по запросу пользователя ─────
-  const isGenerateIdIntent = /(?:сгенерир|сделай|составь|подготовь|сформируй|выгрузи|собери|распечатай)s+(?:ид|исполнительн|альбом|комплект ид|пакет ид)/i.test(text) ||
-    (/(?:сгенерир|сделай|составь|подготовь|сформируй)s+(?:договор|документ|акт|заказ)/i.test(text) && /(?:по|для|на)s+([a-zA-Z0-9а-яА-ЯёЁ_-]+)/i.test(text));
+  const isGenerateIdIntent = /(?:сгенерир|сделай|составь|подготовь|сформируй|выгрузи|собери|распечатай|дай|создай|сделай мне|нужно|нужна|нужен)\s+(?:ид|исполнительн|альбом|комплект ид|пакет ид|документац)/i.test(text) ||
+    (/(?:сгенерир|сделай|составь|подготовь|сформируй|выгрузи|создай)\s+(?:договор|документ|акт|заказ)/i.test(text) && /(?:по|для|на)\s+([a-zA-Z0-9а-яА-ЯёЁ_-]+)/i.test(text)) ||
+    (/(?:ид|исполнительн|альбом)\s+(?:по|для|на)\s+([a-zA-Z0-9а-яА-ЯёЁ_-]+)/i.test(text));
 
   if (isGenerateIdIntent && !image) {
     // Извлекаем номер заявки из текста или cardContext
     let targetTaskId = null;
-    const taskMatch = text.match(/(?:по|для|заявкw*|объектw*|№|#)s*([a-zA-Z0-9а-яА-ЯёЁ_-]{3,20})/i);
+    const taskMatch = text.match(/(?:по|для|на|заявк[а-яё]*|объект[а-яё]*|№|#)\s*([a-zA-Z0-9а-яА-ЯёЁ_-]{3,25})/i);
     if (taskMatch && taskMatch[1]) {
-      targetTaskId = taskMatch[1].trim();
+      targetTaskId = taskMatch[1].trim().replace(/^#/, '');
     } else if (cardContext && typeof cardContext === 'string') {
       const cardMatch = cardContext.match(/#([a-zA-Z0-9а-яА-ЯёЁ_-]+)/);
       if (cardMatch) targetTaskId = cardMatch[1];
@@ -331,14 +332,14 @@ router.post('/chat', authenticateToken, async (req, res) => {
 
     if (targetTaskId) {
       try {
-        const checkTask = await pool.query('SELECT id, address, vsp, customer FROM tasks WHERE id = $1', [targetTaskId]);
+        const checkTask = await pool.query('SELECT id, address, vsp, customer, amount, work_type FROM tasks WHERE id ILIKE $1 LIMIT 1', [targetTaskId]);
         if (checkTask.rows.length) {
           const tRow = checkTask.rows[0];
           // Запускаем сборку монолитного альбома ИД
-          const albumRes = await generateIdPdfAlbum({ taskId: targetTaskId, pool });
+          const albumRes = await generateIdPdfAlbum({ taskId: tRow.id, pool });
           const replyText = 'Готово! Сформировал полный монолитный альбом исполнительной документации (ИД) по объекту [' + tRow.id + '] (' + (tRow.address || tRow.vsp || '') + '):\n\n' +
             '• **Шифр комплекта**: ' + (albumRes.docNumber || ('ИД-' + tRow.id + '-СКС')) + '\n' +
-            '• **Состав альбома**: Титульный лист ГОСТ с синей печатью и подписью директора, Ведомость чертежей, Акт скрытых работ, Спецификация оборудования и ТМЦ, Схема трасс СКС, Кабельный журнал (КЖ) и Протокол измерений/испытаний.\n\n' +
+            '• **Состав альбома**: Титульный лист ГОСТ с синей печатью ООО «К10» и подписью директора, Ведомость чертежей, Акт скрытых работ, Спецификация оборудования и ТМЦ, Схема трасс СКС, Кабельный журнал (КЖ) и Протокол измерений/испытаний.\n\n' +
             '📄 **[Открыть и скачать Альбом ИД в PDF](' + albumRes.fileUrl + ')**';
 
           await pool.query(
