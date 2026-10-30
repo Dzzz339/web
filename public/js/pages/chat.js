@@ -1373,6 +1373,32 @@ function renderAiMessages() {
       footerHtml = `<div style="font-size:.65rem; color:var(--text-3); text-align:right; margin-top:6px">${m.time || ''}</div>`;
     }
 
+    // Проверяем, является ли сообщение разбором фотоконтроля монтажа (QC)
+    var isQcVerdict = !isUser && m.content && (
+      m.content.indexOf('ПРИНЯТО') !== -1 ||
+      m.content.indexOf('ЗАМЕЧАНИ') !== -1 ||
+      m.content.indexOf('дефект') !== -1 ||
+      m.content.indexOf('ЧЕК-ЛИСТ') !== -1 ||
+      m.content.indexOf('Маркировка') !== -1
+    );
+
+    var canReview = window.canUserAcceptQc ? window.canUserAcceptQc() : (
+      S.user && ['admin', 'director', 'manager', 'to_engineer', 'controller'].includes(String(S.user.role || '').toLowerCase())
+    );
+
+    var qcButtonsHtml = '';
+    if (isQcVerdict && S.aiSelectedTaskId && canReview) {
+      var qcTaskId = escHtml(String(S.aiSelectedTaskId));
+      qcButtonsHtml = `
+        <div style="margin-top:10px; padding-top:8px; border-top:1px dashed var(--border); display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+          <span style="font-size:.72rem; font-weight:700; color:var(--text-3)">Решение проверяющего:</span>
+          <button type="button" class="btn btn-xs" onclick="window.submitTaskQcDecision('${qcTaskId}', 'accepted')" style="background:#16a34a; color:#fff; font-weight:700; padding:3px 10px; font-size:.74rem; border-radius:4px" title="Принять монтаж без замечаний">✓ Принять</button>
+          <button type="button" class="btn btn-xs" onclick="window.submitTaskQcDecision('${qcTaskId}', 'accepted_notes')" style="background:#d97706; color:#fff; font-weight:700; padding:3px 10px; font-size:.74rem; border-radius:4px" title="Принять с замечаниями для устранения">⚠️ С замечанием</button>
+          <button type="button" class="btn btn-xs" onclick="window.submitTaskQcDecision('${qcTaskId}', 'rejected')" style="background:#dc2626; color:#fff; font-weight:700; padding:3px 10px; font-size:.74rem; border-radius:4px" title="Отклонить монтаж на доработку подрядчиком">❌ На доработку</button>
+        </div>
+      `;
+    }
+
     return `
       <div style="align-self:${align}; max-width:82%; background:${bg}; border:${border}; border-radius:10px; padding:10px 14px; box-shadow:var(--shadow)">
         <div style="font-size:.72rem; font-weight:700; color:${isUser ? 'var(--orange-dark)' : 'var(--orange)'}; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
@@ -1380,6 +1406,7 @@ function renderAiMessages() {
         </div>
         ${contentHtml}
         ${stoppedTag}
+        ${qcButtonsHtml}
         ${footerHtml}
       </div>
     `;
