@@ -273,9 +273,6 @@ function pageAiChat() {
           <button type="button" class="ai-tool-chip ${S.aiCurrentScenario === 'bti' ? 'active' : ''}" onclick="selectAiScenario('bti')" title="Подбор камер и расчет материалов по плану БТИ или фото помещения">
             📐 Расчёт по плану БТИ
           </button>
-          <button type="button" class="ai-tool-chip" onclick="selectAiScenario('stock')" title="Свободный остаток на Центральном складе (quantity - reserved_qty)">
-            🏢 Свободные остатки
-          </button>
         </div>
       </div>
 
@@ -1310,6 +1307,9 @@ function removeAiLoadingIndicator() {
 
 function formatAiMessageContent(rawText) {
   var escaped = escHtml(rawText || '');
+  // Очистка от звёздочек markdown (**жирный**, *курсив*)
+  escaped = escaped.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+  escaped = escaped.replace(/\*(.*?)\*/g, '$1');
   // Подсветка вердиктов фотоконтроля
   escaped = escaped.replace(/(✅\s*ПРИНЯТО\s*БЕЗ\s*ЗАМЕЧАНИЙ[^\n]*)/gi, '<div class="ai-qc-badge-pass">$1</div>');
   escaped = escaped.replace(/(⚠️\s*ТРЕБУЕТСЯ\s*УСТРАНЕНИЕ\s*ЗАМЕЧАНИЙ[^\n]*)/gi, '<div class="ai-qc-badge-warning">$1</div>');
@@ -1387,8 +1387,9 @@ function renderAiMessages() {
     );
 
     var qcButtonsHtml = '';
-    if (isQcVerdict && S.aiSelectedTaskId && canReview) {
-      var qcTaskId = escHtml(String(S.aiSelectedTaskId));
+    var effectiveTaskId = S.aiSelectedTaskId || (window._curTaskId ? window._curTaskId : (S.tasks && S.tasks[0] ? S.tasks[0].id : null));
+    if (isQcVerdict && effectiveTaskId && canReview) {
+      var qcTaskId = escHtml(String(effectiveTaskId));
       qcButtonsHtml = `
         <div style="margin-top:10px; padding-top:8px; border-top:1px dashed var(--border); display:flex; align-items:center; gap:8px; flex-wrap:wrap">
           <span style="font-size:.72rem; font-weight:700; color:var(--text-3)">Решение проверяющего:</span>
