@@ -2341,7 +2341,6 @@ function pageCard() {
         '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'invoice\')" title="Сформировать счёт на оплату">💰 Счёт</button>' +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'tmc_act\')" title="Отчет монтажника по израсходованным материалам (Акт ТМЦ)">📦 Отчет монтажника (ТМЦ)</button>' +
         '<button type="button" class="btn btn-sm btn-primary" onclick="window.openIdModerationModal(\'' + eid + '\')" style="background:#0f766e;font-weight:700" title="Интерактивная модерация комплекта ИД (Сплит-скрин)">👁️ Модерация ИД</button>' +
-        '<button type="button" class="btn btn-sm btn-ghost" onclick="window.generateAndOpenIdAlbumPdf(\'' + eid + '\')" title="Сформировать альбом ИД в .PDF формате" style="color:#b91c1c;border:1px solid #fecaca;background:#fef2f2;font-weight:700">📑 Альбом ИД (.PDF)</button>' +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\'' + eid + '\')" title="Допуск на объект: Письмо на допуск, Заказ-наряд или Наряд-допуск" style="border:1px solid #fed7aa;background:#fff7ed;color:#c2410c;font-weight:700">🪪 Допуск на объект ▾</button>' +
         '<button type="button" class="btn btn-sm btn-outline" onclick="openUploadTaskDocModal(\'' + eid + '\')" title="Учесть входящий счет, акт выполненных работ или скан от контрагента" style="font-weight:700;border:1.5px dashed var(--blue);color:var(--blue)">📎 Учесть Счет / Акт контрагента</button>' +
       '</div>' +

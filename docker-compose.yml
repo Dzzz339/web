@@ -32,6 +32,9 @@ services:
       - "3000:3000"
     volumes:
       - ./uploads:/app/uploads
+      - ./public:/app/public
+      - ./server:/app/server
+      - ./index.html:/app/index.html
     environment:
       - DATABASE_URL=postgresql://postgres:M9L4E22DPU4sUrU3tAnN@db:5432/stockeasy_db
       - AI_SERVICE_URL=http://ai:8000

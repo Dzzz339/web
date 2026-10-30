@@ -42,7 +42,6 @@
           '</div>' +
         '</div>' +
         '<div style="display:flex;align-items:center;gap:8px">' +
-          '<button type="button" class="btn btn-sm btn-ghost" onclick="window.generateAndOpenIdAlbumPdf(\'' + esc(taskId) + '\')" title="Сгенерировать и открыть полный альбом ИД в .PDF">📑 Альбом ИД (.PDF)</button>' +
           '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'modal_id_moderation\').remove()" style="font-size:1.1rem;padding:4px 8px">✕</button>' +
         '</div>' +
       '</div>' +
