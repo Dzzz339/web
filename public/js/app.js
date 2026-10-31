@@ -191,16 +191,16 @@ function isPageAllowedForRole(page, role) {
     return !['data', 'logs'].includes(page);
   }
   if (r === 'manager') {
-    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'chat', 'aichat', 'help'].includes(page) || page.startsWith('dash-');
+    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'templates', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'chat', 'aichat', 'help'].includes(page) || page.startsWith('dash-');
   }
   if (r === 'to_engineer' || r === 'logistics') {
-    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'supply', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'data', 'chat', 'aichat', 'help'].includes(page) || page.startsWith('dash-');
+    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'templates', 'supply', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'data', 'chat', 'aichat', 'help'].includes(page) || page.startsWith('dash-');
   }
   if (r === 'designer') {
-    return ['contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'tasks', 'card', 'kanban', 'chat', 'aichat', 'help'].includes(page);
+    return ['contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'templates', 'tasks', 'card', 'kanban', 'chat', 'aichat', 'help'].includes(page);
   }
   if (r === 'accountant') {
-    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'tasks', 'card', 'contractors', 'chat', 'help'].includes(page) || page.startsWith('dash-');
+    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'templates', 'tasks', 'card', 'contractors', 'chat', 'help'].includes(page) || page.startsWith('dash-');
   }
   return true;
 }
@@ -264,13 +264,11 @@ function updateCardSaveBar() {
 window.updateCardSaveBar = updateCardSaveBar;
 
 function go(page) {
+  if (page === 'tasks') {
+    S.lastOpenedTaskId = null;
+  }
   if (S.page === 'card' && S.cardId) {
     S.lastOpenedTaskId = S.cardId;
-  }
-  if (page === 'tasks' && S.lastOpenedTaskId && S.page !== 'card') {
-    // Восстановление контекста открытой заявки при переходе между разделами
-    S.cardId = S.lastOpenedTaskId;
-    page = 'card';
   }
   if (S.page === 'card' && S.cardDraft && Object.keys(S.cardDraft).length > 0) {
     if (typeof window.saveCard === 'function') window.saveCard(true);
@@ -571,6 +569,7 @@ function renderApp() {
   else if (S.page === 'sub_contracts') setApp(pageSubContracts());
   else if (S.page === 'sub_pricelists') setApp(pageSubPricelists());
   else if (S.page === 'customer_tariffs') setApp(pageCustomerTariffs());
+  else if (S.page === 'templates') renderTemplatesPage();
   else if (S.page === 'contractors') setApp(pageContractors());
   else if (S.page === 'supply')    setApp(pageSupply());
   else if (S.page === 'kanban')    setApp(pageKanban());

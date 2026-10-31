@@ -498,7 +498,7 @@ window.openQuickDeadlinePostponeModal = function(taskId) {
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
   if (!t) return;
 
-  var curDl = t.deadline ? t.deadline.slice(0, 10) : '';
+  var curDl = t.deadline ? safeDateIso(t.deadline) : '';
 
   var m = document.createElement('div');
   m.id = '_quick_postpone_modal';
@@ -738,7 +738,7 @@ function pageTasks() {
     if (S.taskView === 'remarks' && !(Number(t.openRemarksCount) > 0)) return false;
     if (S.taskView === 'payment' && (t.stageNum !== 7 && t.stageNum !== 8)) return false;
     if (S.taskView === 'done' && t.stageNum !== 9) return false;
-    if ((S.user.role === 'worker' || S.user.role === 'installer') && t.assignmentStatus === 'pending') return false;
+    if (S.user && (S.user.role === 'worker' || S.user.role === 'installer') && t.assignmentStatus === 'pending') return false;
 
     return true;
   });
@@ -1472,15 +1472,15 @@ function pageTasks() {
     '</td>';
 
     // 2. Дата заявки и Дата ПП (внесения)
-    var dateFormatted = t.dateZayavki ? t.dateZayavki.slice(0, 10).split('-').reverse().join('.') : '—';
-    var datePpFormatted = t.currentDate ? t.currentDate.slice(0, 10).split('-').reverse().join('.') : '';
+    var dateFormatted = t.dateZayavki ? safeDateRu(t.dateZayavki) : '—';
+    var datePpFormatted = t.currentDate ? safeDateRu(t.currentDate) : '';
     var colDate = '<td style="vertical-align:top;white-space:nowrap;font-size:.8rem">' +
       '<div style="font-weight:600;color:var(--text)" title="Дата поступления заявки Заказчика">' + dateFormatted + '</div>' +
       (datePpFormatted ? '<div class="t3" style="font-size:.7rem;margin-top:2px" title="Дата ПП (планового подтверждения / дата внесения)">ПП: ' + datePpFormatted + '</div>' : '') +
     '</td>';
 
     // 3. Дедлайн + светофор риска + быстрый перенос
-    var dlDate = t.deadline ? t.deadline.slice(0, 10).split('-').reverse().join('.') : '';
+    var dlDate = t.deadline ? safeDateRu(t.deadline) : '';
     var risk = getTaskDeadlineRisk(t);
     var riskBadge = '<div style="margin-top:2px"><span class="badge ' + risk.cls + '" style="font-size:.67rem;padding:1px 5px;font-weight:700" title="' + escHtml(risk.hint) + '">' + escHtml(risk.label) + '</span></div>';
     var postponeBtn = '<button type="button" class="btn-link" onclick="openQuickDeadlinePostponeModal(\'' + tid + '\')" title="Календарное планирование: быстрый перенос дедлайна с обоснованием" style="font-size:.68rem;color:var(--text-3);display:block;margin-top:2px;padding:0;text-decoration:none">⏱️ Перенос срока</button>';

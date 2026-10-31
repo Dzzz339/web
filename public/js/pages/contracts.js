@@ -1270,6 +1270,7 @@ window.resetContractDraft = function(contractId) {
 
 function openContractModal(id, activeTab) {
   activeTab = activeTab || 'main';
+  S.contractActiveTab = activeTab;
   if (typeof window.savePageScroll === 'function') window.savePageScroll('contract_row_' + id);
   var modalBackdrop = document.getElementById('contract_detail_modal_backdrop');
   var modalEl = document.getElementById('contract_detail_modal');
@@ -1389,6 +1390,7 @@ function openContractModal(id, activeTab) {
         <button class="btn btn-sm ${activeTab === 'terms' ? '' : 'btn-ghost'}" onclick="openContractModal(${c.id}, 'terms')">Условия и оплата</button>
         ${hasAgreements ? `<button class="btn btn-sm ${activeTab === 'agreements' ? '' : 'btn-ghost'}" onclick="openContractModal(${c.id}, 'agreements')">Дополнительные соглашения (${c.agreements.length})</button>` : (hasLots ? `<button class="btn btn-sm ${activeTab === 'lots' ? '' : 'btn-ghost'}" onclick="openContractModal(${c.id}, 'lots')">Таблица лотов (${lots.length})</button>` : '')}
         <button class="btn btn-sm ${activeTab === 'tasks' ? '' : 'btn-ghost'}" onclick="openContractModal(${c.id}, 'tasks')">Объекты / Заявки (${tasks.length})</button>
+        <button class="btn btn-sm ${activeTab === 'documents' ? '' : 'btn-ghost'}" onclick="openContractModal(${c.id}, 'documents')">📑 Документы договора (<span id="contract_tab_docs_badge_${c.id}">...</span>)</button>
       </div>
 
       <!-- СОДЕРЖИМОЕ АКТИВНОЙ ВКЛАДКИ -->
@@ -1398,6 +1400,7 @@ function openContractModal(id, activeTab) {
         ${activeTab === 'agreements' ? renderContractTabAgreements(c, c.agreements) : ''}
         ${activeTab === 'lots' ? renderContractTabLots(c, lots) : ''}
         ${activeTab === 'tasks' ? renderContractTabTasks(c, tasks) : ''}
+        ${activeTab === 'documents' ? renderContractTabDocuments(c) : ''}
       </div>
 
       <!-- ПЛАШКА НЕСОХРАНЕННЫХ ИЗМЕНЕНИЙ В ДОГОВОРЕ (ПУНКТ 4) -->
@@ -1417,6 +1420,11 @@ function openContractModal(id, activeTab) {
         initContractAgreementsMap(c);
       }, 60);
     }
+    setTimeout(function() {
+      if (typeof window.loadContractDocuments === 'function') {
+        window.loadContractDocuments(c.id);
+      }
+    }, 60);
   });
 }
 
@@ -1832,8 +1840,8 @@ window.viewContractTasks = function(contractId, internalNum) {
   S.taskContractTitle = internalNum ? ('Вн. № ' + internalNum) : ('Договор #' + contractId);
   S.taskAgreementId = null;
   S.taskAgreementTitle = null;
-  if (typeof setPage === 'function') {
-    setPage('tasks');
+  if (typeof go === 'function') {
+    go('tasks');
   } else {
     S.page = 'tasks';
     if (typeof renderApp === 'function') renderApp();
@@ -2315,7 +2323,7 @@ function renderContractTabTasks(c, tasks) {
     }
 
     return `
-      <tr style="border-bottom:1px solid var(--border); cursor:pointer" onclick="closeContractModal(); openCard('${t.id}')">
+      <tr style="border-bottom:1px solid var(--border); cursor:pointer" onclick="closeContractModal(); openCard('${escHtml(t.id).replace(/'/g, "\\'")}')">
         <td style="padding:10px 12px; font-weight:700; font-family:monospace; color:var(--blue)">${escHtml(t.id)}</td>
         ${agCell}
         <td style="padding:10px 12px">${escHtml(t.region || '—')}</td>
@@ -2362,6 +2370,107 @@ function renderContractTabTasks(c, tasks) {
     </div>
   `;
 }
+
+function renderContractTabDocuments(c) {
+  setTimeout(function() { loadContractDocuments(c.id); }, 40);
+  return `
+    <div class="card p" style="background:#fff; border:1px solid var(--border); border-radius:10px">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; padding-bottom:14px; border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-weight:700; font-size:1rem; display:flex; align-items:center; gap:8px">
+            <span>📑 Официальные документы контракта</span>
+            <span id="contract_docs_total_count_${c.id}" class="badge b-blue" style="font-size:.75rem">0</span>
+          </div>
+          <div style="font-size:.8rem; color:var(--text-3); margin-top:2px">
+            Единый реестр договоров, заказ-нарядов, актов и счетов по данному контракту и всем входящим объектам
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center">
+          <button type="button" class="btn btn-sm btn-primary" onclick="window.openDocumentEditor({ contractId: ${c.id}, onSaved: function(){ loadContractDocuments(${c.id}); } })" style="display:inline-flex;align-items:center;gap:6px;font-weight:600">
+            <span>➕</span> Сформировать документ
+          </button>
+        </div>
+      </div>
+
+      <div id="contract_documents_container_${c.id}" style="padding-top:14px">
+        <div style="text-align:center;padding:30px;color:var(--text-3)"><div class="spin" style="margin:0 auto 10px"></div>Загрузка документов контракта...</div>
+      </div>
+    </div>
+  `;
+}
+
+window.loadContractDocuments = function(contractId) {
+  var cont = document.getElementById('contract_documents_container_' + contractId);
+  var badge = document.getElementById('contract_docs_total_count_' + contractId);
+  var tabBadge = document.getElementById('contract_tab_docs_badge_' + contractId);
+
+  api('/contracts/' + contractId + '/documents')
+    .then(function(docs) {
+      var count = (docs && docs.length) || 0;
+      if (badge) badge.textContent = count;
+      if (tabBadge) tabBadge.textContent = count;
+
+      if (!cont) return;
+
+      if (!docs || !docs.length) {
+        cont.innerHTML = '<div style="color:var(--text-3);font-size:.85rem;padding:24px;text-align:center;background:#f8fafc;border-radius:8px">' +
+          'Официальные документы по данному контракту пока не сформированы.<br/>' +
+          'Нажмите «<b>➕ Сформировать документ</b>», чтобы создать Договор субподряда, Заказ-наряд или Акт приемки.' +
+        '</div>';
+        return;
+      }
+
+      var html = '<div style="overflow-x:auto"><table class="table" style="font-size:.82rem;width:100%">' +
+        '<thead><tr style="text-align:left;border-bottom:1.5px solid var(--border)">' +
+          '<th style="padding:8px">Документ</th>' +
+          '<th style="padding:8px">№ и Дата</th>' +
+          '<th style="padding:8px">Объект / Заявка</th>' +
+          '<th style="padding:8px">Статус</th>' +
+          '<th style="padding:8px">Создал</th>' +
+          '<th style="padding:8px;text-align:right">Действия</th>' +
+        '</tr></thead><tbody>';
+
+      docs.forEach(function(d) {
+        var rawDate = d.doc_date || d.created_at;
+        var dateStr = rawDate ? rawDate.slice(0, 10).split('-').reverse().join('.') : '—';
+        var isWord = d.doc_format === 'word' || (d.file_url && d.file_url.includes('.doc'));
+        var formatBadge = isWord
+          ? '<span class="badge b-blue" style="font-size:.65rem;padding:1px 5px;font-weight:700">DOCX</span>'
+          : '<span class="badge b-green" style="font-size:.65rem;padding:1px 5px;font-weight:700">XLSX</span>';
+
+        var taskStr = d.task_id 
+          ? ('<span class="badge b-gray" style="font-size:.7rem">' + escHtml(d.task_id) + '</span> ' + escHtml(d.task_vsp ? ('ВСП ' + d.task_vsp) : (d.task_address || '')))
+          : '<span style="color:var(--text-3);font-size:.78rem">Весь контракт</span>';
+
+        var statusBadge = '<span class="badge b-gray" style="font-size:.68rem">' + escHtml(d.status || 'Сформирован') + '</span>';
+        if (d.status === 'signed') statusBadge = '<span class="badge" style="font-size:.68rem;background:#eff6ff;color:#1d4ed8;border:1px solid #93c5fd">✍️ Подписан</span>';
+        else if (d.status === 'paid') statusBadge = '<span class="badge" style="font-size:.68rem;background:#dcfce7;color:#15803d;border:1px solid #86efac">✅ Оплачен</span>';
+
+        html += '<tr style="border-bottom:1px solid var(--border)">' +
+          '<td style="padding:8px">' +
+            '<a href="javascript:void(0)" onclick="window.openDocumentEditor({ existingDocId: ' + d.id + ', contractId: ' + contractId + ' })" style="font-weight:600;display:inline-flex;align-items:center;gap:6px;color:var(--blue)" title="Открыть в редакторе Stockeasy">' +
+              '📄 ' + escHtml(d.title || 'Документ') + ' ' + formatBadge +
+            '</a>' +
+          '</td>' +
+          '<td style="padding:8px;white-space:nowrap">' + escHtml(d.doc_number || 'б/н') + ' <span style="color:var(--text-3)">от</span> ' + dateStr + '</td>' +
+          '<td style="padding:8px">' + taskStr + '</td>' +
+          '<td style="padding:8px;white-space:nowrap">' + statusBadge + '</td>' +
+          '<td style="padding:8px;font-size:.75rem;color:var(--text-2)">' + escHtml(d.created_by_name || 'Система') + '</td>' +
+          '<td style="padding:8px;white-space:nowrap;text-align:right">' +
+            '<button type="button" class="btn btn-sm btn-ghost" onclick="window.openDocumentEditor({ existingDocId: ' + d.id + ', contractId: ' + contractId + ' })" title="Открыть в редакторе" style="padding:2px 8px;font-size:.78rem">✏️ Открыть</button> ' +
+            (d.file_url ? '<a href="' + escHtml(d.file_url) + '" download class="btn btn-sm btn-ghost" title="Скачать файл" style="padding:2px 8px;font-size:.78rem">📥</a> ' : '') +
+            '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red);padding:2px 6px;font-size:.78rem" onclick="deleteCardDocument(\'' + (d.task_id || '') + '\', ' + d.id + ')" title="Удалить">🗑️</button>' +
+          '</td>' +
+        '</tr>';
+      });
+
+      html += '</tbody></table></div>';
+      cont.innerHTML = html;
+    })
+    .catch(function(err) {
+      if (cont) cont.innerHTML = '<div style="color:var(--red);padding:10px">Ошибка загрузки документов: ' + escHtml(err.message) + '</div>';
+    });
+};
 
 function closeContractModal() {
   var modalBackdrop = document.getElementById('contract_detail_modal_backdrop');

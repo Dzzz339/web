@@ -164,6 +164,7 @@ var NAV_SECTIONS = [
       { id: 'sub_contracts',   icon: ICONS.contracts,   label: 'Договоры субподряда' },
       { id: 'customer_tariffs',icon: '🏛️',              label: 'Тарифы Сбера 2026' },
       { id: 'sub_pricelists',  icon: ICONS.calc,        label: 'Прайсы субподряда' },
+      { id: 'templates',       icon: '📑',              label: 'Шаблоны документов' },
       { id: 'users',       icon: ICONS.users,       label: 'Люди' }
     ]
   },

@@ -20,6 +20,7 @@ import {
   generateTmcAct,
   DEFAULT_GENERAL_CONTRACTOR
 } from '../services/docxGenerator.js';
+import { collectDocumentContext, renderTemplateHtml, formatDateRu } from '../services/documentContext.js';
 
 const router = express.Router();
 const DOCS_DIR = path.join(UPLOADS_DIR, 'documents');
@@ -806,6 +807,434 @@ router.post('/tasks/:taskId/id-moderation/finalize', authenticateToken, requireR
   } catch (err) {
     console.error('Error finalizing ID moderation:', err);
     res.status(500).json({ error: 'Ошибка финализации: ' + err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 9. УНИВЕРСАЛЬНЫЕ ШАБЛОНЫ ДОКУМЕНТОВ И СЕРВИС ОНЛАЙН-РЕДАКТИРОВАНИЯ
+// ══════════════════════════════════════════════════════════════════════════════
+
+// 9.1. Список всех шаблонов документов
+router.get('/document-templates', authenticateToken, async (req, res) => {
+  try {
+    const { category, format } = req.query;
+    let query = 'SELECT * FROM document_templates WHERE 1=1';
+    const params = [];
+
+    if (category) {
+      params.push(category);
+      query += ` AND category = $${params.length}`;
+    }
+    if (format) {
+      params.push(format);
+      query += ` AND doc_format = $${params.length}`;
+    }
+
+    query += ' ORDER BY is_system DESC, category ASC, name ASC';
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching templates:', err);
+    res.status(500).json({ error: 'Ошибка загрузки шаблонов документов' });
+  }
+});
+
+// 9.2. Список всех доступных переменных с описанием для конструктора шаблонов
+router.get('/document-templates-variables', authenticateToken, (req, res) => {
+  res.json([
+    {
+      group: 'Документ и даты',
+      vars: [
+        { code: 'номер_документа', label: 'Номер документа' },
+        { code: 'дата_документа', label: 'Дата документа (ДД.ММ.ГГГГ)' },
+        { code: 'дата_документа_прописью', label: 'Дата прописью («__» _____ 202_ г.)' },
+        { code: 'текущая_дата', label: 'Сегодняшняя дата' },
+        { code: 'текущий_год', label: 'Текущий год' },
+        { code: 'город', label: 'Город составления' }
+      ]
+    },
+    {
+      group: 'Наша организация (Генподрядчик)',
+      vars: [
+        { code: 'наша_организация', label: 'Краткое название (ООО «КС»)' },
+        { code: 'наша_организация_полная', label: 'Полное наименование организации' },
+        { code: 'наш_инн', label: 'ИНН' },
+        { code: 'наш_кпп', label: 'КПП' },
+        { code: 'наш_огрн', label: 'ОГРН' },
+        { code: 'наш_директор', label: 'ФИО руководителя' },
+        { code: 'наш_директор_должность', label: 'Должность руководителя' },
+        { code: 'наш_адрес', label: 'Юридический адрес' },
+        { code: 'наш_телефон', label: 'Телефон' },
+        { code: 'наш_банк', label: 'Банк' },
+        { code: 'наш_бик', label: 'БИК банка' },
+        { code: 'наш_расчетный_счет', label: 'Расчетный счет' },
+        { code: 'наш_корр_счет', label: 'Корреспондентский счет' }
+      ]
+    },
+    {
+      group: 'Подрядчик / Исполнитель',
+      vars: [
+        { code: 'подрядчик_наименование', label: 'Краткое название подрядчика / ФИО ИП' },
+        { code: 'подрядчик_наименование_полное', label: 'Полное наименование' },
+        { code: 'подрядчик_инн', label: 'ИНН подрядчика' },
+        { code: 'подрядчик_кпп', label: 'КПП подрядчика' },
+        { code: 'подрядчик_директор', label: 'ФИО руководителя / ИП' },
+        { code: 'подрядчик_адрес', label: 'Юридический адрес' },
+        { code: 'подрядчик_телефон', label: 'Телефон' },
+        { code: 'подрядчик_банк', label: 'Банк подрядчика' },
+        { code: 'подрядчик_бик', label: 'БИК банка' },
+        { code: 'подрядчик_расчетный_счет', label: 'Расчетный счет' },
+        { code: 'подрядчик_корр_счет', label: 'Корреспондентский счет' },
+        { code: 'номер_договора_подрядчика', label: 'Номер договора с подрядчиком' },
+        { code: 'дата_договора_подрядчика', label: 'Дата договора с подрядчиком' }
+      ]
+    },
+    {
+      group: 'Заказчик',
+      vars: [
+        { code: 'наш_заказчик', label: 'Наименование заказчика' },
+        { code: 'наш_заказчик_инн', label: 'ИНН заказчика' },
+        { code: 'наш_заказчик_адрес', label: 'Адрес заказчика' }
+      ]
+    },
+    {
+      group: 'Объект и заявка',
+      vars: [
+        { code: 'номер_заявки', label: 'Номер заявки' },
+        { code: 'номер_всп', label: 'Номер ВСП / Отделения' },
+        { code: 'адрес_объекта', label: 'Адрес объекта' },
+        { code: 'тип_объекта', label: 'Тип объекта' },
+        { code: 'вид_работ', label: 'Вид работ' },
+        { code: 'срок_выполнения', label: 'Срок выполнения (ДД.ММ.ГГГГ)' },
+        { code: 'срок_выполнения_прописью', label: 'Срок выполнения прописью' },
+        { code: 'дата_заявки', label: 'Дата заявки' },
+        { code: 'номер_контракта', label: 'Номер контракта' },
+        { code: 'дата_контракта', label: 'Дата контракта' },
+        { code: 'идентификатор_закупки', label: 'ИКЗ / Номер извещения ЕИС' }
+      ]
+    },
+    {
+      group: 'Финансы и сметы',
+      vars: [
+        { code: 'сумма', label: 'Сумма с рублями (125 000.00 ₽)' },
+        { code: 'сумма_числом', label: 'Сумма числом (125000)' },
+        { code: 'сумма_прописью', label: 'Сумма прописью' },
+        { code: 'ндс_инфо', label: 'Информация по НДС' }
+      ]
+    },
+    {
+      group: 'Специалисты',
+      vars: [
+        { code: 'фио_монтажника', label: 'ФИО монтажника' },
+        { code: 'паспорт_монтажника', label: 'Паспортные данные' },
+        { code: 'телефон_монтажника', label: 'Телефон монтажника' },
+        { code: 'госномер_авто', label: 'Госномер автотранспорта' }
+      ]
+    },
+    {
+      group: 'Таблицы и блоки',
+      vars: [
+        { code: 'таблица_работ', label: 'Таблица сметы и расценок работ' },
+        { code: 'таблица_специалистов', label: 'Таблица состава бригады монтажников' },
+        { code: 'таблица_материалов', label: 'Таблица использованных материалов (ТМЦ)' },
+        { code: 'блок_подписей', label: 'Двусторонний блок реквизитов и подписей' }
+      ]
+    }
+  ]);
+});
+
+// 9.3. Получить конкретный шаблон
+router.get('/document-templates/:idOrCode', authenticateToken, async (req, res) => {
+  try {
+    const { idOrCode } = req.params;
+    let query = 'SELECT * FROM document_templates WHERE id = $1';
+    let val = parseInt(idOrCode, 10);
+    if (isNaN(val)) {
+      query = 'SELECT * FROM document_templates WHERE code = $1';
+      val = idOrCode;
+    }
+    const result = await pool.query(query, [val]);
+    if (!result.rows.length) return res.status(404).json({ error: 'Шаблон не найден' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error fetching template:', err);
+    res.status(500).json({ error: 'Ошибка получения шаблона' });
+  }
+});
+
+// 9.4. Создать шаблон документа
+router.post('/document-templates', authenticateToken, requireRole('admin', 'director'), async (req, res) => {
+  try {
+    const { code, name, category, doc_format = 'word', description, template_html } = req.body;
+    if (!code || !name || !template_html) {
+      return res.status(400).json({ error: 'Поля code, name и template_html обязательны' });
+    }
+
+    const insertRes = await pool.query(`
+      INSERT INTO document_templates (code, name, category, doc_format, description, template_html, is_system, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, false, NOW())
+      RETURNING *
+    `, [code.trim(), name.trim(), category || 'custom', doc_format, description || '', template_html]);
+
+    res.status(201).json(insertRes.rows[0]);
+  } catch (err) {
+    console.error('Error creating template:', err);
+    res.status(500).json({ error: 'Ошибка создания шаблона: ' + err.message });
+  }
+});
+
+// 9.5. Обновить шаблон документа
+router.put('/document-templates/:id', authenticateToken, requireRole('admin', 'director'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, category, doc_format, description, template_html } = req.body;
+
+    const updRes = await pool.query(`
+      UPDATE document_templates SET
+        name = COALESCE($1, name),
+        category = COALESCE($2, category),
+        doc_format = COALESCE($3, doc_format),
+        description = COALESCE($4, description),
+        template_html = COALESCE($5, template_html),
+        updated_at = NOW()
+      WHERE id = $6
+      RETURNING *
+    `, [name, category, doc_format, description, template_html, id]);
+
+    if (!updRes.rows.length) return res.status(404).json({ error: 'Шаблон не найден' });
+    res.json(updRes.rows[0]);
+  } catch (err) {
+    console.error('Error updating template:', err);
+    res.status(500).json({ error: 'Ошибка обновления шаблона: ' + err.message });
+  }
+});
+
+// 9.6. Удалить шаблон документа (только пользовательские)
+router.delete('/document-templates/:id', authenticateToken, requireRole('admin', 'director'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const chk = await pool.query('SELECT is_system FROM document_templates WHERE id = $1', [id]);
+    if (!chk.rows.length) return res.status(404).json({ error: 'Шаблон не найден' });
+    if (chk.rows[0].is_system) {
+      return res.status(400).json({ error: 'Системный шаблон нельзя удалить' });
+    }
+
+    await pool.query('DELETE FROM document_templates WHERE id = $1', [id]);
+    res.json({ success: true, message: 'Шаблон удален' });
+  } catch (err) {
+    console.error('Error deleting template:', err);
+    res.status(500).json({ error: 'Ошибка удаления шаблона' });
+  }
+});
+
+// 9.7. Сформировать документ для предпросмотра и редактирования в приложении (БЕЗ СКАЧИВАНИЯ)
+router.post('/documents/render', authenticateToken, async (req, res) => {
+  try {
+    const {
+      template_code,
+      template_id,
+      task_id,
+      contract_id,
+      subcontract_id,
+      custom_data = {}
+    } = req.body;
+
+    // 1. Ищем шаблон
+    let template = null;
+    if (template_id) {
+      const tRes = await pool.query('SELECT * FROM document_templates WHERE id = $1', [template_id]);
+      if (tRes.rows.length) template = tRes.rows[0];
+    }
+    if (!template && template_code) {
+      const tRes = await pool.query('SELECT * FROM document_templates WHERE code = $1', [template_code]);
+      if (tRes.rows.length) template = tRes.rows[0];
+    }
+    if (!template) {
+      return res.status(404).json({ error: `Шаблон документа не найден (${template_code || template_id})` });
+    }
+
+    // 2. Собираем единый контекст данных
+    const context = await collectDocumentContext({
+      pool,
+      taskId: task_id,
+      contractId: contract_id,
+      subcontractId: subcontract_id,
+      customData: custom_data
+    });
+
+    // 3. Подставляем переменные в HTML
+    const renderedHtml = renderTemplateHtml(template.template_html, context);
+
+    const docNumber = context.doc_number;
+    const title = `${template.name} № ${docNumber}`;
+
+    res.json({
+      template: {
+        id: template.id,
+        code: template.code,
+        name: template.name,
+        category: template.category,
+        doc_format: template.doc_format
+      },
+      rendered_html: renderedHtml,
+      context,
+      doc_number: docNumber,
+      title
+    });
+  } catch (err) {
+    console.error('Error rendering document:', err);
+    res.status(500).json({ error: 'Ошибка формирования документа: ' + err.message });
+  }
+});
+
+// 9.8. Сохранить документ (из редактора в реестр системы)
+router.post('/documents/save', authenticateToken, async (req, res) => {
+  try {
+    const {
+      id, // если редактируется существующий
+      task_id,
+      contract_id,
+      subcontract_id,
+      doc_type = 'custom',
+      doc_format = 'word',
+      doc_number,
+      doc_date,
+      title,
+      content_html,
+      content_json,
+      status = 'generated',
+      meta = {}
+    } = req.body;
+
+    if (!title) return res.status(400).json({ error: 'Заголовок документа обязателен' });
+
+    // Создаем фоновый DOCX/HTML файл на диске на случай если понадобится скачать
+    const safeId = String(task_id || contract_id || 'doc').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const timestamp = Date.now();
+    const ext = doc_format === 'excel' ? 'xlsx' : 'docx';
+    const fileName = `${doc_type}_${safeId}_${timestamp}.${ext}`;
+    const filePath = path.join(DOCS_DIR, fileName);
+
+    if (content_html) {
+      // Сохраняем Word-совместимый HTML
+      const wordHeader = `<!DOCTYPE html><html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>${title}</title><style>@page { size: 210mm 297mm; margin: 20mm 15mm 20mm 20mm; } body { font-family: 'Times New Roman', serif; font-size: 11pt; color: #000; } table { border-collapse: collapse; width: 100%; } td, th { border: 1pt solid #000; padding: 4pt 6pt; }</style></head><body>${content_html}</body></html>`;
+      fs.writeFileSync(filePath, wordHeader, 'utf8');
+    }
+
+    const fileUrl = `/uploads/documents/${fileName}`;
+
+    let resolvedContractId = contract_id || null;
+    if (!resolvedContractId && task_id) {
+      const tRes = await pool.query('SELECT contract_id FROM tasks WHERE id = $1', [task_id]);
+      if (tRes.rows.length && tRes.rows[0].contract_id) {
+        resolvedContractId = tRes.rows[0].contract_id;
+      }
+    }
+
+    if (id) {
+      // Обновление существующего документа
+      const updRes = await pool.query(`
+        UPDATE task_documents SET
+          title = $1,
+          doc_number = COALESCE($2, doc_number),
+          doc_date = COALESCE($3::date, doc_date),
+          content_html = $4,
+          content_json = $5,
+          status = $6,
+          meta = $7,
+          file_url = COALESCE($8, file_url),
+          updated_at = NOW()
+        WHERE id = $9
+        RETURNING *
+      `, [
+        title,
+        doc_number || null,
+        doc_date || null,
+        content_html || null,
+        content_json ? JSON.stringify(content_json) : null,
+        status,
+        JSON.stringify(meta),
+        fileUrl,
+        id
+      ]);
+      return res.json(updRes.rows[0]);
+    }
+
+    // Создание нового документа
+    const insRes = await pool.query(`
+      INSERT INTO task_documents (
+        task_id, contract_id, subcontract_id, doc_type, doc_format, doc_number, doc_date, title,
+        content_html, content_json, file_url, file_type, meta, status, created_by, created_at, updated_at
+      )
+      VALUES (
+        $1, $2, $3, $4, $5, $6, COALESCE($7::date, CURRENT_DATE), $8,
+        $9, $10, $11, $12, $13, $14, $15, NOW(), NOW()
+      )
+      RETURNING *
+    `, [
+      task_id || null,
+      resolvedContractId,
+      subcontract_id || null,
+      doc_type,
+      doc_format,
+      doc_number || null,
+      doc_date || null,
+      title,
+      content_html || null,
+      content_json ? JSON.stringify(content_json) : null,
+      fileUrl,
+      ext,
+      JSON.stringify(meta),
+      status,
+      req.user?.id || null
+    ]);
+
+    res.status(201).json(insRes.rows[0]);
+  } catch (err) {
+    console.error('Error saving document:', err);
+    res.status(500).json({ error: 'Ошибка сохранения документа: ' + err.message });
+  }
+});
+
+// 9.9. Получить все документы контракта (прямые и по связанным заявкам)
+router.get('/contracts/:contractId/documents', authenticateToken, async (req, res) => {
+  try {
+    const { contractId } = req.params;
+    const query = `
+      SELECT d.*, u.full_name AS created_by_name,
+             t.address AS task_address, t.vsp AS task_vsp, t.customer AS task_customer
+      FROM task_documents d
+      LEFT JOIN users u ON d.created_by = u.id
+      LEFT JOIN tasks t ON d.task_id = t.id
+      WHERE d.contract_id = $1 
+         OR d.task_id IN (SELECT id FROM tasks WHERE contract_id = $1)
+      ORDER BY d.created_at DESC
+    `;
+    const result = await pool.query(query, [contractId]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching contract documents:', err);
+    res.status(500).json({ error: 'Ошибка загрузки документов контракта' });
+  }
+});
+
+// 9.10. Получить один документ по ID (с полным телом content_html)
+router.get('/documents/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(`
+      SELECT d.*, u.full_name AS created_by_name,
+             t.address AS task_address, t.vsp AS task_vsp, t.customer AS task_customer
+      FROM task_documents d
+      LEFT JOIN users u ON d.created_by = u.id
+      LEFT JOIN tasks t ON d.task_id = t.id
+      WHERE d.id = $1
+    `, [id]);
+    if (!result.rows.length) return res.status(404).json({ error: 'Документ не найден' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error fetching document:', err);
+    res.status(500).json({ error: 'Ошибка загрузки документа' });
   }
 });
 

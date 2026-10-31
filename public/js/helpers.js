@@ -141,6 +141,34 @@ function fmtMoneyShort(n) {
   }
   return fmtMoney(n);
 }
+function safeDateIso(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return '';
+    return val.toISOString().slice(0, 10);
+  }
+  var s = String(val).trim();
+  if (!s) return '';
+  if (s.length >= 10 && s[4] === '-' && s[7] === '-') {
+    return s.slice(0, 10);
+  }
+  var d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    try {
+      return d.toISOString().slice(0, 10);
+    } catch(e) {}
+  }
+  return s.slice(0, 10);
+}
+
+function safeDateRu(val) {
+  var iso = safeDateIso(val);
+  return iso ? iso.split('-').reverse().join('.') : '';
+}
+
+window.safeDateIso = safeDateIso;
+window.safeDateRu = safeDateRu;
+
 function bar(done, total, green) {
   var p = pct(done, total);
   return '<div class="prog"><div class="prog-fill' + (green?' g':'') + '" style="width:' + p + '%"></div></div>';

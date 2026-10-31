@@ -2858,10 +2858,25 @@ window.saveAndCreateAgreement = function(taskId) {
 };
 
 window.previewSubcontractAgreementDocx = function(taskId) {
-  var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
   var activeIdx = (window._activeSubcontractIdx && window._activeSubcontractIdx[taskId]) || 0;
   var curSub = (window._curCardSubcontracts || [])[activeIdx] || (window._curCardSubcontracts || [])[0] || null;
   var subId = curSub ? curSub.id : null;
+
+  if (typeof window.openDocumentEditor === 'function') {
+    window.openDocumentEditor({
+      templateCode: 'subcontract_agreement',
+      taskId: taskId,
+      subcontractId: subId,
+      onSaved: function() {
+        if (typeof window.loadCardDocuments === 'function') {
+          window.loadCardDocuments(taskId);
+        }
+      }
+    });
+    return;
+  }
+
+  var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
   var cName = (t.contractor && t.contractor.trim()) || (curSub && curSub.contractor_name) || '';
 
   if (typeof api !== 'function') return;
@@ -2896,9 +2911,24 @@ window.previewSubcontractAgreementDocx = function(taskId) {
   };
 
   window.downloadSubcontractDocx = function(taskId) {
-    var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
     var curSub = (window._curCardSubcontracts || []).find(function(s){ return String(s.task_id) === String(taskId); }) || null;
     var subId = curSub ? curSub.id : null;
+
+    if (typeof window.openDocumentEditor === 'function') {
+      window.openDocumentEditor({
+        templateCode: 'subcontract_agreement',
+        taskId: taskId,
+        subcontractId: subId,
+        onSaved: function() {
+          if (typeof window.loadCardDocuments === 'function') {
+            window.loadCardDocuments(taskId);
+          }
+        }
+      });
+      return;
+    }
+
+    var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
     var cName = (t.contractor && t.contractor.trim()) || (curSub && curSub.contractor_name) || '';
 
     if (typeof api !== 'function') return;

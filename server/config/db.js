@@ -572,6 +572,32 @@ export async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_docs_task_id ON task_documents(task_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_docs_subcontract_id ON task_documents(subcontract_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_docs_type ON task_documents(doc_type)`);
+  await pool.query(`ALTER TABLE task_documents ALTER COLUMN task_id DROP NOT NULL`);
+  await pool.query(`ALTER TABLE task_documents ALTER COLUMN file_url DROP NOT NULL`);
+  await pool.query(`ALTER TABLE task_documents ADD COLUMN IF NOT EXISTS contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE task_documents ADD COLUMN IF NOT EXISTS doc_format TEXT DEFAULT 'word'`);
+  await pool.query(`ALTER TABLE task_documents ADD COLUMN IF NOT EXISTS content_html TEXT`);
+  await pool.query(`ALTER TABLE task_documents ADD COLUMN IF NOT EXISTS content_json JSONB`);
+  await pool.query(`ALTER TABLE task_documents ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_docs_contract_id ON task_documents(contract_id)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS document_templates (
+      id              SERIAL PRIMARY KEY,
+      code            TEXT UNIQUE NOT NULL,
+      name            TEXT NOT NULL,
+      category        TEXT NOT NULL,
+      doc_format      TEXT NOT NULL DEFAULT 'word',
+      description     TEXT,
+      template_html   TEXT NOT NULL,
+      default_meta    JSONB DEFAULT '{}',
+      is_system       BOOLEAN DEFAULT FALSE,
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_doc_templates_code ON document_templates(code)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_doc_templates_category ON document_templates(category)`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS remarks (
@@ -1193,8 +1219,10 @@ export async function seedMaterialsAndWarehouses() {
       const { syncSubcontractsForTasks } = await import('../scripts/sync_task_subcontracts.js');
       await syncSubcontractsForTasks(pool);
       await initSubcontractDms(pool);
+      const { seedTemplates } = await import('../scripts/seed_document_templates.js');
+      await seedTemplates();
     } catch (e) {
-      console.error('[DB] Subcontracts auto-sync error:', e.message);
+      console.error('[DB] Subcontracts / Templates auto-sync error:', e.message);
     }
   } catch (err) {
     console.error('[DB] Ошибка сидирования материалов/складов:', err);

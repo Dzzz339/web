@@ -4659,6 +4659,25 @@ function downloadAccessLetter(taskId) {
 
   var selectedSpecs = (S.specialists || []).filter(function(s){ return specialistIds.includes(s.id); });
 
+  modal.remove();
+
+  if (typeof window.openDocumentEditor === 'function') {
+    window.openDocumentEditor({
+      templateCode: selectedType,
+      taskId: taskId,
+      customData: {
+        specialists: selectedSpecs,
+        responsible_info: responsibleInfo,
+        contractor_name: contractorName,
+        task_info: customTaskInfo
+      },
+      onSaved: function() {
+        loadCardDocuments(taskId);
+      }
+    });
+    return;
+  }
+
   var btn = document.getElementById('alm_download_btn');
   if (btn) {
     btn.disabled = true;
@@ -6164,6 +6183,21 @@ function deleteSubcontract(taskId, subId) {
 }
 
 window.generateTaskDoc = function(taskId, docType, optSubcontractId) {
+  // Если доступен визуальный редактор — открываем документ сразу в окне без скачивания!
+  if (typeof window.openDocumentEditor === 'function') {
+    window.openDocumentEditor({
+      templateCode: docType,
+      taskId: taskId,
+      subcontractId: optSubcontractId,
+      onSaved: function() {
+        if (typeof window.loadCardDocuments === 'function') {
+          window.loadCardDocuments(taskId);
+        }
+      }
+    });
+    return;
+  }
+
   var docTitles = {
     order_subcontract: 'Заявка (Заказ на работы) [Прил. №2]',
     completion_act: 'Акт вып. работ [к заказу]',
@@ -6281,16 +6315,10 @@ function loadCardDocuments(taskId) {
           ? '<span class="badge b-blue" style="font-size:.65rem;padding:1px 5px;font-weight:700" title="Документ Microsoft Word (.docx)">DOCX</span>'
           : (isPdf ? '<span class="badge b-red" style="font-size:.65rem;padding:1px 5px;font-weight:700" title="Документ Adobe PDF (.pdf)">PDF</span>' : '');
 
-        if (d.file_url) {
-          titleHtml = '<a href="' + escHtml(d.file_url) + '" target="_blank" style="font-weight:600;display:inline-flex;align-items:center;gap:6px;color:var(--blue)" title="Открыть документ">' +
-            (isIncoming ? '📎' : '📄') + ' ' + escHtml(d.title || 'Документ') +
-            (fileFormatBadge ? ' ' + fileFormatBadge : '') +
-          '</a>';
-        } else {
-          titleHtml = '<span style="font-weight:600;display:inline-flex;align-items:center;gap:5px">' +
-            '📝 ' + escHtml(d.title || 'Документ') +
-          '</span>';
-        }
+        titleHtml = '<a href="javascript:void(0)" onclick="window.openDocumentEditor({ existingDocId: ' + d.id + ', taskId: \'' + escHtml(taskId) + '\' })" style="font-weight:600;display:inline-flex;align-items:center;gap:6px;color:var(--blue)" title="Открыть в редакторе Stockeasy">' +
+          (isIncoming ? '📎' : '📄') + ' ' + escHtml(d.title || 'Документ') +
+          (fileFormatBadge ? ' ' + fileFormatBadge : '') +
+        '</a>';
 
         if (isIncoming) {
           titleHtml += ' <span class="badge" style="font-size:.6rem;background:#f3e8ff;color:#7e22ce;vertical-align:middle">Контрагент</span>';
@@ -6316,6 +6344,7 @@ function loadCardDocuments(taskId) {
           '<td style="padding:6px 8px;white-space:nowrap">' + statusBadge + '</td>' +
           '<td style="padding:6px 8px;white-space:nowrap;color:var(--text-2);font-size:.76rem">' + authorStr + '</td>' +
           '<td style="padding:6px 8px;white-space:nowrap;text-align:right">' +
+            '<button type="button" class="btn btn-sm btn-ghost" style="padding:2px 6px;font-size:.75rem" onclick="window.openDocumentEditor({ existingDocId: ' + d.id + ', taskId: \'' + escHtml(taskId) + '\' })" title="Открыть в редакторе Stockeasy">👁️</button> ' +
             (d.file_url ? '<a href="' + escHtml(d.file_url) + '" download class="btn btn-sm btn-ghost" style="padding:2px 6px;font-size:.75rem" title="Скачать файл">📥</a> ' : '') +
             '<button type="button" class="btn btn-sm btn-ghost" style="padding:2px 6px;font-size:.75rem" onclick="openEditTaskDocModal(\'' + escHtml(taskId) + '\', ' + d.id + ')" title="Редактировать статус / сумму / реквизиты">✏️</button> ' +
             '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red);padding:2px 6px;font-size:.75rem" onclick="deleteCardDocument(\'' + escHtml(taskId) + '\', ' + d.id + ')" title="Удалить из реестра">🗑️</button>' +

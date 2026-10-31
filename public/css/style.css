@@ -2960,3 +2960,26 @@
   margin: 6px 0;
   font-size: 0.85rem;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════ */
+/* ДОКУМЕНТЫ И РЕДАКТОР СТРАНИЦ А4                                              */
+/* ══════════════════════════════════════════════════════════════════════════════ */
+.a4-sheet {
+  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.3);
+  box-sizing: border-box;
+  background: #ffffff;
+}
+
+.a4-sheet table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.a4-sheet td, .a4-sheet th {
+  border: 1px solid #000000;
+  padding: 4px 6px;
+}
+
+.a4-sheet:focus {
+  outline: none;
+}
