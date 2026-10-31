@@ -5,6 +5,7 @@ import { pool } from '../config/db.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { buildContextForQuery } from '../services/aiFacade.js';
 import { generateAndRunSqlContext } from '../services/aiSqlService.js';
+import { generateIdPdfAlbum } from '../services/idPdfGenerator.js';
 
 const router = express.Router();
 
@@ -313,6 +314,61 @@ router.post('/chat', authenticateToken, async (req, res) => {
   }
 
   // ─── parse_devices: LLM парсит текст → JSON с устройствами/материалами ─────
+  // ─── ИНТЕНТ: Генерация Альбома ИД или Договора по запросу пользователя ─────
+  const isGenerateIdIntent = /(?:сгенерир|сделай|составь|подготовь|сформируй|выгрузи|собери|распечатай|дай|создай|сделай мне|нужно|нужна|нужен)\s+(?:ид|исполнительн|альбом|комплект ид|пакет ид|документац)/i.test(text) ||
+    (/(?:сгенерир|сделай|составь|подготовь|сформируй|выгрузи|создай)\s+(?:договор|документ|акт|заказ)/i.test(text) && /(?:по|для|на)\s+([a-zA-Z0-9а-яА-ЯёЁ_-]+)/i.test(text)) ||
+    (/(?:ид|исполнительн|альбом)\s+(?:по|для|на)\s+([a-zA-Z0-9а-яА-ЯёЁ_-]+)/i.test(text));
+
+  if (isGenerateIdIntent && !image) {
+    // Извлекаем номер заявки из текста или cardContext
+    let targetTaskId = null;
+    const taskMatch = text.match(/(?:по|для|на|заявк[а-яё]*|объект[а-яё]*|№|#)\s*([a-zA-Z0-9а-яА-ЯёЁ_-]{3,25})/i);
+    if (taskMatch && taskMatch[1]) {
+      targetTaskId = taskMatch[1].trim().replace(/^#/, '');
+    } else if (cardContext && typeof cardContext === 'string') {
+      const cardMatch = cardContext.match(/#([a-zA-Z0-9а-яА-ЯёЁ_-]+)/);
+      if (cardMatch) targetTaskId = cardMatch[1];
+    }
+
+    if (targetTaskId) {
+      try {
+        const checkTask = await pool.query('SELECT id, address, vsp, customer, amount, work_type FROM tasks WHERE id ILIKE $1 LIMIT 1', [targetTaskId]);
+        if (checkTask.rows.length) {
+          const tRow = checkTask.rows[0];
+          // Запускаем сборку монолитного альбома ИД
+          const albumRes = await generateIdPdfAlbum({ taskId: tRow.id, pool });
+          const replyText = 'Готово! Сформировал полный монолитный альбом исполнительной документации (ИД) по объекту [' + tRow.id + '] (' + (tRow.address || tRow.vsp || '') + '):\n\n' +
+            '• **Шифр комплекта**: ' + (albumRes.docNumber || ('ИД-' + tRow.id + '-СКС')) + '\n' +
+            '• **Состав альбома**: Титульный лист ГОСТ с синей печатью ООО «К10» и подписью директора, Ведомость чертежей, Акт скрытых работ, Спецификация оборудования и ТМЦ, Схема трасс СКС, Кабельный журнал (КЖ) и Протокол измерений/испытаний.\n\n' +
+            '📄 **[Открыть и скачать Альбом ИД в PDF](' + albumRes.fileUrl + ')**';
+
+          await pool.query(
+            `INSERT INTO ai_messages (user_id, mode, role, content) VALUES ($1,$2,'user',$3)`,
+            [req.user.id, mode, text]
+          );
+          await pool.query(
+            `INSERT INTO ai_messages (user_id, mode, role, content, tokens_used) VALUES ($1,$2,'assistant',$3,120)`,
+            [req.user.id, mode, replyText]
+          );
+
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no'
+          });
+          res.flushHeaders();
+          res.write('data: ' + JSON.stringify({ delta: replyText }) + '\n\n');
+          res.write('data: ' + JSON.stringify({ done: true }) + '\n\n');
+          res.write('data: [DONE]\n\n');
+          return res.end();
+        }
+      } catch (err) {
+        console.error('[AI Tool Generate ID Error]:', err);
+      }
+    }
+  }
+
   if (mode === 'parse_devices') {
     const parseMessages = [
       { role: 'system', content: buildParseDevicesPrompt(text) },

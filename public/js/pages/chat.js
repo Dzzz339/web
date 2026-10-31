@@ -84,20 +84,6 @@ function pageChat() {
               <div style="font-size:.72rem; color:var(--text-3)">Все сотрудники</div>
             </div>
           </div>
-
-          <!-- Стоки -->
-          <div onclick="go('aichat')" id="ai-sidebar-item"
-               style="padding:12px 14px; border-bottom:1px solid var(--border); cursor:pointer; display:flex; align-items:center; gap:10px; background:${S.aiActive ? 'var(--orange-bg)' : '#fff'}"
-               onmouseover="this.style.background='var(--orange-bg)'" onmouseout="if(!S.aiActive) this.style.background='#fff'">
-            <div style="background:var(--orange); color:#fff; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; padding:6px;">
-              ${ICONS.stocky}
-            </div>
-            <div>
-              <div style="font-weight:700; font-size:.9rem">Стоки</div>
-              <div style="font-size:.72rem; color:var(--text-3)">Аналитика · Снабжение · Расчёт ТМЦ</div>
-            </div>
-          </div>
-
           <div style="padding:8px 14px; font-size:.7rem; font-weight:700; color:var(--text-3); text-transform:uppercase; margin-top:8px">Личные сообщения</div>
           <div id="chat-sidebar-users">Загрузка...</div>
         </div>
@@ -272,9 +258,6 @@ function pageAiChat() {
           </button>
           <button type="button" class="ai-tool-chip ${S.aiCurrentScenario === 'bti' ? 'active' : ''}" onclick="selectAiScenario('bti')" title="Подбор камер и расчет материалов по плану БТИ или фото помещения">
             📐 Расчёт по плану БТИ
-          </button>
-          <button type="button" class="ai-tool-chip" onclick="selectAiScenario('stock')" title="Свободный остаток на Центральном складе (quantity - reserved_qty)">
-            🏢 Свободные остатки
           </button>
         </div>
       </div>
@@ -1310,7 +1293,13 @@ function removeAiLoadingIndicator() {
 
 function formatAiMessageContent(rawText) {
   var escaped = escHtml(rawText || '');
+  // Очистка от звёздочек markdown (**жирный**, *курсив*)
+  escaped = escaped.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+  escaped = escaped.replace(/\*(.*?)\*/g, '$1');
   // Подсветка вердиктов фотоконтроля
+  // Поддержка кликабельных ссылок вида [Название](url) от Стоки
+  escaped = escaped.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:var(--blue);font-weight:700;text-decoration:underline;">$1 ↗</a>');
+
   escaped = escaped.replace(/(✅\s*ПРИНЯТО\s*БЕЗ\s*ЗАМЕЧАНИЙ[^\n]*)/gi, '<div class="ai-qc-badge-pass">$1</div>');
   escaped = escaped.replace(/(⚠️\s*ТРЕБУЕТСЯ\s*УСТРАНЕНИЕ\s*ЗАМЕЧАНИЙ[^\n]*)/gi, '<div class="ai-qc-badge-warning">$1</div>');
   escaped = escaped.replace(/(✅\s*ПРИНЯТО[^\n]*)/gi, function(match) {
@@ -1373,6 +1362,33 @@ function renderAiMessages() {
       footerHtml = `<div style="font-size:.65rem; color:var(--text-3); text-align:right; margin-top:6px">${m.time || ''}</div>`;
     }
 
+    // Проверяем, является ли сообщение разбором фотоконтроля монтажа (QC)
+    var isQcVerdict = !isUser && m.content && (
+      m.content.indexOf('ПРИНЯТО') !== -1 ||
+      m.content.indexOf('ЗАМЕЧАНИ') !== -1 ||
+      m.content.indexOf('дефект') !== -1 ||
+      m.content.indexOf('ЧЕК-ЛИСТ') !== -1 ||
+      m.content.indexOf('Маркировка') !== -1
+    );
+
+    var canReview = window.canUserAcceptQc ? window.canUserAcceptQc() : (
+      S.user && ['admin', 'director', 'manager', 'to_engineer', 'controller'].includes(String(S.user.role || '').toLowerCase())
+    );
+
+    var qcButtonsHtml = '';
+    var effectiveTaskId = S.aiSelectedTaskId || (window._curTaskId ? window._curTaskId : (S.tasks && S.tasks[0] ? S.tasks[0].id : null));
+    if (isQcVerdict && effectiveTaskId && canReview) {
+      var qcTaskId = escHtml(String(effectiveTaskId));
+      qcButtonsHtml = `
+        <div style="margin-top:10px; padding-top:8px; border-top:1px dashed var(--border); display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+          <span style="font-size:.72rem; font-weight:700; color:var(--text-3)">Решение проверяющего:</span>
+          <button type="button" class="btn btn-xs" onclick="window.submitTaskQcDecision('${qcTaskId}', 'accepted')" style="background:#16a34a; color:#fff; font-weight:700; padding:3px 10px; font-size:.74rem; border-radius:4px" title="Принять монтаж без замечаний">✓ Принять</button>
+          <button type="button" class="btn btn-xs" onclick="window.submitTaskQcDecision('${qcTaskId}', 'accepted_notes')" style="background:#d97706; color:#fff; font-weight:700; padding:3px 10px; font-size:.74rem; border-radius:4px" title="Принять с замечаниями для устранения">⚠️ С замечанием</button>
+          <button type="button" class="btn btn-xs" onclick="window.submitTaskQcDecision('${qcTaskId}', 'rejected')" style="background:#dc2626; color:#fff; font-weight:700; padding:3px 10px; font-size:.74rem; border-radius:4px" title="Отклонить монтаж на доработку подрядчиком">❌ На доработку</button>
+        </div>
+      `;
+    }
+
     return `
       <div style="align-self:${align}; max-width:82%; background:${bg}; border:${border}; border-radius:10px; padding:10px 14px; box-shadow:var(--shadow)">
         <div style="font-size:.72rem; font-weight:700; color:${isUser ? 'var(--orange-dark)' : 'var(--orange)'}; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
@@ -1380,6 +1396,7 @@ function renderAiMessages() {
         </div>
         ${contentHtml}
         ${stoppedTag}
+        ${qcButtonsHtml}
         ${footerHtml}
       </div>
     `;
@@ -3346,3 +3363,77 @@ function updateAiToolChipsUI() {
     else c.classList.remove('active');
   });
 }
+
+
+// ─── РЕШЕНИЯ ПРОВЕРЯЮЩЕГО ВНУТРИ ЧАТА СО СТОКИ ──────────────────────────
+window.submitTaskQcDecision = function(taskId, decision) {
+  if (!taskId) return;
+  var r = String((S.user && S.user.role) || '').toLowerCase();
+  var canReview = ['admin', 'director', 'manager', 'to_engineer', 'controller'].includes(r);
+  if (!canReview) {
+    return alert('У вас нет прав проверяющего (требуется роль инженера технадзора, менеджера или руководства).');
+  }
+
+  var decisionLabels = {
+    'accepted': 'Принято без замечаний',
+    'accepted_notes': 'Принято с замечаниями',
+    'rejected': 'Отклонено на доработку'
+  };
+
+  function executeSave(notes) {
+    var payload = {
+      qcDecision: decision,
+      qcNotes: notes || '',
+      qcDecidedBy: S.user ? (S.user.full_name || S.user.username) : 'Куратор',
+      qcDecidedAt: new Date().toISOString()
+    };
+
+    if (decision === 'accepted') {
+      payload.photoReportAccepted = true;
+      payload.priemka = 'Принято (фото)';
+    } else if (decision === 'accepted_notes') {
+      payload.photoReportAccepted = true;
+      payload.priemka = 'Принято с замеч. (' + (notes ? notes.slice(0, 30) : 'гарантия') + ')';
+    } else if (decision === 'rejected') {
+      payload.photoReportAccepted = false;
+      payload.priemka = 'На доработке (' + (notes ? notes.slice(0, 30) : 'дефекты') + ')';
+    }
+
+    api('/tasks/' + encodeURIComponent(taskId), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function() {
+      var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+      if (t) {
+        t.priemka = payload.priemka;
+        if (!t.rawData) t.rawData = {};
+        t.rawData.photoReportAccepted = payload.photoReportAccepted;
+        t.rawData.qcDecision = decision;
+        t.rawData.qcNotes = notes;
+      }
+      var toastType = decision === 'accepted' ? 'success' : (decision === 'accepted_notes' ? 'info' : 'error');
+      if (typeof showToast === 'function') {
+        showToast('✓ Вердикт по объекту #' + taskId + ' зафиксирован: ' + decisionLabels[decision], toastType);
+      } else {
+        alert('Вердикт по объекту #' + taskId + ' зафиксирован: ' + decisionLabels[decision]);
+      }
+    }).catch(function(err) {
+      alert('Ошибка сохранения вердикта: ' + err.message);
+    });
+  }
+
+  if (decision === 'accepted') {
+    if (!confirm('Утвердить приемку монтажа по объекту #' + taskId + ' без замечаний?')) return;
+    executeSave('');
+  } else if (decision === 'accepted_notes') {
+    var inputNotes = prompt('Укажите замечания / гарантийные недочеты для устранения:');
+    if (inputNotes === null) return;
+    executeSave(inputNotes.trim());
+  } else if (decision === 'rejected') {
+    var reason = prompt('Укажите причину отклонения на доработку:');
+    if (reason === null) return;
+    if (!reason.trim()) return alert('Для отклонения на доработку укажите причину.');
+    executeSave(reason.trim());
+  }
+};

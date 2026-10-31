@@ -171,7 +171,6 @@ var NAV_SECTIONS = [
   {
     title: 'СЕРВИС',
     items: [
-      { id: 'aichat',      icon: ICONS.stocky,      label: 'Стоки' },
       { id: 'data',        icon: ICONS.data,        label: 'Данные' },
       { id: 'chat',        icon: ICONS.chat,        label: 'Чат' },
       { id: 'logs',        icon: ICONS.logs,        label: 'Журнал' },
