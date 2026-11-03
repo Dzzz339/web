@@ -483,6 +483,276 @@ const SYSTEM_TEMPLATES = [
   </div>
 </div>
     `
+  },
+  {
+    code: 'poa_m2',
+    name: 'Доверенность (Типовая форма № М-2)',
+    category: 'orders',
+    doc_format: 'word',
+    description: 'Типовая межотраслевая форма № М-2 (ОКУД 0315001) с отрывным корешком, реквизитами организации, паспортом и перечнем ТМЦ.',
+    template_html: `
+<div class="a4-page-content poa-m2-form" style="font-family:'Times New Roman',Times,serif;font-size:11px;line-height:1.25;color:#000;box-sizing:border-box">
+  
+  <!-- ОТРЫВНОЙ КОРЕШОК ДОВЕРЕННОСТИ -->
+  <div style="border-bottom: 2px dashed #555; padding-bottom: 12px; margin-bottom: 15px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div style="font-weight:700;font-size:11.5px">КОРЕШОК ДОВЕРЕННОСТИ № <u>&nbsp;{{номер_доверенности}}&nbsp;</u></div>
+      <div style="font-size:10px;color:#555">Линия отреза - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -</div>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:6px" border="1" cellpadding="3" cellspacing="0">
+      <thead>
+        <tr style="background:#f3f4f6;text-align:center;font-size:9.5px">
+          <th style="width:13%;border:1px solid #000">Номер доверенности</th>
+          <th style="width:13%;border:1px solid #000">Дата выдачи</th>
+          <th style="width:13%;border:1px solid #000">Срок действия</th>
+          <th style="width:36%;border:1px solid #000">Должность и фамилия лица, которому выдана доверенность</th>
+          <th style="width:25%;border:1px solid #000">Расписка в получении доверенности</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="text-align:center">
+          <td style="border:1px solid #000;font-weight:700">{{номер_доверенности}}</td>
+          <td style="border:1px solid #000">{{дата_выдачи}}</td>
+          <td style="border:1px solid #000">{{срок_действия}}</td>
+          <td style="border:1px solid #000;text-align:left;padding-left:6px">{{подотчетное_лицо_должность}} <b>{{подотчетное_лицо_фио}}</b></td>
+          <td style="border:1px solid #000;height:24px"></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <table style="width:100%;border-collapse:collapse;font-size:10px" border="1" cellpadding="3" cellspacing="0">
+      <thead>
+        <tr style="background:#f3f4f6;text-align:center;font-size:9.5px">
+          <th style="width:35%;border:1px solid #000">Поставщик</th>
+          <th style="width:35%;border:1px solid #000">Номер и дата наряда (замещающего наряд документа) или извещения</th>
+          <th style="width:30%;border:1px solid #000">Номер и дата документа, подтверждающего выполнение поручения</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="text-align:center">
+          <td style="border:1px solid #000;font-weight:600">{{поставщик_наименование}}</td>
+          <td style="border:1px solid #000">{{номер_наряда}}</td>
+          <td style="border:1px solid #000">{{номер_акта}}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ОСНОВНОЙ БЛАНК ДОВЕРЕННОСТИ М-2 -->
+  <table style="width:100%;margin-bottom:4px;font-size:10px">
+    <tr>
+      <td style="width:60%;vertical-align:top"></td>
+      <td style="width:40%;text-align:right;vertical-align:top;line-height:1.2">
+        Типовая межотраслевая форма № М-2<br/>
+        Утверждена постановлением Госкомстата России от 30.10.97 № 71а<br/>
+        <table style="float:right;margin-top:4px;border-collapse:collapse;font-size:9.5px" border="1" cellpadding="2">
+          <tr><td style="border:1px solid #000;padding:1px 6px">Форма по ОКУД</td><td style="border:1px solid #000;font-weight:700;padding:1px 6px">0315001</td></tr>
+          <tr><td style="border:1px solid #000;padding:1px 6px">по ОКПО</td><td style="border:1px solid #000;font-weight:700;padding:1px 6px">{{наш_окпо}}</td></tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  <div style="margin-bottom:6px;font-size:11px">
+    <b>Организация:</b> <u>{{наша_организация_полная}}, ИНН {{наш_инн}}, КПП {{наш_кпп}}, {{наш_адрес}}</u>
+    <div style="font-size:8.5px;text-align:center;color:#666;margin-top:-2px">(наименование организации)</div>
+  </div>
+
+  <div style="text-align:center;margin:10px 0 8px 0">
+    <div style="font-size:15px;font-weight:700">ДОВЕРЕННОСТЬ № {{номер_доверенности}}</div>
+    <div style="font-size:11px;margin-top:2px">
+      Дата выдачи: <b>{{дата_выдачи_прописью}}</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 
+      Доверенность действительна по: <b>{{срок_действия_прописью}}</b>
+    </div>
+  </div>
+
+  <div style="margin-bottom:5px;font-size:11px">
+    <b>Наименование потребителя и его адрес:</b> <u>{{наша_организация_полная}}, ИНН {{наш_инн}}, КПП {{наш_кпп}}, {{наш_адрес}}</u>
+  </div>
+  <div style="margin-bottom:5px;font-size:11px">
+    <b>Наименование плательщика и его адрес:</b> <u>{{наша_организация_полная}}, ИНН {{наш_инн}}, КПП {{наш_кпп}}, {{наш_адрес}}</u>
+  </div>
+  <div style="margin-bottom:6px;font-size:11px">
+    <b>Счет №</b> <u>{{наш_расчетный_счет}}</u> в банке <u>{{наш_банк}}, БИК {{наш_бик}}, к/с {{наш_корр_счет}}</u>
+    <div style="font-size:8.5px;text-align:center;color:#666;margin-top:-2px">(наименование банка)</div>
+  </div>
+
+  <div style="margin-bottom:5px;font-size:11px">
+    <b>Доверенность выдана:</b> <u>{{подотчетное_лицо_должность}} {{подотчетное_лицо_фио}}</u>
+    <div style="font-size:8.5px;text-align:center;color:#666;margin-top:-2px">(должность, фамилия, имя, отчество)</div>
+  </div>
+
+  <table style="width:100%;font-size:11px;margin-bottom:5px">
+    <tr>
+      <td style="width:40%"><b>Паспорт: серия</b> <u>&nbsp;{{паспорт_серия}}&nbsp;</u> <b>№</b> <u>&nbsp;{{паспорт_номер}}&nbsp;</u></td>
+      <td style="width:60%"><b>Дата выдачи:</b> <u>&nbsp;{{паспорт_дата_выдачи}}&nbsp;</u></td>
+    </tr>
+  </table>
+
+  <div style="margin-bottom:5px;font-size:11px">
+    <b>Кем выдан:</b> <u>{{паспорт_кем_выдан}}</u>
+  </div>
+
+  <div style="margin-bottom:5px;font-size:11px">
+    <b>На получение от:</b> <u>{{поставщик_наименование}}</u>
+    <div style="font-size:8.5px;text-align:center;color:#666;margin-top:-2px">(наименование поставщика)</div>
+  </div>
+
+  <div style="margin-bottom:8px;font-size:11px">
+    <b>материальных ценностей по:</b> <u>{{основание_получения}}</u>
+    <div style="font-size:8.5px;text-align:center;color:#666;margin-top:-2px">(наименование, номер и дата документа)</div>
+  </div>
+
+  <div style="font-weight:700;font-size:10.5px;margin-bottom:3px;text-align:center">
+    Перечень товарно-материальных ценностей, подлежащих получению
+  </div>
+
+  <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:12px" border="1" cellpadding="3" cellspacing="0" id="poa_m2_tmc_table">
+    <thead>
+      <tr style="background:#f3f4f6;text-align:center;font-size:9px">
+        <th style="width:8%;border:1px solid #000">Номер по порядку</th>
+        <th style="width:52%;border:1px solid #000">Материальные ценности</th>
+        <th style="width:15%;border:1px solid #000">Единица измерения</th>
+        <th style="width:25%;border:1px solid #000">Количество (прописью)</th>
+      </tr>
+      <tr style="text-align:center;font-size:8.5px;color:#666">
+        <td style="border:1px solid #000">1</td>
+        <td style="border:1px solid #000">2</td>
+        <td style="border:1px solid #000">3</td>
+        <td style="border:1px solid #000">4</td>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td style="border:1px solid #000;text-align:center">1</td><td style="border:1px solid #000" contenteditable="true"></td><td style="border:1px solid #000;text-align:center" contenteditable="true">шт.</td><td style="border:1px solid #000" contenteditable="true"></td></tr>
+      <tr><td style="border:1px solid #000;text-align:center">2</td><td style="border:1px solid #000" contenteditable="true"></td><td style="border:1px solid #000;text-align:center" contenteditable="true">шт.</td><td style="border:1px solid #000" contenteditable="true"></td></tr>
+      <tr><td style="border:1px solid #000;text-align:center">3</td><td style="border:1px solid #000" contenteditable="true"></td><td style="border:1px solid #000;text-align:center" contenteditable="true"></td><td style="border:1px solid #000" contenteditable="true"></td></tr>
+      <tr><td style="border:1px solid #000;text-align:center">4</td><td style="border:1px solid #000" contenteditable="true"></td><td style="border:1px solid #000;text-align:center" contenteditable="true"></td><td style="border:1px solid #000" contenteditable="true"></td></tr>
+      <tr><td style="border:1px solid #000;text-align:center">5</td><td style="border:1px solid #000" contenteditable="true"></td><td style="border:1px solid #000;text-align:center" contenteditable="true"></td><td style="border:1px solid #000" contenteditable="true"></td></tr>
+    </tbody>
+  </table>
+
+  <div style="font-size:11px;margin-bottom:10px">
+    Подпись лица, получившего доверенность ______________________ ( <u>{{подотчетное_лицо_фио}}</u> ) удостоверяем
+  </div>
+
+  <table style="width:100%;font-size:11.5px;margin-top:8px">
+    <tr>
+      <td style="width:50%;vertical-align:top">
+        <b>Руководитель:</b> ________________ / <u>{{руководитель_иоф}}</u> /
+        <div style="font-size:8.5px;color:#666;margin-left:85px">подпись &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; расшифровка подписи</div>
+      </td>
+      <td style="width:50%;vertical-align:top">
+        <b>Главный бухгалтер:</b> ________________ / <u>{{главбух_иоф}}</u> /
+        <div style="font-size:8.5px;color:#666;margin-left:110px">подпись &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; расшифровка подписи</div>
+      </td>
+    </tr>
+    <tr>
+      <td colspan="2" style="padding-top:8px">
+        <span style="font-size:13px;font-weight:700">М.П.</span>
+      </td>
+    </tr>
+  </table>
+
+</div>
+    `
+  },
+  {
+    code: 'id_album',
+    name: 'Альбом исполнительной документации (ИД) по ГОСТ',
+    category: 'id',
+    doc_format: 'word',
+    description: 'Комплект исполнительной документации: титульный лист, ведомость разделов, кабельный журнал, спецификация оборудования и протокол испытаний СКС.',
+    template_html: `
+<div class="a4-page-content" style="font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.35;color:#000">
+
+  <!-- ТИТУЛЬНЫЙ ЛИСТ -->
+  <div style="border:2px solid #000;padding:18px;margin-bottom:25px;min-height:550px">
+    <table style="width:100%;font-size:11px;margin-bottom:20px">
+      <tr>
+        <td style="width:50%;vertical-align:top">
+          <b>УТВЕРЖДЕНО:</b><br/>
+          Представитель Заказчика:<br/>
+          {{наш_заказчик}}<br/>
+          Адрес: {{адрес_объекта}}<br/><br/>
+          _________________ / Руководитель /<br/>
+          М.П.
+        </td>
+        <td style="width:50%;vertical-align:top;text-align:right">
+          <b>СОГЛАСОВАНО:</b><br/>
+          Представитель исполнителя:<br/>
+          {{наша_организация_полная}}<br/><br/><br/>
+          _________________ / {{наш_директор}} /<br/>
+          М.П.
+        </td>
+      </tr>
+    </table>
+
+    <div style="text-align:center;margin:30px 0 10px 0;font-size:12px">
+      Контракт / Договор № {{номер_контракта}} от {{дата_контракта}}
+    </div>
+
+    <div style="text-align:center;font-weight:700;font-size:16px;margin:20px 0 6px 0;text-transform:uppercase">
+      ИСПОЛНИТЕЛЬНАЯ ДОКУМЕНТАЦИЯ
+    </div>
+    <div style="text-align:center;font-size:13px;font-weight:600;margin-bottom:25px">
+      на объект: {{адрес_объекта}}
+    </div>
+
+    <div style="margin:25px 0;font-size:12px;line-height:1.5">
+      <b>Выполнение работ:</b> Строительно-монтажные и пуско-наладочные работы по формированию ИТ-инфраструктуры, структурированной кабельной системы (СКС), систем видеонаблюдения и беспроводного доступа.
+    </div>
+
+    <div style="text-align:center;margin-top:60px;font-size:12px">
+      {{город}}, {{текущий_год}} г.
+    </div>
+  </div>
+
+  <!-- ВЕДОМОСТЬ ДОКУМЕНТОВ И СОДЕРЖАНИЕ -->
+  <div style="page-break-before:always;margin-top:20px">
+    <div style="font-weight:700;font-size:14px;margin-bottom:10px;text-align:center">1. СОДЕРЖАНИЕ АЛЬБОМА ИСПОЛНИТЕЛЬНОЙ ДОКУМЕНТАЦИИ</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:20px;border:1px solid #000">
+      <thead>
+        <tr style="background:#f3f4f6">
+          <th style="border:1px solid #000;padding:5px;width:35px;text-align:center">№</th>
+          <th style="border:1px solid #000;padding:5px;text-align:left">Наименование раздела</th>
+          <th style="border:1px solid #000;padding:5px;width:70px;text-align:center">Стадия</th>
+          <th style="border:1px solid #000;padding:5px;width:70px;text-align:center">Примечание</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td style="border:1px solid #000;padding:5px;text-align:center">1</td><td style="border:1px solid #000;padding:5px">Титульный лист и общие данные</td><td style="border:1px solid #000;padding:5px;text-align:center">И</td><td style="border:1px solid #000;padding:5px;text-align:center">Лист 1</td></tr>
+        <tr><td style="border:1px solid #000;padding:5px;text-align:center">2</td><td style="border:1px solid #000;padding:5px">Кабельный журнал линий связи (КЖ)</td><td style="border:1px solid #000;padding:5px;text-align:center">И</td><td style="border:1px solid #000;padding:5px;text-align:center">Лист 2</td></tr>
+        <tr><td style="border:1px solid #000;padding:5px;text-align:center">3</td><td style="border:1px solid #000;padding:5px">Спецификация оборудования и материалов (ТМЦ)</td><td style="border:1px solid #000;padding:5px;text-align:center">И</td><td style="border:1px solid #000;padding:5px;text-align:center">Лист 3</td></tr>
+        <tr><td style="border:1px solid #000;padding:5px;text-align:center">4</td><td style="border:1px solid #000;padding:5px">Протокол измерений смонтированных линий СКС (Fluke)</td><td style="border:1px solid #000;padding:5px;text-align:center">И</td><td style="border:1px solid #000;padding:5px;text-align:center">Лист 4</td></tr>
+        <tr><td style="border:1px solid #000;padding:5px;text-align:center">5</td><td style="border:1px solid #000;padding:5px">Акт сдачи-приемки выполненных работ</td><td style="border:1px solid #000;padding:5px;text-align:center">И</td><td style="border:1px solid #000;padding:5px;text-align:center">Лист 5</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- КАБЕЛЬНЫЙ ЖУРНАЛ -->
+  <div style="page-break-before:always;margin-top:20px">
+    <div style="font-weight:700;font-size:14px;margin-bottom:8px">2. КАБЕЛЬНЫЙ ЖУРНАЛ (КЖ)</div>
+    {{таблица_кж}}
+  </div>
+
+  <!-- СПЕЦИФИКАЦИЯ ОБОРУДОВАНИЯ И МАТЕРИАЛОВ -->
+  <div style="page-break-before:always;margin-top:20px">
+    <div style="font-weight:700;font-size:14px;margin-bottom:8px">3. СПЕЦИФИКАЦИЯ ОБОРУДОВАНИЯ И МАТЕРИАЛОВ (ТМЦ)</div>
+    {{таблица_спецификации_ид}}
+  </div>
+
+  <!-- ПРОТОКОЛ ИЗМЕРЕНИЙ FLUKE -->
+  <div style="page-break-before:always;margin-top:20px">
+    <div style="font-weight:700;font-size:14px;margin-bottom:8px">4. ПРОТОКОЛ ИЗМЕРЕНИЙ СМОНТИРОВАННОЙ СКС</div>
+    {{таблица_протокола_измерений}}
+  </div>
+
+  <!-- ШТАМП ГОСТ -->
+  {{штамп_гост}}
+
+</div>
+    `
   }
 ];
 

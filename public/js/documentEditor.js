@@ -9,6 +9,7 @@
     taskId: null,
     contractId: null,
     subcontractId: null,
+    subcontractContractId: null,
     templateCode: null,
     format: 'word',
     context: {},
@@ -19,7 +20,7 @@
 
   /**
    * Открыть документ в универсальном редакторе прямо в приложении
-   * @param {Object} opts { templateCode, existingDocId, taskId, contractId, subcontractId, customData, onSaved }
+   * @param {Object} opts { templateCode, existingDocId, taskId, contractId, subcontractId, subcontractContractId, customData, onSaved }
    */
   window.openDocumentEditor = function(opts) {
     opts = opts || {};
@@ -27,6 +28,8 @@
     _editorState.taskId = opts.taskId || null;
     _editorState.contractId = opts.contractId || null;
     _editorState.subcontractId = opts.subcontractId || null;
+    _editorState.subcontractContractId = opts.subcontractContractId || null;
+    _editorState.poaId = opts.poaId || null;
     _editorState.templateCode = opts.templateCode || null;
     _editorState.format = opts.format || 'word';
     _editorState.onSaved = opts.onSaved || null;
@@ -57,12 +60,13 @@
                 '<span>·</span>' +
                 '<label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer">' +
                   '<span>Статус:</span>' +
-                  '<select id="_doc_edit_status" style="font-size:.74rem;padding:1px 4px;border-radius:4px;border:1px solid var(--border)">' +
-                    '<option value="draft">📝 Черновик</option>' +
-                    '<option value="generated" selected>⚡ Сформирован</option>' +
-                    '<option value="issued">⏳ Выставлен</option>' +
-                    '<option value="signed">✍️ Подписан</option>' +
+                  '<select id="_doc_edit_status" onchange="window._onDocStatusChange(this.value)" style="font-size:.74rem;padding:2px 6px;border-radius:4px;border:1px solid var(--border);font-weight:600">' +
+                    '<option value="created">🟡 Создан (черновик)</option>' +
+                    '<option value="agreed">🔵 Согласован</option>' +
+                    '<option value="sent">🟣 Передан на подпись</option>' +
+                    '<option value="signed">🟢 Подписан</option>' +
                     '<option value="paid">✅ Оплачен</option>' +
+                    '<option value="terminated">🔴 Расторгнут</option>' +
                   '</select>' +
                 '</label>' +
               '</div>' +
@@ -79,10 +83,14 @@
 
           // Правые кнопки действий
           '<div style="display:flex;align-items:center;gap:8px">' +
-            '<button type="button" class="btn btn-sm btn-primary" onclick="window._saveDocEditor()" style="display:inline-flex;align-items:center;gap:5px;font-weight:600">' +
+            '<button type="button" class="btn btn-sm btn-primary" id="_doc_save_btn" onclick="window._saveDocEditor()" style="display:inline-flex;align-items:center;gap:5px;font-weight:600">' +
               '<span>💾</span> Сохранить' +
             '</button>' +
-            '<button type="button" class="btn btn-sm" onclick="window._printDocEditor()" style="display:inline-flex;align-items:center;gap:5px;background:#fff;border:1px solid var(--border);color:var(--text);font-weight:500">' +
+            '<button type="button" class="btn btn-sm btn-ghost" id="_doc_upload_scan_btn" onclick="window._triggerEditorScanUpload()" style="display:inline-flex;align-items:center;gap:5px;font-weight:600;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe" title="Загрузить скан подписанного сторонами документа (переводит в статус «Подписан»)">' +
+              '<span>📎</span> Прикрепить скан' +
+            '</button>' +
+            '<input type="file" id="_editor_scan_input" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp" style="display:none" onchange="window._onEditorScanFileSelected(this)">' +
+            '<button type="button" class="btn btn-sm" id="_doc_print_btn" onclick="window._printDocEditor()" style="display:inline-flex;align-items:center;gap:5px;background:#fff;border:1px solid var(--border);color:var(--text);font-weight:500">' +
               '<span>🖨️</span> Печать / PDF' +
             '</button>' +
 
@@ -143,6 +151,12 @@
 
           '<span style="color:var(--border)">|</span>' +
 
+          '<button type="button" class="btn btn-xs btn-ghost" id="_doc_btn_refresh" onclick="window._refreshDocFromTemplate()" title="Переформировать документ из актуальных данных и шаблона (сброс ручных правок)" style="display:inline-flex;align-items:center;gap:4px">' +
+            '<span>🔄</span> Переформировать' +
+          '</button>' +
+
+          '<span style="color:var(--border)">|</span>' +
+
           // Кнопка вставки переменных
           '<div style="position:relative;display:inline-block">' +
             '<button type="button" class="btn btn-xs" onclick="window._toggleVariablesMenu()" style="display:inline-flex;align-items:center;gap:4px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-weight:600">' +
@@ -166,8 +180,23 @@
         '</div>' +
 
         // 3. Рабочая область (Холст листа А4)
-        '<div id="_doc_canvas" style="flex:1;overflow:auto;padding:30px 20px 60px 20px;background:#475569;display:flex;justify-content:center;align-items:flex-start">' +
-          '<div id="_doc_sheet_wrap" style="transform-origin:top center;transition:transform 0.15s ease">' +
+        '<div id="_doc_canvas" style="flex:1;overflow:auto;padding:24px 20px 60px 20px;background:#475569;display:flex;justify-content:center;align-items:flex-start">' +
+          '<div id="_doc_sheet_wrap" style="transform-origin:top center;transition:transform 0.15s ease;max-width:210mm;width:100%">' +
+            // Баннер блокировки редактирования (по замечаниям Алексея: если передан на подпись или подписан - правка закрыта)
+            '<div id="_doc_locked_banner" style="display:none;background:#fef2f2;border:1.5px solid #fecaca;color:#991b1b;padding:12px 18px;border-radius:10px;font-size:.85rem;margin-bottom:14px;box-shadow:0 4px 14px rgba(0,0,0,0.08);align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">' +
+              '<div style="display:flex;align-items:center;gap:12px">' +
+                '<span style="font-size:1.5rem">🔒</span>' +
+                '<div>' +
+                  '<b style="font-size:.92rem">Редактирование закрыто:</b> <span id="_doc_locked_status_text">документ передан на подпись или подписан</span>' +
+                  '<div style="font-size:.78rem;color:#7f1d1d;margin-top:2px">Правки текста и реквизитов запрещены регламентом. Документ доступен для просмотра, печати и скачивания.</div>' +
+                '</div>' +
+              '</div>' +
+              '<div style="display:flex;gap:8px;align-items:center">' +
+                '<button type="button" class="btn btn-sm" id="_doc_banner_scan_btn" style="background:#fff;border:1.5px solid #fca5a5;color:#991b1b;font-weight:700;padding:6px 14px;font-size:.82rem;border-radius:6px;display:inline-flex;align-items:center;gap:5px" onclick="window._triggerEditorScanUpload()">' +
+                  '<span>📎</span> Прикрепить скан' +
+                '</button>' +
+              '</div>' +
+            '</div>' +
             '<div id="_doc_sheet" class="a4-sheet" contenteditable="true" spellcheck="true" style="width:210mm;min-height:297mm;padding:20mm 15mm 20mm 20mm;background:#fff;box-shadow:0 10px 30px rgba(0,0,0,0.35);border-radius:2px;box-sizing:border-box;color:#000;font-family:\'Times New Roman\',Times,serif;font-size:13px;line-height:1.35;outline:none;position:relative">' +
               '<div style="text-align:center;padding:100px 0;color:#94a3b8"><div class="spin" style="margin:0 auto 12px"></div>Формирование документа из шаблона и данных...</div>' +
             '</div>' +
@@ -249,9 +278,74 @@
     cont.innerHTML = html;
   }
 
+  function _updateEditorLockState(isLocked, reasonText, statusVal) {
+    var sheetEl = document.getElementById('_doc_sheet');
+    var bannerEl = document.getElementById('_doc_locked_banner');
+    var reasonEl = document.getElementById('_doc_locked_status_text');
+    var titleEl = document.getElementById('_doc_edit_title');
+    var selEl = document.getElementById('_doc_edit_template_sel');
+    var saveBtn = document.getElementById('_doc_save_btn');
+    var refreshBtn = document.getElementById('_doc_btn_refresh');
+    var toolbarEl = document.getElementById('_doc_toolbar');
+    var scanBtn = document.getElementById('_doc_upload_scan_btn');
+    var bannerScanBtn = document.getElementById('_doc_banner_scan_btn');
+
+    _editorState.isLocked = Boolean(isLocked);
+
+    if (sheetEl) {
+      sheetEl.setAttribute('contenteditable', isLocked ? 'false' : 'true');
+      sheetEl.style.cursor = isLocked ? 'default' : 'text';
+      sheetEl.style.userSelect = 'text';
+    }
+
+    if (bannerEl) {
+      bannerEl.style.display = isLocked ? 'flex' : 'none';
+      if (reasonEl && reasonText) reasonEl.textContent = reasonText;
+    }
+
+    if (titleEl) titleEl.readOnly = Boolean(isLocked);
+    if (selEl) selEl.disabled = Boolean(isLocked);
+    if (saveBtn) {
+      saveBtn.disabled = Boolean(isLocked);
+      saveBtn.style.opacity = isLocked ? '0.5' : '1';
+      saveBtn.title = isLocked ? 'Редактирование закрыто' : 'Сохранить документ в систему';
+    }
+    if (refreshBtn) refreshBtn.disabled = Boolean(isLocked);
+
+    // Блокировка тулбара форматирования
+    if (toolbarEl) {
+      var formatBtns = toolbarEl.querySelectorAll('button:not(#_doc_btn_refresh):not([onclick*="_setDocZoom"])');
+      formatBtns.forEach(function(b) {
+        b.disabled = Boolean(isLocked);
+        b.style.opacity = isLocked ? '0.35' : '1';
+      });
+    }
+
+    // Состояние кнопки прикрепления скана
+    var isSigned = (statusVal === 'signed');
+    if (scanBtn) {
+      if (isSigned) {
+        scanBtn.innerHTML = '<span>✅</span> Подписан';
+        scanBtn.style.background = '#dcfce7';
+        scanBtn.style.color = '#15803d';
+        scanBtn.style.borderColor = '#86efac';
+      } else {
+        scanBtn.innerHTML = '<span>📎</span> Прикрепить скан';
+        scanBtn.style.background = '#eff6ff';
+        scanBtn.style.color = '#1d4ed8';
+        scanBtn.style.borderColor = '#bfdbfe';
+      }
+    }
+    if (bannerScanBtn) {
+      bannerScanBtn.style.display = isSigned ? 'none' : 'inline-flex';
+    }
+  }
+
   function renderNewDocument(opts) {
+    _editorState.lastOpts = opts;
     var titleEl = document.getElementById('_doc_edit_title');
     var sheetEl = document.getElementById('_doc_sheet');
+    var statusEl = document.getElementById('_doc_edit_status');
     var metaEl = document.getElementById('_doc_edit_meta_info');
 
     var postData = {
@@ -259,7 +353,10 @@
       task_id: opts.taskId || undefined,
       contract_id: opts.contractId || undefined,
       subcontract_id: opts.subcontractId || undefined,
-      custom_data: opts.customData || {}
+      subcontract_contract_id: opts.subcontractContractId || _editorState.subcontractContractId || undefined,
+      poa_id: opts.poaId || _editorState.poaId || undefined,
+      custom_data: opts.customData || {},
+      force_fresh: Boolean(opts.forceFresh)
     };
 
     api('/documents/render', {
@@ -271,18 +368,27 @@
       _editorState.context = res.context || {};
       _editorState.templateCode = res.template?.code;
       _editorState.format = res.template?.doc_format || 'word';
+      _editorState.status = res.status || 'created';
+      if (res.existing_doc_id) {
+        _editorState.docId = res.existing_doc_id;
+      }
 
       if (titleEl) titleEl.value = res.title || 'Документ';
+      if (statusEl && res.status) statusEl.value = res.status;
       if (sheetEl) sheetEl.innerHTML = res.rendered_html || '<p>Пустой документ</p>';
       if (metaEl) {
+        var subContractStr = (opts.subcontractContractId || _editorState.subcontractContractId) ? ('Договор субподряда № ' + (res.doc_number || opts.subcontractContractId)) : '';
         var taskStr = opts.taskId ? ('Заявка: ' + opts.taskId) : '';
         var contractStr = opts.contractId ? ('Контракт: № ' + (res.context?.contract?.number || opts.contractId)) : '';
-        metaEl.textContent = [taskStr, contractStr].filter(Boolean).join(' · ') || 'Новый документ';
+        metaEl.textContent = [subContractStr, taskStr, contractStr].filter(Boolean).join(' · ') || 'Новый документ';
       }
 
       // Обновляем селектор шаблонов
       var sel = document.getElementById('_doc_edit_template_sel');
       if (sel && res.template?.code) sel.value = res.template.code;
+
+      // Обновляем режим блокировки
+      _updateEditorLockState(res.is_locked, res.lock_reason, res.status);
     })
     .catch(function(err) {
       if (sheetEl) {
@@ -306,8 +412,10 @@
         _editorState.taskId = doc.task_id;
         _editorState.contractId = doc.contract_id;
         _editorState.subcontractId = doc.subcontract_id;
+        _editorState.subcontractContractId = doc.subcontract_contract_id;
         _editorState.templateCode = doc.doc_type;
         _editorState.format = doc.doc_format || 'word';
+        _editorState.status = doc.status || 'generated';
 
         if (titleEl) titleEl.value = doc.title || 'Документ';
         if (statusEl && doc.status) statusEl.value = doc.status;
@@ -328,6 +436,18 @@
               if (sheetEl) sheetEl.innerHTML = '<p>Документ загружен из файла</p>';
             });
         }
+
+        var isLocked = ['agreed', 'sent', 'signed', 'terminated', 'cancelled', 'paid'].includes(doc.status);
+        var statusLabels = {
+          agreed: 'Согласован',
+          sent: 'Передан на подпись',
+          signed: 'Подписан',
+          terminated: 'Расторгнут',
+          cancelled: 'Аннулирован',
+          paid: 'Оплачен'
+        };
+        var lockReason = isLocked ? ('Документ находится в статусе «' + (statusLabels[doc.status] || doc.status) + '». Редактирование закрыто.') : '';
+        _updateEditorLockState(isLocked, lockReason, doc.status);
       })
       .catch(function(err) {
         if (sheetEl) {
@@ -335,6 +455,158 @@
         }
       });
   }
+
+  // Переключение статуса документа прямо из шапки редактора
+  window._onDocStatusChange = function(newStatus) {
+    _editorState.status = newStatus;
+    var isLocked = ['agreed', 'sent', 'signed', 'terminated', 'cancelled'].includes(newStatus);
+    var statusLabels = {
+      created: 'Создан',
+      draft: 'Черновик',
+      generated: 'Сформирован',
+      agreed: 'Согласован',
+      sent: 'Передан на подпись',
+      signed: 'Подписан',
+      terminated: 'Расторгнут',
+      cancelled: 'Аннулирован',
+      paid: 'Оплачен'
+    };
+    var label = statusLabels[newStatus] || newStatus;
+
+    _updateEditorLockState(isLocked, 'документ переведен в статус «' + label + '»', newStatus);
+
+    if (_editorState.subcontractContractId) {
+      api('/subcontract-contracts/' + _editorState.subcontractContractId + '/status', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      })
+      .then(function() {
+        if (typeof showToast === 'function') {
+          showToast('Статус договора обновлен: ' + label, 'success');
+        }
+        if (_editorState.onSaved) {
+          try { _editorState.onSaved(); } catch(e){}
+        }
+        if (typeof loadSubContracts === 'function') {
+          try { loadSubContracts(); } catch(e){}
+        }
+      })
+      .catch(function(err) {
+        alert('Ошибка смены статуса договора: ' + err.message);
+      });
+    } else if (_editorState.docId) {
+      api('/documents/' + _editorState.docId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      })
+      .then(function() {
+        if (typeof showToast === 'function') {
+          showToast('Статус документа обновлен: ' + label, 'success');
+        }
+        if (_editorState.onSaved) {
+          try { _editorState.onSaved(); } catch(e){}
+        }
+      })
+      .catch(function(err) {
+        alert('Ошибка смены статуса документа: ' + err.message);
+      });
+    }
+  };
+
+  // Переформировать документ из актуальных данных шаблона
+  window._refreshDocFromTemplate = function() {
+    if (_editorState.isLocked) {
+      alert('Документ заблокирован от изменений в текущем статусе.');
+      return;
+    }
+    if (!confirm('Переформировать документ из актуальных данных и шаблона? Все ручные правки в тексте будут заменены исходным шаблоном.')) {
+      return;
+    }
+    renderNewDocument({
+      templateCode: _editorState.templateCode,
+      taskId: _editorState.taskId,
+      contractId: _editorState.contractId,
+      subcontractId: _editorState.subcontractId,
+      subcontractContractId: _editorState.subcontractContractId,
+      forceFresh: true
+    });
+  };
+
+  // Вызов выбора файла скан-копии
+  window._triggerEditorScanUpload = function() {
+    var inp = document.getElementById('_editor_scan_input');
+    if (inp) {
+      inp.value = '';
+      inp.click();
+    }
+  };
+
+  // Обработка загрузки скана из редактора
+  window._onEditorScanFileSelected = function(input) {
+    var file = input && input.files && input.files[0];
+    if (!file) return;
+
+    var formData = new FormData();
+    formData.append('file', file);
+
+    var uploadUrl = '';
+    if (_editorState.subcontractContractId) {
+      uploadUrl = '/subcontract-contracts/' + _editorState.subcontractContractId + '/upload';
+    } else if (_editorState.docId) {
+      uploadUrl = '/documents/' + _editorState.docId + '/upload-scan';
+    } else {
+      alert('Сначала нажмите «💾 Сохранить», чтобы зарегистрировать документ в системе, затем прикрепите скан.');
+      return;
+    }
+
+    var scanBtn = document.getElementById('_doc_upload_scan_btn');
+    if (scanBtn) {
+      scanBtn.disabled = true;
+      scanBtn.textContent = '⏳ Загрузка скана...';
+    }
+
+    fetch(uploadUrl, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('token') || '') },
+      body: formData
+    })
+    .then(function(res) {
+      if (!res.ok) {
+        return res.json().then(function(j){ throw new Error(j.error || 'Ошибка загрузки скана'); });
+      }
+      return res.json();
+    })
+    .then(function(res) {
+      if (typeof showToast === 'function') {
+        showToast('✅ Скан успешно прикреплен! Документ переведен в статус «Подписан».', 'success');
+      } else {
+        alert('✅ Скан успешно прикреплен! Документ переведен в статус «Подписан».');
+      }
+      _editorState.status = 'signed';
+      var sel = document.getElementById('_doc_edit_status');
+      if (sel) sel.value = 'signed';
+      _updateEditorLockState(true, 'документ подписан сторонами, скан прикреплен', 'signed');
+      if (scanBtn) {
+        scanBtn.disabled = false;
+        scanBtn.innerHTML = '<span>✅</span> Подписан';
+      }
+      if (_editorState.onSaved) {
+        try { _editorState.onSaved(); } catch(e){}
+      }
+      if (typeof loadSubContracts === 'function') {
+        try { loadSubContracts(); } catch(e){}
+      }
+    })
+    .catch(function(err) {
+      alert('Ошибка прикрепления скана: ' + err.message);
+      if (scanBtn) {
+        scanBtn.disabled = false;
+        scanBtn.innerHTML = '<span>📎</span> Прикрепить скан';
+      }
+    });
+  };
 
   // Смена шаблона документа «на лету» с сохранением данных
   window._onSwitchDocTemplate = function(newTemplateCode) {
@@ -349,7 +621,8 @@
       templateCode: newTemplateCode,
       taskId: _editorState.taskId,
       contractId: _editorState.contractId,
-      subcontractId: _editorState.subcontractId
+      subcontractId: _editorState.subcontractId,
+      subcontractContractId: _editorState.subcontractContractId
     });
   };
 
@@ -488,6 +761,8 @@
       task_id: _editorState.taskId || undefined,
       contract_id: _editorState.contractId || undefined,
       subcontract_id: _editorState.subcontractId || undefined,
+      subcontract_contract_id: _editorState.subcontractContractId || undefined,
+      poa_id: _editorState.poaId || undefined,
       doc_type: _editorState.templateCode || 'custom',
       doc_format: _editorState.format || 'word',
       title: title,
@@ -511,12 +786,18 @@
         alert('Документ успешно сохранен в системе!');
       }
 
-      // Обновляем таблицы документов в карточке и контрактах
+      // Обновляем таблицы документов в карточке, контрактах и реестре доверенностей
       if (_editorState.taskId && typeof window.loadCardDocuments === 'function') {
         window.loadCardDocuments(_editorState.taskId);
       }
       if (_editorState.contractId && typeof window.loadContractDocuments === 'function') {
         window.loadContractDocuments(_editorState.contractId);
+      }
+      if (_editorState.subcontractContractId && typeof window.loadSubContracts === 'function') {
+        window.loadSubContracts();
+      }
+      if (_editorState.poaId && typeof window.updatePoaList === 'function') {
+        window.updatePoaList();
       }
 
       if (typeof _editorState.onSaved === 'function') {

@@ -32,6 +32,7 @@ export function rowToTask(r) {
     realDistanceKm: r.real_distance_km != null ? Number(r.real_distance_km) : null,
     pricePerUnit: Number(r.price_per_unit)|| 0,
     techLink:     r.tech_link,
+    tech_link:    r.tech_link,
     edoNumber:    r.edo_number,
     invoiceInfo:  r.invoice_info,
     vedoStatus:   r.vedo_status,

@@ -6,6 +6,7 @@ import { pool } from '../config/db.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { UPLOADS_DIR, uploadAttachment, fixUtf8Filename } from '../middleware/upload.js';
 import { generateIdPdfAlbum } from '../services/idPdfGenerator.js';
+import { generateIdExcelAlbum } from '../services/idExcelGenerator.js';
 import {
   generateSubcontractOrder,
   generatePermitLetter,
@@ -564,7 +565,7 @@ router.patch('/documents/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// 3. Удалить документ
+// 3. Удалить документ (запрещено удалять подписанные / отправленные документы)
 router.delete('/documents/:id', authenticateToken, requireRole('admin', 'director', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
@@ -574,6 +575,13 @@ router.delete('/documents/:id', authenticateToken, requireRole('admin', 'directo
     }
 
     const doc = docRes.rows[0];
+    const userRole = req.user?.role || 'user';
+    if ((doc.status === 'signed' || doc.status === 'sent') && userRole !== 'admin') {
+      return res.status(403).json({
+        error: `Удаление документа запрещено в статусе «${doc.status}». Удалять можно только черновики.`
+      });
+    }
+
     if (doc.file_url && doc.file_url.startsWith('/uploads/documents/')) {
       const diskPath = path.join(DOCS_DIR, path.basename(doc.file_url));
       if (fs.existsSync(diskPath)) fs.unlinkSync(diskPath);
@@ -584,6 +592,58 @@ router.delete('/documents/:id', authenticateToken, requireRole('admin', 'directo
   } catch (err) {
     console.error('Error deleting document:', err);
     res.status(500).json({ error: 'Ошибка удаления документа' });
+  }
+});
+
+// 3.1. Загрузка скан-копии подписанного документа (автоматический перевод в статус "signed")
+router.post('/documents/:id/upload-scan', authenticateToken, uploadAttachment.single('file'), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!req.file) {
+      return res.status(400).json({ error: 'Файл скан-копии не передан' });
+    }
+    const fileUrl = '/uploads/documents/' + req.file.filename;
+    const ext = path.extname(req.file.originalname).replace('.', '').toLowerCase();
+
+    const curRes = await pool.query('SELECT * FROM task_documents WHERE id = $1', [id]);
+    if (!curRes.rows.length) {
+      return res.status(404).json({ error: 'Документ не найден' });
+    }
+    const doc = curRes.rows[0];
+    const meta = typeof doc.meta === 'string' ? JSON.parse(doc.meta || '{}') : (doc.meta || {});
+    meta.status = 'signed';
+    meta.scan_uploaded_at = new Date().toISOString();
+    meta.scan_uploaded_by = req.user?.fullName || req.user?.username || 'Пользователь';
+
+    const updRes = await pool.query(`
+      UPDATE task_documents SET
+        file_url = $1,
+        file_type = $2,
+        status = 'signed',
+        meta = $3,
+        updated_at = NOW()
+      WHERE id = $4
+      RETURNING *
+    `, [fileUrl, ext, JSON.stringify(meta), id]);
+
+    if (doc.subcontract_contract_id) {
+      await pool.query(`
+        UPDATE contractor_contracts SET
+          scan_url = $1,
+          status = 'signed',
+          updated_at = NOW()
+        WHERE id = $2
+      `, [fileUrl, doc.subcontract_contract_id]);
+    }
+
+    res.json({
+      success: true,
+      file_url: fileUrl,
+      document: updRes.rows[0]
+    });
+  } catch (err) {
+    console.error('Error uploading document scan:', err);
+    res.status(500).json({ error: 'Ошибка загрузки скана документа: ' + err.message });
   }
 });
 
@@ -614,6 +674,21 @@ router.get('/tasks/:taskId/id-album.pdf', authenticateToken, async (req, res) =>
   } catch (err) {
     console.error('Error serving ID album PDF:', err);
     res.status(500).json({ error: 'Ошибка генерации альбома ИД в PDF: ' + err.message });
+  }
+});
+
+// 4.1. Скачивание альбома ИД в формате Excel (.xlsx по эталону ГОСТ)
+router.get('/tasks/:taskId/id-album.xlsx', authenticateToken, async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const excelBuffer = await generateIdExcelAlbum(taskId);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="ID_Album_${encodeURIComponent(taskId)}.xlsx"`);
+    res.send(excelBuffer);
+  } catch (err) {
+    console.error('Error generating ID album Excel:', err);
+    res.status(500).json({ error: 'Ошибка формирования альбома ИД в Excel: ' + err.message });
   }
 });
 
@@ -1036,7 +1111,10 @@ router.post('/documents/render', authenticateToken, async (req, res) => {
       task_id,
       contract_id,
       subcontract_id,
-      custom_data = {}
+      subcontract_contract_id,
+      poa_id,
+      custom_data = {},
+      force_fresh = false
     } = req.body;
 
     // 1. Ищем шаблон
@@ -1053,20 +1131,78 @@ router.post('/documents/render', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: `Шаблон документа не найден (${template_code || template_id})` });
     }
 
-    // 2. Собираем единый контекст данных
+    // 2. Проверяем, существует ли уже сохраненный документ в реестре task_documents
+    let existingDoc = null;
+    if (subcontract_contract_id) {
+      const exRes = await pool.query(
+        'SELECT * FROM task_documents WHERE subcontract_contract_id = $1 ORDER BY id DESC LIMIT 1',
+        [subcontract_contract_id]
+      );
+      if (exRes.rows.length) existingDoc = exRes.rows[0];
+    } else if (poa_id) {
+      const exRes = await pool.query(
+        'SELECT * FROM task_documents WHERE poa_id = $1 ORDER BY id DESC LIMIT 1',
+        [poa_id]
+      );
+      if (exRes.rows.length) existingDoc = exRes.rows[0];
+    } else if (task_id && template.code) {
+      const exRes = await pool.query(
+        'SELECT * FROM task_documents WHERE task_id = $1 AND doc_type = $2 ORDER BY id DESC LIMIT 1',
+        [task_id, template.code]
+      );
+      if (exRes.rows.length) existingDoc = exRes.rows[0];
+    }
+
+    // 3. Собираем единый контекст данных
     const context = await collectDocumentContext({
       pool,
       taskId: task_id,
       contractId: contract_id,
       subcontractId: subcontract_id,
+      subcontractContractId: subcontract_contract_id,
+      poaId: poa_id,
       customData: custom_data
     });
 
-    // 3. Подставляем переменные в HTML
+    // 4. Проверяем статус блокировки редактирования
+    let isLocked = false;
+    let lockReason = '';
+    let docStatus = existingDoc?.status || 'created';
+
+    if (subcontract_contract_id) {
+      const ccRes = await pool.query('SELECT status, scan_url FROM contractor_contracts WHERE id = $1', [subcontract_contract_id]);
+      if (ccRes.rows.length) {
+        const cStat = ccRes.rows[0].status || 'created';
+        docStatus = cStat;
+        if (cStat !== 'created') {
+          isLocked = true;
+          const statusLabels = {
+            agreed: 'Согласован',
+            sent: 'Передан на подпись',
+            signed: 'Подписан',
+            terminated: 'Расторгнут'
+          };
+          lockReason = `Договор находится в статусе «${statusLabels[cStat] || cStat}». Редактирование закрыто.`;
+        }
+      }
+    } else if (existingDoc && ['agreed', 'sent', 'signed', 'terminated', 'cancelled', 'paid'].includes(existingDoc.status)) {
+      isLocked = true;
+      const statusLabels = {
+        agreed: 'Согласован',
+        sent: 'Передан на подпись',
+        signed: 'Подписан',
+        cancelled: 'Аннулирован',
+        paid: 'Оплачен'
+      };
+      lockReason = `Документ находится в статусе «${statusLabels[existingDoc.status] || existingDoc.status}». Редактирование закрыто.`;
+    }
+
+    // 5. Подставляем переменные в HTML
     const renderedHtml = renderTemplateHtml(template.template_html, context);
 
-    const docNumber = context.doc_number;
-    const title = `${template.name} № ${docNumber}`;
+    const docNumber = existingDoc?.doc_number || context.doc_number;
+    const title = existingDoc?.title || `${template.name} № ${docNumber}`;
+    const finalHtml = (existingDoc && existingDoc.content_html && !force_fresh) ? existingDoc.content_html : renderedHtml;
 
     res.json({
       template: {
@@ -1076,10 +1212,15 @@ router.post('/documents/render', authenticateToken, async (req, res) => {
         category: template.category,
         doc_format: template.doc_format
       },
-      rendered_html: renderedHtml,
+      rendered_html: finalHtml,
       context,
       doc_number: docNumber,
-      title
+      title,
+      existing_doc_id: existingDoc?.id || null,
+      status: docStatus,
+      is_locked: isLocked,
+      lock_reason: lockReason,
+      scan_url: existingDoc?.file_url || null
     });
   } catch (err) {
     console.error('Error rendering document:', err);
@@ -1095,6 +1236,8 @@ router.post('/documents/save', authenticateToken, async (req, res) => {
       task_id,
       contract_id,
       subcontract_id,
+      subcontract_contract_id,
+      poa_id,
       doc_type = 'custom',
       doc_format = 'word',
       doc_number,
@@ -1108,8 +1251,41 @@ router.post('/documents/save', authenticateToken, async (req, res) => {
 
     if (!title) return res.status(400).json({ error: 'Заголовок документа обязателен' });
 
+    const userRole = req.user?.role || 'user';
+
+    // Защита от редактирования в статусах отправки / подписания (по замечаниям руководства)
+    if (id) {
+      const exRes = await pool.query('SELECT status, content_html FROM task_documents WHERE id = $1', [id]);
+      if (exRes.rows.length) {
+        const curStatus = exRes.rows[0].status;
+        if (['agreed', 'sent', 'signed', 'terminated', 'cancelled'].includes(curStatus) && userRole !== 'admin') {
+          if (content_html && content_html !== exRes.rows[0].content_html) {
+            return res.status(403).json({
+              error: `Редактирование текста документа закрыто в статусе «${curStatus}». Изменения не сохранены.`
+            });
+          }
+        }
+      }
+    }
+
+    if (subcontract_contract_id) {
+      const ccRes = await pool.query('SELECT status FROM contractor_contracts WHERE id = $1', [subcontract_contract_id]);
+      if (ccRes.rows.length) {
+        const curCcStatus = ccRes.rows[0].status;
+        if (curCcStatus !== 'created' && userRole !== 'admin') {
+          // Если договор не в статусе "created", запрещаем менять текст
+          const exDoc = id ? await pool.query('SELECT content_html FROM task_documents WHERE id = $1', [id]) : null;
+          if (!exDoc || !exDoc.rows.length || (content_html && content_html !== exDoc.rows[0].content_html)) {
+            return res.status(403).json({
+              error: `Редактирование договора закрыто в статусе «${curCcStatus}». Вносить правки можно только в статусе «Создан» (черновик).`
+            });
+          }
+        }
+      }
+    }
+
     // Создаем фоновый DOCX/HTML файл на диске на случай если понадобится скачать
-    const safeId = String(task_id || contract_id || 'doc').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeId = String(task_id || contract_id || subcontract_contract_id || 'doc').replace(/[^a-zA-Z0-9_-]/g, '_');
     const timestamp = Date.now();
     const ext = doc_format === 'excel' ? 'xlsx' : 'docx';
     const fileName = `${doc_type}_${safeId}_${timestamp}.${ext}`;
@@ -1131,6 +1307,14 @@ router.post('/documents/save', authenticateToken, async (req, res) => {
       }
     }
 
+    // Синхронизируем статус с договором субподряда, если передан subcontract_contract_id
+    if (subcontract_contract_id && status) {
+      await pool.query(
+        'UPDATE contractor_contracts SET status = $1, updated_at = NOW() WHERE id = $2 AND status != $1',
+        [status, subcontract_contract_id]
+      );
+    }
+
     if (id) {
       // Обновление существующего документа
       const updRes = await pool.query(`
@@ -1143,8 +1327,10 @@ router.post('/documents/save', authenticateToken, async (req, res) => {
           status = $6,
           meta = $7,
           file_url = COALESCE($8, file_url),
+          subcontract_contract_id = COALESCE($9, subcontract_contract_id),
+          poa_id = COALESCE($10, poa_id),
           updated_at = NOW()
-        WHERE id = $9
+        WHERE id = $11
         RETURNING *
       `, [
         title,
@@ -1155,26 +1341,33 @@ router.post('/documents/save', authenticateToken, async (req, res) => {
         status,
         JSON.stringify(meta),
         fileUrl,
+        subcontract_contract_id || null,
+        poa_id || null,
         id
       ]);
+      if (poa_id) {
+        await pool.query('UPDATE powers_of_attorney SET document_id = $1 WHERE id = $2', [updRes.rows[0].id, poa_id]);
+      }
       return res.json(updRes.rows[0]);
     }
 
     // Создание нового документа
     const insRes = await pool.query(`
       INSERT INTO task_documents (
-        task_id, contract_id, subcontract_id, doc_type, doc_format, doc_number, doc_date, title,
+        task_id, contract_id, subcontract_id, subcontract_contract_id, poa_id, doc_type, doc_format, doc_number, doc_date, title,
         content_html, content_json, file_url, file_type, meta, status, created_by, created_at, updated_at
       )
       VALUES (
-        $1, $2, $3, $4, $5, $6, COALESCE($7::date, CURRENT_DATE), $8,
-        $9, $10, $11, $12, $13, $14, $15, NOW(), NOW()
+        $1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::date, CURRENT_DATE), $10,
+        $11, $12, $13, $14, $15, $16, $17, NOW(), NOW()
       )
       RETURNING *
     `, [
       task_id || null,
       resolvedContractId,
       subcontract_id || null,
+      subcontract_contract_id || null,
+      poa_id || null,
       doc_type,
       doc_format,
       doc_number || null,
@@ -1188,6 +1381,10 @@ router.post('/documents/save', authenticateToken, async (req, res) => {
       status,
       req.user?.id || null
     ]);
+
+    if (poa_id) {
+      await pool.query('UPDATE powers_of_attorney SET document_id = $1 WHERE id = $2', [insRes.rows[0].id, poa_id]);
+    }
 
     res.status(201).json(insRes.rows[0]);
   } catch (err) {

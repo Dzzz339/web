@@ -1056,7 +1056,7 @@
         var pPrice = defaultPorts > 3 ? 2500 : 3000;
         var defaultLineName = isSber
           ? ('Базовая стоимость работ 1 порт СКС 5е' + (defaultPorts > 3 ? ' (шкала >3 шт)' : ' (шкала 1-3 шт)'))
-          : (t.work_type ? t.work_type : 'Монтаж СКС и линий связи (по прайс-листу подрядчика)');
+          : (t.work_type || t.workType || 'Монтаж СКС и линий связи');
 
         var specLines = [
           {
@@ -1158,19 +1158,19 @@
     ) : '';
 
     // Баннер технических материалов и схем Заказчика для подрядчика
-    var techLink = t.tech_link || (t.rawData && (t.rawData['Ссылка на тех. инфу'] || t.rawData['Ссылка на тех.инфу'] || t.rawData['Ссылка на диск'])) || '';
-    var materialsTaskBanner = '<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">' +
+    var techLink = t.tech_link || t.techLink || (t.rawData && (t.rawData['Ссылка на тех. инфу'] || t.rawData['Ссылка на тех.инфу'] || t.rawData['Ссылка на диск'])) || '';
+    var materialsTaskBanner = '<div id="_materials_task_banner_' + escHtml(taskId) + '" style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">' +
       '<div style="display:flex;align-items:center;gap:10px">' +
         '<span style="font-size:1.3rem">📁</span>' +
         '<div>' +
-          '<div style="font-weight:700;color:#166534;font-size:.84rem">Материалы и документация Заказчика для подрядчика</div>' +
-          '<div style="font-size:.74rem;color:#15803d">Ссылка на файлы и схемы на Яндекс.Диске, переданные в производство</div>' +
+          '<div style="font-weight:700;color:#166534;font-size:.84rem">Файлы и документация ТЗ для субподрядчика</div>' +
+          '<div style="font-size:.74rem;color:#15803d">Папка на Cloud StockEasy / Яндекс.Диске с исходниками и проектом</div>' +
         '</div>' +
       '</div>' +
-      '<div style="display:flex;gap:6px;align-items:center">' +
-        (techLink ? ('<a href="' + escHtml(techLink) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="color:#166534;border:1px solid #86efac;font-size:.76rem;font-weight:700">🔗 Открыть диск Заказчика</a>') : '<span style="font-size:.75rem;color:var(--text-3)">Ссылка на диск не указана</span>') +
-        '<button type="button" class="btn btn-sm btn-ghost" onclick="window.editCardTechLink(\'' + escHtml(taskId) + '\')" style="font-size:.76rem">✏️ ' + (techLink ? 'Изменить' : 'Указать') + '</button>' +
-        (techLink ? ('<button type="button" class="btn btn-sm btn-ghost" onclick="window.shareTechLinkWithContractor(\'' + escHtml(taskId) + '\')" style="font-size:.76rem" title="Скопировать ссылку для отправки подрядчику">📲 Отправить подрядчику</button>') : '') +
+      '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
+        (techLink ? ('<a href="' + escHtml(techLink) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="color:#166534;border:1px solid #86efac;font-size:.76rem;font-weight:700">↗ Открыть папку ТЗ на Облаке</a>') : ('<span style="font-size:.75rem;color:var(--text-3)">Папка не привязана</span>' + '<button type="button" class="btn btn-sm btn-ghost" onclick="window.editCardTechLink(\'' + escHtml(taskId) + '\')" style="color:#16a34a;border:1px dashed #86efac;font-size:.76rem;font-weight:700">⚡ Создать на Облаке</button>')) +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="window.editCardTechLink(\'' + escHtml(taskId) + '\')" style="font-size:.76rem">✏️ ' + (techLink ? 'Изменить' : 'Ввести вручную') + '</button>' +
+        (techLink ? ('<button type="button" class="btn btn-sm btn-ghost" onclick="window.shareTechLinkWithContractor(\'' + escHtml(taskId) + '\')" style="font-size:.76rem" title="Скопировать ссылку для отправки субподрядчику">📋 Скопировать ссылку</button>') : '') +
       '</div>' +
     '</div>';
 

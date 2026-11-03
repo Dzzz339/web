@@ -29,18 +29,83 @@ export function formatMoney(val) {
   return num.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽';
 }
 
+export function formatFioShort(fullName) {
+  if (!fullName) return '';
+  const parts = String(fullName).trim().split(/\s+/);
+  if (parts.length === 1) return parts[0];
+  if (parts.length === 2) return `${parts[0]} ${parts[1][0]}.`;
+  return `${parts[0]} ${parts[1][0]}. ${parts[2][0]}.`;
+}
+
 /**
  * Сбор полного контекста переменных из базы данных для формирования документа
  */
-export async function collectDocumentContext({ pool, taskId, contractId, subcontractId, customData = {} }) {
+export async function collectDocumentContext({ pool, taskId, contractId, subcontractId, subcontractContractId, poaId, customData = {} }) {
   let task = null;
   let contract = null;
   let subcontract = null;
+  let subcontractContract = null;
+  let poa = null;
+  let poaSpecialist = null;
   let contractor = {};
   let ourCompany = {};
   let materials = [];
   let ports = [];
   let calculationLines = [];
+
+  // -1. Загрузка доверенности (если передан poaId)
+  if (poaId) {
+    const poaRes = await pool.query(`
+      SELECT p.*, s.full_name as spec_full_name, s.phone as spec_phone, s.position as spec_position,
+             s.passport_series_number, s.passport_issued_by, s.passport_issue_date, s.passport_raw
+      FROM powers_of_attorney p
+      LEFT JOIN specialists s ON s.id = p.specialist_id
+      WHERE p.id = $1
+    `, [poaId]);
+    if (poaRes.rows.length > 0) {
+      poa = poaRes.rows[0];
+      if (poa.organization) {
+        const orgClean = poa.organization.replace(/["'«»]/g, '').trim();
+        const orgMatch = await pool.query(
+          `SELECT * FROM own_companies WHERE name_short ILIKE $1 OR name_full ILIKE $1 OR code ILIKE $1 ORDER BY id ASC LIMIT 1`,
+          [`%${orgClean}%`]
+        );
+        if (orgMatch.rows.length > 0) {
+          ourCompany = orgMatch.rows[0];
+        }
+      }
+      if (poa.person_name) {
+        const specMatch = await pool.query(
+          `SELECT * FROM specialists WHERE full_name ILIKE $1 OR id = $2 LIMIT 1`,
+          [`%${poa.person_name.trim()}%`, poa.specialist_id || -1]
+        );
+        if (specMatch.rows.length > 0) {
+          poaSpecialist = specMatch.rows[0];
+        }
+      }
+    }
+  }
+
+  // 0. Загрузка договора субподряда (если открыт из реестра договоров субподряда)
+  if (subcontractContractId) {
+    const ccRes = await pool.query(`
+      SELECT 
+        cc.*,
+        COALESCE(pc.internal_number, pc.contract_number) AS parent_contract_number,
+        pc.contract_date AS parent_contract_date,
+        COALESCE(pc.subject, pc.contract_type_summary) AS parent_contract_title,
+        pc.customer_name AS parent_customer
+      FROM contractor_contracts cc
+      LEFT JOIN contracts pc ON cc.parent_contract_id = pc.id
+      WHERE cc.id = $1
+    `, [subcontractContractId]);
+    if (ccRes.rows.length > 0) {
+      subcontractContract = ccRes.rows[0];
+      if (!contractId && subcontractContract.parent_contract_id) {
+        contractId = subcontractContract.parent_contract_id;
+      }
+    }
+  }
 
   // 1. Загрузка задачи (если передана)
   if (taskId) {
@@ -84,7 +149,10 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
   }
 
   // 4. Загрузка нашей организации (Генподрядчик / Исполнитель)
-  let ownId = (subcontract && subcontract.own_company_id) || (task && task.own_company_id) || (contract && contract.own_company_id);
+  let ownId = (subcontractContract && subcontractContract.own_company_id) || 
+              (subcontract && subcontract.own_company_id) || 
+              (task && task.own_company_id) || 
+              (contract && contract.own_company_id);
   if (!ownId && contract && contract.our_entity_name) {
     const ent = String(contract.our_entity_name).toLowerCase();
     if (ent.includes('к10')) {
@@ -110,7 +178,8 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
   }
 
   // 5. Загрузка подрядчика
-  let contractorId = (subcontract && subcontract.contractor_id);
+  let contractorId = (subcontractContract && subcontractContract.contractor_id) || 
+                     (subcontract && subcontract.contractor_id);
   if (contractorId) {
     const cRes = await pool.query('SELECT * FROM contractors WHERE id = $1', [contractorId]);
     if (cRes.rows.length > 0) contractor = cRes.rows[0];
@@ -127,8 +196,8 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
   }
 
   // Договор с подрядчиком (рамочный)
-  let linkedContractorContract = {};
-  if (subcontract && subcontract.contractor_contract_id) {
+  let linkedContractorContract = subcontractContract || {};
+  if (!linkedContractorContract.id && subcontract && subcontract.contractor_contract_id) {
     const ccRes = await pool.query('SELECT * FROM contractor_contracts WHERE id = $1', [subcontract.contractor_contract_id]);
     if (ccRes.rows.length) linkedContractorContract = ccRes.rows[0];
   }
@@ -183,8 +252,97 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
   }
 
   const now = new Date();
-  const docNumber = customData.doc_number || (subcontract ? `ЗН-${task ? task.id : '1'}-${subcontract.id}` : `ДГ-${Date.now().toString().slice(-6)}`);
-  const docDate = customData.doc_date || now;
+  const docNumber = customData.doc_number || 
+    (poa ? poa.number : 
+      (subcontractContract ? subcontractContract.contract_number : 
+        (subcontract ? `ЗН-${task ? task.id : '1'}-${subcontract.id}` : `ДГ-${Date.now().toString().slice(-6)}`)));
+  const docDate = customData.doc_date || (poa?.issue_date ? poa.issue_date : (subcontractContract?.contract_date ? subcontractContract.contract_date : now));
+
+  // Паспортные данные для доверенностей и пропусков
+  const specObj = poaSpecialist || poa;
+  let passRaw = (specObj && (specObj.passport_raw || specObj.passport_series_number)) || '';
+  let passSeries = '';
+  let passNumber = '';
+  let passIssuedBy = (specObj && specObj.passport_issued_by) || '';
+  let passIssueDate = (specObj && specObj.passport_issue_date) || '';
+
+  if (specObj && specObj.passport_series_number) {
+    const numClean = String(specObj.passport_series_number).replace(/[№#]/g, '').trim();
+    const parts = numClean.split(/\s+/);
+    if (parts.length >= 2) {
+      if (parts.length === 2 && parts[0].length === 4) {
+        passSeries = `${parts[0].slice(0, 2)} ${parts[0].slice(2, 4)}`;
+        passNumber = parts[1];
+      } else {
+        passSeries = parts.slice(0, -1).join(' ');
+        passNumber = parts[parts.length - 1];
+      }
+    } else if (numClean.length === 10) {
+      passSeries = `${numClean.slice(0, 2)} ${numClean.slice(2, 4)}`;
+      passNumber = numClean.slice(4);
+    } else {
+      passNumber = numClean;
+    }
+  }
+
+  if (passRaw && (!passIssuedBy || !passIssueDate)) {
+    const mIssued = passRaw.match(/выдан\s+([^,]+)/i) || passRaw.match(/(?:ГУ\s*МВД|Отдел(?:ом)?\s*УФМС|ТП\s*№|УВД)[^,\.]+/i);
+    if (mIssued && !passIssuedBy) passIssuedBy = mIssued[0].trim();
+    const mDate = passRaw.match(/(\d{2}\.\d{2}\.\d{4})/);
+    if (mDate && !passIssueDate) passIssueDate = mDate[1];
+  }
+
+  // Суть договора и предмет по требованиям руководства
+  const essenceMap = {
+    subcontract: 'выполнение комплекса строительно-монтажных и пусконаладочных работ',
+    design: 'выполнение проектно-изыскательских работ (ПИР)',
+    supply: 'поставку оборудования, кабельной продукции и расходных материалов',
+    services: 'оказание телекоммуникационных и сопутствующих услуг',
+    mirror: 'выполнение комплекса работ в рамках зеркального субподряда',
+    cooperation: 'совместную деятельность и научно-техническое сотрудничество',
+    sales: 'куплю-продажу материально-технических ценностей'
+  };
+
+  const essenceTitleMap = {
+    subcontract: 'на выполнение строительно-монтажных работ',
+    design: 'на выполнение проектно-изыскательских работ (ПИР)',
+    supply: 'поставки оборудования и материалов',
+    services: 'возмездного оказания услуг',
+    mirror: 'зеркального субподряда',
+    cooperation: 'о совместной деятельности и сотрудничестве',
+    sales: 'купли-продажи'
+  };
+
+  const currentEssence = subcontractContract?.contract_essence || 'subcontract';
+  const essenceText = essenceMap[currentEssence] || essenceMap.subcontract;
+  const essenceTitle = essenceTitleMap[currentEssence] || essenceTitleMap.subcontract;
+
+  let subjectParagraph = '';
+  if (currentEssence === 'mirror') {
+    const parentNum = subcontractContract?.parent_contract_number || 'б/н';
+    const parentDate = subcontractContract?.parent_contract_date ? formatDateRu(subcontractContract.parent_contract_date) : '—';
+    const parentCust = subcontractContract?.parent_customer || subcontractContract?.customer_tag || 'Заказчик';
+    const mirrorPct = subcontractContract?.mirror_percent !== null && subcontractContract?.mirror_percent !== undefined ? Number(subcontractContract.mirror_percent) : 0;
+    subjectParagraph = `1.1. Субподрядчик обязуется по заданию Генподрядчика выполнить комплекс работ в рамках исполнения обязательств по Генеральному контракту № ${parentNum} от ${parentDate} (Конечный заказчик: ${parentCust}), а Генподрядчик обязуется принять результат надлежаще выполненных работ и оплатить их. Вознаграждение Субподрядчика составляет ${mirrorPct}% от утвержденного объема финансирования соответствующих работ по Генеральному контракту.`;
+  } else {
+    subjectParagraph = `1.1. Субподрядчик обязуется по заданию Генподрядчика выполнить ${essenceText}, а Генподрядчик обязуется принять результат надлежаще выполненных работ и оплатить их в соответствии с условиями настоящего Договора и Приложений к нему.`;
+  }
+
+  const territoryText = (subcontractContract?.territory) || (task?.region ? (task.city ? `${task.city}, ${task.region}` : task.region) : '');
+  const territoryParagraph = territoryText ? 
+    `1.2. Место выполнения работ (территория действия Договора): ${territoryText}.` : 
+    `1.2. Место выполнения работ и адресные ориентиры конкретных объектов определяются Сторонами в Заявках (Приложениях к настоящему Договору).`;
+
+  const statusMapRu = {
+    created: 'Создан',
+    agreed: 'Согласован',
+    sent: 'Передан на подпись',
+    signed: 'Подписан',
+    terminated: 'Расторгнут',
+    active: 'Действует',
+    pending: 'На согласовании',
+    completed: 'Завершен'
+  };
 
   // Формируем структурированный словарь контекста
   const ctx = {
@@ -358,6 +516,17 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
     номер_договора_подрядчика: ctx.contractor.contract_number,
     дата_договора_подрядчика: ctx.contractor.contract_date,
 
+    суть_договора: essenceText,
+    суть_договора_название: essenceTitle,
+    предмет_договора: subjectParagraph,
+    территория_действия: territoryText || 'Определяется в заявках',
+    территория_абзац: territoryParagraph,
+    конечный_заказчик: subcontractContract?.customer_tag || subcontractContract?.parent_customer || ctx.customer.name,
+    зеркальный_процент: subcontractContract?.mirror_percent ? `${subcontractContract.mirror_percent}%` : '—',
+    родительский_договор_номер: subcontractContract?.parent_contract_number || '—',
+    родительский_договор_дата: subcontractContract?.parent_contract_date ? formatDateRu(subcontractContract.parent_contract_date) : '—',
+    статус_договора: statusMapRu[subcontractContract?.status] || 'Создан',
+
     номер_заявки: ctx.task.id,
     номер_всп: ctx.task.vsp,
     адрес_объекта: ctx.task.address,
@@ -382,10 +551,34 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
     телефон_монтажника: ctx.specialists[0]?.phone || '—',
     госномер_авто: ctx.specialists[0]?.auto || '—',
 
+    // Переменные для доверенностей (форма М-2 и стандартные)
+    номер_доверенности: poa?.number || ctx.doc_number,
+    дата_выдачи: poa?.issue_date ? formatDateRu(poa.issue_date) : ctx.doc_date,
+    дата_выдачи_прописью: poa?.issue_date ? formatDateRuWords(poa.issue_date) : ctx.doc_date_words,
+    срок_действия: poa?.valid_until ? formatDateRu(poa.valid_until) : ('31.12.' + ctx.current_year),
+    срок_действия_прописью: poa?.valid_until ? formatDateRuWords(poa.valid_until) : ('31 декабря ' + ctx.current_year + ' г.'),
+    подотчетное_лицо_фио: poa?.person_name || poaSpecialist?.full_name || ctx.specialists[0]?.full_name || '—',
+    подотчетное_лицо_должность: poaSpecialist?.position || 'Сотрудник',
+    паспорт_серия: passSeries || '50 14',
+    паспорт_номер: passNumber || '252604',
+    паспорт_кем_выдан: passIssuedBy || 'Отделом УФМС России',
+    паспорт_дата_выдачи: passIssueDate || '—',
+    поставщик_наименование: poa?.contractor_name || customData?.contractor_name || 'ООО "Поставщик"',
+    наш_окпо: ourCompany.okpo || (ourCompany.inn === '5406774300' ? '32173475' : (ourCompany.inn === '5406792155' || ourCompany.code === 'ULTIMA' ? '16917456' : '32173475')),
+    руководитель_иоф: formatFioShort(ourCompany.director),
+    главбух_иоф: formatFioShort(ourCompany.director),
+    номер_наряда: '—',
+    номер_акта: '—',
+    основание_получения: customData?.document_base || 'счету / товарной накладной',
+
     // Готовые HTML-блоки таблиц на случай, если в шаблоне не используют циклы:
     таблица_работ: renderWorksTableHtml(ctx.works, ctx.finance),
     таблица_специалистов: renderSpecialistsTableHtml(ctx.specialists),
     таблица_материалов: renderMaterialsTableHtml(ctx.materials),
+    таблица_кж: renderKjTableHtml(ports),
+    таблица_спецификации_ид: renderIdSpecTableHtml(materials),
+    таблица_протокола_измерений: renderFlukeProtocolTableHtml(ports, ctx),
+    штамп_гост: renderGostStampHtml(ctx),
     блок_подписей: renderSignaturesBlockHtml(ctx.our_company, ctx.contractor)
   };
 
@@ -602,5 +795,184 @@ function renderSignaturesBlockHtml(our, contractor) {
         <div style="margin-top:6px;font-size:11px;color:#666">М.П.</div>
       </div>
     </div>
+  `;
+}
+
+function renderKjTableHtml(ports = []) {
+  if (!ports || ports.length === 0) {
+    return '<p style="color:#666;font-style:italic">Линии кабельного журнала не внесены</p>';
+  }
+  let rowsHtml = '';
+  ports.forEach((p, idx) => {
+    const portNum = p.port_number || String(idx + 1);
+    const room = p.room || 'Помещение';
+    const marking = p.marking || `ПП-1 / Порт ${portNum}`;
+    const len = p.cable_length || 25;
+    rowsHtml += `
+      <tr>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${idx + 1}</td>
+        <td style="border:1px solid #000;padding:4px">${room}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${marking}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${portNum}</td>
+        <td style="border:1px solid #000;padding:4px">Серверная, ШТК-1</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">ПП-1 / ${portNum}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">UTP Cat.5e</td>
+        <td style="border:1px solid #000;padding:4px;text-align:right">${len}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${p.testing_status || 'Готов'}</td>
+      </tr>
+    `;
+  });
+
+  return `
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin:10px 0;border:1px solid #000">
+      <thead>
+        <tr style="background:#f3f4f6;font-weight:700">
+          <th rowspan="2" style="border:1px solid #000;padding:4px;width:25px;text-align:center">№</th>
+          <th colspan="3" style="border:1px solid #000;padding:4px;text-align:center">Начало трассы</th>
+          <th colspan="2" style="border:1px solid #000;padding:4px;text-align:center">Конец трассы</th>
+          <th rowspan="2" style="border:1px solid #000;padding:4px;text-align:center">Марка кабеля</th>
+          <th rowspan="2" style="border:1px solid #000;padding:4px;width:50px;text-align:right">Длина, м</th>
+          <th rowspan="2" style="border:1px solid #000;padding:4px;text-align:center">Статус</th>
+        </tr>
+        <tr style="background:#f9fafb;font-weight:700">
+          <th style="border:1px solid #000;padding:4px;text-align:left">Помещение</th>
+          <th style="border:1px solid #000;padding:4px;text-align:center">Маркировка</th>
+          <th style="border:1px solid #000;padding:4px;text-align:center">№ порта</th>
+          <th style="border:1px solid #000;padding:4px;text-align:left">Помещение / Шкаф</th>
+          <th style="border:1px solid #000;padding:4px;text-align:center">Патч-панель</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+  `;
+}
+
+function renderIdSpecTableHtml(materials = []) {
+  if (!materials || materials.length === 0) {
+    return '<p style="color:#666;font-style:italic">Позиции спецификации не внесены</p>';
+  }
+  let rowsHtml = '';
+  materials.forEach((m, idx) => {
+    const pos = m.pos_num || (idx + 1);
+    const name = m.name || m.item_name || 'Материал СКС';
+    const model = m.model || '—';
+    const code = m.code || m.article || '—';
+    const supp = m.supplier || 'Склад';
+    const unit = m.unit || 'шт.';
+    const qty = m.qty || m.plan_qty || 1;
+    rowsHtml += `
+      <tr>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${pos}</td>
+        <td style="border:1px solid #000;padding:4px">${name}</td>
+        <td style="border:1px solid #000;padding:4px">${model}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${code}</td>
+        <td style="border:1px solid #000;padding:4px">${supp}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${unit}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:right">${qty}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${m.note || ''}</td>
+      </tr>
+    `;
+  });
+
+  return `
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin:10px 0;border:1px solid #000">
+      <thead>
+        <tr style="background:#f3f4f6;font-weight:700">
+          <th style="border:1px solid #000;padding:4px;width:30px;text-align:center">Поз.</th>
+          <th style="border:1px solid #000;padding:4px;text-align:left">Наименование и техническая характеристика</th>
+          <th style="border:1px solid #000;padding:4px;text-align:left">Тип, марка</th>
+          <th style="border:1px solid #000;padding:4px;text-align:center">Код / Артикул</th>
+          <th style="border:1px solid #000;padding:4px;text-align:left">Поставщик</th>
+          <th style="border:1px solid #000;padding:4px;width:40px;text-align:center">Ед.</th>
+          <th style="border:1px solid #000;padding:4px;width:50px;text-align:right">Кол-во</th>
+          <th style="border:1px solid #000;padding:4px;text-align:center">Примечание</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+  `;
+}
+
+function renderFlukeProtocolTableHtml(ports = [], ctx = {}) {
+  if (!ports || ports.length === 0) {
+    return '<p style="color:#666;font-style:italic">Измерения портов Fluke не проводились</p>';
+  }
+  let rowsHtml = '';
+  ports.forEach((p, idx) => {
+    const portNum = p.port_number || String(idx + 1);
+    const room = p.room || 'Помещение';
+    const marking = p.marking || `Розетка ${portNum}`;
+    const len = p.cable_length || 25;
+    rowsHtml += `
+      <tr>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${idx + 1}</td>
+        <td style="border:1px solid #000;padding:4px">Патч-панель (ПП-1), порт ${portNum}</td>
+        <td style="border:1px solid #000;padding:4px">${room}, ${marking}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">UTP Cat.5e 4х2х0.51</td>
+        <td style="border:1px solid #000;padding:4px;text-align:right">${len}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">TIA/EIA-568B</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center;font-weight:700;color:#166534">Pass</td>
+      </tr>
+    `;
+  });
+
+  return `
+    <div style="font-size:11.5px;margin-bottom:8px">
+      <b>Прибор:</b> Fluke Networks MicroScanner (MS2-100) зав. № 2780829 &nbsp;|&nbsp; <b>Дата поверки:</b> Действительна
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin:10px 0;border:1px solid #000">
+      <thead>
+        <tr style="background:#f3f4f6;font-weight:700">
+          <th style="border:1px solid #000;padding:4px;width:30px;text-align:center">№</th>
+          <th style="border:1px solid #000;padding:4px;text-align:left">Точка А (Коммутационный узел)</th>
+          <th style="border:1px solid #000;padding:4px;text-align:left">Точка Б (Рабочее место)</th>
+          <th style="border:1px solid #000;padding:4px;text-align:center">Кабель</th>
+          <th style="border:1px solid #000;padding:4px;width:60px;text-align:right">Длина, м</th>
+          <th style="border:1px solid #000;padding:4px;width:90px;text-align:center">Схема расшивки</th>
+          <th style="border:1px solid #000;padding:4px;width:70px;text-align:center">Результат</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+  `;
+}
+
+function renderGostStampHtml(ctx = {}) {
+  const objName = ctx.task?.address || 'Объект заказчика';
+  const orgName = ctx.our_company?.name || 'ООО "Ультима"';
+  return `
+    <table style="width:100%;border-collapse:collapse;font-size:10px;margin-top:20px;border:2px solid #000">
+      <tr>
+        <td style="border:1px solid #000;padding:3px;width:55px;font-weight:700">Изм.</td>
+        <td style="border:1px solid #000;padding:3px;width:30px">Кол.</td>
+        <td style="border:1px solid #000;padding:3px;width:40px">Лист</td>
+        <td style="border:1px solid #000;padding:3px;width:60px">№ док.</td>
+        <td style="border:1px solid #000;padding:3px;width:55px">Подп.</td>
+        <td style="border:1px solid #000;padding:3px;width:55px">Дата</td>
+        <td rowspan="3" colspan="2" style="border:1px solid #000;padding:6px;text-align:center;font-weight:700;font-size:11px">
+          ${objName}<br/>
+          <span style="font-size:9.5px;font-weight:normal">Создание структурированных кабельных систем (СКС)</span>
+        </td>
+      </tr>
+      <tr>
+        <td colspan="2" style="border:1px solid #000;padding:3px">Разработал</td>
+        <td colspan="2" style="border:1px solid #000;padding:3px;font-weight:700">Чайка А.Н.</td>
+        <td style="border:1px solid #000;padding:3px"></td>
+        <td style="border:1px solid #000;padding:3px">${ctx.current_date || ''}</td>
+      </tr>
+      <tr>
+        <td colspan="2" style="border:1px solid #000;padding:3px">Проверил</td>
+        <td colspan="2" style="border:1px solid #000;padding:3px;font-weight:700">Ашихмин В.А.</td>
+        <td style="border:1px solid #000;padding:3px"></td>
+        <td style="border:1px solid #000;padding:3px">${ctx.current_date || ''}</td>
+      </tr>
+      <tr>
+        <td colspan="4" style="border:1px solid #000;padding:4px;font-weight:700;text-align:center">Исполнительная документация (ИД)</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center"><b>Стадия</b><br/>И</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center"><b>Лист</b><br/>1</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center"><b>Листов</b><br/>20</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center;font-weight:700;font-size:11px">${orgName}</td>
+      </tr>
+    </table>
   `;
 }

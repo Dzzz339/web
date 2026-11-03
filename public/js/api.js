@@ -307,7 +307,14 @@ function uploadAttachments(taskId, type, files, comment) {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + S.token },
     body: fd
-  }).then(function(r){ return r.json(); });
+  }).then(function(r){ 
+    if (!r.ok) {
+      return r.json().catch(function(){ return { error: 'HTTP ' + r.status }; }).then(function(err){
+        throw new Error(err.error || ('HTTP ' + r.status));
+      });
+    }
+    return r.json(); 
+  });
 }
 
 function loadAttachments(taskId) {

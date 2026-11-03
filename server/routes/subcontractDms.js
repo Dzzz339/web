@@ -34,11 +34,14 @@ router.get('/contractors/:id/contracts', authenticateToken, async (req, res) => 
         oc.name_short AS own_company_name,
         oc.inn AS own_company_inn,
         oc.director AS own_company_director,
+        COALESCE(pc.internal_number, pc.contract_number) AS parent_contract_number,
+        COALESCE(pc.subject, pc.contract_type_summary) AS parent_contract_title,
         pl.id AS price_list_id,
         pl.name AS price_list_name,
         (SELECT COUNT(*) FROM price_list_items pli WHERE pli.price_list_id = pl.id) AS price_items_count
       FROM contractor_contracts cc
       LEFT JOIN own_companies oc ON cc.own_company_id = oc.id
+      LEFT JOIN contracts pc ON cc.parent_contract_id = pc.id
       LEFT JOIN contractor_price_lists pl ON pl.contract_id = cc.id AND pl.is_active = true
       WHERE cc.contractor_id = $1
       ORDER BY cc.contract_date DESC, cc.id DESC
@@ -59,11 +62,15 @@ router.post('/contractors/:id/contracts', authenticateToken, async (req, res) =>
       contract_number,
       contract_date,
       title,
+      contract_essence,
+      parent_contract_id,
+      mirror_percent,
       customer_tag,
       subject,
       territory,
       valid_from,
       valid_to,
+      status,
       scan_url,
       copy_from_contract_id
     } = req.body;
@@ -75,9 +82,11 @@ router.post('/contractors/:id/contracts', authenticateToken, async (req, res) =>
     const { rows } = await pool.query(`
       INSERT INTO contractor_contracts (
         contractor_id, own_company_id, contract_number, contract_date, title,
-        customer_tag, subject, territory, valid_from, valid_to, scan_url
+        contract_essence, parent_contract_id, mirror_percent,
+        customer_tag, subject, territory, valid_from, valid_to, status, scan_url,
+        appendix_type, appendix_details
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
       RETURNING *
     `, [
       contractorId,
@@ -85,12 +94,18 @@ router.post('/contractors/:id/contracts', authenticateToken, async (req, res) =>
       contract_number,
       contract_date || new Date(),
       title || `Договор подряда № ${contract_number}`,
+      contract_essence || 'subcontract',
+      parent_contract_id || null,
+      mirror_percent !== undefined && mirror_percent !== '' ? Number(mirror_percent) : null,
       customer_tag || null,
       subject || 'Монтаж СКС и слаботочных систем',
       territory || '',
       valid_from || contract_date || new Date(),
       valid_to || null,
-      scan_url || ''
+      status || 'created',
+      scan_url || '',
+      appendix_type || 'tariff',
+      appendix_details || null
     ]);
 
     const newContract = rows[0];
@@ -168,13 +183,16 @@ router.get('/subcontract-contracts', authenticateToken, async (req, res) => {
         c.type AS contractor_type,
         oc.name_short AS own_company_name,
         oc.inn AS own_company_inn,
+        COALESCE(pc.internal_number, pc.contract_number) AS parent_contract_number,
+        COALESCE(pc.subject, pc.contract_type_summary) AS parent_contract_title,
         pl.id AS price_list_id,
         pl.name AS price_list_name,
         (SELECT COUNT(*) FROM price_list_items pli WHERE pli.price_list_id = pl.id) AS price_items_count
       FROM contractor_contracts cc
       LEFT JOIN contractors c ON cc.contractor_id = c.id
       LEFT JOIN own_companies oc ON cc.own_company_id = oc.id
-      LEFT JOIN contractor_price_lists pl ON (pl.contract_id = cc.id OR (pl.contractor_id = cc.contractor_id AND pl.contract_id IS NULL)) AND pl.is_active = true
+      LEFT JOIN contracts pc ON cc.parent_contract_id = pc.id
+      LEFT JOIN contractor_price_lists pl ON pl.contract_id = cc.id AND pl.is_active = true
       ORDER BY cc.contract_date DESC, cc.id DESC
     `);
     res.json(rows);
@@ -193,6 +211,9 @@ router.post('/subcontract-contracts', authenticateToken, async (req, res) => {
       contract_number,
       contract_date,
       title,
+      contract_essence,
+      parent_contract_id,
+      mirror_percent,
       customer_tag,
       subject,
       territory,
@@ -200,7 +221,9 @@ router.post('/subcontract-contracts', authenticateToken, async (req, res) => {
       valid_to,
       status,
       scan_url,
-      create_price_list
+      create_price_list,
+      appendix_type,
+      appendix_details
     } = req.body;
 
     if (!contract_number) {
@@ -213,9 +236,10 @@ router.post('/subcontract-contracts', authenticateToken, async (req, res) => {
     const { rows } = await pool.query(`
       INSERT INTO contractor_contracts (
         contractor_id, own_company_id, contract_number, contract_date, title,
+        contract_essence, parent_contract_id, mirror_percent,
         customer_tag, subject, territory, valid_from, valid_to, status, scan_url
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING *
     `, [
       contractor_id,
@@ -223,12 +247,15 @@ router.post('/subcontract-contracts', authenticateToken, async (req, res) => {
       contract_number,
       contract_date || new Date(),
       title || `Договор субподряда № ${contract_number}`,
+      contract_essence || 'subcontract',
+      parent_contract_id || null,
+      mirror_percent !== undefined && mirror_percent !== '' ? Number(mirror_percent) : null,
       customer_tag || '',
       subject || 'Монтаж СКС и слаботочных систем',
       territory || '',
       valid_from || contract_date || new Date(),
       valid_to || null,
-      status || 'active',
+      status || 'created',
       scan_url || ''
     ]);
 
@@ -264,11 +291,14 @@ router.post('/subcontract-contracts', authenticateToken, async (req, res) => {
         c.name_short AS contractor_name,
         c.inn AS contractor_inn,
         oc.name_short AS own_company_name,
+        COALESCE(pc.internal_number, pc.contract_number) AS parent_contract_number,
+        COALESCE(pc.subject, pc.contract_type_summary) AS parent_contract_title,
         pl.id AS price_list_id,
         pl.name AS price_list_name
       FROM contractor_contracts cc
       LEFT JOIN contractors c ON cc.contractor_id = c.id
       LEFT JOIN own_companies oc ON cc.own_company_id = oc.id
+      LEFT JOIN contracts pc ON cc.parent_contract_id = pc.id
       LEFT JOIN contractor_price_lists pl ON pl.contract_id = cc.id
       WHERE cc.id = $1
     `, [newContract.id]);
@@ -290,14 +320,44 @@ router.put('/subcontract-contracts/:id', authenticateToken, async (req, res) => 
       contract_number,
       contract_date,
       title,
+      contract_essence,
+      parent_contract_id,
+      mirror_percent,
       customer_tag,
       subject,
       territory,
       valid_from,
       valid_to,
       status,
-      scan_url
+      scan_url,
+      appendix_type,
+      appendix_details
     } = req.body;
+
+    const currentRes = await pool.query('SELECT * FROM contractor_contracts WHERE id = $1', [id]);
+    if (!currentRes.rows.length) return res.status(404).json({ error: 'Договор не найден' });
+    const current = currentRes.rows[0];
+
+    const userRole = req.user?.role || 'user';
+    const isCreated = (current.status === 'created');
+
+    // Если договор согласован, передан, подписан или расторгнут — редактирование основных реквизитов закрыто (кроме админа)
+    if (!isCreated && userRole !== 'admin') {
+      const hasRestrictedChanges = 
+        (contract_number !== undefined && contract_number !== current.contract_number) ||
+        (contractor_id !== undefined && Number(contractor_id) !== Number(current.contractor_id)) ||
+        (own_company_id !== undefined && Number(own_company_id) !== Number(current.own_company_id)) ||
+        (contract_essence !== undefined && contract_essence !== current.contract_essence) ||
+        (parent_contract_id !== undefined && Number(parent_contract_id || 0) !== Number(current.parent_contract_id || 0)) ||
+        (mirror_percent !== undefined && Number(mirror_percent || 0) !== Number(current.mirror_percent || 0)) ||
+        (territory !== undefined && territory !== current.territory);
+
+      if (hasRestrictedChanges) {
+        return res.status(403).json({
+          error: `Договор находится в статусе «${current.status}». Редактирование реквизитов закрыто.`
+        });
+      }
+    }
 
     const { rows } = await pool.query(`
       UPDATE contractor_contracts SET
@@ -306,15 +366,18 @@ router.put('/subcontract-contracts/:id', authenticateToken, async (req, res) => 
         contract_number = COALESCE($3, contract_number),
         contract_date = COALESCE($4, contract_date),
         title = COALESCE($5, title),
-        customer_tag = $6,
-        subject = $7,
-        territory = $8,
-        valid_from = $9,
-        valid_to = $10,
-        status = COALESCE($11, status),
-        scan_url = $12,
+        contract_essence = COALESCE($6, contract_essence),
+        parent_contract_id = $7,
+        mirror_percent = $8,
+        customer_tag = $9,
+        subject = $10,
+        territory = $11,
+        valid_from = $12,
+        valid_to = $13,
+        status = COALESCE($14, status),
+        scan_url = $15,
         updated_at = NOW()
-      WHERE id = $13
+      WHERE id = $16
       RETURNING *
     `, [
       contractor_id,
@@ -322,13 +385,16 @@ router.put('/subcontract-contracts/:id', authenticateToken, async (req, res) => 
       contract_number,
       contract_date,
       title,
-      customer_tag || '',
-      subject || '',
-      territory || '',
+      contract_essence || current.contract_essence || 'subcontract',
+      parent_contract_id !== undefined ? (parent_contract_id || null) : current.parent_contract_id,
+      mirror_percent !== undefined && mirror_percent !== '' ? Number(mirror_percent) : current.mirror_percent,
+      customer_tag !== undefined ? (customer_tag || '') : current.customer_tag,
+      subject !== undefined ? (subject || '') : current.subject,
+      territory !== undefined ? (territory || '') : current.territory,
       valid_from || null,
       valid_to || null,
-      status || 'active',
-      scan_url || '',
+      status || current.status || 'created',
+      scan_url !== undefined ? (scan_url || '') : current.scan_url,
       id
     ]);
 
@@ -340,11 +406,14 @@ router.put('/subcontract-contracts/:id', authenticateToken, async (req, res) => 
         c.name_short AS contractor_name,
         c.inn AS contractor_inn,
         oc.name_short AS own_company_name,
+        COALESCE(pc.internal_number, pc.contract_number) AS parent_contract_number,
+        COALESCE(pc.subject, pc.contract_type_summary) AS parent_contract_title,
         pl.id AS price_list_id,
         pl.name AS price_list_name
       FROM contractor_contracts cc
       LEFT JOIN contractors c ON cc.contractor_id = c.id
       LEFT JOIN own_companies oc ON cc.own_company_id = oc.id
+      LEFT JOIN contracts pc ON cc.parent_contract_id = pc.id
       LEFT JOIN contractor_price_lists pl ON pl.contract_id = cc.id
       WHERE cc.id = $1
     `, [id]);
@@ -356,10 +425,54 @@ router.put('/subcontract-contracts/:id', authenticateToken, async (req, res) => 
   }
 });
 
-// 4.4. Удалить договор субподряда
+// 4.3.1. Быстрое изменение статуса договора субподряда (конвейер статусов)
+router.patch('/subcontract-contracts/:id/status', authenticateToken, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { status } = req.body;
+    const allowedStatuses = ['created', 'agreed', 'sent', 'signed', 'terminated'];
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({ error: `Недопустимый статус. Разрешены: ${allowedStatuses.join(', ')}` });
+    }
+
+    const { rows } = await pool.query(`
+      UPDATE contractor_contracts
+      SET status = $1, updated_at = NOW()
+      WHERE id = $2
+      RETURNING *
+    `, [status, id]);
+
+    if (!rows.length) return res.status(404).json({ error: 'Договор не найден' });
+
+    // Синхронизируем статус в реестре task_documents, если документ был сформирован
+    await pool.query(`
+      UPDATE task_documents
+      SET status = $1, updated_at = NOW()
+      WHERE subcontract_contract_id = $2
+    `, [status, id]);
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error changing contract status:', err);
+    res.status(500).json({ error: 'Ошибка смены статуса: ' + err.message });
+  }
+});
+
+// 4.4. Удалить договор субподряда (только в статусе created / черновик)
 router.delete('/subcontract-contracts/:id', authenticateToken, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    const checkRes = await pool.query('SELECT status FROM contractor_contracts WHERE id = $1', [id]);
+    if (!checkRes.rows.length) return res.status(404).json({ error: 'Договор не найден' });
+
+    const curStatus = checkRes.rows[0].status;
+    const userRole = req.user?.role || 'user';
+    if (curStatus !== 'created' && curStatus !== 'terminated' && userRole !== 'admin') {
+      return res.status(403).json({
+        error: `Удаление договора запрещено в статусе «${curStatus}». Удалять можно только черновики (в статусе «Создан»).`
+      });
+    }
+
     await pool.query('DELETE FROM contractor_contracts WHERE id = $1', [id]);
     res.json({ success: true, id });
   } catch (err) {
@@ -368,7 +481,7 @@ router.delete('/subcontract-contracts/:id', authenticateToken, async (req, res) 
   }
 });
 
-// 4.4.1. Загрузка файла (скана) договора субподряда
+// 4.4.1. Загрузка файла (скана) договора субподряда -> автоматический перевод в статус "signed"
 router.post('/subcontract-contracts/:id/upload', authenticateToken, uploadAttachment.single('file'), async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -379,6 +492,7 @@ router.post('/subcontract-contracts/:id/upload', authenticateToken, uploadAttach
     const { rows } = await pool.query(`
       UPDATE contractor_contracts SET
         scan_url = $1,
+        status = CASE WHEN status IN ('created', 'agreed', 'sent') THEN 'signed' ELSE status END,
         updated_at = NOW()
       WHERE id = $2
       RETURNING *
@@ -387,6 +501,15 @@ router.post('/subcontract-contracts/:id/upload', authenticateToken, uploadAttach
     if (!rows.length) {
       return res.status(404).json({ error: 'Договор не найден' });
     }
+
+    // Синхронизируем скан и статус в реестре task_documents
+    await pool.query(`
+      UPDATE task_documents SET
+        file_url = $1,
+        status = 'signed',
+        updated_at = NOW()
+      WHERE subcontract_contract_id = $2
+    `, [scanUrl, id]);
 
     res.json({
       success: true,

@@ -579,7 +579,12 @@ export async function initDB() {
   await pool.query(`ALTER TABLE task_documents ADD COLUMN IF NOT EXISTS content_html TEXT`);
   await pool.query(`ALTER TABLE task_documents ADD COLUMN IF NOT EXISTS content_json JSONB`);
   await pool.query(`ALTER TABLE task_documents ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`);
+  await pool.query(`ALTER TABLE task_documents ADD COLUMN IF NOT EXISTS poa_id INTEGER REFERENCES powers_of_attorney(id) ON DELETE SET NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_docs_poa_id ON task_documents(poa_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_docs_contract_id ON task_documents(contract_id)`);
+
+  await pool.query(`ALTER TABLE powers_of_attorney ADD COLUMN IF NOT EXISTS scan_url TEXT`);
+  await pool.query(`ALTER TABLE powers_of_attorney ADD COLUMN IF NOT EXISTS document_id INTEGER`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS document_templates (
@@ -970,6 +975,17 @@ export async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_materials_task ON task_materials(task_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_materials_mat ON task_materials(material_id)`);
   await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS supplier TEXT`);
+  await pool.query(`ALTER TABLE task_materials ALTER COLUMN material_id DROP NOT NULL`);
+  await pool.query(`ALTER TABLE task_materials DROP CONSTRAINT IF EXISTS task_materials_task_id_material_id_key`);
+  await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS pos_num TEXT`);
+  await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS item_name TEXT`);
+  await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS model TEXT`);
+  await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS article TEXT`);
+  await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS unit TEXT`);
+  await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS price NUMERIC`);
+  await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS total_price NUMERIC`);
+  await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS mass_kg NUMERIC`);
+  await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS note TEXT`);
 
   // 7. Поставщики ТМЦ
   await pool.query(`

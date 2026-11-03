@@ -59,6 +59,9 @@ export async function initSubcontractDms(pool) {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contractor_contracts_contractor ON contractor_contracts(contractor_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contractor_contracts_own_company ON contractor_contracts(own_company_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contractor_contracts_customer_tag ON contractor_contracts(customer_tag)`);
+  await pool.query(`ALTER TABLE contractor_contracts ADD COLUMN IF NOT EXISTS contract_essence TEXT DEFAULT 'subcontract'`);
+  await pool.query(`ALTER TABLE contractor_contracts ADD COLUMN IF NOT EXISTS parent_contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE contractor_contracts ADD COLUMN IF NOT EXISTS mirror_percent NUMERIC(5,2) DEFAULT NULL`);
 
   // 3. Справочник прайс-листов (Приложения №1 - Протоколы договорной цены)
   await pool.query(`

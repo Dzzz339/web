@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { pool } from '../config/db.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { uploadAttachment, fixUtf8Filename } from '../middleware/upload.js';
+import { parseMaterialSpecExcel, saveImportedMaterials } from '../services/materialSpecParser.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -462,14 +463,93 @@ router.post('/tasks/:id/checklist', authenticateToken, async (req, res) => {
 router.get('/tasks/:id/materials', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT tm.*, m.code, m.name, m.category, m.unit, m.package_qty, m.package_unit, m.price_default
+      SELECT 
+        tm.id,
+        tm.task_id,
+        tm.material_id,
+        tm.pos_num,
+        COALESCE(tm.item_name, m.name) AS name,
+        tm.model,
+        COALESCE(tm.article, m.code) AS code,
+        tm.supplier,
+        COALESCE(tm.unit, m.unit, 'шт') AS unit,
+        tm.plan_qty,
+        tm.fact_qty,
+        COALESCE(tm.price, m.price_default, 0) AS price_default,
+        COALESCE(tm.total_price, ROUND(COALESCE(tm.fact_qty, tm.plan_qty, 0) * COALESCE(tm.price, m.price_default, 0))) AS total_price,
+        tm.mass_kg,
+        tm.note,
+        tm.calc_details,
+        tm.source,
+        tm.is_written_off,
+        tm.written_off_at,
+        m.category
       FROM task_materials tm
-      JOIN materials m ON tm.material_id = m.id
+      LEFT JOIN materials m ON tm.material_id = m.id
       WHERE tm.task_id = $1
-      ORDER BY m.category ASC, m.name ASC
+      ORDER BY 
+        COALESCE(NULLIF(regexp_replace(tm.pos_num, '[^0-9.]', '', 'g'), ''), '9999')::numeric ASC NULLS LAST,
+        tm.id ASC
     `, [req.params.id]);
     res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/tasks/:id/materials/import-excel (Импорт спецификации ТМЦ из Excel)
+router.post('/tasks/:id/materials/import-excel', authenticateToken, uploadAttachment.single('file'), async (req, res) => {
+  try {
+    const taskId = req.params.id;
+    if (!req.file) {
+      return res.status(400).json({ error: 'Файл спецификации Excel не прикреплен' });
+    }
+    const replace = req.body.replace === 'true' || req.body.replace === true;
+    const items = parseMaterialSpecExcel(req.file.path);
+    if (!items || items.length === 0) {
+      return res.status(400).json({ error: 'В прикрепленном файле не найдено строк спецификации материалов' });
+    }
+    const result = await saveImportedMaterials(taskId, items, { replace });
+    res.json({ success: true, count: result.count, itemsCount: items.length });
+  } catch (e) {
+    console.error('[IMPORT SPEC EXCEL ERROR]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/tasks/:id/materials/add-item (Ручное добавление строки в спецификацию)
+router.post('/tasks/:id/materials/add-item', authenticateToken, async (req, res) => {
+  try {
+    const taskId = req.params.id;
+    const { pos_num, name, model, article, supplier, unit, plan_qty, price, note } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Наименование обязательно' });
+    }
+    const qty = parseFloat(plan_qty) || 1;
+    const pr = parseFloat(price) || 0;
+    const tot = Math.round(qty * pr);
+
+    const { rows } = await pool.query(`
+      INSERT INTO task_materials (
+        task_id, pos_num, item_name, model, article, supplier, unit, plan_qty, fact_qty, price, total_price, note, source
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, 'manual')
+      RETURNING *
+    `, [taskId, pos_num || null, name.trim(), model || null, article || null, supplier || null, unit || 'шт', qty, pr, tot, note || null]);
+
+    res.json({ success: true, item: rows[0] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE /api/tasks/:id/materials/:itemId (Удаление строки спецификации)
+router.delete('/tasks/:id/materials/:itemId', authenticateToken, async (req, res) => {
+  try {
+    const taskId = req.params.id;
+    const itemId = req.params.itemId;
+    await pool.query(`DELETE FROM task_materials WHERE id = $1 AND task_id = $2`, [itemId, taskId]);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // POST /api/tasks/:id/materials/calculate
@@ -541,24 +621,48 @@ router.post('/tasks/:id/materials/save-fact', authenticateToken, async (req, res
       for (const item of items) {
         const qty = parseFloat(item.fact_qty !== undefined ? item.fact_qty : item.quantity);
         const supplier = (item.supplier !== undefined && item.supplier !== null) ? String(item.supplier).trim() : null;
-        if (!isNaN(qty) && supplier !== null) {
-          await client.query(`
-            UPDATE task_materials 
-            SET fact_qty = $1, supplier = $4
-            WHERE task_id = $2 AND material_id = $3
-          `, [qty, taskId, item.material_id, supplier]);
-        } else if (!isNaN(qty)) {
-          await client.query(`
-            UPDATE task_materials 
-            SET fact_qty = $1 
-            WHERE task_id = $2 AND material_id = $3
-          `, [qty, taskId, item.material_id]);
-        } else if (supplier !== null) {
-          await client.query(`
-            UPDATE task_materials 
-            SET supplier = $1 
-            WHERE task_id = $2 AND material_id = $3
-          `, [supplier, taskId, item.material_id]);
+        const itemId = item.id ? parseInt(item.id, 10) : null;
+
+        if (itemId) {
+          if (!isNaN(qty) && supplier !== null) {
+            await client.query(`
+              UPDATE task_materials 
+              SET fact_qty = $1, supplier = $2
+              WHERE id = $3 AND task_id = $4
+            `, [qty, supplier, itemId, taskId]);
+          } else if (!isNaN(qty)) {
+            await client.query(`
+              UPDATE task_materials 
+              SET fact_qty = $1 
+              WHERE id = $2 AND task_id = $3
+            `, [qty, itemId, taskId]);
+          } else if (supplier !== null) {
+            await client.query(`
+              UPDATE task_materials 
+              SET supplier = $1 
+              WHERE id = $2 AND task_id = $3
+            `, [supplier, itemId, taskId]);
+          }
+        } else if (item.material_id) {
+          if (!isNaN(qty) && supplier !== null) {
+            await client.query(`
+              UPDATE task_materials 
+              SET fact_qty = $1, supplier = $4
+              WHERE task_id = $2 AND material_id = $3
+            `, [qty, taskId, item.material_id, supplier]);
+          } else if (!isNaN(qty)) {
+            await client.query(`
+              UPDATE task_materials 
+              SET fact_qty = $1 
+              WHERE task_id = $2 AND material_id = $3
+            `, [qty, taskId, item.material_id]);
+          } else if (supplier !== null) {
+            await client.query(`
+              UPDATE task_materials 
+              SET supplier = $1 
+              WHERE task_id = $2 AND material_id = $3
+            `, [supplier, taskId, item.material_id]);
+          }
         }
       }
     }

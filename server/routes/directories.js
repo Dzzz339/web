@@ -331,6 +331,72 @@ router.get('/powers-of-attorney', authenticateToken, async (req, res) => {
   }
 });
 
+// POST /api/powers-of-attorney/parse-file - Parse uploaded PDF/scan of POA (form M-2)
+router.post('/powers-of-attorney/parse-file', authenticateToken, uploadAttachment.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'Файл не прикреплен' });
+  }
+
+  const uploadedPath = req.file.path;
+  const fileUrl = `/uploads/attachments/${req.file.filename}`;
+
+  try {
+    const scriptPath = path.join(ROOT_DIR, 'server', 'scripts', 'parse_poa.py');
+    execPython(scriptPath, [uploadedPath], async (err, stdout, stderr) => {
+      if (err) {
+        console.error('[POA Parse] Python error:', err, stderr);
+        return res.status(500).json({ error: 'Не удалось распознать документ доверенности: ' + (stderr || err.message) });
+      }
+
+      let parsed = {};
+      try {
+        parsed = JSON.parse(stdout.trim());
+      } catch (jsonErr) {
+        console.error('[POA Parse] JSON parse error:', jsonErr, stdout);
+        return res.status(500).json({ error: 'Ошибка формата данных при распознавании' });
+      }
+
+      // Дополнительно сопоставляем специалиста, организацию и контрагента в БД
+      if (parsed.person_name) {
+        const sRes = await pool.query('SELECT * FROM specialists WHERE full_name ILIKE $1 LIMIT 1', [`%${parsed.person_name.trim()}%`]);
+        if (sRes.rows.length) {
+          parsed.specialist_id = sRes.rows[0].id;
+          if (!parsed.passport_series && sRes.rows[0].passport_series_number) {
+            parsed.passport_series = sRes.rows[0].passport_series_number;
+          }
+        }
+      }
+
+      if (parsed.organization) {
+        const orgClean = parsed.organization.replace(/["'«»]/g, '').trim();
+        const oRes = await pool.query('SELECT * FROM own_companies WHERE name_short ILIKE $1 OR name_full ILIKE $1 OR code ILIKE $1 LIMIT 1', [`%${orgClean}%`]);
+        if (oRes.rows.length) {
+          parsed.organization = oRes.rows[0].name_short;
+          parsed.own_company_id = oRes.rows[0].id;
+        }
+      }
+
+      if (parsed.contractor_name) {
+        const cClean = parsed.contractor_name.replace(/["'«»]/g, '').trim();
+        const cRes = await pool.query('SELECT * FROM contractors WHERE name_short ILIKE $1 OR name_full ILIKE $1 LIMIT 1', [`%${cClean}%`]);
+        if (cRes.rows.length) {
+          parsed.contractor_id = cRes.rows[0].id;
+        }
+      }
+
+      res.json({
+        ok: true,
+        data: parsed,
+        file_url: fileUrl,
+        filename: req.file.originalname
+      });
+    });
+  } catch (e) {
+    console.error('[POA Parse] Server error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/powers-of-attorney - Create power of attorney
 router.post('/powers-of-attorney', authenticateToken, async (req, res) => {
   try {
@@ -341,7 +407,9 @@ router.post('/powers-of-attorney', authenticateToken, async (req, res) => {
       person_name,
       specialist_id,
       contractor_name,
-      organization
+      organization,
+      scan_url,
+      document_id
     } = req.body;
 
     if (!number || !person_name) {
@@ -360,8 +428,8 @@ router.post('/powers-of-attorney', authenticateToken, async (req, res) => {
 
     const { rows } = await pool.query(
       `INSERT INTO powers_of_attorney
-       (number, issue_date, valid_until, person_name, specialist_id, contractor_name, organization, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       (number, issue_date, valid_until, person_name, specialist_id, contractor_name, organization, status, scan_url, document_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
       [
         number.trim(),
@@ -371,7 +439,9 @@ router.post('/powers-of-attorney', authenticateToken, async (req, res) => {
         specialist_id || null,
         contractor_name || null,
         organization || 'ООО "Ультима"',
-        status
+        status,
+        scan_url || null,
+        document_id || null
       ]
     );
     res.status(201).json(rows[0]);
@@ -391,7 +461,9 @@ router.put('/powers-of-attorney/:id', authenticateToken, async (req, res) => {
       person_name,
       specialist_id,
       contractor_name,
-      organization
+      organization,
+      scan_url,
+      document_id
     } = req.body;
 
     let status = 'active';
@@ -413,8 +485,10 @@ router.put('/powers-of-attorney/:id', authenticateToken, async (req, res) => {
            specialist_id = $5,
            contractor_name = $6,
            organization = COALESCE($7, organization),
-           status = $8
-       WHERE id = $9
+           status = $8,
+           scan_url = COALESCE($9, scan_url),
+           document_id = COALESCE($10, document_id)
+       WHERE id = $11
        RETURNING *`,
       [
         number ? number.trim() : null,
@@ -425,6 +499,8 @@ router.put('/powers-of-attorney/:id', authenticateToken, async (req, res) => {
         contractor_name || null,
         organization || null,
         status,
+        scan_url || null,
+        document_id || null,
         id
       ]
     );

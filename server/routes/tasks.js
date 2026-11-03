@@ -11,6 +11,7 @@ import { createNotification, sendEmail } from '../services/notifications.js';
 import { cleanAddressDaData } from '../services/dadata.js';
 import { runBackgroundGeocoding } from '../services/geoWorker.js';
 import { syncSingleTaskSubcontract } from '../scripts/sync_task_subcontracts.js';
+import { createTaskSeafileFolder, isSeafileConfigured } from '../services/seafileService.js';
 
 const router = express.Router();
 
@@ -892,6 +893,21 @@ router.post('/tasks/:id/accept', authenticateToken, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }) }
 });
 
+
+// Автоматическое создание папки объекта на Seafile (Cloud StockEasy)
+router.post('/tasks/:id/create-seafile-folder', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Заявка не найдена' });
+
+    const result = await createTaskSeafileFolder(rows[0]);
+    res.json(result);
+  } catch (err) {
+    console.error('Error creating Seafile folder:', err);
+    res.status(500).json({ error: err.message || 'Ошибка создания папки на Seafile' });
+  }
+});
+
 router.post('/tasks/:id/decline', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT assignee, history, assignment_status FROM tasks WHERE id=$1', [req.params.id]);
@@ -1429,7 +1445,7 @@ router.get('/tasks/:id/attachments', authenticateToken, async (req, res) => {
     if (tRows.length && tRows[0].contract_id) {
       const cId = tRows[0].contract_id;
       const { rows: cAtts } = await pool.query(`
-        SELECT id, attachment_type AS type, original_name, mime_type, file_size AS size_bytes, comment, created_at, true AS from_contract, contract_id
+        SELECT id, 'tz' AS type, original_name, mime_type, size_bytes, comment, created_at, true AS from_contract, contract_id
         FROM contract_attachments
         WHERE contract_id = $1
         ORDER BY created_at DESC

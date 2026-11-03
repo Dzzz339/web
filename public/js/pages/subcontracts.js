@@ -250,7 +250,14 @@
 
     // Фильтрация
     var filtered = contracts.filter(function(c) {
-      if (filterStatus !== 'all' && (c.status || 'active') !== filterStatus) return false;
+      var cSt = c.status || 'created';
+      if (filterStatus !== 'all') {
+        if (filterStatus === 'signed' && (cSt === 'signed' || cSt === 'active')) {
+          // match
+        } else if (filterStatus !== cSt) {
+          return false;
+        }
+      }
       if (filterCompany !== 'all' && String(c.own_company_id) !== String(filterCompany)) return false;
       if (filterContractor !== 'all' && String(c.contractor_id) !== String(filterContractor)) return false;
       if (q) {
@@ -260,15 +267,18 @@
                     (c.contractor_inn && c.contractor_inn.includes(q)) ||
                     (c.subject && c.subject.toLowerCase().includes(q)) ||
                     (c.customer_tag && c.customer_tag.toLowerCase().includes(q)) ||
-                    (c.territory && c.territory.toLowerCase().includes(q));
+                    (c.territory && c.territory.toLowerCase().includes(q)) ||
+                    (c.parent_contract_number && c.parent_contract_number.toLowerCase().includes(q));
         if (!match) return false;
       }
       return true;
     });
 
-    // Сводка
+    // Сводка по 5-ступенчатому конвейеру статусов
     var totalCount = contracts.length;
-    var activeCount = contracts.filter(function(c) { return (c.status || 'active') === 'active'; }).length;
+    var createdCount = contracts.filter(function(c) { return (c.status || 'created') === 'created'; }).length;
+    var agreedSentCount = contracts.filter(function(c) { return c.status === 'agreed' || c.status === 'sent'; }).length;
+    var signedCount = contracts.filter(function(c) { return c.status === 'signed' || c.status === 'active'; }).length;
     var withPriceCount = contracts.filter(function(c) { return Boolean(c.price_list_id); }).length;
     var ownCount = (S.ownCompanies || []).length || 3;
 
@@ -292,7 +302,7 @@
         '<div>' +
           '<h1 class="page-title" style="margin:0;display:flex;align-items:center;gap:10px;font-size:1.45rem;font-weight:800"><span>📑 Договоры субподряда</span></h1>' +
           '<div style="font-size:.84rem;color:var(--text-3);margin-top:4px">' +
-            'Реестр договоров и соглашений с исполнителями СМР. Закрепление юрлиц группы (ООО «КС», ООО «К10», ООО «Ультима») и привязанных прайсов' +
+            'Реестр договоров субподряда: СМР, ПИР, поставка, услуги, зеркальный субподряд под %. Встроенный редактор А4, конвейер согласования и учет сканов' +
           '</div>' +
         '</div>' +
         '<div style="display:flex;gap:10px;align-items:center">' +
@@ -302,26 +312,31 @@
       '</div>' +
 
       // Сводные карточки
-      '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:14px;margin-bottom:1.5rem">' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:14px;margin-bottom:1.5rem">' +
         '<div class="card" style="padding:16px 20px;border-radius:12px;border:1.5px solid var(--border);background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.03)">' +
           '<div style="font-size:.74rem;color:var(--text-3);font-weight:700;text-transform:uppercase;letter-spacing:.03em">Всего договоров</div>' +
           '<div style="font-size:1.75rem;font-weight:800;color:var(--text);margin-top:6px">' + totalCount + '</div>' +
-          '<div style="font-size:.74rem;color:var(--text-3);margin-top:4px">В справочнике компании</div>' +
+          '<div style="font-size:.74rem;color:var(--text-3);margin-top:4px">В реестре системы</div>' +
         '</div>' +
-        '<div class="card" style="padding:16px 20px;border-radius:12px;border:1.5px solid #86efac;background:#f0fdf4;box-shadow:0 2px 8px rgba(22,101,52,0.04)">' +
-          '<div style="font-size:.74rem;color:#166534;font-weight:700;text-transform:uppercase;letter-spacing:.03em">Действующие</div>' +
-          '<div style="font-size:1.75rem;font-weight:800;color:#15803d;margin-top:6px">' + activeCount + '</div>' +
-          '<div style="font-size:.74rem;color:#166534;margin-top:4px">Готовы к назначению в заявки</div>' +
+        '<div class="card" style="padding:16px 20px;border-radius:12px;border:1.5px solid #fef08a;background:#fefce8;box-shadow:0 2px 8px rgba(161,98,7,0.04)">' +
+          '<div style="font-size:.74rem;color:#854d0e;font-weight:700;text-transform:uppercase;letter-spacing:.03em">🟡 Создан (Черновики)</div>' +
+          '<div style="font-size:1.75rem;font-weight:800;color:#ca8a04;margin-top:6px">' + createdCount + '</div>' +
+          '<div style="font-size:.74rem;color:#854d0e;margin-top:4px">Редактирование открыто</div>' +
         '</div>' +
         '<div class="card" style="padding:16px 20px;border-radius:12px;border:1.5px solid #bfdbfe;background:#eff6ff;box-shadow:0 2px 8px rgba(30,64,175,0.04)">' +
-          '<div style="font-size:.74rem;color:#1e40af;font-weight:700;text-transform:uppercase;letter-spacing:.03em">С привязанным прайсом</div>' +
-          '<div style="font-size:1.75rem;font-weight:800;color:#1d4ed8;margin-top:6px">' + withPriceCount + '</div>' +
-          '<div style="font-size:.74rem;color:#1e40af;margin-top:4px">Авторасчет сметы включен</div>' +
+          '<div style="font-size:.74rem;color:#1e40af;font-weight:700;text-transform:uppercase;letter-spacing:.03em">🔵 На согласовании / Передан</div>' +
+          '<div style="font-size:1.75rem;font-weight:800;color:#2563eb;margin-top:6px">' + agreedSentCount + '</div>' +
+          '<div style="font-size:.74rem;color:#1e40af;margin-top:4px">Реквизиты заблокированы</div>' +
+        '</div>' +
+        '<div class="card" style="padding:16px 20px;border-radius:12px;border:1.5px solid #86efac;background:#f0fdf4;box-shadow:0 2px 8px rgba(22,101,52,0.04)">' +
+          '<div style="font-size:.74rem;color:#166534;font-weight:700;text-transform:uppercase;letter-spacing:.03em">🟢 Подписаны</div>' +
+          '<div style="font-size:1.75rem;font-weight:800;color:#15803d;margin-top:6px">' + signedCount + '</div>' +
+          '<div style="font-size:.74rem;color:#166534;margin-top:4px">Со сканом подписей сторон</div>' +
         '</div>' +
         '<div class="card" style="padding:16px 20px;border-radius:12px;border:1.5px solid var(--border);background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.03)">' +
-          '<div style="font-size:.74rem;color:var(--text-3);font-weight:700;text-transform:uppercase;letter-spacing:.03em">Собственных юрлиц</div>' +
-          '<div style="font-size:1.75rem;font-weight:800;color:var(--text);margin-top:6px">' + ownCount + '</div>' +
-          '<div style="font-size:.74rem;color:var(--text-3);margin-top:4px">ООО «КС», ООО «К10», «Ультима»</div>' +
+          '<div style="font-size:.74rem;color:var(--text-3);font-weight:700;text-transform:uppercase;letter-spacing:.03em">С привязанным прайсом</div>' +
+          '<div style="font-size:1.75rem;font-weight:800;color:#475569;margin-top:6px">' + withPriceCount + '</div>' +
+          '<div style="font-size:.74rem;color:var(--text-3);margin-top:4px">Приложение №1 к договору</div>' +
         '</div>' +
       '</div>' +
 
@@ -330,7 +345,7 @@
         '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">' +
           '<div style="flex:1;min-width:240px;position:relative">' +
             '<input type="text" id="sub_contract_q" value="' + escHtml(S.subContractSearch || '') + '" ' +
-              'placeholder="🔍 Поиск по номеру, исполнителю, ИНН, территории..." ' +
+              'placeholder="🔍 Поиск по номеру, исполнителю, ИНН, территории, заказчику..." ' +
               'oninput="S.subContractSearch=this.value; renderApp()" ' +
               'style="width:100%;padding:8px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
           '</div>' +
@@ -346,12 +361,14 @@
               contractorOpts +
             '</select>' +
           '</div>' +
-          '<div style="min-width:150px">' +
-            '<select onchange="S.subContractStatus=this.value; renderApp()" style="width:100%;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.84rem;background:#fff">' +
+          '<div style="min-width:180px">' +
+            '<select onchange="S.subContractStatus=this.value; renderApp()" style="width:100%;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.84rem;background:#fff;font-weight:600">' +
               '<option value="all" ' + (filterStatus === 'all' ? 'selected' : '') + '>Любой статус</option>' +
-              '<option value="active" ' + (filterStatus === 'active' ? 'selected' : '') + '>Действует</option>' +
-              '<option value="pending" ' + (filterStatus === 'pending' ? 'selected' : '') + '>На согласовании</option>' +
-              '<option value="completed" ' + (filterStatus === 'completed' ? 'selected' : '') + '>Завершен</option>' +
+              '<option value="created" ' + (filterStatus === 'created' ? 'selected' : '') + '>🟡 Создан</option>' +
+              '<option value="agreed" ' + (filterStatus === 'agreed' ? 'selected' : '') + '>🔵 Согласован</option>' +
+              '<option value="sent" ' + (filterStatus === 'sent' ? 'selected' : '') + '>🟣 Передан на подпись</option>' +
+              '<option value="signed" ' + (filterStatus === 'signed' ? 'selected' : '') + '>🟢 Подписан</option>' +
+              '<option value="terminated" ' + (filterStatus === 'terminated' ? 'selected' : '') + '>🔴 Расторгнут</option>' +
             '</select>' +
           '</div>' +
           (q || filterStatus !== 'all' || filterCompany !== 'all' || filterContractor !== 'all' ?
@@ -369,20 +386,30 @@
         '<table style="width:100%;border-collapse:collapse;font-size:.83rem">' +
           '<thead><tr style="background:#f8fafc;border-bottom:1.5px solid var(--border);color:var(--text-3);font-size:.74rem;text-transform:uppercase;letter-spacing:.03em">' +
             '<th style="padding:12px 16px;text-align:left;min-width:140px">№ и дата договора</th>' +
-            '<th style="padding:12px 16px;text-align:left;min-width:220px">Субподрядчик (Исполнитель)</th>' +
+            '<th style="padding:12px 16px;text-align:left;min-width:210px">Субподрядчик (Исполнитель)</th>' +
             '<th style="padding:12px 16px;text-align:left;min-width:140px">Заказчик (Юрлицо группы)</th>' +
-            '<th style="padding:12px 16px;text-align:left;min-width:210px">Предмет / Территория</th>' +
-            '<th style="padding:12px 16px;text-align:left;min-width:180px">Привязанный прайс</th>' +
-            '<th style="padding:12px 16px;text-align:left;min-width:110px">Статус</th>' +
-            '<th style="padding:12px 16px;text-align:right;min-width:150px">Действия</th>' +
+            '<th style="padding:12px 16px;text-align:left;min-width:230px">Суть договора / Территория</th>' +
+            '<th style="padding:12px 16px;text-align:left;min-width:170px">Привязанный прайс</th>' +
+            '<th style="padding:12px 16px;text-align:left;min-width:140px">Статус</th>' +
+            '<th style="padding:12px 16px;text-align:right;min-width:230px">Действия</th>' +
           '</tr></thead>' +
           '<tbody>' +
             (filtered.length ? filtered.map(function(c) {
-              var st = c.status || 'active';
-              var stBadge = st === 'active' ?
-                '<span class="badge b-green" style="font-size:.74rem;padding:3px 10px;border-radius:14px;font-weight:600">Действует</span>' :
-                (st === 'pending' ? '<span class="badge b-yellow" style="font-size:.74rem;padding:3px 10px;border-radius:14px;font-weight:600">На согласовании</span>' :
-                '<span class="badge b-gray" style="font-size:.74rem;padding:3px 10px;border-radius:14px">Завершен</span>');
+              var st = c.status || 'created';
+              var stBadge = '';
+              if (st === 'created') {
+                stBadge = '<span class="badge" style="background:#fef9c3;color:#854d0e;border:1px solid #fde047;font-size:.74rem;padding:3px 10px;border-radius:14px;font-weight:700">🟡 Создан</span>';
+              } else if (st === 'agreed') {
+                stBadge = '<span class="badge" style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;font-size:.74rem;padding:3px 10px;border-radius:14px;font-weight:700">🔵 Согласован</span>';
+              } else if (st === 'sent') {
+                stBadge = '<span class="badge" style="background:#f3e8ff;color:#7e22ce;border:1px solid #d8b4fe;font-size:.74rem;padding:3px 10px;border-radius:14px;font-weight:700">🟣 Передан на подпись</span>';
+              } else if (st === 'signed' || st === 'active') {
+                stBadge = '<span class="badge" style="background:#f0fdf4;color:#166534;border:1px solid #86efac;font-size:.74rem;padding:3px 10px;border-radius:14px;font-weight:700">🟢 Подписан</span>';
+              } else if (st === 'terminated') {
+                stBadge = '<span class="badge" style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;font-size:.74rem;padding:3px 10px;border-radius:14px;font-weight:700">🔴 Расторгнут</span>';
+              } else {
+                stBadge = '<span class="badge b-gray" style="font-size:.74rem;padding:3px 10px;border-radius:14px">' + escHtml(st) + '</span>';
+              }
 
               var ownName = c.own_company_name || 'ООО "Кабельные Системы"';
               var ownBadge = ownName.includes('К10') ?
@@ -393,18 +420,88 @@
 
               var cDate = c.contract_date ? new Date(c.contract_date).toLocaleDateString('ru-RU') : '—';
 
-              var plHtml = c.price_list_id ?
-                '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
-                  '<span style="font-weight:600;color:#1d4ed8;font-size:.80rem">' + escHtml(c.price_list_name || 'Приложение №1') + '</span>' +
-                  '<span class="badge b-blue" style="font-size:.68rem;padding:2px 6px">' + (c.price_items_count || 22) + ' поз.</span>' +
-                '</div>' :
-                '<span style="color:var(--text-3);font-size:.76rem">Типовой прайс</span>';
+              // Суть договора (по замечанию руководства)
+              var essenceLabels = {
+                subcontract: '🔨 Подряд / СМР',
+                design: '📐 ПИР',
+                supply: '📦 Поставка',
+                services: '💼 Услуги',
+                mirror: '🔗 Зеркальный субподряд под %',
+                cooperation: '🤝 Сотрудничество',
+                sales: '🛒 Купля-продажа'
+              };
+              var ess = c.contract_essence || 'subcontract';
+              var essenceHtml = '';
+              if (ess === 'mirror') {
+                var pct = (c.mirror_percent !== null && c.mirror_percent !== undefined) ? (c.mirror_percent + '%') : 'под %';
+                essenceHtml = '<div style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:4px;background:#fef3c7;color:#92400e;border:1px solid #fde68a;font-weight:700;font-size:.72rem">🔗 Зеркальный (' + pct + ')</div>' +
+                  (c.parent_contract_number ? '<div style="font-size:.72rem;color:var(--text-3);margin-top:2px">к генподряду № ' + escHtml(c.parent_contract_number) + '</div>' : '');
+              } else {
+                essenceHtml = '<div style="font-weight:700;color:var(--text);font-size:.82rem">' + (essenceLabels[ess] || c.subject || 'Монтаж СКС') + '</div>';
+              }
+
+              var appType = c.appendix_type || (c.price_list_id ? 'tariff' : 'invoice_only');
+              var plHtml = '';
+
+              if (appType === 'invoice_only') {
+                plHtml = '<div style="display:flex;flex-direction:column;gap:2px">' +
+                  '<span style="font-weight:600;color:var(--text-2);font-size:.80rem">Без типового прайса</span>' +
+                  '<span style="font-size:.73rem;color:var(--text-3)">Разовые работы по счёту и актам</span>' +
+                '</div>';
+              } else if (appType === 'order_fixed') {
+                plHtml = '<div style="display:flex;flex-direction:column;gap:2px">' +
+                  '<div style="display:flex;align-items:center;gap:6px">' +
+                    '<span style="font-weight:700;color:#059669;font-size:.80rem">Приложение-заявка</span>' +
+                    '<span class="badge b-green" style="font-size:.68rem;padding:2px 6px">1 строка</span>' +
+                  '</div>' +
+                  '<span style="font-size:.73rem;color:var(--text-3)">' + escHtml(c.appendix_details || 'От суммы 550 тыс. ₽ / 152 порта') + '</span>' +
+                '</div>';
+              } else if (appType === 'order_custom') {
+                plHtml = '<div style="display:flex;flex-direction:column;gap:2px">' +
+                  '<div style="display:flex;align-items:center;gap:6px">' +
+                    '<span style="font-weight:700;color:#059669;font-size:.80rem">Приложение-заявка</span>' +
+                    '<span class="badge b-green" style="font-size:.68rem;padding:2px 6px">смета</span>' +
+                  '</div>' +
+                  '<span style="font-size:.73rem;color:var(--text-3)">' + escHtml(c.appendix_details || 'Своя таблица работ и общая сумма') + '</span>' +
+                '</div>';
+              } else {
+                // tariff
+                var pCount = c.price_items_count || (c.price_list_id ? 22 : 0);
+                plHtml = '<div style="display:flex;flex-direction:column;gap:2px">' +
+                  '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+                    '<span style="font-weight:700;color:#1d4ed8;font-size:.80rem">' + escHtml(c.price_list_name || 'Приложение №1 (Тарифная сетка Сбер)') + '</span>' +
+                    '<span class="badge b-blue" style="font-size:.68rem;padding:2px 6px">' + pCount + ' поз.</span>' +
+                  '</div>' +
+                  '<span style="font-size:.73rem;color:var(--text-3)">Расчет цены для Сбера (' + pCount + ' позиции)</span>' +
+                '</div>';
+              }
+
+              var isDraft = (st === 'created');
+
+              // Кнопка DOCX - открывает во встроенном редакторе Stockeasy (Алексей: "открыть в редакторе!")
+              var docxBtn = '<button type="button" class="btn btn-xs btn-ghost" style="border:1.5px solid #93c5fd;color:#1d4ed8;padding:5px 10px;border-radius:6px;font-weight:700;font-size:.78rem;display:inline-flex;align-items:center;gap:4px" onclick="window.openDocumentEditor({ templateCode: \'subcontract_agreement\', subcontractContractId: ' + c.id + ' })" title="Открыть договор во встроенном редакторе Stockeasy (А4, предпросмотр, правка, печать/PDF)">' +
+                '📄 DOCX' +
+              '</button>';
+
+              // Кнопка Редактировать / Просмотр
+              var editBtn = isDraft ?
+                '<button type="button" class="btn btn-xs btn-ghost" style="border:1.5px solid var(--border);padding:5px 12px;border-radius:6px;font-weight:600;font-size:.78rem;color:var(--text)" onclick="openSubContractModal(' + c.id + ')">Редактировать</button>' :
+                '<button type="button" class="btn btn-xs btn-ghost" style="border:1.5px solid #e2e8f0;padding:5px 10px;border-radius:6px;font-weight:500;font-size:.78rem;color:var(--text-3);background:#f8fafc" onclick="openSubContractModal(' + c.id + ')" title="Договор передан/подписан. Доступен режим просмотра">👁️ Просмотр</button>';
+
+              // Кнопка Удалить (активна ТОЛЬКО в статусе created / черновик)
+              var delBtn = isDraft ?
+                '<button type="button" class="btn btn-xs btn-ghost" style="color:#ef4444;border:1.5px solid #fecaca;padding:5px 9px;border-radius:6px" onclick="deleteSubContract(' + c.id + ')" title="Удалить черновик договора">✕</button>' :
+                '';
+
+              // Скан подписанного договора (Алексей: "эта кнопка должна быть в списке")
+              var scanBtn = c.scan_url ?
+                '<a href="' + escHtml(c.scan_url) + '" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:4px;font-size:.72rem;color:#15803d;font-weight:700;text-decoration:none;background:#dcfce7;border:1px solid #86efac;padding:3px 8px;border-radius:6px" title="Открыть прикрепленный скан подписанного договора">📎 Скан (.pdf)</a>' :
+                '<button type="button" class="btn btn-xs btn-ghost" style="display:inline-flex;align-items:center;gap:4px;font-size:.72rem;color:#475569;font-weight:600;border:1px dashed #cbd5e1;padding:3px 8px;border-radius:6px;background:#fff" onclick="window.quickUploadSubContractScan(' + c.id + ')" title="Прикрепить скан подписанного договора">📎 + Скан</button>';
 
               return '<tr style="border-bottom:1px solid var(--border);transition:background .1s" onmouseover="this.style.background=\'#f9fafb\'" onmouseout="this.style.background=\'#fff\'">' +
                 '<td style="padding:14px 16px">' +
                   '<div style="font-weight:700;color:var(--text);font-size:.88rem">' + escHtml(c.contract_number || 'Б/Н') + '</div>' +
                   '<div style="font-size:.75rem;color:var(--text-3);margin-top:3px">от ' + cDate + '</div>' +
-                  (c.scan_url ? '<div style="margin-top:5px"><a href="' + escHtml(c.scan_url) + '" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:4px;font-size:.72rem;color:#15803d;font-weight:700;text-decoration:none;background:#dcfce7;border:1px solid #bbf7d0;padding:2px 7px;border-radius:4px" title="Открыть прикрепленный скан договора">📎 Скан договора</a></div>' : '') +
                 '</td>' +
                 '<td style="padding:14px 16px">' +
                   '<div style="font-weight:600;color:var(--text);font-size:.86rem">' + escHtml(c.contractor_name || '—') + '</div>' +
@@ -414,8 +511,9 @@
                   ownBadge +
                 '</td>' +
                 '<td style="padding:14px 16px">' +
-                  '<div style="font-weight:600;color:var(--text);font-size:.82rem">' + escHtml(c.customer_tag || c.subject || 'Монтаж СКС') + '</div>' +
-                  (c.territory ? '<div style="font-size:.74rem;color:var(--text-3);margin-top:2px">📍 ' + escHtml(c.territory) + '</div>' : '') +
+                  essenceHtml +
+                  (c.territory ? '<div style="font-size:.74rem;color:var(--text-2);margin-top:3px">📍 ' + escHtml(c.territory) + '</div>' : '') +
+                  (c.customer_tag ? '<div style="font-size:.72rem;color:#475569;margin-top:2px">🏷️ ' + escHtml(c.customer_tag) + '</div>' : '') +
                 '</td>' +
                 '<td style="padding:14px 16px">' +
                   plHtml +
@@ -424,12 +522,11 @@
                   stBadge +
                 '</td>' +
                 '<td style="padding:14px 16px;text-align:right">' +
-                  '<div style="display:flex;gap:6px;justify-content:flex-end;align-items:center">' +
-                    '<a href="/api/subcontract-contracts/' + c.id + '/docx?token=' + encodeURIComponent(localStorage.getItem('token') || '') + '" target="_blank" class="btn btn-xs btn-ghost" style="border:1.5px solid #93c5fd;color:#1d4ed8;padding:5px 9px;border-radius:6px;font-weight:600;font-size:.78rem;text-decoration:none;display:inline-flex;align-items:center;gap:4px" title="Скачать типовую печатную форму договора субподряда (.docx)">' +
-                      '📄 DOCX' +
-                    '</a>' +
-                    '<button type="button" class="btn btn-xs btn-ghost" style="border:1.5px solid var(--border);padding:5px 12px;border-radius:6px;font-weight:600;font-size:.78rem" onclick="openSubContractModal(' + c.id + ')">Редактировать</button>' +
-                    '<button type="button" class="btn btn-xs btn-ghost" style="color:#ef4444;border:1.5px solid #fecaca;padding:5px 9px;border-radius:6px" onclick="deleteSubContract(' + c.id + ')" title="Удалить">✕</button>' +
+                  '<div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;flex-wrap:wrap">' +
+                    scanBtn +
+                    docxBtn +
+                    editBtn +
+                    delBtn +
                   '</div>' +
                 '</td>' +
               '</tr>';
@@ -941,6 +1038,17 @@
   window.openSubContractModal = function(contractId) {
     var c = contractId ? (S.subContracts || []).find(function(x){ return x.id === contractId; }) : null;
     var isEdit = Boolean(c);
+    var curStatus = c ? (c.status || 'created') : 'created';
+    var isCreated = (curStatus === 'created');
+    var isLocked = isEdit && !isCreated;
+
+    var statusNames = {
+      created: '🟡 Создан (Черновик)',
+      agreed: '🔵 Согласован',
+      sent: '🟣 Передан на подпись',
+      signed: '🟢 Подписан',
+      terminated: '🔴 Расторгнут'
+    };
 
     var ownList = S.ownCompanies || [];
     var ownOpts = ownList.map(function(oc) {
@@ -957,107 +1065,192 @@
       return '<option value="' + ct.id + '" ' + sel + '>' + escHtml(ct.name_short) + ' (ИНН ' + escHtml(ct.inn || '—') + ')</option>';
     }).join('');
 
+    // Контракты генподряда для выбора родительского контракта (при зеркальном субподряде)
+    var parentContractOpts = (S.contracts || []).map(function(pc) {
+      var sel = (c && c.parent_contract_id === pc.id) ? 'selected' : '';
+      var num = pc.internal_number || pc.contract_number || ('№' + pc.id);
+      var cust = pc.customer || pc.customer_name || 'Заказчик';
+      return '<option value="' + pc.id + '" ' + sel + ' data-customer="' + escHtml(cust) + '">' + escHtml(num) + ' (' + escHtml(cust) + ')</option>';
+    }).join('');
+
     var cDate = c && c.contract_date ? c.contract_date.split('T')[0] : new Date().toISOString().split('T')[0];
     var vFrom = c && c.valid_from ? c.valid_from.split('T')[0] : cDate;
     var vTo = c && c.valid_to ? c.valid_to.split('T')[0] : '';
+    var curEssence = c ? (c.contract_essence || 'subcontract') : 'subcontract';
 
     var modalHtml = '<div class="modal-overlay modal-backdrop" id="_sub_contract_modal_backdrop" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(2px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px">' +
-      '<div class="modal-box card" style="background:#fff;border-radius:14px;max-width:660px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 16px 40px rgba(0,0,0,0.22);overflow:hidden">' +
+      '<div class="modal-box card" style="background:#fff;border-radius:14px;max-width:680px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 16px 40px rgba(0,0,0,0.22);overflow:hidden">' +
         '<div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1.5px solid var(--border);background:#fafafa;cursor:move;user-select:none">' +
-          '<h3 class="modal-title" style="margin:0;font-size:1.1rem;display:flex;align-items:center;gap:8px">' +
-            '<span>📑</span> <span>' + (isEdit ? 'Редактирование договора субподряда' : 'Новый договор субподряда') + '</span>' +
+          '<h3 class="modal-title" style="margin:0;font-size:1.05rem;display:flex;align-items:center;gap:8px">' +
+            '<span>📑</span> <span>' + (isEdit ? (isLocked ? 'Просмотр договора субподряда' : 'Редактирование договора субподряда') : 'Новый договор субподряда (Черновик)') + '</span>' +
           '</h3>' +
           '<button type="button" class="btn-close btn btn-sm btn-ghost" onclick="var b=document.getElementById(\'_sub_contract_modal_backdrop\'); if(b) b.remove();">✕</button>' +
         '</div>' +
 
         '<div class="modal-body" style="padding:20px 24px;overflow-y:auto;flex:1">' +
+          (isLocked ?
+            '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;margin-bottom:14px;font-size:.82rem;color:#92400e;display:flex;align-items:center;gap:8px">' +
+              '<span style="font-size:1.1rem">🔒</span>' +
+              '<span>Договор находится в статусе <b>«' + (statusNames[curStatus] || curStatus) + '»</b>. Основные реквизиты закрыты от изменений. Доступно изменение статуса и скана.</span>' +
+            '</div>' : '') +
+
           '<form id="sub_contract_form" onsubmit="saveSubContract(event, ' + (isEdit ? c.id : 'null') + ')">' +
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">' +
+              // Исполнитель
               '<div style="grid-column:1/-1">' +
                 '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Исполнитель (Субподрядчик) *</label>' +
-                '<select id="sc_contractor_id" required style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
+                '<select id="sc_contractor_id" required ' + (isLocked ? 'disabled' : '') + ' style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:' + (isLocked ? '#f8fafc' : '#fff') + '">' +
                   '<option value="">-- Выберите исполнителя из базы --</option>' +
                   contractorOpts +
                 '</select>' +
               '</div>' +
 
+              // Заказчик (Юрлицо группы)
               '<div style="grid-column:1/-1">' +
                 '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Заказчик (Юридическое лицо группы) *</label>' +
-                '<select id="sc_own_company_id" required style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
+                '<select id="sc_own_company_id" required ' + (isLocked ? 'disabled' : '') + ' style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:' + (isLocked ? '#f8fafc' : '#fff') + '">' +
                   ownOpts +
                 '</select>' +
               '</div>' +
 
+              // Номер договора
               '<div>' +
                 '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Номер договора *</label>' +
-                '<input type="text" id="sc_number" required value="' + escHtml(c ? c.contract_number : '') + '" placeholder="Например: 2026/СКС-ПНР" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
+                '<input type="text" id="sc_number" required value="' + escHtml(c ? c.contract_number : '') + '" placeholder="Например: 2026/СКС-ПНР" ' + (isLocked ? 'disabled' : '') + ' style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:' + (isLocked ? '#f8fafc' : '#fff') + '">' +
               '</div>' +
 
+              // Дата договора
               '<div>' +
                 '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Дата договора *</label>' +
-                '<input type="date" id="sc_date" required value="' + cDate + '" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
+                '<input type="date" id="sc_date" required value="' + cDate + '" ' + (isLocked ? 'disabled' : '') + ' style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:' + (isLocked ? '#f8fafc' : '#fff') + '">' +
               '</div>' +
 
+              // Суть договора (по замечанию руководства)
               '<div style="grid-column:1/-1">' +
-                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Предмет договора / Направление</label>' +
-                '<input type="text" id="sc_subject" value="' + escHtml(c ? (c.subject || '') : 'Монтаж СКС и слаботочных систем') + '" placeholder="Например: Монтаж СКС и слаботочных систем" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
-              '</div>' +
-
-              '<div>' +
-                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Тэг / Конечный заказчик</label>' +
-                '<input type="text" id="sc_customer_tag" value="' + escHtml(c ? (c.customer_tag || '') : '') + '" placeholder="ПАО Сбербанк, ОСФР, Росприрода..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
-              '</div>' +
-
-              '<div>' +
-                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Территория действия</label>' +
-                '<input type="text" id="sc_territory" value="' + escHtml(c ? (c.territory || '') : '') + '" placeholder="Например: Тюменская обл., УФО" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
-              '</div>' +
-
-              '<div>' +
-                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Действует с</label>' +
-                '<input type="date" id="sc_valid_from" value="' + vFrom + '" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
-              '</div>' +
-
-              '<div>' +
-                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Действует по</label>' +
-                '<input type="date" id="sc_valid_to" value="' + vTo + '" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
-              '</div>' +
-
-              '<div style="grid-column:1/-1">' +
-                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Статус договора</label>' +
-                '<select id="sc_status" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
-                  '<option value="active" ' + (c && c.status === 'active' ? 'selected' : '') + '>Действует</option>' +
-                  '<option value="pending" ' + (c && c.status === 'pending' ? 'selected' : '') + '>На согласовании</option>' +
-                  '<option value="completed" ' + (c && c.status === 'completed' ? 'selected' : '') + '>Завершен</option>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Суть договора * (определяет типовой предмет и шаблон)</label>' +
+                '<select id="sc_contract_essence" ' + (isLocked ? 'disabled' : '') + ' onchange="window._onSubContractEssenceChange(this.value)" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:' + (isLocked ? '#f8fafc' : '#fff') + ';font-weight:600">' +
+                  '<option value="subcontract" ' + (curEssence === 'subcontract' ? 'selected' : '') + '>🔨 Подряд / СМР (Строительно-монтажные и пусконаладочные работы)</option>' +
+                  '<option value="design" ' + (curEssence === 'design' ? 'selected' : '') + '>📐 ПИР (Проектно-изыскательские работы)</option>' +
+                  '<option value="supply" ' + (curEssence === 'supply' ? 'selected' : '') + '>📦 Поставка (Оборудование, кабельная продукция и материалы)</option>' +
+                  '<option value="services" ' + (curEssence === 'services' ? 'selected' : '') + '>💼 Услуги (Телеком, аудит, регламентное обслуживание)</option>' +
+                  '<option value="mirror" ' + (curEssence === 'mirror' ? 'selected' : '') + '>🔗 Зеркальный субподряд под % (жесткая ссылка на верхний контракт)</option>' +
+                  '<option value="cooperation" ' + (curEssence === 'cooperation' ? 'selected' : '') + '>🤝 Сотрудничество и партнерство</option>' +
+                  '<option value="sales" ' + (curEssence === 'sales' ? 'selected' : '') + '>🛒 Купля-продажа материальных ценностей</option>' +
                 '</select>' +
               '</div>' +
 
-              '<div style="grid-column:1/-1;border:1.5px dashed #cbd5e1;background:#f8fafc;padding:12px 14px;border-radius:8px">' +
-                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text);margin-bottom:6px">📎 Скан / Файл подписанного договора (.pdf, .docx, .jpg, .png)</label>' +
-                (c && c.scan_url ? (
-                  '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:6px 10px;background:#f0fdf4;border:1px solid #86efac;border-radius:6px">' +
-                    '<span style="font-size:1.1rem">✅</span>' +
-                    '<div style="flex:1;font-size:.82rem;color:#166534">' +
-                      'Прикреплен файл: <a href="' + escHtml(c.scan_url) + '" target="_blank" rel="noopener noreferrer" style="font-weight:700;color:#15803d;text-decoration:underline">Открыть / Скачать скан договора</a>' +
-                    '</div>' +
-                  '</div>'
-                ) : '') +
-                '<input type="file" id="sc_file_upload" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.zip,.rar" style="font-size:.82rem;width:100%">' +
-                '<div style="font-size:.72rem;color:var(--text-3);margin-top:4px">Выберите файл для прикрепления или замены существующего скана</div>' +
+              // Блок параметров зеркального субподряда (показывается только если суть = mirror)
+              '<div id="sc_mirror_block" style="display:' + (curEssence === 'mirror' ? 'block' : 'none') + ';grid-column:1/-1;background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:14px;margin-bottom:4px">' +
+                '<div style="font-size:.82rem;font-weight:700;color:#92400e;margin-bottom:10px;display:flex;align-items:center;gap:6px">' +
+                  '<span>🔗 Параметры зеркального субподряда</span>' +
+                  '<span style="font-weight:400;font-size:.76rem;color:#b45309">(субчик работает под процент, со ссылкой на контракт генподряда)</span>' +
+                '</div>' +
+                '<div style="display:grid;grid-template-columns:2fr 1fr;gap:12px">' +
+                  '<div>' +
+                    '<label style="display:block;font-size:.76rem;font-weight:700;color:#92400e;margin-bottom:4px">Родительский контракт генподряда *</label>' +
+                    '<select id="sc_parent_contract_id" ' + (isLocked ? 'disabled' : '') + ' onchange="window._onSubContractParentContractChange(this.value)" style="width:100%;padding:8px 10px;border:1px solid #d97706;border-radius:6px;font-size:.84rem;background:#fff">' +
+                      '<option value="">-- Выберите контракт генподряда --</option>' +
+                      parentContractOpts +
+                    '</select>' +
+                  '</div>' +
+                  '<div>' +
+                    '<label style="display:block;font-size:.76rem;font-weight:700;color:#92400e;margin-bottom:4px">Процент субподрядчика (%)</label>' +
+                    '<input type="number" id="sc_mirror_percent" step="0.01" min="0" max="100" placeholder="Например: 85.00" value="' + escHtml(c ? (c.mirror_percent || '') : '') + '" ' + (isLocked ? 'disabled' : '') + ' style="width:100%;padding:8px 10px;border:1px solid #d97706;border-radius:6px;font-size:.84rem;background:#fff">' +
+                  '</div>' +
+                '</div>' +
               '</div>' +
 
+              // Территория действия (отдельное поле по требованию руководства)
+              
+              // Тип приложения (по схеме Алексея: тарифная сетка, разовое к заявке или по счёту)
+              '<div style="grid-column:1/-1;background:#f8fafc;padding:12px 14px;border-radius:8px;border:1.5px solid var(--border)">' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Тип приложения (прайса) к договору *</label>' +
+                '<select id="sc_appendix_type" ' + (isLocked ? 'disabled' : '') + ' style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff;font-weight:600">' +
+                  '<option value="tariff" ' + ((c ? c.appendix_type : 'tariff') === 'tariff' ? 'selected' : '') + '>📊 Приложение №1: Тарифная сетка на период (например, Сбер, 22 расценки)</option>' +
+                  '<option value="order_fixed" ' + ((c && c.appendix_type === 'order_fixed') ? 'selected' : '') + '>📝 Приложение-заявка (разовый заказ-наряд, 1 строка от суммы/портов)</option>' +
+                  '<option value="order_custom" ' + ((c && c.appendix_type === 'order_custom') ? 'selected' : '') + '>📋 Приложение-заявка (своя таблица работ и сметы по объекту)</option>' +
+                  '<option value="invoice_only" ' + ((c && c.appendix_type === 'invoice_only') ? 'selected' : '') + '>🧾 Без типового прайса (разовые работы по счёту и актам)</option>' +
+                '</select>' +
+                '<div style="font-size:.72rem;color:var(--text-3);margin-top:4px">Определяет, как формируется расчет: по периодической тарифной сетке или уникально под объект</div>' +
+              '</div>' +
+'<div>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Территория действия</label>' +
+                '<input type="text" id="sc_territory" value="' + escHtml(c ? (c.territory || '') : '') + '" placeholder="г. Архангельск, Архангельская обл., СЗФО" ' + (isLocked ? 'disabled' : '') + ' style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:' + (isLocked ? '#f8fafc' : '#fff') + '">' +
+                '<div style="font-size:.72rem;color:var(--text-3);margin-top:3px">Вставляется в предмет договора отдельным абзацем</div>' +
+              '</div>' +
+
+              // Тэг / Конечный заказчик
+              '<div>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Тэг / Конечный заказчик</label>' +
+                '<input type="text" id="sc_customer_tag" value="' + escHtml(c ? (c.customer_tag || '') : '') + '" placeholder="Росприроднадзор, ОСФР, Сбербанк..." ' + (isLocked ? 'disabled' : '') + ' style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:' + (isLocked ? '#f8fafc' : '#fff') + '">' +
+                '<div style="font-size:.72rem;color:var(--text-3);margin-top:3px">СМР, ПИР или наименование заказчика</div>' +
+              '</div>' +
+
+              // Действует с
+              '<div>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Действует с</label>' +
+                '<input type="date" id="sc_valid_from" value="' + vFrom + '" ' + (isLocked ? 'disabled' : '') + ' style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:' + (isLocked ? '#f8fafc' : '#fff') + '">' +
+              '</div>' +
+
+              // Действует по
+              '<div>' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Действует по</label>' +
+                '<input type="date" id="sc_valid_to" value="' + vTo + '" ' + (isLocked ? 'disabled' : '') + ' style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:' + (isLocked ? '#f8fafc' : '#fff') + '">' +
+              '</div>' +
+
+              // Статус договора (конвейер из 5 статусов)
+              '<div style="grid-column:1/-1">' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Статус договора (Конвейер согласования)</label>' +
+                '<select id="sc_status" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff;font-weight:600">' +
+                  '<option value="created" ' + (curStatus === 'created' ? 'selected' : '') + '>🟡 Создан (Черновик — доступно редактирование данных)</option>' +
+                  '<option value="agreed" ' + (curStatus === 'agreed' ? 'selected' : '') + '>🔵 Согласован (Согласовано юристами/сторонами — редактирование закрывается)</option>' +
+                  '<option value="sent" ' + (curStatus === 'sent' ? 'selected' : '') + '>🟣 Передан на подпись (Отправлен на подпись — редактирование запрещено)</option>' +
+                  '<option value="signed" ' + (curStatus === 'signed' || curStatus === 'active' ? 'selected' : '') + '>🟢 Подписан (Получен скан подписи сторон — редактирование запрещено)</option>' +
+                  '<option value="terminated" ' + (curStatus === 'terminated' ? 'selected' : '') + '>🔴 Расторгнут (Действие прекращено — редактирование запрещено)</option>' +
+                '</select>' +
+                '<div style="font-size:.72rem;color:var(--text-3);margin-top:4px">После отправки на согласование или подписание реквизиты блокируются от случайных правок</div>' +
+              '</div>' +
+
+              // Скан подписанного договора (показываем ТОЛЬКО при редактировании, как отметил Алексей)
+              (isEdit ?
+                '<div style="grid-column:1/-1;border:1.5px dashed #cbd5e1;background:#f8fafc;padding:12px 14px;border-radius:8px">' +
+                  '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text);margin-bottom:6px">📎 Скан / Файл подписанного договора (.pdf, .docx, .jpg, .png)</label>' +
+                  (c && c.scan_url ? (
+                    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:6px 10px;background:#f0fdf4;border:1px solid #86efac;border-radius:6px">' +
+                      '<span style="font-size:1.1rem">✅</span>' +
+                      '<div style="flex:1;font-size:.82rem;color:#166534">' +
+                        'Прикреплен скан: <a href="' + escHtml(c.scan_url) + '" target="_blank" rel="noopener noreferrer" style="font-weight:700;color:#15803d;text-decoration:underline">Открыть файл скана</a>' +
+                      '</div>' +
+                    '</div>'
+                  ) : '') +
+                  '<input type="file" id="sc_file_upload" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.zip,.rar" style="font-size:.82rem;width:100%">' +
+                  '<div style="font-size:.72rem;color:var(--text-3);margin-top:4px">При загрузке скана статус договора автоматически переводится в «🟢 Подписан»</div>' +
+                '</div>' : '') +
+
+              // Опция создания привязанного прайс-листа (только для нового)
               (!isEdit ?
                 '<div style="grid-column:1/-1;background:#eff6ff;padding:12px 14px;border-radius:8px;border:1.5px solid #bfdbfe">' +
                   '<label style="display:flex;align-items:center;gap:10px;font-size:.84rem;font-weight:600;color:#1e40af;cursor:pointer">' +
                     '<input type="checkbox" id="sc_create_pl" checked style="accent-color:#2563eb;width:18px;height:18px"> ' +
-                    'Автоматически создать привязанный прайс-лист на основе типового' +
+                    'Автоматически создать привязанный прайс-лист (Приложение №1) на основе типового' +
                   '</label>' +
                 '</div>' : '') +
             '</div>' +
 
-            '<div style="display:flex;justify-content:flex-end;gap:10px;border-top:1.5px solid var(--border);padding-top:14px;margin-top:14px">' +
-              '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid var(--border);padding:8px 16px;border-radius:8px" onclick="var b=document.getElementById(\'_sub_contract_modal_backdrop\'); if(b) b.remove();">Отмена</button>' +
-              '<button type="submit" class="btn btn-sm btn-primary" style="padding:8px 18px;font-weight:700;border-radius:8px">Сохранить договор</button>' +
+            // Подвал модалки
+            '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1.5px solid var(--border);padding-top:14px;margin-top:14px;flex-wrap:wrap">' +
+              '<div>' +
+                (isEdit ?
+                  '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid #93c5fd;color:#1d4ed8;font-weight:700;padding:8px 14px;border-radius:8px;display:inline-flex;align-items:center;gap:5px" onclick="window.openDocumentEditor({ templateCode: \'subcontract_agreement\', subcontractContractId: ' + c.id + ' }); var b=document.getElementById(\'_sub_contract_modal_backdrop\'); if(b) b.remove();">' +
+                    '<span>📄</span> Открыть в редакторе DOCX' +
+                  '</button>' : '') +
+              '</div>' +
+              '<div style="display:flex;gap:10px;align-items:center">' +
+                '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid var(--border);padding:8px 16px;border-radius:8px" onclick="var b=document.getElementById(\'_sub_contract_modal_backdrop\'); if(b) b.remove();">Отмена</button>' +
+                '<button type="submit" class="btn btn-sm btn-primary" style="padding:8px 18px;font-weight:700;border-radius:8px">' +
+                  (isLocked ? 'Сохранить статус' : 'Сохранить договор') +
+                '</button>' +
+              '</div>' +
             '</div>' +
           '</form>' +
         '</div>' +
@@ -1073,7 +1266,7 @@
     var box = bEl ? bEl.querySelector('.modal-box') : null;
     if (box && window.makeWindowDraggableAndMinimizable) {
       window.makeWindowDraggableAndMinimizable(box, {
-        title: isEdit ? 'Редактирование договора субподряда' : 'Новый договор субподряда',
+        title: isEdit ? (isLocked ? 'Просмотр договора субподряда' : 'Редактирование договора субподряда') : 'Новый договор субподряда',
         icon: '📑',
         backdrop: bEl,
         onClose: function() { bEl.remove(); }
@@ -1081,24 +1274,68 @@
     }
   };
 
+  // Переключение отображения полей зеркального субподряда
+  window._onSubContractEssenceChange = function(essence) {
+    var block = document.getElementById('sc_mirror_block');
+    if (block) {
+      block.style.display = (essence === 'mirror') ? 'block' : 'none';
+    }
+  };
+
+  // Автоподстановка заказчика из родительского контракта генподряда
+  window._onSubContractParentContractChange = function(parentContractId) {
+    if (!parentContractId) return;
+    var pc = (S.contracts || []).find(function(x){ return String(x.id) === String(parentContractId); });
+    if (!pc) return;
+    var tagEl = document.getElementById('sc_customer_tag');
+    var terrEl = document.getElementById('sc_territory');
+    if (tagEl && (!tagEl.value || tagEl.value.trim() === '')) {
+      tagEl.value = pc.customer || pc.customer_name || '';
+    }
+    if (terrEl && (!terrEl.value || terrEl.value.trim() === '')) {
+      terrEl.value = pc.territory || pc.region || '';
+    }
+  };
+
   window.saveSubContract = function(e, contractId) {
     e.preventDefault();
-    var payload = {
-      contractor_id: parseInt(document.getElementById('sc_contractor_id').value, 10),
-      own_company_id: parseInt(document.getElementById('sc_own_company_id').value, 10),
-      contract_number: document.getElementById('sc_number').value.trim(),
-      contract_date: document.getElementById('sc_date').value,
-      subject: document.getElementById('sc_subject').value.trim(),
-      customer_tag: document.getElementById('sc_customer_tag').value.trim(),
-      territory: document.getElementById('sc_territory').value.trim(),
-      valid_from: document.getElementById('sc_valid_from').value || null,
-      valid_to: document.getElementById('sc_valid_to').value || null,
-      status: document.getElementById('sc_status').value
-    };
 
-    var createPlEl = document.getElementById('sc_create_pl');
-    if (createPlEl && createPlEl.checked) {
-      payload.create_price_list = true;
+    var c = contractId ? (S.subContracts || []).find(function(x){ return x.id === contractId; }) : null;
+    var curStatus = c ? (c.status || 'created') : 'created';
+    var isLocked = Boolean(c && curStatus !== 'created');
+
+    var newStatus = document.getElementById('sc_status').value;
+
+    var payload = {};
+
+    if (isLocked) {
+      // Если договор заблокирован (согласован, передан, подписан) — передаем только статус
+      payload.status = newStatus;
+    } else {
+      var essence = document.getElementById('sc_contract_essence') ? document.getElementById('sc_contract_essence').value : 'subcontract';
+      var parentCid = document.getElementById('sc_parent_contract_id') ? parseInt(document.getElementById('sc_parent_contract_id').value, 10) : null;
+      var mirrorPct = document.getElementById('sc_mirror_percent') ? document.getElementById('sc_mirror_percent').value.trim() : null;
+
+      payload = {
+        contractor_id: parseInt(document.getElementById('sc_contractor_id').value, 10),
+        own_company_id: parseInt(document.getElementById('sc_own_company_id').value, 10),
+        contract_number: document.getElementById('sc_number').value.trim(),
+        contract_date: document.getElementById('sc_date').value,
+        contract_essence: essence,
+        parent_contract_id: parentCid || null,
+        mirror_percent: mirrorPct !== '' && mirrorPct !== null ? Number(mirrorPct) : null,
+        customer_tag: document.getElementById('sc_customer_tag') ? document.getElementById('sc_customer_tag').value.trim() : '',
+        territory: document.getElementById('sc_territory') ? document.getElementById('sc_territory').value.trim() : '',
+        valid_from: document.getElementById('sc_valid_from') ? document.getElementById('sc_valid_from').value || null : null,
+        valid_to: document.getElementById('sc_valid_to') ? document.getElementById('sc_valid_to').value || null : null,
+        status: newStatus,
+        appendix_type: document.getElementById('sc_appendix_type') ? document.getElementById('sc_appendix_type').value : 'tariff'
+      };
+
+      var createPlEl = document.getElementById('sc_create_pl');
+      if (createPlEl && createPlEl.checked) {
+        payload.create_price_list = true;
+      }
     }
 
     var url = contractId ? '/subcontract-contracts/' + contractId : '/subcontract-contracts';
@@ -1142,7 +1379,7 @@
           body: formData
         }).then(function(r) { return r.json(); }).then(function(uploadData) {
           if (uploadData && uploadData.error) {
-            alert('Договор сохранен, но ошибка загрузки файла: ' + uploadData.error);
+            alert('Договор сохранен, но ошибка загрузки скана: ' + uploadData.error);
           }
           finalize();
         }).catch(function(err) {
@@ -1165,7 +1402,77 @@
         return;
       }
       S.subContracts = (S.subContracts || []).filter(function(x) { return x.id !== contractId; });
+      if (typeof showToast === 'function') showToast('Договор удален', 'info');
       renderApp();
+    });
+  };
+
+  // Быстрая загрузка скана прямо из таблицы договоров субподряда
+  window.quickUploadSubContractScan = function(contractId) {
+    var c = (S.subContracts || []).find(function(x){ return x.id === contractId; });
+    var title = c ? ('№ ' + (c.contract_number || contractId)) : ('ID ' + contractId);
+
+    var old = document.getElementById('_quick_scan_modal_backdrop');
+    if (old) old.remove();
+
+    var modalHtml = '<div class="modal-overlay modal-backdrop" id="_quick_scan_modal_backdrop" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(2px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px">' +
+      '<div class="modal-box card" style="background:#fff;border-radius:14px;max-width:480px;width:100%;box-shadow:0 16px 40px rgba(0,0,0,0.22);overflow:hidden">' +
+        '<div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1.5px solid var(--border);background:#fafafa">' +
+          '<h3 class="modal-title" style="margin:0;font-size:1rem;font-weight:700;display:flex;align-items:center;gap:6px">' +
+            '<span>📎</span> <span>Прикрепить скан: Договор ' + escHtml(title) + '</span>' +
+          '</h3>' +
+          '<button type="button" class="btn-close btn btn-sm btn-ghost" onclick="var b=document.getElementById(\'_quick_scan_modal_backdrop\'); if(b) b.remove();">✕</button>' +
+        '</div>' +
+        '<div class="modal-body" style="padding:20px 22px">' +
+          '<p style="font-size:.84rem;color:var(--text-2);margin:0 0 14px 0">' +
+            'Прикрепите скан подписанного сторонами договора (.pdf, .jpg, .png, .docx). После успешной загрузки статус договора автоматически изменится на <b>«🟢 Подписан»</b>.' +
+          '</p>' +
+          '<div style="border:1.5px dashed #cbd5e1;background:#f8fafc;padding:16px;border-radius:10px;text-align:center">' +
+            '<input type="file" id="_quick_scan_file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.zip,.rar" style="font-size:.84rem;width:100%">' +
+          '</div>' +
+          '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px">' +
+            '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid var(--border);padding:8px 14px;border-radius:8px" onclick="var b=document.getElementById(\'_quick_scan_modal_backdrop\'); if(b) b.remove();">Отмена</button>' +
+            '<button type="button" class="btn btn-sm btn-primary" style="padding:8px 18px;font-weight:700;border-radius:8px" onclick="window._submitQuickUploadScan(' + contractId + ')">Загрузить скан</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+  };
+
+  window._submitQuickUploadScan = function(contractId) {
+    var fileInput = document.getElementById('_quick_scan_file');
+    var file = fileInput && fileInput.files && fileInput.files[0];
+    if (!file) {
+      alert('Пожалуйста, выберите файл скана на компьютере');
+      return;
+    }
+
+    var formData = new FormData();
+    formData.append('file', file);
+
+    fetch('/api/subcontract-contracts/' + contractId + '/upload', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
+      },
+      body: formData
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data && data.error) {
+        alert('Ошибка загрузки: ' + data.error);
+        return;
+      }
+      var b = document.getElementById('_quick_scan_modal_backdrop');
+      if (b) b.remove();
+      if (typeof showToast === 'function') showToast('Скан договора успешно прикреплен! Статус: Подписан', 'success');
+
+      api('/subcontract-contracts').then(function(list) {
+        if (Array.isArray(list)) S.subContracts = list;
+        renderApp();
+      });
+    }).catch(function(err) {
+      alert('Ошибка сети: ' + err.message);
     });
   };
 
