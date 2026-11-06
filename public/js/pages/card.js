@@ -2331,6 +2331,7 @@ function pageCard() {
       '<div style="display:flex;gap:4px;flex-wrap:wrap">' +
         '<label class="btn btn-sm btn-ghost" style="padding:2px 7px;font-size:.74rem;border:1px solid var(--border);cursor:pointer">📷 Фото<input type="file" multiple accept="image/*" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'photo_report\',this.files)"></label>' +
         '<label class="btn btn-sm btn-ghost" style="padding:2px 7px;font-size:.74rem;border:1px solid var(--border);cursor:pointer">🗺️ Схема<input type="file" multiple accept="image/*,.pdf,.dwg" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'scheme\',this.files)"></label>' +
+        '<button type="button" class="btn btn-sm btn-ghost" style="padding:2px 7px;font-size:.74rem;border:1px solid #2563eb;color:#2563eb;font-weight:700;cursor:pointer" onclick="window.openSchemeEditor(\''+t.id+'\')" title="Нарисовать схему в онлайн-редакторе">✏️ Нарисовать схему</button>' +
         '<label class="btn btn-sm btn-ghost" style="padding:2px 7px;font-size:.74rem;border:1px solid var(--border);cursor:pointer">📋 Чек-лист<input type="file" multiple accept="image/*,.pdf,.xlsx,.xls,.docx" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'checklist\',this.files)"></label>' +
         '<label class="btn btn-sm btn-primary" style="padding:2px 8px;font-size:.74rem;cursor:pointer">+ Добавить файл<input type="file" multiple accept="*/*" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'act\',this.files)"></label>' +
       '</div>' +
@@ -2667,6 +2668,7 @@ function pageCard() {
           '</div>' +
           '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
             '<button type="button" class="btn btn-sm btn-outline" onclick="window.openCableJournalGeneratorModal(\'' + eid + '\')" title="Открыть мастер формирования шкафов, патч-панелей и маркировки по стандарту ИД">⚡ Мастер генерации КЖ</button>' +
+            '<button type="button" class="btn btn-sm" style="background:#2563eb;color:#fff;font-weight:700" onclick="window.openSchemeEditor(\'' + eid + '\')" title="Открыть графический редактор схемы СКС: нарисовать трассы и розетки">📐 Схема трасс и розеток</button>' +
             '<label class="btn btn-sm btn-ghost" style="cursor:pointer" title="Загрузить кабельный журнал из Excel">' +
               '📥 Загрузить КЖ из Excel' +
               '<input type="file" accept=".xlsx,.xls" style="display:none" onchange="uploadCableJournalExcel(this.files[0], \'' + eid + '\')">' +
@@ -2797,6 +2799,7 @@ function pageCard() {
         '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'tmc_act\')" title="Отчет монтажника по израсходованным материалам (Акт ТМЦ)">📦 Отчет монтажника (ТМЦ)</button>' +
         '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid #16a34a;color:#15803d;font-weight:700" onclick="window.downloadAuthFile(\'/api/tasks/' + encodeURIComponent(t.id) + '/id-album.xlsx\', \'ID_Album_' + encodeURIComponent(t.id) + '.xlsx\')" title="Скачать альбом ИД в Excel (.xlsx) по ГОСТу">📊 Альбом ИД (.xlsx)</button>' +
         '<button type="button" class="btn btn-sm btn-primary" onclick="window.openIdModerationModal(\'' + eid + '\')" style="background:#0f766e;font-weight:700" title="Интерактивная модерация комплекта ИД (Сплит-скрин)">👁️ Модерация ИД</button>' +
+        '<button type="button" class="btn btn-sm" style="background:#2563eb;color:#fff;font-weight:700" onclick="window.openSchemeEditor(\'' + eid + '\')" title="Открыть графический редактор схемы СКС: нарисовать трассы кабеля, розетки и шкаф или загрузить план БТИ">📐 Нарисовать схему СКС</button>' +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\'' + eid + '\')" title="Допуск на объект: Письмо на допуск, Заказ-наряд или Наряд-допуск" style="border:1px solid #fed7aa;background:#fff7ed;color:#c2410c;font-weight:700">🪪 Допуск на объект ▾</button>' +
         '<button type="button" class="btn btn-sm btn-outline" onclick="openUploadTaskDocModal(\'' + eid + '\')" title="Учесть входящий счет, акт выполненных работ или скан от контрагента" style="font-weight:700;border:1.5px dashed var(--blue);color:var(--blue)">📎 Учесть Счет / Акт контрагента</button>' +
       '</div>' +

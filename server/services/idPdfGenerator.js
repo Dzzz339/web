@@ -122,12 +122,14 @@ export async function generateIdPdfAlbum(opts) {
   
   let schemeBase64 = null;
   for (const a of attRes.rows) {
-    const isScheme = (a.category === 'scheme' || a.category === 'plan' || String(a.file_name).toLowerCase().includes('схем') || String(a.file_name).toLowerCase().includes('план'));
-    if (isScheme && a.file_path && fs.existsSync(a.file_path)) {
+    const nameStr = String(a.original_name || a.file_name || a.file_path || '').toLowerCase();
+    const isScheme = (a.type === 'scheme' || a.category === 'scheme' || a.category === 'plan' || nameStr.includes('схем') || nameStr.includes('план'));
+    const fullPath = a.file_path ? (path.isAbsolute(a.file_path) ? a.file_path : path.join(UPLOADS_DIR, a.file_path)) : null;
+    if (isScheme && fullPath && fs.existsSync(fullPath)) {
       try {
-        const ext = path.extname(a.file_path).toLowerCase();
+        const ext = path.extname(fullPath).toLowerCase();
         if (['.png', '.jpg', '.jpeg', '.webp'].includes(ext)) {
-          const imgBuf = fs.readFileSync(a.file_path);
+          const imgBuf = fs.readFileSync(fullPath);
           const mime = ext === '.png' ? 'image/png' : 'image/jpeg';
           schemeBase64 = `data:${mime};base64,${imgBuf.toString('base64')}`;
           break;

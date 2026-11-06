@@ -759,14 +759,21 @@ router.get('/tasks/:taskId/id-moderation', authenticateToken, async (req, res) =
     };
 
     // 3. Исполнительная схема
-    const schemeAtt = attRes.rows.find(a => a.category === 'scheme' || a.category === 'plan' || a.file_name?.toLowerCase().includes('схем'));
+    const schemeAtt = attRes.rows.find(a => 
+      a.type === 'scheme' || 
+      a.category === 'scheme' || 
+      a.category === 'plan' || 
+      String(a.original_name || a.file_name || '').toLowerCase().includes('схем') ||
+      String(a.original_name || a.file_name || '').toLowerCase().includes('план')
+    );
+    const schemeFileUrl = schemeAtt ? ('/api/attachments/' + schemeAtt.id + '/file') : ('/api/tasks/' + taskId + '/id-album.pdf#page=5');
     const schemeDoc = {
       id: 'scheme',
       key: 'scheme',
       title: 'Исполнительная схема трасс СКС и розеток',
       code: 'ИД-05',
-      file_url: schemeAtt?.file_url || ('/api/tasks/' + taskId + '/id-album.pdf#page=5'),
-      file_type: schemeAtt ? path.extname(schemeAtt.file_name).slice(1) : 'pdf',
+      file_url: schemeFileUrl,
+      file_type: schemeAtt ? (path.extname(schemeAtt.original_name || schemeAtt.file_path || '').slice(1) || 'png') : 'pdf',
       status: rawMeta.scheme?.status || 'approved',
       rejection_reason: rawMeta.scheme?.rejection_reason || null,
       comment: rawMeta.scheme?.comment || null
