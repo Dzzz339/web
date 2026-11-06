@@ -2,9 +2,9 @@ import os
 from PIL import Image
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..'))
+ROOT_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))
 LOGO_PATH = os.path.join(ROOT_DIR, 'images', 'logo.jpg')
-RES_DIR = os.path.join(ROOT_DIR, 'mobile', 'android', 'app', 'src', 'main', 'res')
+RES_DIR = os.path.join(ROOT_DIR, 'android', 'app', 'src', 'main', 'res')
 
 SIZES = {
     'mipmap-mdpi': 48,

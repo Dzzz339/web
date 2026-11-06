@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+  <script src="js/mobile-bridge.js"></script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Stockeasy</title>
@@ -11,9 +12,9 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script src="/socket.io/socket.io.js"></script>
-  <link rel="stylesheet" href="/css/style.css?v=2.1" />
-  <script src="/xlsx.full.min.js"></script>
+  <script src="https://app.stockeasy.ru/socket.io/socket.io.js" onerror="console.warn('Socket.io unavailable in offline')"></script>
+  <link rel="stylesheet" href="css/style.css?v=2.1" />
+  <script src="xlsx.full.min.js"></script>
 </head>
 <body>
 <div class="app-layout" id="app-layout">
@@ -90,23 +91,23 @@
 </div>
 
   <!-- МОДУЛЬНАЯ АРХИТЕКТУРА JAVASCRIPT (с версионированием кэша) -->
-  <script src="/js/state.js?v=2.1"></script>
-  <script src="/js/helpers.js?v=2.1"></script>
-  <script src="/js/offline.js?v=2.1"></script>
-  <script src="/js/api.js?v=2.1"></script>
-  <script src="/js/pages/dashboard.js?v=2.1"></script>
-  <script src="/js/pages/tasks.js?v=2.1"></script>
-  <script src="/js/pages/kanban.js?v=2.1"></script>
-  <script src="/js/pages/card.js?v=2.1"></script>
-  <script src="/js/pages/marches.js?v=2.1"></script>
-  <script src="/js/pages/contractors.js?v=2.1"></script>
-  <script src="/js/pages/users.js?v=2.1"></script>
-  <script src="/js/pages/data.js?v=2.1"></script>
-  <script src="/js/pages/chat.js?v=2.1"></script>
-  <script src="/js/pages/profile.js?v=2.1"></script>
-  <script src="/js/pages/supply.js?v=2.1"></script>
-  <script src="/js/pages/logs.js?v=2.1"></script>
-  <script src="/js/pages/help.js?v=2.1"></script>
-  <script src="/js/app.js?v=2.1"></script>
+  <script src="js/state.js?v=2.1"></script>
+  <script src="js/helpers.js?v=2.1"></script>
+  <script src="js/offline.js?v=2.1"></script>
+  <script src="js/api.js?v=2.1"></script>
+  <script src="js/pages/dashboard.js?v=2.1"></script>
+  <script src="js/pages/tasks.js?v=2.1"></script>
+  <script src="js/pages/kanban.js?v=2.1"></script>
+  <script src="js/pages/card.js?v=2.1"></script>
+  <script src="js/pages/marches.js?v=2.1"></script>
+  <script src="js/pages/contractors.js?v=2.1"></script>
+  <script src="js/pages/users.js?v=2.1"></script>
+  <script src="js/pages/data.js?v=2.1"></script>
+  <script src="js/pages/chat.js?v=2.1"></script>
+  <script src="js/pages/profile.js?v=2.1"></script>
+  <script src="js/pages/supply.js?v=2.1"></script>
+  <script src="js/pages/logs.js?v=2.1"></script>
+  <script src="js/pages/help.js?v=2.1"></script>
+  <script src="js/app.js?v=2.1"></script>
 </body>
 </html>

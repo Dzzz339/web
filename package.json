@@ -1,22 +1,25 @@
 {
-  "name": "stockeasy",
+  "name": "stockeasy-mobile",
   "version": "1.0.0",
-  "description": "Stockeasy",
+  "description": "Stockeasy Android App",
+  "private": true,
   "type": "module",
   "scripts": {
-    "start": "node --max-old-space-size=1024 server/index.js"
+    "start": "npx serve www -p 3000",
+    "serve": "npx serve www -p 3000",
+    "build": "cap sync android",
+    "cap:sync": "cap sync android",
+    "android:open": "cap open android"
   },
   "dependencies": {
-    "bcryptjs": "^3.0.3",
-    "cors": "^2.8.5",
-    "docx": "^9.7.1",
-    "express": "^4.18.2",
-    "jsonwebtoken": "^9.0.3",
-    "multer": "^2.1.1",
-    "openai": "^7.8.0",
-    "pg": "^8.20.0",
-    "puppeteer-core": "^25.11.0",
-    "socket.io": "^4.8.3",
-    "xlsx": "^0.18.5"
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/app": "^6.0.2",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/splash-screen": "^6.0.3",
+    "@capacitor/status-bar": "^6.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0",
+    "serve": "^14.2.4"
   }
 }
