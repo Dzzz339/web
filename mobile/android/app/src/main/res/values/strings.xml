@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Stockeasy</string>
+    <string name="title_activity_main">Stockeasy</string>
+    <string name="package_name">ru.stockeasy.app</string>
+    <string name="custom_url_scheme">ru.stockeasy.app</string>
+</resources>
