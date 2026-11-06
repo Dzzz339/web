@@ -27,9 +27,11 @@
       comment: 'Внутренние рабочие заметки для нашей команды. Заказчик их не видит.',
       deadline: 'Крайний срок завершения СМР согласно графику. За 2 дня до срока заявка подсвечивается желтым.',
       amount: 'Плановая стоимость работ по смете договора с Заказчиком.',
+      pricePerUnit: 'Расчетная себестоимость за 1 порт по смете (Сумма договора ÷ Количество портов).',
       fact: 'Фактически смонтированное количество портов/линий. На его основе формируются акты КС-2 и расчет монтажникам.',
       inOrder: 'Плановое количество портов или единиц по наряду Заказчика.',
       distanceKm: 'Удаленность объекта от базы (в км). Учитывается при расчете компенсации ГСМ и транспорта.',
+      realDistanceKm: 'Фактическое расстояние до объекта от базы/города в километрах (для путевых листов и навигатора).',
       extras: 'Стоимость дополнительных и непредвиденных работ, согласованных с Заказчиком.',
       tmc: 'Стоимость материалов и оборудования, отгруженных под данную заявку со склада.',
       materialsLink: 'Ссылка на Яндекс.Диск или облако с фотоотчетом и замерами Fluke. Должна быть открыта для чтения.',
@@ -38,7 +40,25 @@
       supplierOrderSigned: 'Отметка о подписании и согласовании заказа в личном кабинете поставщика оборудования.',
       supplierIdUploaded: 'Отметка об успешной загрузке готового комплекта ИД на портал Заказчика/поставщика.',
       subcontract_price: 'Согласованная цена выполнения СМР с подрядчиком за весь объем объекта.',
-      access_letter: 'Официальное письмо Заказчику со списком монтажников, паспортными данными и доверенностями на доступ.'
+      access_letter: 'Официальное письмо Заказчику со списком монтажников, паспортными данными и доверенностями на доступ.',
+      distributedAt: 'Дата первичного распределения заявки проект-менеджеру или в монтажный отдел.',
+      dataVyhoda: 'Дата фактического выезда монтажной бригады на объект для выполнения СМР.',
+      smrActualEndDate: 'Фактическая дата завершения СМР бригадой. Фиксирует окончание монтажа для сдачи в проектный отдел.',
+      priemka: 'Ссылка на папку в Seafile или Яндекс.Диске с фотоотчетом приемки объекта.',
+      obsledovanie: 'Ссылка на папку в Seafile с актом предварительного обследования объекта и фото.',
+      dostup: 'Ссылка на папку в Seafile со сканами писем на допуск, списком бригады и согласованиями.',
+      edoNumber: 'Номер закрывающего документа (УПД / КС-2 / КС-3 / Акт) в системе ЭДО (СБИС/Диадок).',
+      excelComment: 'Комментарий и особые примечания со стороны Заказчика из исходной выгрузки Excel.',
+      oplata: 'Согласованная сумма выплаты монтажной бригаде / субподрядчику за выполненный объем.',
+      invoiceInfo: 'Номер и дата счета от подрядчика или поставщика оборудования.',
+      vedoStatus: 'Текущий статус прохождения и подписания документов в системе электронного документооборота.',
+      own_company_id: 'Наше юридическое лицо («Мы»), выступающее стороной договора с Заказчиком.',
+      ownCompanyId: 'Наше юридическое лицо («Мы»), выступающее стороной договора с Заказчиком.',
+      contract_agreement_id: 'Дополнительное соглашение или Лот к генеральному контракту с Заказчиком.',
+      contractAgreementId: 'Дополнительное соглашение или Лот к генеральному контракту с Заказчиком.',
+      number: 'Уникальный номер заявки в системе и по учету Заказчика.',
+      stageNum: 'Текущий этап заявки согласно сквозному 10-этапному регламенту Stockeasy.',
+      macroStatus: 'Макростатус заявки (В работе, ИД, Бухгалтерия, Оплачено, Архив).'
     },
 
     // 2. Живые примеры для плейсхолдеров
@@ -137,10 +157,82 @@
     var text = APP_HINTS.fields[key];
     if (!text) return '';
     return '<span class="field-hint-wrap" onclick="event.stopPropagation()">' +
-      '<button type="button" class="field-hint-btn" title="Подсказка к полю" aria-label="Подсказка к полю">ⓘ</button>' +
-      '<span class="field-hint-popup">' + safeEscape(text) + '</span>' +
+      '<button type="button" class="field-hint-btn" aria-label="Подсказка к полю" onmouseenter="window.adjustFieldHintPos(this)" onclick="window.toggleFieldHint(this, event)">ⓘ</button>' +
+      '<span class="field-hint-popup" role="tooltip">' + safeEscape(text) + '</span>' +
     '</span>';
   };
+
+  // Динамическая корректировка положения тултипа, чтобы он не улетал за границы экрана
+  window.adjustFieldHintPos = function(btn) {
+    if (!btn) return;
+    var wrap = btn.closest('.field-hint-wrap');
+    if (!wrap) return;
+    var rect = btn.getBoundingClientRect();
+
+    // Если кнопка близко к верхнему краю экрана (< 140px) — показываем всплывашку снизу
+    if (rect.top < 140) {
+      wrap.classList.add('hint-bottom');
+    } else {
+      wrap.classList.remove('hint-bottom');
+    }
+
+    // Если кнопка близко к правому или левому краю окна
+    if (window.innerWidth - rect.right < 160) {
+      wrap.classList.add('hint-align-right');
+      wrap.classList.remove('hint-align-left');
+    } else if (rect.left < 160) {
+      wrap.classList.add('hint-align-left');
+      wrap.classList.remove('hint-align-right');
+    } else {
+      wrap.classList.remove('hint-align-left');
+      wrap.classList.remove('hint-align-right');
+    }
+  };
+
+  // Клик по иконке переключает подсказку (для удобства на мобильных и тачскринах)
+  window.toggleFieldHint = function(btn, ev) {
+    if (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+    if (!btn) return;
+    var wrap = btn.closest('.field-hint-wrap');
+    if (!wrap) return;
+
+    window.adjustFieldHintPos(btn);
+    var wasActive = wrap.classList.contains('active');
+
+    // Закрываем все другие активные подсказки
+    document.querySelectorAll('.field-hint-wrap.active').forEach(function(el) {
+      if (el !== wrap) el.classList.remove('active');
+    });
+
+    if (wasActive) {
+      wrap.classList.remove('active');
+    } else {
+      wrap.classList.add('active');
+    }
+  };
+
+  // Глобальное закрытие открытых подсказок при клике в любое другое место
+  if (typeof document !== 'undefined') {
+    document.addEventListener('click', function(e) {
+      if (!e.target.closest('.field-hint-wrap')) {
+        document.querySelectorAll('.field-hint-wrap.active').forEach(function(el) {
+          el.classList.remove('active');
+        });
+      }
+    });
+
+    // Закрытие по нажатию Esc
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' || e.key === 'Esc') {
+        document.querySelectorAll('.field-hint-wrap.active').forEach(function(el) {
+          el.classList.remove('active');
+        });
+      }
+    });
+  }
 
   // Хелпер получения текста подсказки
   window.getFieldHintText = function(key) {

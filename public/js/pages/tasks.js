@@ -73,8 +73,10 @@ function removeTaskFilter(key) {
 
 function setTaskAppMode(mode) {
   S.taskAppMode = mode;
+  S.tasksStatsExpanded = true; // всегда раскрываем панель при переключении режима
   renderApp();
 }
+window.setTaskAppMode = setTaskAppMode;
 
 function setTaskDistanceFilter(val) {
   S.taskDistanceFilter = val;
@@ -1591,7 +1593,14 @@ function pageTasks() {
     var colTotal = '';
 
     if (appMode === 'customer') {
-      var tariffBadge = (typeof window.renderQuickTaskTariffBadge === 'function') ? window.renderQuickTaskTariffBadge(t) : '';
+      var tariffBadge = '';
+      try {
+        if (typeof window.renderQuickTaskTariffBadge === 'function') {
+          tariffBadge = window.renderQuickTaskTariffBadge(t) || '';
+        }
+      } catch (badgeErr) {
+        console.warn('renderQuickTaskTariffBadge error:', badgeErr);
+      }
       colPrice = '<td style="vertical-align:top;white-space:nowrap;color:var(--text-2);font-size:.8rem">' +
         (fin.unitPrice > 0 ? (fmtMoney(fin.unitPrice) + '<span class="t3" style="font-size:.68rem">/ед</span>') : '<span class="t3">—</span>') +
         tariffBadge +
@@ -1612,7 +1621,8 @@ function pageTasks() {
         roadLine +
       '</td>';
     } else if (appMode === 'contractor') {
-      var effUnitPrice = cFin.unitPrice > 0 ? cFin.unitPrice : (ports > 0 ? Math.round(cFin.total / ports) : cFin.total);
+      var cPorts = factPorts || inOrderPorts || 1;
+      var effUnitPrice = cFin.unitPrice > 0 ? cFin.unitPrice : (cPorts > 0 ? Math.round(cFin.total / cPorts) : cFin.total);
       var priceBtn = (effUnitPrice > 0 || cFin.total > 0)
         ? '<button type="button" class="btn-link" onclick="openSubcontractRateModal(\'' + tid + '\')" title="Индивидуальные договорные условия подряда (кликните для изменения)" style="font-weight:600;color:var(--text);font-size:.8rem;text-align:left">' +
             fmtMoney(effUnitPrice) + '<span class="t3" style="font-size:.68rem">/ед <span style="font-size:.7rem;opacity:0.65">✏️</span></span>' +

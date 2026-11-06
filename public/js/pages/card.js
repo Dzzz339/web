@@ -2693,9 +2693,9 @@ function pageCard() {
           '</div>' +
         '</div>' +
         '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-          '<a href="/api/tasks/' + encodeURIComponent(t.id) + '/id-album.xlsx" class="btn btn-sm" style="background:#15803d;color:#fff;font-weight:700" download="ID_Album_' + encodeURIComponent(t.id) + '.xlsx" title="Скачать сформированный альбом ИД в Excel по ГОСТу">' +
+          '<button type="button" class="btn btn-sm" style="background:#15803d;color:#fff;font-weight:700" onclick="window.downloadAuthFile(\'/api/tasks/' + encodeURIComponent(t.id) + '/id-album.xlsx\', \'ID_Album_' + encodeURIComponent(t.id) + '.xlsx\')" title="Скачать сформированный альбом ИД в Excel по ГОСТу">' +
             '📊 Скачать альбом ИД (.xlsx)' +
-          '</a>' +
+          '</button>' +
           '<button type="button" class="btn btn-sm btn-primary" onclick="window.openDocumentEditor({ templateCode: \'id_album\', taskId: \'' + eid + '\' })" title="Открыть альбом ИД во встроенном Редакторе документов">' +
             '📄 Альбом ИД (DOCX)' +
           '</button>' +
@@ -2795,7 +2795,7 @@ function pageCard() {
         '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'completion_act\')" title="Акт выполненных работ к заказу на работы («Сдал/Принял»)">🤝 Акт вып. работ</button>' +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'invoice\')" title="Сформировать счёт на оплату">💰 Счёт</button>' +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'tmc_act\')" title="Отчет монтажника по израсходованным материалам (Акт ТМЦ)">📦 Отчет монтажника (ТМЦ)</button>' +
-        '<a href="/api/tasks/' + encodeURIComponent(t.id) + '/id-album.xlsx" class="btn btn-sm btn-ghost" style="border:1.5px solid #16a34a;color:#15803d;font-weight:700" download="ID_Album_' + encodeURIComponent(t.id) + '.xlsx" title="Скачать альбом ИД в Excel (.xlsx) по ГОСТу">📊 Альбом ИД (.xlsx)</a>' +
+        '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid #16a34a;color:#15803d;font-weight:700" onclick="window.downloadAuthFile(\'/api/tasks/' + encodeURIComponent(t.id) + '/id-album.xlsx\', \'ID_Album_' + encodeURIComponent(t.id) + '.xlsx\')" title="Скачать альбом ИД в Excel (.xlsx) по ГОСТу">📊 Альбом ИД (.xlsx)</button>' +
         '<button type="button" class="btn btn-sm btn-primary" onclick="window.openIdModerationModal(\'' + eid + '\')" style="background:#0f766e;font-weight:700" title="Интерактивная модерация комплекта ИД (Сплит-скрин)">👁️ Модерация ИД</button>' +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\'' + eid + '\')" title="Допуск на объект: Письмо на допуск, Заказ-наряд или Наряд-допуск" style="border:1px solid #fed7aa;background:#fff7ed;color:#c2410c;font-weight:700">🪪 Допуск на объект ▾</button>' +
         '<button type="button" class="btn btn-sm btn-outline" onclick="openUploadTaskDocModal(\'' + eid + '\')" title="Учесть входящий счет, акт выполненных работ или скан от контрагента" style="font-weight:700;border:1.5px dashed var(--blue);color:var(--blue)">📎 Учесть Счет / Акт контрагента</button>' +
@@ -5776,8 +5776,8 @@ function loadCardMaterials(taskId) {
     materials.forEach(function(m, idx) {
       var isDone = m.is_written_off;
       var curQty = (m.fact_qty != null ? parseFloat(m.fact_qty) : parseFloat(m.plan_qty)) || 0;
-      var price = parseFloat(m.price_default) || (m.code && m.code.includes('CABLE') ? 45 : (m.code && m.code.includes('KEYSTONE') ? 120 : (m.code && m.code.includes('PATCH') ? 150 : 80)));
-      var itemSum = Math.round(curQty * price);
+      var price = (m.price != null && !isNaN(parseFloat(m.price))) ? parseFloat(m.price) : (parseFloat(m.price_default) || (m.code && m.code.includes('CABLE') ? 45 : (m.code && m.code.includes('KEYSTONE') ? 120 : (m.code && m.code.includes('PATCH') ? 150 : 80))));
+      var itemSum = (m.total_price != null && !isNaN(parseFloat(m.total_price))) ? parseFloat(m.total_price) : Math.round(curQty * price);
       totalTmcSum += itemSum;
 
       var rowKey = m.id || m.material_id || ('row_' + idx);
@@ -5795,11 +5795,18 @@ function loadCardMaterials(taskId) {
 
       var supplierCell = isDone
         ? '<span class="badge b-blue" style="font-size:.74rem;white-space:nowrap">' + escHtml(curSupplier || 'Склад компании') + '</span>'
-        : '<select id="supp_mat_' + rowKey + '" onchange="window._onTmcFactChange(\'' + encodeURIComponent(taskId) + '\')" style="padding:3px 6px;font-size:.78rem;border:1px solid var(--border);border-radius:4px;background:#fff;max-width:145px;cursor:pointer">' + suppOptionsHtml + '</select>';
+        : '<select id="supp_mat_' + rowKey + '" onchange="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" style="padding:3px 6px;font-size:.78rem;border:1px solid var(--border);border-radius:4px;background:#fff;max-width:145px;cursor:pointer">' + suppOptionsHtml + '</select>';
 
       var factInput = isDone
         ? '<span style="font-weight:700;color:var(--green)">' + curQty + ' ' + (m.unit || 'шт') + '</span>'
-        : '<input type="number" step="any" min="0" value="' + curQty + '" id="fact_mat_' + rowKey + '" oninput="window._onTmcFactChange(\'' + encodeURIComponent(taskId) + '\')" onchange="window._onTmcFactChange(\'' + encodeURIComponent(taskId) + '\')" style="width:65px;padding:3px 6px;text-align:right;font-size:.82rem">';
+        : '<input type="number" step="any" min="0" value="' + curQty + '" id="fact_mat_' + rowKey + '" oninput="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" onchange="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" style="width:70px;padding:3px 6px;text-align:right;font-size:.82rem;font-weight:600">';
+
+      var priceInput = isDone
+        ? '<span style="color:var(--text-2);font-size:.8rem">' + price.toLocaleString('ru-RU') + ' ₽</span>'
+        : '<div style="display:flex;align-items:center;justify-content:flex-end;gap:3px">' +
+            '<input type="number" step="any" min="0" value="' + price + '" id="price_mat_' + rowKey + '" oninput="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" onchange="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" style="width:70px;padding:3px 6px;text-align:right;font-size:.82rem" title="Цена за единицу ТМЦ">' +
+            '<span style="font-size:.74rem;color:var(--text-3)">₽</span>' +
+          '</div>';
 
       var planQty = parseFloat(m.plan_qty) || 0;
       var remainder = planQty - curQty;
@@ -5813,16 +5820,37 @@ function loadCardMaterials(taskId) {
         : (window._curTotalCableLen || 0);
 
       var cableMatchHtml = '';
-      if (isCable && kjTotalCableLen > 0) {
-        if (Math.abs(curQty - kjTotalCableLen) < 0.1) {
-          cableMatchHtml = '<div style="font-size:.69rem;color:var(--green);font-weight:600;margin-top:2px">✓ Метраж совпадает с КЖ (' + kjTotalCableLen + ' м)</div>';
-        } else {
-          cableMatchHtml = '<div style="font-size:.69rem;color:var(--amber);font-weight:600;margin-top:2px">' +
-            '⚠️ По КЖ: ' + kjTotalCableLen + ' м ' +
-            (!isDone ? '<a href="javascript:void(0)" onclick="var inp=document.getElementById(\'fact_mat_' + rowKey + '\');if(inp){inp.value=' + kjTotalCableLen + ';window._onTmcFactChange(\'' + encodeURIComponent(taskId) + '\');}" style="text-decoration:underline;color:var(--blue);margin-left:4px">[вставить]</a>' : '') +
+      if (isCable) {
+        if (kjTotalCableLen > 0) {
+          var diffPct = Math.round(((curQty - kjTotalCableLen) / kjTotalCableLen) * 100);
+          var badgeText = (diffPct > 0 ? ('+' + diffPct + '%') : (diffPct === 0 ? '0% чистый' : (diffPct + '%')));
+          var isStandard = diffPct >= 0 && diffPct <= 15;
+          cableMatchHtml = '<div style="margin-top:4px;background:#f8fafc;border:1px solid #e2e8f0;padding:4px 6px;border-radius:4px;font-size:.7rem;text-align:left">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">' +
+              '<span style="font-weight:600;color:#2563eb">📏 По КЖ: ' + kjTotalCableLen.toFixed(1) + ' м</span>' +
+              '<span class="badge ' + (isStandard ? 'b-green' : 'b-amber') + '" style="font-size:.65rem;padding:1px 4px">' + badgeText + '</span>' +
+            '</div>' +
+            (!isDone ? (
+              '<div style="display:flex;align-items:center;gap:3px">' +
+                '<select class="inp" id="reserve_sel_' + rowKey + '" style="font-size:.7rem;padding:1px 3px;height:22px" onchange="window._applyCableReserve(\'' + encodeURIComponent(taskId) + '\', \'' + rowKey + '\', this.value, ' + kjTotalCableLen + ')">' +
+                  '<option value="">Запас...</option>' +
+                  '<option value="0">0% (' + Math.round(kjTotalCableLen) + ' м)</option>' +
+                  '<option value="5">+5% (' + Math.round(kjTotalCableLen * 1.05) + ' м)</option>' +
+                  '<option value="7"' + (diffPct === 7 ? ' selected' : '') + '>+7% (' + Math.round(kjTotalCableLen * 1.07) + ' м, стандарт)</option>' +
+                  '<option value="10">+10% (' + Math.round(kjTotalCableLen * 1.10) + ' м)</option>' +
+                '</select>' +
+                '<button type="button" class="btn btn-xs btn-outline" style="font-size:.66rem;padding:1px 4px;height:22px;white-space:nowrap" onclick="window._applyCableReserve(\'' + encodeURIComponent(taskId) + '\', \'' + rowKey + '\', \'7\', ' + kjTotalCableLen + ')" title="Подставить стандартный запас +7%">⚡ +7%</button>' +
+              '</div>'
+            ) : '') +
           '</div>';
+        } else {
+          cableMatchHtml = '<div style="font-size:.68rem;color:var(--text-3);margin-top:2px">📏 Длины в КЖ пока не заполнены</div>';
         }
       }
+
+      var catalogLinkHtml = (!isDone && m.id)
+        ? '<div style="margin-top:2px"><a href="javascript:void(0)" onclick="window._openQuickCatalogPicker(\'' + encodeURIComponent(taskId) + '\', ' + m.id + ', \'' + rowKey + '\')" style="font-size:.69rem;color:var(--blue);text-decoration:underline">🔗 ' + (m.material_id ? 'Сменить номенклатуру' : 'Привязать к каталогу') + '</a></div>'
+        : '';
 
       var detailsStr = '';
       if (m.model) detailsStr += '<span class="badge b-gray" style="font-size:.68rem;margin-right:4px">' + escHtml(m.model) + '</span>';
@@ -5833,21 +5861,24 @@ function loadCardMaterials(taskId) {
         '<td style="padding:6px 4px;color:var(--text-3);font-size:.74rem;text-align:center">' + (m.pos_num || (idx + 1)) + '</td>' +
         '<td style="padding:6px 4px">' +
           '<div style="font-weight:600">' + escHtml(m.name) + '</div>' +
+          catalogLinkHtml +
           (detailsStr ? '<div style="margin-top:2px">' + detailsStr + '</div>' : '') +
         '</td>' +
         '<td style="padding:6px 4px">' + supplierCell + '</td>' +
         '<td style="padding:6px 4px;text-align:right;white-space:nowrap;color:var(--text-2)">' + m.plan_qty + ' ' + (m.unit || 'шт') + '</td>' +
         '<td style="padding:6px 4px;text-align:right;white-space:nowrap">' + factInput + cableMatchHtml + '</td>' +
         '<td style="padding:6px 4px;text-align:right;white-space:nowrap">' + remainderHtml + '</td>' +
-        '<td style="padding:6px 4px;text-align:right;white-space:nowrap;color:var(--text-3);font-size:.76rem">' + price.toLocaleString('ru-RU') + ' ₽</td>' +
-        '<td style="padding:6px 4px;text-align:right;white-space:nowrap;font-weight:700;color:var(--text)">' + itemSum.toLocaleString('ru-RU') + ' ₽</td>' +
+        '<td style="padding:6px 4px;text-align:right;white-space:nowrap">' + priceInput + '</td>' +
+        '<td style="padding:6px 4px;text-align:right;white-space:nowrap;font-weight:700;color:var(--text)" id="sum_mat_' + rowKey + '">' + itemSum.toLocaleString('ru-RU') + ' ₽</td>' +
         (!allWrittenOff ? ('<td style="padding:6px 4px;text-align:center"><button type="button" class="btn btn-xs btn-ghost" style="color:var(--red);padding:1px 5px" onclick="window.deleteTaskMaterial(\'' + encodeURIComponent(taskId) + '\', ' + m.id + ')" title="Удалить позицию">✕</button></td>') : '') +
       '</tr>';
     });
 
     html += '<tr style="background:var(--bg);font-weight:700;border-top:2px solid var(--border)">' +
       '<td colspan="' + (!allWrittenOff ? 7 : 7) + '" style="padding:8px 6px;text-align:right">ИТОГО себестоимость ТМЦ по объекту:</td>' +
-      '<td style="padding:8px 6px;text-align:right;font-size:.92rem;color:var(--blue)">' + totalTmcSum.toLocaleString('ru-RU') + ' ₽</td>' +
+      '<td style="padding:8px 6px;text-align:right;font-size:.92rem;color:var(--blue)" id="tmcTotalSummarySum">' + totalTmcSum.toLocaleString('ru-RU') + ' ₽</td>' +
+      (!allWrittenOff ? '<td></td>' : '') +
+    '</tr>';
       (!allWrittenOff ? '<td></td>' : '') +
     '</tr>';
 
@@ -5903,6 +5934,145 @@ window._onTmcFactChange = function(taskId) {
   }
 };
 
+window._onTmcFactRowChange = function(taskId, rowKey) {
+  var factInp = document.getElementById('fact_mat_' + rowKey);
+  var priceInp = document.getElementById('price_mat_' + rowKey);
+  var sumEl = document.getElementById('sum_mat_' + rowKey);
+
+  var qty = factInp ? parseFloat(factInp.value) : 0;
+  if (isNaN(qty) || qty < 0) qty = 0;
+  var pr = priceInp ? parseFloat(priceInp.value) : 0;
+  if (isNaN(pr) || pr < 0) pr = 0;
+
+  var rowSum = Math.round(qty * pr);
+  if (sumEl) sumEl.textContent = rowSum.toLocaleString('ru-RU') + ' ₽';
+
+  var totalAll = 0;
+  var allFactInputs = document.querySelectorAll('[id^="fact_mat_"]');
+  allFactInputs.forEach(function(fInp) {
+    var k = fInp.id.replace('fact_mat_', '');
+    var pInp = document.getElementById('price_mat_' + k);
+    var q = parseFloat(fInp.value) || 0;
+    var p = pInp ? (parseFloat(pInp.value) || 0) : 0;
+    totalAll += Math.round(q * p);
+  });
+
+  var totalEl = document.getElementById('tmcTotalSummarySum');
+  if (totalEl) totalEl.textContent = totalAll.toLocaleString('ru-RU') + ' ₽';
+
+  window._onTmcFactChange(taskId);
+};
+
+window._applyCableReserve = function(taskId, rowKey, pctVal, baseLen) {
+  if (pctVal === '' || pctVal === undefined || pctVal === null) return;
+  var pct = parseFloat(pctVal);
+  if (isNaN(pct)) return;
+  var calcMeters = Math.round(baseLen * (1 + pct / 100));
+  var inp = document.getElementById('fact_mat_' + rowKey);
+  if (inp) {
+    inp.value = calcMeters;
+    window._onTmcFactRowChange(taskId, rowKey);
+  }
+};
+
+window._openQuickCatalogPicker = function(taskId, tmId, rowKey) {
+  var oldM = document.getElementById('_quick_catalog_picker_modal');
+  if (oldM) oldM.remove();
+
+  var modal = document.createElement('div');
+  modal.id = '_quick_catalog_picker_modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.65);z-index:999999;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(3px)';
+
+  modal.innerHTML = '<div style="background:#fff;border-radius:10px;box-shadow:0 20px 40px rgba(0,0,0,0.25);width:100%;max-width:640px;max-height:85vh;overflow:hidden;border:1px solid #cbd5e1;display:flex;flex-direction:column">' +
+    '<div style="padding:14px 18px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;background:#f8fafc">' +
+      '<div style="font-weight:700;font-size:1rem;color:#0f172a">🔗 Привязать позицию к каталогу номенклатуры</div>' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_quick_catalog_picker_modal\').remove()" style="font-size:1.1rem;padding:2px 8px;color:#64748b">✕</button>' +
+    '</div>' +
+    '<div style="padding:12px 18px;border-bottom:1px solid #e2e8f0;background:#fff">' +
+      '<input type="text" id="_quick_cat_search" placeholder="🔍 Поиск по названию, категории или артикулу..." class="inp" style="width:100%;font-size:.85rem;padding:6px 10px" oninput="window._filterQuickCatalogList(\'' + encodeURIComponent(taskId) + '\', ' + tmId + ', \'' + rowKey + '\')">' +
+    '</div>' +
+    '<div id="_quick_cat_list" style="padding:8px 18px;overflow-y:auto;flex:1;max-height:50vh;display:flex;flex-direction:column;gap:6px">' +
+      '<div style="text-align:center;padding:20px;color:#64748b">⏳ Загрузка каталога...</div>' +
+    '</div>' +
+    '<div style="padding:10px 18px;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end;background:#f8fafc">' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_quick_catalog_picker_modal\').remove()">Закрыть</button>' +
+    '</div>' +
+  '</div>';
+
+  document.body.appendChild(modal);
+
+  fetch('/api/materials', { headers: { 'Authorization': 'Bearer ' + S.token } })
+    .then(function(r) { return r.json(); })
+    .then(function(materials) {
+      window._cachedMaterialsCatalog = materials || [];
+      window._filterQuickCatalogList(taskId, tmId, rowKey);
+    })
+    .catch(function(err) {
+      var list = document.getElementById('_quick_cat_list');
+      if (list) list.innerHTML = '<div style="color:var(--red);padding:10px">Ошибка загрузки: ' + (err.message || err) + '</div>';
+    });
+};
+
+window._filterQuickCatalogList = function(taskId, tmId, rowKey) {
+  var list = document.getElementById('_quick_cat_list');
+  if (!list) return;
+  var q = (document.getElementById('_quick_cat_search')?.value || '').toLowerCase().trim();
+  var all = window._cachedMaterialsCatalog || [];
+  var filtered = all.filter(function(m) {
+    if (!q) return true;
+    return (m.name && m.name.toLowerCase().includes(q)) ||
+           (m.code && m.code.toLowerCase().includes(q)) ||
+           (m.category && m.category.toLowerCase().includes(q));
+  });
+
+  if (!filtered.length) {
+    list.innerHTML = '<div style="text-align:center;padding:16px;color:#94a3b8;font-size:.84rem">Ничего не найдено</div>';
+    return;
+  }
+
+  list.innerHTML = filtered.slice(0, 40).map(function(m) {
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border:1px solid #e2e8f0;border-radius:6px;gap:8px;background:#fff">' +
+      '<div style="flex:1">' +
+        '<div style="font-weight:600;font-size:.84rem;color:#0f172a">' + escHtml(m.name) + '</div>' +
+        '<div style="font-size:.74rem;color:#64748b;display:flex;gap:8px;margin-top:2px">' +
+          (m.category ? '<span class="badge b-gray" style="font-size:.68rem">' + escHtml(m.category) + '</span>' : '') +
+          (m.code ? '<span>Арт: ' + escHtml(m.code) + '</span>' : '') +
+          '<span>Ед: ' + escHtml(m.unit || 'шт') + '</span>' +
+          '<span>Базовая цена: ' + (m.price_default || 0) + ' ₽</span>' +
+        '</div>' +
+      '</div>' +
+      '<button type="button" class="btn btn-xs btn-primary" onclick="window._bindCatalogItemToRow(\'' + encodeURIComponent(taskId || '') + '\', ' + (tmId || 0) + ', \'' + (rowKey || '') + '\', ' + m.id + ')" style="font-size:.76rem;font-weight:700">Выбрать</button>' +
+    '</div>';
+  }).join('');
+};
+
+window._bindCatalogItemToRow = function(taskId, tmId, rowKey, matId) {
+  var mat = (window._cachedMaterialsCatalog || []).find(function(x) { return x.id === matId; });
+  if (!mat) return;
+
+  if (tmId && taskId) {
+    fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials/' + tmId + '/bind', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.token },
+      body: JSON.stringify({ material_id: matId })
+    }).then(function(r) { return r.json(); })
+      .then(function(res) {
+        var m = document.getElementById('_quick_catalog_picker_modal');
+        if (m) m.remove();
+        if (typeof showToast === 'function') showToast('Номенклатура привязана: ' + mat.name, 'success');
+        loadCardMaterials(taskId);
+      }).catch(function(err) {
+        alert('Ошибка привязки: ' + (err.message || err));
+      });
+  } else {
+    var prInp = document.getElementById('price_mat_' + rowKey);
+    if (prInp && mat.price_default) prInp.value = mat.price_default;
+    var m = document.getElementById('_quick_catalog_picker_modal');
+    if (m) m.remove();
+    window._onTmcFactRowChange(taskId, rowKey);
+  }
+};
+
 function saveTaskMaterialsFact(taskId, options) {
   options = options || {};
   return fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials', { headers: { 'Authorization': 'Bearer ' + S.token } })
@@ -5913,10 +6083,22 @@ function saveTaskMaterialsFact(taskId, options) {
       materials.forEach(function(m, idx) {
         var rowKey = m.id || m.material_id || ('row_' + idx);
         var inp = document.getElementById('fact_mat_' + rowKey);
+        var priceInp = document.getElementById('price_mat_' + rowKey);
         var suppInp = document.getElementById('supp_mat_' + rowKey);
+
         var qty = inp ? parseFloat(inp.value) : (m.fact_qty != null ? m.fact_qty : m.plan_qty);
+        var price = priceInp ? parseFloat(priceInp.value) : (m.price != null ? m.price : m.price_default);
         var supp = suppInp ? suppInp.value : (m.supplier || null);
-        items.push({ id: m.id, material_id: m.material_id, fact_qty: isNaN(qty) ? 0 : qty, supplier: supp });
+        var total = (!isNaN(qty) && !isNaN(price)) ? Math.round(qty * price) : null;
+
+        items.push({
+          id: m.id,
+          material_id: m.material_id,
+          fact_qty: isNaN(qty) ? 0 : qty,
+          price: isNaN(price) ? 0 : price,
+          total_price: total,
+          supplier: supp
+        });
       });
 
       return fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials/save-fact', {
@@ -5928,8 +6110,8 @@ function saveTaskMaterialsFact(taskId, options) {
       .then(function(res) {
         if (res && res.success) {
           if (!options.silent) {
-            if (typeof showToast === 'function') showToast('✅ Фактический расход и поставщики ТМЦ сохранены', 'success');
-            else alert('✅ Фактический расход и поставщики ТМЦ сохранены!');
+            if (typeof showToast === 'function') showToast('✅ Фактический расход, цены и поставщики ТМЦ сохранены', 'success');
+            else alert('✅ Фактический расход, цены и поставщики ТМЦ сохранены!');
           }
           if (S.cardDraft) {
             delete S.cardDraft._tmcDirty;
@@ -7384,7 +7566,7 @@ function loadCardDocuments(taskId) {
           '<td style="padding:6px 8px;white-space:nowrap;text-align:right">' +
             '<button type="button" class="btn btn-sm btn-ghost" style="padding:2px 6px;font-size:.75rem" onclick="window.openDocumentEditor({ existingDocId: ' + d.id + ', taskId: \'' + escHtml(taskId) + '\' })" title="Открыть в редакторе Stockeasy">👁️</button> ' +
             scanActionHtml +
-            (d.file_url ? '<a href="' + escHtml(d.file_url) + '" download class="btn btn-sm btn-ghost" style="padding:2px 6px;font-size:.75rem" title="Скачать файл">📥</a> ' : '') +
+            (d.file_url ? '<button type="button" class="btn btn-sm btn-ghost" style="padding:2px 6px;font-size:.75rem" onclick="window.downloadAuthFile(\'' + escHtml(d.file_url) + '\', \'' + escHtml(d.title || 'document') + '\')" title="Скачать файл">📥</button> ' : '') +
             '<button type="button" class="btn btn-sm btn-ghost" style="padding:2px 6px;font-size:.75rem" onclick="openEditTaskDocModal(\'' + escHtml(taskId) + '\', ' + d.id + ')" title="Редактировать статус / сумму / реквизиты">✏️</button> ' +
             deleteBtnHtml +
           '</td>' +

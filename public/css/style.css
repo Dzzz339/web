@@ -626,7 +626,7 @@
     .card-info-dashboard { display:grid;grid-template-columns:minmax(0, 1fr) minmax(0, 1fr);gap:1rem;align-items:start; }
     .card-tab-pane, .page-content { overscroll-behavior-x: none; }
     .field-compact { display:flex;flex-direction:column;gap:3px;min-width:0; }
-    .field-compact .field-lbl { font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-3);padding:0;line-height:1.2;display:flex;align-items:center;gap:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .field-compact .field-lbl { font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-3);padding:0;line-height:1.2;display:flex;align-items:center;gap:4px;white-space:nowrap;overflow:visible; }
     .field-compact .field-val { font-size:.84rem;color:var(--text);min-width:0; }
     .field-compact .field-val input,.field-compact .field-val select { width:100%;padding:4px 8px;font-size:.82rem;height:32px;border-radius:6px;box-sizing:border-box; }
     .field-compact .field-val textarea { width:100%;padding:5px 8px;font-size:.82rem;border-radius:6px;box-sizing:border-box;resize:vertical; }
@@ -2535,6 +2535,7 @@
   align-items: center;
   margin-left: 5px;
   vertical-align: middle;
+  overflow: visible !important;
 }
 
 .field-hint-btn {
@@ -2557,35 +2558,40 @@
 }
 
 .field-hint-btn:hover,
-.field-hint-btn:focus-visible {
+.field-hint-btn:focus-visible,
+.field-hint-wrap.active .field-hint-btn {
   background: #eff6ff;
   color: var(--blue, #2563eb);
   border-color: #93c5fd;
   outline: none;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
 
 .field-hint-popup {
   position: absolute;
-  bottom: calc(100% + 6px);
+  bottom: calc(100% + 7px);
   left: 50%;
-  transform: translateX(-50%);
-  background: #1e293b;
+  transform: translateX(-50%) translateY(4px);
+  background: #0f172a;
   color: #f8fafc;
-  padding: 7px 11px;
+  padding: 8px 12px;
   border-radius: 8px;
   font-size: 0.77rem;
+  font-weight: 500;
   line-height: 1.35;
   width: max-content;
-  max-width: 280px;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.35);
-  z-index: 100050;
+  max-width: 290px;
+  box-shadow: 0 12px 28px -4px rgba(15, 23, 42, 0.4), 0 4px 10px -2px rgba(15, 23, 42, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  z-index: 999999;
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
-  transition: opacity 0.15s ease, visibility 0.15s ease;
+  transition: opacity 0.16s cubic-bezier(0.16, 1, 0.3, 1), transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.16s;
   white-space: normal;
   text-align: left;
-  font-weight: normal;
+  text-transform: none !important;
+  letter-spacing: normal !important;
 }
 
 .field-hint-popup::after {
@@ -2594,15 +2600,68 @@
   top: 100%;
   left: 50%;
   transform: translateX(-50%);
-  border-width: 5px;
+  border-width: 6px 6px 0 6px;
   border-style: solid;
-  border-color: #1e293b transparent transparent transparent;
+  border-color: #0f172a transparent transparent transparent;
 }
 
 .field-hint-wrap:hover .field-hint-popup,
-.field-hint-wrap:focus-within .field-hint-popup {
+.field-hint-wrap:focus-within .field-hint-popup,
+.field-hint-wrap.active .field-hint-popup {
   opacity: 1;
   visibility: visible;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+
+/* Позиционирование подсказки снизу, если кнопка находится у верхнего края */
+.field-hint-wrap.hint-bottom .field-hint-popup {
+  bottom: auto;
+  top: calc(100% + 7px);
+  transform: translateX(-50%) translateY(-4px);
+}
+.field-hint-wrap.hint-bottom:hover .field-hint-popup,
+.field-hint-wrap.hint-bottom:focus-within .field-hint-popup,
+.field-hint-wrap.hint-bottom.active .field-hint-popup {
+  transform: translateX(-50%) translateY(0);
+}
+.field-hint-wrap.hint-bottom .field-hint-popup::after {
+  top: auto;
+  bottom: 100%;
+  border-width: 0 6px 6px 6px;
+  border-color: transparent transparent #0f172a transparent;
+}
+
+/* Выравнивание по левому краю */
+.field-hint-wrap.hint-align-left .field-hint-popup {
+  left: 0;
+  transform: translateY(4px);
+}
+.field-hint-wrap.hint-align-left:hover .field-hint-popup,
+.field-hint-wrap.hint-align-left:focus-within .field-hint-popup,
+.field-hint-wrap.hint-align-left.active .field-hint-popup {
+  transform: translateY(0);
+}
+.field-hint-wrap.hint-align-left .field-hint-popup::after {
+  left: 8px;
+  transform: none;
+}
+
+/* Выравнивание по правому краю */
+.field-hint-wrap.hint-align-right .field-hint-popup {
+  left: auto;
+  right: 0;
+  transform: translateY(4px);
+}
+.field-hint-wrap.hint-align-right:hover .field-hint-popup,
+.field-hint-wrap.hint-align-right:focus-within .field-hint-popup,
+.field-hint-wrap.hint-align-right.active .field-hint-popup {
+  transform: translateY(0);
+}
+.field-hint-wrap.hint-align-right .field-hint-popup::after {
+  left: auto;
+  right: 8px;
+  transform: none;
 }
 
 /* Инфо-плашка текущего этапа в шапке заявки */

@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import puppeteer from 'puppeteer-core';
+import { UPLOADS_DIR } from '../middleware/upload.js';
+import { pool as defaultPool } from '../config/db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,7 +45,9 @@ function esc(str) {
     .replace(/"/g, '&quot;');
 }
 
-export async function generateIdPdfAlbum({ taskId, pool }) {
+export async function generateIdPdfAlbum(opts) {
+  const taskId = typeof opts === 'string' ? opts : opts?.taskId;
+  const pool = (typeof opts === 'object' && opts?.pool) ? opts.pool : defaultPool;
   // 1. Загрузка данных задачи
   const taskRes = await pool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
   if (!taskRes.rows.length) throw new Error(`Задача ${taskId} не найдена`);
@@ -86,7 +90,7 @@ export async function generateIdPdfAlbum({ taskId, pool }) {
 
   // 4. Материалы
   const matRes = await pool.query(`
-    SELECT tm.*, m.name, m.unit, m.code, m.price_default
+    SELECT tm.*, COALESCE(tm.item_name, m.name) AS name, COALESCE(tm.unit, m.unit, 'шт') AS unit, COALESCE(tm.article, m.code) AS code, COALESCE(tm.price, m.price_default, 0) AS price
     FROM task_materials tm
     LEFT JOIN materials m ON tm.material_id = m.id
     WHERE tm.task_id = $1
@@ -771,7 +775,7 @@ export async function generateIdPdfAlbum({ taskId, pool }) {
     await browser.close();
 
     // 7. Сохранение файла на диск и регистрация в task_documents
-    const docsDir = path.join(__dirname, '../../public/uploads/documents');
+    const docsDir = path.join(UPLOADS_DIR, 'documents');
     if (!fs.existsSync(docsDir)) fs.mkdirSync(docsDir, { recursive: true });
 
     const fileName = `id_album_${taskId}_${Date.now()}.pdf`;

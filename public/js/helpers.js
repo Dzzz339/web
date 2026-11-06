@@ -123,9 +123,21 @@ function highlight(text, query) {
 function pct(a, b)  { return b > 0 ? Math.round(a / b * 100) : 0; }
 function fmtN(n)    { return (n || 0).toLocaleString('ru'); }
 function fmtMoney(n) {
-  if (!n) return '—';
-  return Math.round(n).toLocaleString('ru-RU') + ' ₽';
+  if (n === null || n === undefined || n === '') return '—';
+  var num = Number(n);
+  if (isNaN(num)) return '—';
+  return Math.round(num).toLocaleString('ru-RU') + ' ₽';
 }
+function formatMoney(n) { return fmtMoney(n); }
+function formatMoneyNum(n) {
+  if (n === null || n === undefined || n === '') return '0';
+  var num = Number(n);
+  if (isNaN(num)) return '0';
+  return Math.round(num).toLocaleString('ru-RU');
+}
+window.fmtMoney = fmtMoney;
+window.formatMoney = formatMoney;
+window.formatMoneyNum = formatMoneyNum;
 function fmtMoneyShort(n) {
   if (!n) return '0 ₽';
   var abs = Math.abs(n);
@@ -1111,5 +1123,93 @@ function fixMojibake(str) {
   return str;
 }
 window.fixMojibake = fixMojibake;
+
+// Добавление токена авторизации к локальным URL для iframe, прямой загрузки или window.open
+function withAuthToken(url) {
+  if (!url || typeof url !== 'string') return url || '';
+  var token = (window.S && window.S.token) || localStorage.getItem('token') || '';
+  if (!token) return url;
+
+  // Не добавляем токен к сторонним внешним доменам (Yandex, Mail, Google и т.д.)
+  if (/^https?:\/\//i.test(url)) {
+    try {
+      var parsed = new URL(url, window.location.origin);
+      if (parsed.origin !== window.location.origin) {
+        return url;
+      }
+    } catch (e) {
+      return url;
+    }
+  }
+
+  // Не трогаем blob: и data: ссылки
+  if (/^(blob|data):/i.test(url)) {
+    return url;
+  }
+
+  // Отделяем хэш (#page=3 и т.д.)
+  var hashIdx = url.indexOf('#');
+  var baseAndQuery = hashIdx !== -1 ? url.slice(0, hashIdx) : url;
+  var hash = hashIdx !== -1 ? url.slice(hashIdx) : '';
+
+  // Если токен уже есть, не дублируем
+  if (/[?&]token=/.test(baseAndQuery)) {
+    return url;
+  }
+
+  var sep = baseAndQuery.indexOf('?') === -1 ? '?' : '&';
+  return baseAndQuery + sep + 'token=' + encodeURIComponent(token) + hash;
+}
+window.withAuthToken = withAuthToken;
+
+// Авторизованное скачивание файла через fetch (Blob) с корректным именем из Content-Disposition
+function downloadAuthFile(url, defaultFilename) {
+  if (!url) return;
+  var authUrl = withAuthToken(url);
+  var token = (window.S && window.S.token) || localStorage.getItem('token') || '';
+
+  if (typeof showToast === 'function') {
+    showToast('Скачивание файла...', 'info');
+  }
+
+  fetch(authUrl, {
+    headers: token ? { 'Authorization': 'Bearer ' + token } : {}
+  })
+    .then(function(res) {
+      if (!res.ok) {
+        return res.json().catch(function(){ return { error: 'Статус сервера ' + res.status }; }).then(function(err){
+          throw new Error(err.error || ('Ошибка загрузки файла (' + res.status + ')'));
+        });
+      }
+      var disposition = res.headers.get('Content-Disposition') || '';
+      var filename = defaultFilename || 'document';
+      var matchUtf8 = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+      if (matchUtf8 && matchUtf8[1]) {
+        try { filename = decodeURIComponent(matchUtf8[1]); } catch(e) {}
+      } else {
+        var matchAscii = disposition.match(/filename="?([^";]+)"?/i);
+        if (matchAscii && matchAscii[1]) {
+          filename = matchAscii[1];
+        }
+      }
+      return res.blob().then(function(blob) {
+        var bUrl = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = bUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function() { URL.revokeObjectURL(bUrl); }, 15000);
+        if (typeof showToast === 'function') {
+          showToast('Файл успешно скачан: ' + filename, 'success');
+        }
+      });
+    })
+    .catch(function(err) {
+      alert('Ошибка скачивания файла: ' + err.message);
+    });
+}
+window.downloadAuthFile = downloadAuthFile;
 
 // ─── Функции маршрутов ────────────────────────────────────────────────────────

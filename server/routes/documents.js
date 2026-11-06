@@ -668,8 +668,10 @@ router.get('/tasks/:taskId/id-album.pdf', authenticateToken, async (req, res) =>
       diskPath = path.join(UPLOADS_DIR, fileUrl.replace(/^\/uploads\//, ''));
     }
 
+    const safeAscii = 'id_album_' + encodeURIComponent(taskId).replace(/%/g, '_') + '.pdf';
+    const utf8Filename = 'id_album_' + taskId + '.pdf';
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="id_album_${taskId}.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(utf8Filename)}`);
     res.sendFile(diskPath);
   } catch (err) {
     console.error('Error serving ID album PDF:', err);
@@ -683,8 +685,10 @@ router.get('/tasks/:taskId/id-album.xlsx', authenticateToken, async (req, res) =
     const { taskId } = req.params;
     const excelBuffer = await generateIdExcelAlbum(taskId);
 
+    const safeAscii = 'ID_Album_' + encodeURIComponent(taskId).replace(/%/g, '_') + '.xlsx';
+    const utf8Filename = 'ID_Album_' + taskId + '.xlsx';
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="ID_Album_${encodeURIComponent(taskId)}.xlsx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(utf8Filename)}`);
     res.send(excelBuffer);
   } catch (err) {
     console.error('Error generating ID album Excel:', err);

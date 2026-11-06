@@ -15,6 +15,9 @@
 (function() {
   'use strict';
 
+  var formatMoney = window.formatMoney || function(n) { return (typeof fmtMoney === 'function') ? fmtMoney(n) : (Math.round(Number(n)||0).toLocaleString('ru-RU') + ' ₽'); };
+  var formatMoneyNum = window.formatMoneyNum || function(n) { return Math.round(Number(n)||0).toLocaleString('ru-RU'); };
+
   // ─── 1. ХЕЛПЕРЫ И ПОИСК ПРАЙС-ЛИСТА ДЛЯ ЗАЯВКИ (УНИВЕРСАЛЬНЫЙ МОСТ) ─────────
 
   /**

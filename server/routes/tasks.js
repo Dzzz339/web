@@ -756,6 +756,21 @@ const updateFields = [];
       UPDATE tasks SET ${updateFields.join(', ')} WHERE id = $${pIdx}
     `, updateValues);
 
+    // Сквозная синхронизация фактического объема портов с активным договором подряда
+    if (d.fact !== undefined && d.fact !== null && d.fact !== '') {
+      const fPorts = parseInt(d.fact, 10);
+      if (!isNaN(fPorts) && fPorts >= 0) {
+        try {
+          await pool.query(
+            `UPDATE task_subcontracts SET ports_count = $1, updated_at = NOW() WHERE task_id = $2 AND status = 'active'`,
+            [fPorts, req.params.id]
+          );
+        } catch(scErr) {
+          console.error('Error syncing subcontract ports:', scErr.message);
+        }
+      }
+    }
+
     // Синхронизация с таблицей task_subcontracts при смене или снятии подрядчика
     if (hasContractor) {
       if (cleanContractor) {

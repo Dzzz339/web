@@ -184,9 +184,14 @@
 
     // Правая панель 65% — встроенный интерактивный просмотрщик
     var activeDoc = docs.find(function(d){ return d.key === _curActiveDocKey; }) || docs[0] || {};
-    var fileUrl = activeDoc.file_url || data.fullAlbumUrl || ('/api/tasks/' + taskId + '/id-album.pdf');
+    var rawFileUrl = activeDoc.file_url || data.fullAlbumUrl || ('/api/tasks/' + encodeURIComponent(taskId) + '/id-album.pdf');
+    var rawFullAlbumUrl = data.fullAlbumUrl || ('/api/tasks/' + encodeURIComponent(taskId) + '/id-album.pdf');
+
+    var authFileUrl = (typeof window.withAuthToken === 'function') ? window.withAuthToken(rawFileUrl) : rawFileUrl;
+    var authFullAlbumUrl = (typeof window.withAuthToken === 'function') ? window.withAuthToken(rawFullAlbumUrl) : rawFullAlbumUrl;
+
     var isImage = (activeDoc.file_type && ['png', 'jpg', 'jpeg', 'webp'].includes(activeDoc.file_type.toLowerCase())) ||
-                  fileUrl.match(/\.(png|jpg|jpeg|webp)(\?.*)?$/i);
+                  rawFileUrl.match(/\.(png|jpg|jpeg|webp)(\?.*)?$/i);
 
     var rightHtml = '<div style="flex:1;display:flex;flex-direction:column;background:#0f172a;height:100%">' +
       '<div style="padding:10px 16px;background:#1e293b;border-bottom:1px solid #334155;color:#fff;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
@@ -195,15 +200,15 @@
           '<span class="badge b-gray" style="font-size:.68rem">' + esc(activeDoc.code || 'ИД') + '</span>' +
         '</div>' +
         '<div style="display:flex;gap:6px">' +
-          '<button type="button" class="btn btn-xs btn-ghost" style="color:#fff;border:1px solid #475569" onclick="window.open(\'' + esc(data.fullAlbumUrl || fileUrl) + '\', \'_blank\')">📑 Открыть полный Альбом PDF ↗</button>' +
-          '<a href="' + esc(fileUrl) + '" download class="btn btn-xs btn-ghost" style="color:#fff;border:1px solid #475569">📥 Скачать</a>' +
+          '<button type="button" class="btn btn-xs btn-ghost" style="color:#fff;border:1px solid #475569" onclick="window.open(\'' + esc(authFullAlbumUrl) + '\', \'_blank\')">📑 Открыть полный Альбом PDF ↗</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost" style="color:#fff;border:1px solid #475569" onclick="window.downloadAuthFile(\'' + esc(rawFileUrl) + '\', \'' + esc(activeDoc.title || 'document') + '.pdf\')">📥 Скачать</button>' +
         '</div>' +
       '</div>' +
       '<div style="flex:1;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#0f172a">' +
         (isImage ? (
-          '<img src="' + esc(fileUrl) + '" style="max-width:98%;max-height:98%;object-fit:contain;border-radius:6px;box-shadow:0 8px 32px rgba(0,0,0,0.6)">'
+          '<img src="' + esc(authFileUrl) + '" style="max-width:98%;max-height:98%;object-fit:contain;border-radius:6px;box-shadow:0 8px 32px rgba(0,0,0,0.6)">'
         ) : (
-          '<iframe src="' + esc(fileUrl) + '" style="width:100%;height:100%;border:none;background:#525659"></iframe>'
+          '<iframe src="' + esc(authFileUrl) + '" style="width:100%;height:100%;border:none;background:#525659"></iframe>'
         )) +
       '</div>' +
     '</div>';
@@ -364,11 +369,11 @@
 
     api('/tasks/' + encodeURIComponent(taskId) + '/id-album/generate', { method: 'POST' })
       .then(function(res) {
-        if (res.fileUrl) {
-          window.open(res.fileUrl, '_blank');
-          if (typeof showToast === 'function') showToast('Альбом ИД сформирован: ' + res.docNumber, 'success');
-        } else {
-          window.open('/api/tasks/' + encodeURIComponent(taskId) + '/id-album.pdf', '_blank');
+        var targetUrl = res.fileUrl || ('/api/tasks/' + encodeURIComponent(taskId) + '/id-album.pdf');
+        var authUrl = (typeof window.withAuthToken === 'function') ? window.withAuthToken(targetUrl) : targetUrl;
+        window.open(authUrl, '_blank');
+        if (typeof showToast === 'function') {
+          showToast('Альбом ИД сформирован: ' + (res.docNumber || taskId), 'success');
         }
       })
       .catch(function(err) {

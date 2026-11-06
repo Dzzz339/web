@@ -559,34 +559,48 @@ function renderApp() {
     // Игнорируем, если элемент не поддерживает выбор (например, чекбоксы)
   }
 
-  // 2. Отрисовка страницы
-  if      (S.page === 'dashboard' || S.page.startsWith('dash-')) setApp(pageDash());
-  else if (S.page === 'users')     setApp(pageUsers());
-  else if (S.page === 'logs')      setApp(pageLogs());
-  else if (S.page === 'aichat')    go('tasks');
-  else if (S.page === 'chat')      setApp(pageChat());
-  else if (S.page === 'contracts') setApp(pageContracts());
-  else if (S.page === 'sub_contracts') setApp(pageSubContracts());
-  else if (S.page === 'sub_pricelists') setApp(pageSubPricelists());
-  else if (S.page === 'customer_tariffs') setApp(pageCustomerTariffs());
-  else if (S.page === 'templates') renderTemplatesPage();
-  else if (S.page === 'contractors') setApp(pageContractors());
-  else if (S.page === 'supply')    setApp(pageSupply());
-  else if (S.page === 'kanban')    setApp(pageKanban());
-  else if (S.page === 'tasks')     setApp(pageTasks());
-  else if (S.page === 'card') {
-    setApp(pageCard());
-    if (window.renderCardSmrCalculator && S.cardId) window.renderCardSmrCalculator(S.cardId);
-    if (window.renderSmrChecklist && S.cardId) window.renderSmrChecklist(S.cardId);
+  // 2. Отрисовка страницы (с защитой от падений интерфейса)
+  try {
+    if      (S.page === 'dashboard' || S.page.startsWith('dash-')) setApp(pageDash());
+    else if (S.page === 'users')     setApp(pageUsers());
+    else if (S.page === 'logs')      setApp(pageLogs());
+    else if (S.page === 'aichat')    go('tasks');
+    else if (S.page === 'chat')      setApp(pageChat());
+    else if (S.page === 'contracts') setApp(pageContracts());
+    else if (S.page === 'sub_contracts') setApp(pageSubContracts());
+    else if (S.page === 'sub_pricelists') setApp(pageSubPricelists());
+    else if (S.page === 'customer_tariffs') setApp(pageCustomerTariffs());
+    else if (S.page === 'templates') renderTemplatesPage();
+    else if (S.page === 'contractors') setApp(pageContractors());
+    else if (S.page === 'supply')    setApp(pageSupply());
+    else if (S.page === 'kanban')    setApp(pageKanban());
+    else if (S.page === 'tasks')     setApp(pageTasks());
+    else if (S.page === 'card') {
+      setApp(pageCard());
+      if (window.renderCardSmrCalculator && S.cardId) window.renderCardSmrCalculator(S.cardId);
+      if (window.renderSmrChecklist && S.cardId) window.renderSmrChecklist(S.cardId);
+    }
+    else if (S.page === 'data')      setApp(pageData());
+    else if (S.page === 'marches')   setApp(pageMarches());
+    else if (S.page === 'march-detail') setApp(pageMarchDetail());
+    else if (S.page === 'profile')   setApp(pageProfile());
+    else if (S.page === 'help')      setApp(pageHelp());
+  } catch (renderErr) {
+    console.error('Ошибка рендеринга раздела ' + S.page + ':', renderErr);
+    setApp('<div class="banner banner-warn" style="margin:2rem;padding:1.5rem;background:#fef2f2;border:1.5px solid #f87171;border-radius:10px">' +
+      '<h3 style="color:#b91c1c;margin:0 0 .5rem 0">⚠️ Ошибка при открытии раздела «' + (typeof escHtml === 'function' ? escHtml(S.page) : S.page) + '»</h3>' +
+      '<p style="color:#7f1d1d;font-size:.9rem;margin:0 0 1rem 0">Текст ошибки: <b>' + (typeof escHtml === 'function' ? escHtml(renderErr.message) : renderErr.message) + '</b></p>' +
+      '<pre style="background:#fff;padding:.75rem;border-radius:6px;font-size:.78rem;overflow-x:auto;color:#991b1b">' + (renderErr.stack || '') + '</pre>' +
+      '<button class="btn btn-sm btn-primary" onclick="location.reload()" style="margin-top:1rem">🔄 Перезагрузить страницу</button>' +
+    '</div>');
   }
-  else if (S.page === 'data')      setApp(pageData());
-  else if (S.page === 'marches')   setApp(pageMarches());
-  else if (S.page === 'march-detail') setApp(pageMarchDetail());
-  else if (S.page === 'profile')   setApp(pageProfile());
-  else if (S.page === 'help')      setApp(pageHelp());
 
   // 3. Вешаем события заново
-  bindEvents();
+  try {
+    bindEvents();
+  } catch (evErr) {
+    console.warn('[bindEvents] Ошибка привязки событий:', evErr);
+  }
 
   // 3.1. Восстанавливаем скролл канбана (доска и колонки)
   if (S.page === 'kanban' && kanbanScrollState) {

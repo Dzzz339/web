@@ -1,0 +1,354 @@
+{
+  "timestamp": "2026-11-06T11:40:12.270Z",
+  "login": {
+    "hasToken": true,
+    "user": {
+      "id": 2,
+      "username": "nikita",
+      "role": "admin",
+      "fullName": "Администратор",
+      "email": "nikita.baldej@gmail.com",
+      "avatarUrl": null,
+      "assignedRegions": null
+    },
+    "page": "dashboard"
+  },
+  "navigation": {
+    "dashboard": {
+      "success": true,
+      "page": "dashboard",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 7443
+    },
+    "dash-summary": {
+      "success": true,
+      "page": "dash-summary",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 7443
+    },
+    "dash-customers": {
+      "success": true,
+      "page": "dash-customers",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 1419109
+    },
+    "dash-executors": {
+      "success": true,
+      "page": "dash-executors",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 13643
+    },
+    "dash-calendar": {
+      "success": true,
+      "page": "dash-calendar",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 28990
+    },
+    "dash-materials": {
+      "success": true,
+      "page": "dash-materials",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 1241
+    },
+    "dash-payments-in": {
+      "success": true,
+      "page": "dash-payments-in",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 972
+    },
+    "dash-payments-out": {
+      "success": true,
+      "page": "dash-payments-out",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 968
+    },
+    "tasks": {
+      "success": true,
+      "page": "tasks",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 1367921
+    },
+    "kanban": {
+      "success": true,
+      "page": "kanban",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 947120
+    },
+    "marches": {
+      "success": true,
+      "page": "marches",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 2250
+    },
+    "contracts": {
+      "success": true,
+      "page": "contracts",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 8273402
+    },
+    "contractors": {
+      "success": true,
+      "page": "contractors",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 32727
+    },
+    "sub_contracts": {
+      "success": true,
+      "page": "sub_contracts",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 33083
+    },
+    "customer_tariffs": {
+      "success": true,
+      "page": "customer_tariffs",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 122027
+    },
+    "sub_pricelists": {
+      "success": true,
+      "page": "sub_pricelists",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 47225
+    },
+    "templates": {
+      "success": true,
+      "page": "templates",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 32269
+    },
+    "users": {
+      "success": true,
+      "page": "users",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 45339
+    },
+    "data": {
+      "success": true,
+      "page": "data",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 204213
+    },
+    "chat": {
+      "success": true,
+      "page": "chat",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 12007
+    },
+    "logs": {
+      "success": true,
+      "page": "logs",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 37690
+    },
+    "help": {
+      "success": true,
+      "page": "help",
+      "hasCrashBanner": false,
+      "crashText": null,
+      "htmlLength": 24628
+    }
+  },
+  "taskModes": {
+    "customer": {
+      "success": true,
+      "activeMode": "customer",
+      "statsExpanded": true,
+      "hasCrashBanner": false,
+      "crashText": null
+    },
+    "contractor": {
+      "success": true,
+      "activeMode": "contractor",
+      "statsExpanded": true,
+      "hasCrashBanner": false,
+      "crashText": null
+    },
+    "supply": {
+      "success": true,
+      "activeMode": "supply",
+      "statsExpanded": true,
+      "hasCrashBanner": false,
+      "crashText": null
+    },
+    "docs": {
+      "success": true,
+      "activeMode": "docs",
+      "statsExpanded": true,
+      "hasCrashBanner": false,
+      "crashText": null
+    },
+    "finance": {
+      "success": true,
+      "activeMode": "finance",
+      "statsExpanded": true,
+      "hasCrashBanner": false,
+      "crashText": null
+    },
+    "filters_toggle": {
+      "openAfterToggle": true,
+      "filterPanelInDom": true
+    }
+  },
+  "cardTabs": {
+    "main": {
+      "success": true,
+      "activeTab": "main",
+      "paneVisible": true,
+      "paneContentLength": 250180,
+      "hasCrashBanner": false,
+      "crashText": null
+    },
+    "items": {
+      "success": true,
+      "activeTab": "items",
+      "paneVisible": true,
+      "paneContentLength": 53111,
+      "hasCrashBanner": false,
+      "crashText": null
+    },
+    "supply": {
+      "success": true,
+      "activeTab": "supply",
+      "paneVisible": true,
+      "paneContentLength": 16291,
+      "hasCrashBanner": false,
+      "crashText": null
+    },
+    "files": {
+      "success": true,
+      "activeTab": "files",
+      "paneVisible": true,
+      "paneContentLength": 22833,
+      "hasCrashBanner": false,
+      "crashText": null
+    },
+    "finance": {
+      "success": true,
+      "activeTab": "finance",
+      "paneVisible": true,
+      "paneContentLength": 18304,
+      "hasCrashBanner": false,
+      "crashText": null
+    },
+    "chat": {
+      "success": true,
+      "activeTab": "chat",
+      "paneVisible": true,
+      "paneContentLength": 2111,
+      "hasCrashBanner": false,
+      "crashText": null
+    },
+    "history": {
+      "success": true,
+      "activeTab": "history",
+      "paneVisible": true,
+      "paneContentLength": 462,
+      "hasCrashBanner": false,
+      "crashText": null
+    }
+  },
+  "modalsAndButtons": {
+    "cable_journal_wizard": {
+      "success": true,
+      "modalId": "_kj_generator_modal",
+      "modalVisible": true
+    },
+    "tmc_components": {
+      "hasTmcTable": true,
+      "rowsCount": 5,
+      "hasMargin7PctButton": true,
+      "hasQuickCatalogPicker": true,
+      "hasSaveFactFn": true
+    },
+    "catalog_picker_test": {
+      "success": true,
+      "modalId": "_quick_catalog_picker_modal",
+      "pickerModalRendered": true
+    },
+    "id_moderation_modal": {
+      "success": true,
+      "modalVisible": true,
+      "hasIframe": true,
+      "iframeSrc": "/api/tasks/СЗБ-0349-32/id-album.pdf?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6Miwicm9sZSI6ImFkbWluIiwiZnVsbE5hbWUiOiLQkNC00LzQuNC90LjRgdGC0YDQsNGC0L7RgCIsImNvbnRyYWN0b3JJZCI6bnVsbCwiYXNzaWduZWRSZWdpb25zIjpudWxsLCJpYXQiOjE3OTM5NjUyMTMsImV4cCI6MTc5NDU3MDAxM30.IPA45w1iJ_eUB_Cb7ZfVFU2vE6jXQoxCsVC0hNtouLE#page=3",
+      "hasImg": false,
+      "imgSrc": null,
+      "docChecklistCount": 5,
+      "hasTokenInIframeSrc": true
+    },
+    "album_downloads": {
+      "xlsx": {
+        "url": "/api/tasks/%D0%A1%D0%97%D0%91-0349-32/id-album.xlsx",
+        "status": 200,
+        "statusText": "OK",
+        "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "contentDisposition": "attachment; filename=\"ID_Album__D0_A1_D0_97_D0_91-0349-32.xlsx\"; filename*=UTF-8''ID_Album_%D0%A1%D0%97%D0%91-0349-32.xlsx",
+        "sizeBytes": 209270
+      },
+      "pdf": {
+        "url": "/api/tasks/%D0%A1%D0%97%D0%91-0349-32/id-album.pdf",
+        "status": 200,
+        "statusText": "OK",
+        "contentType": "application/pdf",
+        "contentDisposition": "inline; filename=\"id_album__D0_A1_D0_97_D0_91-0349-32.pdf\"; filename*=UTF-8''id_album_%D0%A1%D0%97%D0%91-0349-32.pdf",
+        "sizeBytes": 226720
+      }
+    }
+  },
+  "documentActions": {
+    "order_subcontract": {
+      "success": true,
+      "modalId": "_doc_editor_modal",
+      "editorOpened": true
+    },
+    "completion_act": {
+      "success": true,
+      "modalId": "_doc_editor_modal",
+      "editorOpened": true
+    },
+    "invoice": {
+      "success": true,
+      "modalId": "_doc_editor_modal",
+      "editorOpened": true
+    },
+    "tmc_act": {
+      "success": true,
+      "modalId": "_doc_editor_modal",
+      "editorOpened": true
+    },
+    "access_letter": {
+      "success": true,
+      "modalId": "_access_letter_modal",
+      "modalOpened": true
+    },
+    "upload_task_doc": {
+      "success": true,
+      "modalId": "_upload_doc_modal",
+      "modalOpened": true
+    }
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "networkErrors": [],
+  "failedRequests": []
+}

@@ -475,6 +475,7 @@ router.get('/tasks/:id/materials', authenticateToken, async (req, res) => {
         COALESCE(tm.unit, m.unit, 'шт') AS unit,
         tm.plan_qty,
         tm.fact_qty,
+        COALESCE(tm.price, m.price_default, 0) AS price,
         COALESCE(tm.price, m.price_default, 0) AS price_default,
         COALESCE(tm.total_price, ROUND(COALESCE(tm.fact_qty, tm.plan_qty, 0) * COALESCE(tm.price, m.price_default, 0))) AS total_price,
         tm.mass_kg,
@@ -658,50 +659,71 @@ router.post('/tasks/:id/materials/save-fact', authenticateToken, async (req, res
       for (const item of items) {
         const qty = parseFloat(item.fact_qty !== undefined ? item.fact_qty : item.quantity);
         const supplier = (item.supplier !== undefined && item.supplier !== null) ? String(item.supplier).trim() : null;
+        const price = (item.price !== undefined && item.price !== null && item.price !== '') ? parseFloat(item.price) : null;
+        const totalPrice = (item.total_price !== undefined && item.total_price !== null && item.total_price !== '')
+          ? parseFloat(item.total_price)
+          : (!isNaN(qty) && price !== null && !isNaN(price) ? Math.round(qty * price) : null);
         const itemId = item.id ? parseInt(item.id, 10) : null;
+        const materialId = item.material_id ? parseInt(item.material_id, 10) : null;
+        const itemName = (item.item_name || item.name) ? String(item.item_name || item.name).trim() : null;
 
         if (itemId) {
-          if (!isNaN(qty) && supplier !== null) {
+          const sets = [];
+          const vals = [];
+          let idx = 1;
+
+          if (!isNaN(qty)) { sets.push(`fact_qty = $${idx++}`); vals.push(qty); }
+          if (supplier !== null) { sets.push(`supplier = $${idx++}`); vals.push(supplier); }
+          if (price !== null && !isNaN(price)) { sets.push(`price = $${idx++}`); vals.push(price); }
+          if (totalPrice !== null && !isNaN(totalPrice)) { sets.push(`total_price = $${idx++}`); vals.push(totalPrice); }
+          if (materialId) { sets.push(`material_id = $${idx++}`); vals.push(materialId); }
+          if (itemName) { sets.push(`item_name = $${idx++}`); vals.push(itemName); }
+
+          if (sets.length > 0) {
+            vals.push(itemId);
+            vals.push(taskId);
             await client.query(`
               UPDATE task_materials 
-              SET fact_qty = $1, supplier = $2
-              WHERE id = $3 AND task_id = $4
-            `, [qty, supplier, itemId, taskId]);
-          } else if (!isNaN(qty)) {
-            await client.query(`
-              UPDATE task_materials 
-              SET fact_qty = $1 
-              WHERE id = $2 AND task_id = $3
-            `, [qty, itemId, taskId]);
-          } else if (supplier !== null) {
-            await client.query(`
-              UPDATE task_materials 
-              SET supplier = $1 
-              WHERE id = $2 AND task_id = $3
-            `, [supplier, itemId, taskId]);
+              SET ${sets.join(', ')}
+              WHERE id = $${idx++} AND task_id = $${idx++}
+            `, vals);
           }
-        } else if (item.material_id) {
-          if (!isNaN(qty) && supplier !== null) {
+        } else if (materialId) {
+          const sets = [];
+          const vals = [];
+          let idx = 1;
+
+          if (!isNaN(qty)) { sets.push(`fact_qty = $${idx++}`); vals.push(qty); }
+          if (supplier !== null) { sets.push(`supplier = $${idx++}`); vals.push(supplier); }
+          if (price !== null && !isNaN(price)) { sets.push(`price = $${idx++}`); vals.push(price); }
+          if (totalPrice !== null && !isNaN(totalPrice)) { sets.push(`total_price = $${idx++}`); vals.push(totalPrice); }
+          if (itemName) { sets.push(`item_name = $${idx++}`); vals.push(itemName); }
+
+          if (sets.length > 0) {
+            vals.push(taskId);
+            vals.push(materialId);
             await client.query(`
               UPDATE task_materials 
-              SET fact_qty = $1, supplier = $4
-              WHERE task_id = $2 AND material_id = $3
-            `, [qty, taskId, item.material_id, supplier]);
-          } else if (!isNaN(qty)) {
-            await client.query(`
-              UPDATE task_materials 
-              SET fact_qty = $1 
-              WHERE task_id = $2 AND material_id = $3
-            `, [qty, taskId, item.material_id]);
-          } else if (supplier !== null) {
-            await client.query(`
-              UPDATE task_materials 
-              SET supplier = $1 
-              WHERE task_id = $2 AND material_id = $3
-            `, [supplier, taskId, item.material_id]);
+              SET ${sets.join(', ')}
+              WHERE task_id = $${idx++} AND material_id = $${idx++}
+            `, vals);
           }
         }
       }
+    }
+
+    // Автоматически пересчитываем общую сумму ТМЦ по заявке (tasks.tmc)
+    const { rows: tmcSum } = await client.query(`
+      SELECT COALESCE(SUM(
+        COALESCE(tm.total_price, ROUND(COALESCE(tm.fact_qty, tm.plan_qty, 0) * COALESCE(tm.price, m.price_default, 0)))
+      ), 0) AS total_tmc
+      FROM task_materials tm
+      LEFT JOIN materials m ON tm.material_id = m.id
+      WHERE tm.task_id = $1
+    `, [taskId]);
+    
+    if (tmcSum.length > 0) {
+      await client.query('UPDATE tasks SET tmc = $1, updated_at = NOW() WHERE id = $2', [tmcSum[0].total_tmc, taskId]);
     }
 
     await client.query('COMMIT');
@@ -711,6 +733,58 @@ router.post('/tasks/:id/materials/save-fact', authenticateToken, async (req, res
     res.status(500).json({ error: e.message });
   } finally {
     client.release();
+  }
+});
+
+// POST /api/tasks/:id/materials/:itemId/bind (Быстрая привязка позиции каталога)
+router.post('/tasks/:id/materials/:itemId/bind', authenticateToken, async (req, res) => {
+  try {
+    const taskId = req.params.id;
+    const itemId = parseInt(req.params.itemId, 10);
+    const { material_id } = req.body;
+
+    if (!material_id) return res.status(400).json({ error: 'material_id обязателен' });
+
+    const { rows: mRows } = await pool.query('SELECT * FROM materials WHERE id = $1', [material_id]);
+    if (!mRows.length) return res.status(404).json({ error: 'Позиция номенклатуры не найдена' });
+    const mat = mRows[0];
+
+    const { rows: tmRows } = await pool.query('SELECT * FROM task_materials WHERE id = $1 AND task_id = $2', [itemId, taskId]);
+    if (!tmRows.length) return res.status(404).json({ error: 'Строка спецификации не найдена' });
+    const tm = tmRows[0];
+
+    const qty = parseFloat(tm.fact_qty != null ? tm.fact_qty : tm.plan_qty) || 0;
+    const price = parseFloat(mat.price_default) || parseFloat(tm.price) || 0;
+    const total = Math.round(qty * price);
+
+    const { rows: updated } = await pool.query(`
+      UPDATE task_materials SET
+        material_id = $1,
+        item_name = $2,
+        article = $3,
+        unit = $4,
+        price = $5,
+        total_price = $6
+      WHERE id = $7 AND task_id = $8
+      RETURNING *
+    `, [mat.id, mat.name, mat.code, mat.unit || 'шт', price, total, itemId, taskId]);
+
+    // Обновляем сумму tmc в tasks
+    const { rows: tmcSum } = await pool.query(`
+      SELECT COALESCE(SUM(
+        COALESCE(tm.total_price, ROUND(COALESCE(tm.fact_qty, tm.plan_qty, 0) * COALESCE(tm.price, m.price_default, 0)))
+      ), 0) AS total_tmc
+      FROM task_materials tm
+      LEFT JOIN materials m ON tm.material_id = m.id
+      WHERE tm.task_id = $1
+    `, [taskId]);
+    if (tmcSum.length > 0) {
+      await pool.query('UPDATE tasks SET tmc = $1, updated_at = NOW() WHERE id = $2', [tmcSum[0].total_tmc, taskId]);
+    }
+
+    res.json({ success: true, item: updated[0] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
