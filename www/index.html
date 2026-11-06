@@ -43,6 +43,17 @@
 
   <!-- ОСНОВНАЯ ОБЛАСТЬ -->
   <div class="content-wrapper">
+    <!-- Имитация верхней системной строки телефона (Status Bar) для предпросмотра -->
+    <div class="sim-phone-header" id="sim-phone-header">
+      <span class="sim-time" id="sim-clock">14:52</span>
+      <div class="sim-notch"></div>
+      <div class="sim-indicators">
+        <span style="font-size:11px; font-weight:700;">5G</span>
+        <span style="font-size:11px;">📶</span>
+        <span style="font-size:11px;">🔋100%</span>
+      </div>
+    </div>
+
     <header class="topbar" id="topbar">
       <div class="topbar-left">
         <button type="button" class="topbar-menu-btn" onclick="toggleMobileSidebar(true)" title="Меню">☰</button>
@@ -87,6 +98,30 @@
     </div>
 
     <main class="main" id="app"></main>
+
+    <!-- МОБИЛЬНЫЙ НАВБАР ВНИЗУ ЭКРАНА СМАРТФОНА (BOTTOM NAVIGATION) -->
+    <nav class="mobile-bottom-nav" id="mobile-bottom-nav">
+      <button type="button" class="mob-nav-item active" onclick="go('dashboard')" data-tab="dashboard">
+        <span class="mob-nav-icon">📊</span>
+        <span class="mob-nav-label">Обзор</span>
+      </button>
+      <button type="button" class="mob-nav-item" onclick="go('tasks')" data-tab="tasks">
+        <span class="mob-nav-icon">📋</span>
+        <span class="mob-nav-label">Заявки</span>
+      </button>
+      <button type="button" class="mob-nav-item" onclick="go('supply')" data-tab="supply">
+        <span class="mob-nav-icon">📦</span>
+        <span class="mob-nav-label">Склад</span>
+      </button>
+      <button type="button" class="mob-nav-item" onclick="go('chat')" data-tab="chat">
+        <span class="mob-nav-icon">💬</span>
+        <span class="mob-nav-label">AI Чат</span>
+      </button>
+      <button type="button" class="mob-nav-item" onclick="go('profile')" data-tab="profile">
+        <span class="mob-nav-icon">👤</span>
+        <span class="mob-nav-label">Профиль</span>
+      </button>
+    </nav>
   </div>
 </div>
 

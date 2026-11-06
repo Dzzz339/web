@@ -94,6 +94,15 @@ function go(page) {
   toggleMobileSidebar(false);
   renderNav();
   renderApp();
+  
+  // Подсветка активной вкладки в мобильном навбаре
+  var navItems = document.querySelectorAll('.mob-nav-item');
+  if (navItems.length) {
+    navItems.forEach(function(item) {
+      var tab = item.getAttribute('data-tab');
+      item.classList.toggle('active', tab === page || (tab === 'dashboard' && page.startsWith('dash-')));
+    });
+  }
 }
 
 // ─── SIDEBAR & NAV ───────────────────────────────────────────────────────────
