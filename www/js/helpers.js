@@ -19,6 +19,53 @@ function showToast(msg, type) {
   }, 3500);
 }
 
+function openMaxMessenger(phone, directUrl) {
+  if (directUrl && String(directUrl).trim()) {
+    var url = String(directUrl).trim();
+    var fullUrl = (url.indexOf('://') !== -1) ? url : ('https://' + url);
+    window.open(fullUrl, '_blank', 'noopener,noreferrer');
+    return;
+  }
+  if (!phone) return;
+  var digits = String(phone).replace(/\D/g, '');
+  var formatted = String(phone).trim();
+  if (digits.length === 11 && (digits.charAt(0) === '7' || digits.charAt(0) === '8')) {
+    formatted = '+7 ' + digits.slice(1, 4) + ' ' + digits.slice(4, 7) + '-' + digits.slice(7, 9) + '-' + digits.slice(9, 11);
+  } else if (digits.length === 10) {
+    formatted = '+7 ' + digits.slice(0, 3) + ' ' + digits.slice(3, 6) + '-' + digits.slice(6, 8) + '-' + digits.slice(8, 10);
+  }
+
+  var textToCopy = formatted || phone;
+  var copied = false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(textToCopy);
+      copied = true;
+    }
+  } catch (e) {}
+
+  if (!copied) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = textToCopy;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      ta.style.top = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (e) {}
+  }
+
+  if (typeof showToast === 'function') {
+    showToast('Номер ' + textToCopy + ' скопирован для поиска в МАКС', 'info');
+  }
+
+  window.open('https://web.max.ru', '_blank', 'noopener,noreferrer');
+}
+window.openMaxMessenger = openMaxMessenger;
 
 function levenshtein(a, b) {
   var tmp;
@@ -79,6 +126,57 @@ function fmtMoney(n) {
   if (!n) return '—';
   return Math.round(n).toLocaleString('ru-RU') + ' ₽';
 }
+function fmtMoneyShort(n) {
+  if (!n) return '0 ₽';
+  var abs = Math.abs(n);
+  var sign = n < 0 ? '-' : '';
+  if (abs >= 1000000000) {
+    return sign + (abs / 1000000000).toFixed(1).replace(/\.0$/, '') + ' млрд ₽';
+  }
+  if (abs >= 1000000) {
+    return sign + (abs / 1000000).toFixed(1).replace(/\.0$/, '') + ' млн ₽';
+  }
+  if (abs >= 10000) {
+    return sign + Math.round(abs / 1000).toLocaleString('ru-RU') + ' тыс. ₽';
+  }
+  return fmtMoney(n);
+}
+function safeDateIso(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return '';
+    return val.toISOString().slice(0, 10);
+  }
+  var s = String(val).trim();
+  if (!s) return '';
+  if (s.length >= 10 && s[4] === '-' && s[7] === '-') {
+    return s.slice(0, 10);
+  }
+  var ruM = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
+  if (ruM) {
+    var dd = parseInt(ruM[1], 10), mm = parseInt(ruM[2], 10), yy = parseInt(ruM[3], 10);
+    if (yy < 100) yy += 2000;
+    if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+      return yy + '-' + String(mm).padStart(2, '0') + '-' + String(dd).padStart(2, '0');
+    }
+  }
+  var d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    try {
+      return d.toISOString().slice(0, 10);
+    } catch(e) {}
+  }
+  return s.slice(0, 10);
+}
+
+function safeDateRu(val) {
+  var iso = safeDateIso(val);
+  return (iso && iso.includes('-')) ? iso.split('-').reverse().join('.') : (val || '');
+}
+
+window.safeDateIso = safeDateIso;
+window.safeDateRu = safeDateRu;
+
 function bar(done, total, green) {
   var p = pct(done, total);
   return '<div class="prog"><div class="prog-fill' + (green?' g':'') + '" style="width:' + p + '%"></div></div>';
@@ -132,8 +230,8 @@ var ID_ROLES = {
 var ID_STEPS = [
   { step: 0, title: 'Монтаж начат', role: 'manager', toStage: 1, action: 'Начать монтаж' },
   { step: 1, title: 'Объект готов', role: 'manager', toStage: 2, action: 'Завершить монтаж' },
-  { step: 2, title: 'Материалы переданы', role: 'manager', toStage: 3, action: 'Передать материалы' },
-  { step: 3, title: 'Взял ИД в работу', role: 'designer', toStage: 4, action: 'Взять ИД в работу' },
+  { step: 2, title: 'Материалы переданы', role: 'manager', toStage: 3, action: 'Передать на закрытие СМР' },
+  { step: 3, title: 'Взял закрытие СМР в работу', role: 'designer', toStage: 4, action: 'Взять в работу: Закрытие СМР' },
   { step: 4, title: 'ИД готова', role: 'designer', toStage: 5, action: 'Завершить ИД' },
   { step: 5, title: 'ИД отправлена Заказчику', role: 'dispatch', toStage: 6, action: 'Отправить Заказчику' },
   { step: 6, title: 'Заказчик принял ИД', role: 'dispatch', toStage: 7, action: 'Заказчик принял ИД' },
@@ -142,10 +240,10 @@ var ID_STEPS = [
 ];
 
 var ID_STAGES = [
-  { num: 0, name: 'Новая', icon: '📥', role: 'Менеджер' },
+  { num: 0, name: 'Новая', icon: '📥', role: 'Специалист ТО' },
   { num: 1, name: 'В монтаже', icon: '🔧', role: 'Менеджер' },
   { num: 2, name: 'Ждёт материалов', icon: '📷', role: 'Менеджер' },
-  { num: 3, name: 'Очередь ИД', icon: '📦', role: 'Проектировщик' },
+  { num: 3, name: 'Закрытие СМР', icon: '🏁', role: 'Проектировщик' },
   { num: 4, name: 'Проектирование', icon: '📐', role: 'Проектировщик' },
   { num: 5, name: 'Готова к отправке', icon: '✉️', role: 'Отдел отправки' },
   { num: 6, name: 'Ждёт приёмки Заказчиком', icon: '⏳', role: 'Отдел отправки' },
@@ -193,20 +291,77 @@ function macroStatusBadge(code) {
 function changeTaskMacroStatus(taskId, newStatus, callback) {
   if (!newStatus) return;
   var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
+  var targetId = (typeof S !== 'undefined' && S.page === 'kanban') ? ('kcard_' + taskId) : ('task_row_' + taskId);
+  if (window.savePageScroll) window.savePageScroll(targetId);
+
+  var targetStatus = 'progress';
+  var ns = String(newStatus).toLowerCase();
+  if (['paid', 'billing', 'accepted', 'done'].includes(ns)) targetStatus = 'done';
+  else if (ns === 'new') targetStatus = (t && t.contractor) ? 'progress' : 'pending';
+
   return api('/tasks/' + encodeURIComponent(taskId), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ macroStatus: newStatus })
+    body: JSON.stringify({ macroStatus: newStatus, status: targetStatus })
   })
   .then(function() {
-    if (t) t.macroStatus = newStatus;
+    if (t) {
+      t.macroStatus = newStatus;
+      t.status = targetStatus;
+    }
     if (typeof callback === 'function') callback(null, newStatus);
-    else renderApp();
+    else {
+      renderApp();
+      if (window.restorePageScroll) window.restorePageScroll(targetId);
+    }
   })
   .catch(function(err) {
     alert('Ошибка смены статуса: ' + (err.message || err));
     if (typeof callback === 'function') callback(err);
   });
+}
+
+function canUserEditField(user, key) {
+  if (!user || !user.role) return false;
+  var r = String(user.role).trim().toLowerCase();
+
+  // 1. Руководство и Администраторы имеют полный доступ
+  if (r === 'admin' || r === 'director') return true;
+
+  // 2. Полевые монтажники и подрядчики
+  // Могут менять факт выполнения, дату завершения/выхода, статус СМР и доступы/обследование
+  if (r === 'installer' || r === 'worker' || r === 'contractor') {
+    return ['fact', 'dataVyhoda', 'smrActualEndDate', 'statusSmr', 'obsledovanie', 'dostup', 'priemka'].includes(key);
+  }
+
+  // 3. Проектировщик (ИД)
+  if (r === 'designer') {
+    return ['materialsLink', 'idLink', 'supplierIdUploaded', 'techLink', 'comment'].includes(key);
+  }
+
+  // 4. Логист / Снабжение
+  if (r === 'logistics') {
+    return ['tmc', 'comment', 'supplierOrderSigned', 'dostup'].includes(key);
+  }
+
+  // 5. Бухгалтерия / Финансы
+  if (r === 'accountant') {
+    return ['edoNumber', 'invoiceInfo', 'vedoStatus', 'oplata', 'comment'].includes(key);
+  }
+
+  // 6. Менеджер проекта и Специалист ТО
+  if (r === 'manager' || r === 'to_engineer' || r === 'logistics') {
+    var lockedForManager = ['amount', 'pricePerUnit'];
+    return !lockedForManager.includes(key);
+  }
+
+  return false;
+}
+
+function isWorkerRole(role) {
+  if (!role) return false;
+  var r = String(role).trim().toLowerCase();
+  return r === 'worker' || r === 'installer' || r === 'contractor';
 }
 
 function hasUserRole(user) {
@@ -230,81 +385,7 @@ function canUserUndo(user, task) {
   return hasUserRole(user, 'admin', 'leader', 'manager', 'dispatch', 'payments');
 }
 
-function advanceIdStep(taskId) {
-  var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
-  if (!t) return;
-  var s = Number(t.stageNum != null ? t.stageNum : 0);
-  var stepDef = ID_STEPS.find(function(x){ return x.step === s; });
-  if (!stepDef) return alert('Заявка уже на финальном этапе');
-  if (!canUserStep(S.user, t)) {
-    return alert('Действие «' + stepDef.action + '» доступно только для роли: ' + stepDef.role + ' (или admin/leader)');
-  }
-  if (s === 6 && Number(t.openRemarksCount || 0) > 0) {
-    return alert('Нельзя принять ИД: у объекта есть открытые замечания Заказчика (' + t.openRemarksCount + ' шт.). Сначала устраните замечания!');
-  }
-
-  var link = '';
-  if (s === 2) {
-    link = prompt('Укажите ссылку на фотоматериалы / папку с исходными данными:', t.materialsLink || t.techLink || '');
-    if (link === null) return;
-    if (!link.trim()) return alert('Для передачи материалов ссылка обязательна!');
-  } else if (s === 4) {
-    link = prompt('Укажите ссылку на готовую ИД (папка или альбом):', t.idLink || '');
-    if (link === null) return;
-    if (!link.trim()) return alert('Для завершения ИД ссылка на документацию обязательна!');
-  }
-
-  api('/tasks/' + encodeURIComponent(taskId) + '/advance', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ link: link ? link.trim() : undefined, version: t.version })
-  })
-  .then(function(res){
-    if (res.error) return alert('Ошибка: ' + res.error);
-    if (res.task) {
-      Object.assign(t, res.task);
-    }
-    renderApp();
-    if (S.page === 'card' && S.cardId === taskId) {
-      refreshRemarksList(taskId);
-      refreshTaskItemsList(taskId);
-    }
-  })
-  .catch(function(err){
-    alert('Ошибка продвижения этапа: ' + (err.message || err));
-  });
-}
-
-function undoIdStep(taskId) {
-  var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
-  if (!t) return;
-  if (!canUserUndo(S.user, t)) {
-    return alert('Откат этапа доступен только ответственным ролям или администратору');
-  }
-  var reason = prompt('Укажите причину отката этапа назад:');
-  if (reason === null) return;
-  if (!reason.trim()) return alert('Причина отката обязательна!');
-
-  api('/tasks/' + encodeURIComponent(taskId) + '/undo', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reason: reason.trim(), version: t.version })
-  })
-  .then(function(res){
-    if (res.error) return alert('Ошибка: ' + res.error);
-    if (res.task) {
-      Object.assign(t, res.task);
-    }
-    renderApp();
-    if (S.page === 'card' && S.cardId === taskId) {
-      refreshRemarksList(taskId);
-    }
-  })
-  .catch(function(err){
-    alert('Ошибка отката: ' + (err.message || err));
-  });
-}
-
+function advanceIdStep(taskId) { console.warn('advanceIdStep is deprecated'); }
 function refreshRemarksList(taskId) {
   var box = document.getElementById('remarksList');
   if (!box) return;
@@ -397,17 +478,37 @@ function resolveRemarkPrompt(taskId, remarkId) {
   });
 }
 function getTaskFinance(t) {
+  var amount = Number(t.amount) || 0;
   var unitPrice = Number(t.pricePerUnit) || 0;
   var fact = Number(t.fact) || 0;
   var inOrder = Number(t.inOrder) || 0;
-  var work = Math.round(fact > 0 ? (fact * unitPrice) : (inOrder * unitPrice));
-  var transport = Number(t.distanceKm) || 0; 
+  var ports = fact > 0 ? fact : inOrder;
+  
+  var realKm = (t.realDistanceKm != null && t.realDistanceKm > 0) ? Number(t.realDistanceKm) : ((t.real_distance_km != null && t.real_distance_km > 0) ? Number(t.real_distance_km) : null);
+  var rawTransport = Number(t.distanceKm || t.distance_km) || 0;
+  var rate = Number(t.kmRate || t.km_rate) || 70;
+  
+  // Определяем реальную сумму компенсации дороги в рублях:
+  var transport = rawTransport;
+  // Если значение rawTransport ошибочно совпадает с расстоянием (например 180 км и 180 руб), рассчитываем реальную сумму компенсации
+  if (realKm && (transport === realKm || transport <= 1000) && realKm <= 1000) {
+    transport = realKm * 2 * rate;
+  }
+  
   var extras = Number(t.extras) || 0;
   var tmc = Number(t.tmc) || 0;
+  var work = Math.round(ports > 0 ? (ports * unitPrice) : 0);
   
-  var total = (work + transport + extras + tmc);
-  if (total === 0 && Number(t.amount) > 0) {
-    total = Number(t.amount);
+  // Сумма договора от Заказчика (amount) является мастер-суммой:
+  var total = amount > 0 ? amount : (work + transport + extras + tmc);
+  
+  // Если ставка за единицу не была задана напрямую, рассчитываем её от суммы договора:
+  if (unitPrice === 0 && amount > 0 && ports > 0) {
+    var netWork = Math.max(0, amount - transport - extras - tmc);
+    unitPrice = Math.round(netWork / ports);
+    work = netWork;
+  } else if (work === 0 && amount > 0) {
+    work = Math.max(0, amount - transport - extras - tmc);
   }
   
   return {
@@ -428,18 +529,66 @@ function getTaskContractorFinance(t) {
   var transport = 0;
   var unitPrice = 0;
   var total = 0;
+  var ports = Number(t.fact) || Number(t.inOrder) || 0;
 
-  // 1. Если есть назначенные субподряды с зафиксированной стоимостью
+  // 1. Индивидуальные договорные условия по конкретной заявке (доп. заказ к договору)
+  var raw = t.rawData || {};
+  var customRate = Number(raw.subRate || raw.sub_rate || t.contractor_rate) || 0;
+  var smrSpecTotal = (raw.smrTaxDetails && Number(raw.smrTaxDetails.totalWithTax)) || Number(raw.smr_amount) || Number(t.smr_amount) || 0;
+  var customTotal = Number(raw.subTotal || raw.sub_total || t.contractor_total || t.price_agreed || smrSpecTotal) || 0;
+  var customDist = Number(raw.subDist || raw.sub_dist || t.contractor_transport) || 0;
+  var customExtras = Number(raw.subExtras || raw.sub_extras) || 0;
+
+  if (Array.isArray(raw.extraExpensesList) && raw.extraExpensesList.length > 0) {
+    var subExps = raw.extraExpensesList.filter(function(x){ return x.payer_mode === 'through_contractor'; });
+    var expExtras = subExps.filter(function(x){ return x.category === 'dop'; }).reduce(function(a,b){ return a + (Number(b.amount)||0); }, 0);
+    var expDist = subExps.filter(function(x){ return x.category === 'transport'; }).reduce(function(a,b){ return a + (Number(b.amount)||0); }, 0);
+    if (customExtras === 0 && expExtras > 0) customExtras = expExtras;
+    if (customDist === 0 && expDist > 0) customDist = expDist;
+  }
+
+  if (customRate > 0 || customTotal > 0) {
+    if (customRate > 0) {
+      unitPrice = customRate;
+      var count = ports > 0 ? ports : 1;
+      work = count * customRate;
+      transport = customDist;
+      total = work + transport + customExtras;
+    } else {
+      total = customTotal;
+      transport = customDist;
+      work = Math.max(0, total - transport - customExtras);
+      unitPrice = ports > 0 ? Math.round(work / ports) : work;
+    }
+    return {
+      unitPrice: unitPrice,
+      work: work,
+      transport: transport,
+      total: total,
+      isPaid: (String(t.oplata || '')).toLowerCase().includes('оплач'),
+      isCustom: true
+    };
+  }
+
+  // 2. Если есть назначенные субподряды с зафиксированной стоимостью (task_subcontracts)
   if (t.subcontracts && Array.isArray(t.subcontracts) && t.subcontracts.length > 0) {
     t.subcontracts.forEach(function(s) {
       total += Number(s.price_agreed || 0);
     });
     work = total;
-    var count = Number(t.fact) || Number(t.inOrder) || 1;
+    var count = ports || 1;
     unitPrice = count > 0 ? Math.round(work / count) : work;
+    return {
+      unitPrice: unitPrice,
+      work: work,
+      transport: transport,
+      total: total,
+      isPaid: (String(t.oplata || '')).toLowerCase().includes('оплач')
+    };
   }
-  // 2. Если есть спецификация с заполненными ставками подрядчика
-  else if (items && items.length > 0 && items.some(function(it){ return (Number(it.price_contractor || it.priceContractor) || 0) > 0; })) {
+
+  // 3. Если есть спецификация с заполненными ставками подрядчика
+  if (items && items.length > 0 && items.some(function(it){ return (Number(it.price_contractor || it.priceContractor) || 0) > 0; })) {
     items.forEach(function(it) {
       var q = Number(it.quantity) || 1;
       var pr = Number(it.price_contractor || it.priceContractor) || 0;
@@ -449,49 +598,67 @@ function getTaskContractorFinance(t) {
       transport += Number(it.distance_km || it.distanceKm) || 0;
     });
     total = work + transport;
+    return {
+      unitPrice: unitPrice,
+      work: work,
+      transport: transport,
+      total: total,
+      isPaid: (String(t.oplata || '')).toLowerCase().includes('оплач')
+    };
   } 
-  // 3. Если есть явная сумма оплаты из исходного реестра (t.oplata)
-  else {
-    var parsedOplata = 0;
-    if (t.oplata) {
-      var clean = String(t.oplata).replace(/[^\d.,]/g, '').replace(',', '.');
-      parsedOplata = parseFloat(clean) || 0;
-    }
-    // Защита: в поле oplata у некоторых заявок лежат 10-значные номера платежек (напр. 4503903976).
-    // Реальная сумма выплаты монтажнику по заявке не может превышать 500 тыс. руб. или сумму договора.
-    var taskAmt = Number(t.amount || 0);
-    if (parsedOplata > 0 && parsedOplata < 500000 && (!taskAmt || parsedOplata <= taskAmt * 1.5)) {
-      total = parsedOplata;
-      var count = Number(t.fact) || Number(t.inOrder) || 1;
-      unitPrice = count > 0 ? Math.round(total / count) : total;
-      work = total;
-    } else {
-      // 4. Нормативный расчет ставки субподряда по регламенту П0–П10
-      var ports = Number(t.fact) || Number(t.inOrder) || 0;
-      var custFin = getTaskFinance(t);
-      
-      if (ports > 0) {
-        unitPrice = ports >= 3 ? 3750 : (ports === 2 ? 4250 : 5000);
-        work = ports * unitPrice;
-      } else if (custFin.work > 0) {
-        work = Math.round(custFin.work * 0.58);
-        unitPrice = work;
-      }
-      
-      if (custFin.transport > 0) {
-        transport = Math.round(custFin.transport * 0.75);
-      }
-      
-      total = work + transport;
-    }
+
+  // 4. Если есть явная сумма оплаты из исходного реестра (t.oplata)
+  var parsedOplata = 0;
+  if (t.oplata) {
+    var clean = String(t.oplata).replace(/[^\d.,]/g, '').replace(',', '.');
+    parsedOplata = parseFloat(clean) || 0;
+  }
+  var taskAmt = Number(t.amount || 0);
+  if (parsedOplata > 0 && parsedOplata < 500000 && (!taskAmt || parsedOplata <= taskAmt * 1.5)) {
+    total = parsedOplata;
+    var count = ports || 1;
+    unitPrice = count > 0 ? Math.round(total / count) : total;
+    work = total;
+    return {
+      unitPrice: unitPrice,
+      work: work,
+      transport: transport,
+      total: total,
+      isPaid: (String(t.oplata || '')).toLowerCase().includes('оплач')
+    };
   }
 
+  // 5. Нормативный типовой расчет: применяется ТОЛЬКО для Сбербанка и ТОЛЬКО на малых объемах (до 10 портов)
+  var custName = String(t.customer || '').toLowerCase();
+  var isSber = custName.includes('сбер') || custName.includes('sber');
+
+  if (t.contractor && isSber && ports > 0 && ports <= 10) {
+    unitPrice = ports >= 3 ? 3750 : (ports === 2 ? 4250 : 5000);
+    work = ports * unitPrice;
+    var custFin = getTaskFinance(t);
+    if (custFin.transport > 0) {
+      transport = Math.round(custFin.transport * 0.75);
+    }
+    total = work + transport;
+    return {
+      unitPrice: unitPrice,
+      work: work,
+      transport: transport,
+      total: total,
+      isPaid: false,
+      isDefaultSber: true
+    };
+  }
+
+  // 6. Для всех остальных заказчиков (Судебный Департамент, разовые договоры, тендеры) или крупных объемов:
+  // Если условия индивидуально не согласованы — возвращаем 0 (Не оценено), не рисуя фиктивные миллионы!
   return {
-    unitPrice: unitPrice,
-    work: work,
-    transport: transport,
-    total: total,
-    isPaid: (String(t.oplata || '')).toLowerCase().includes('оплач')
+    unitPrice: 0,
+    work: 0,
+    transport: 0,
+    total: 0,
+    isPaid: false,
+    unassigned: true
   };
 }
 function prBadge(p) {
@@ -537,6 +704,88 @@ function finRow(label, val) {
 function escHtml(s) {
   if (!s) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function cleanContractNumber(num) {
+  if (!num) return '';
+  return String(num).replace(/^[№\s#]+/, '').trim();
+}
+
+/**
+ * Определение параметров последней загрузки реестра / пакета импорта
+ */
+function getLatestImportMetrics(tasks) {
+  var maxBatchId = 0;
+  var maxImportTime = 0;
+  if (Array.isArray(tasks)) {
+    for (var i = 0; i < tasks.length; i++) {
+      var t = tasks[i];
+      if (t.importBatchId && t.importBatchId > maxBatchId) {
+        maxBatchId = t.importBatchId;
+      }
+      var d = t.lastImportedAt || t.firstImportedAt || t.createdAt;
+      if (d) {
+        var ms = new Date(d).getTime();
+        if (!isNaN(ms) && ms > maxImportTime) {
+          maxImportTime = ms;
+        }
+      }
+    }
+  }
+  return {
+    maxBatchId: maxBatchId > 0 ? maxBatchId : null,
+    maxImportTime: maxImportTime > 0 ? maxImportTime : null
+  };
+}
+
+/**
+ * Проверка соответствия заявки выбранному этапу регламента
+ * Поддерживает этап "1. Новые (дата последней загрузки)", отбирая заявки,
+ * которые только поступили в базу с последним импортом, независимо от даты в Excel.
+ */
+function isTaskMatchingStage(t, stageKey, latestInfo) {
+  if (!stageKey || stageKey === 'all') return true;
+
+  if (stageKey === 'new') {
+    // 1. По ID пакета последней загрузки
+    if (latestInfo && latestInfo.maxBatchId && t.importBatchId === latestInfo.maxBatchId) {
+      if (t.status !== 'cancelled' && t.status !== 'paid' && t.status !== 'done') {
+        return true;
+      }
+    }
+
+    // 2. По временному окну последней загрузки (сессия импорта)
+    if (latestInfo && latestInfo.maxImportTime) {
+      var tTime = new Date(t.lastImportedAt || t.firstImportedAt || t.createdAt || 0).getTime();
+      if (!isNaN(tTime) && Math.abs(latestInfo.maxImportTime - tTime) <= 2 * 3600 * 1000) {
+        if (t.status !== 'cancelled' && t.status !== 'paid' && t.status !== 'done') {
+          return true;
+        }
+      }
+    }
+
+    // 3. Либо явный статус 'new' / П0
+    var ms = String(t.macroStatus || '').toLowerCase().trim();
+    if (ms === 'new') {
+      return true;
+    }
+
+    return false;
+  }
+
+  var ms = String(t.macroStatus || '').toLowerCase().trim();
+  if (stageKey === 'review') return ms === 'review';
+  if (stageKey === 'rejected') return ms === 'rejected' || ms === 'cancelled' || t.status === 'cancelled';
+  if (stageKey === 'in_progress') return ms === 'in_progress';
+  if (stageKey === 'assigned') return ms === 'assigned';
+  if (stageKey === 'install') return ms === 'install' || t.stage === 'install';
+  if (stageKey === 'smr_done') return ms === 'smr_done' || ms === 'correction';
+  if (stageKey === 'id_in_progress') return ms === 'id_in_progress';
+  if (stageKey === 'accepted') return ms === 'accepted' || ms === 'id_delivered' || t.stage === 'acceptance';
+  if (stageKey === 'billing') return ms === 'billing';
+  if (stageKey === 'paid') return ms === 'paid' || ms === 'archived' || t.status === 'paid' || t.stage === 'payment';
+
+  return ms === stageKey || t.stage === stageKey;
 }
 
 // ─── Карта маршрута ──────────────────────────────────────────────────────────
@@ -843,5 +1092,24 @@ function showConfirm(msg, onYes) {
   document.getElementById('_myes').onclick = function() { modal.remove(); onYes(); };
   setTimeout(function(){ var b = document.getElementById('_myes'); if(b) b.focus(); }, 60);
 }
+
+// Исправление кракозябр (Latin-1 mojibake -> UTF-8 русский текст)
+function fixMojibake(str) {
+  if (!str || typeof str !== 'string') return '';
+  try {
+    if (/[\u00C0-\u00FF]/.test(str)) {
+      var bytes = new Uint8Array(str.length);
+      for (var i = 0; i < str.length; i++) {
+        bytes[i] = str.charCodeAt(i) & 0xff;
+      }
+      var decoded = new TextDecoder('utf-8').decode(bytes);
+      if (!decoded.includes('\uFFFD') && /[\u0400-\u04FF]/.test(decoded)) {
+        return decoded;
+      }
+    }
+  } catch(e) {}
+  return str;
+}
+window.fixMojibake = fixMojibake;
 
 // ─── Функции маршрутов ────────────────────────────────────────────────────────

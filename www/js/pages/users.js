@@ -30,15 +30,15 @@ function pageUsers() {
       </div>
 
       <!-- ВЕРХНИЕ ВКЛАДКИ -->
-      <div style="display:flex; gap:8px; border-bottom:1.5px solid var(--border); padding-bottom:6px; margin-bottom:1.25rem; flex-wrap:wrap">
-        <button class="btn btn-sm ${S.teamActiveTab === 'users' ? '' : 'btn-ghost'}" onclick="setTeamTab('users')">
-          👥 Сотрудники (8 ролей) <span id="badge_users_count" style="opacity:.8">(${S.users ? S.users.length : '...'})</span>
+      <div class="swipe-carousel-row" style="border-bottom:1.5px solid var(--border); padding-bottom:6px; margin-bottom:1.25rem">
+        <button class="btn btn-sm carousel-card ${S.teamActiveTab === 'users' ? '' : 'btn-ghost'}" onclick="setTeamTab('users')">
+          <span class="btn-svg-icon">${ICONS.users}</span><span>Сотрудники (8 ролей)</span> <span id="badge_users_count" style="opacity:.8">(${S.users ? S.users.length : '...'})</span>
         </button>
-        <button class="btn btn-sm ${S.teamActiveTab === 'poa' ? '' : 'btn-ghost'}" onclick="setTeamTab('poa')">
-          📜 Реестр доверенностей <span id="badge_poa_count" style="opacity:.8">(${S.powersOfAttorney ? S.powersOfAttorney.length : '...'})</span>
+        <button class="btn btn-sm carousel-card ${S.teamActiveTab === 'poa' ? '' : 'btn-ghost'}" onclick="setTeamTab('poa')">
+          <span class="btn-svg-icon">${ICONS.scroll}</span><span>Реестр доверенностей</span> <span id="badge_poa_count" style="opacity:.8">(${S.powersOfAttorney ? S.powersOfAttorney.length : '...'})</span>
         </button>
-        <button class="btn btn-sm ${S.teamActiveTab === 'specialists' ? '' : 'btn-ghost'}" onclick="setTeamTab('specialists')">
-          👷 База полевых монтажников <span id="badge_specs_count" style="opacity:.8">(${S.specialists ? S.specialists.length : '...'})</span>
+        <button class="btn btn-sm carousel-card ${S.teamActiveTab === 'specialists' ? '' : 'btn-ghost'}" onclick="setTeamTab('specialists')">
+          <span class="btn-svg-icon">${ICONS.worker}</span><span>База полевых монтажников</span> <span id="badge_specs_count" style="opacity:.8">(${S.specialists ? S.specialists.length : '...'})</span>
         </button>
       </div>
     </div>
@@ -81,8 +81,12 @@ function renderTeamActiveTabContent() {
     if (topActions) {
       topActions.innerHTML = `
         <input type="file" id="input_upload_poa" accept=".xlsx,.xls" style="display:none" onchange="uploadPoaFile(this)">
-        <button class="btn btn-sm" style="background:#fff;border:1.5px solid var(--accent);color:var(--accent);font-weight:700;margin-right:8px" onclick="document.getElementById('input_upload_poa').click()">📤 Загрузить доверенности (.xlsx)</button>
-        <button class="btn btn-sm" onclick="openAddPoaModal()">+ Добавить доверенность</button>
+        <input type="file" id="input_upload_poa_pdf" accept=".pdf,.png,.jpg,.jpeg" style="display:none" onchange="uploadAndParsePoaFile(this)">
+        <button class="btn btn-sm btn-ghost" style="border:1px solid var(--border);margin-right:6px" onclick="downloadPoaTemplateExcel()" title="Скачать шаблон Excel">📄 Шаблон Excel</button>
+        <button class="btn btn-sm btn-ghost" style="border:1px solid var(--border);margin-right:6px" onclick="exportPoaToExcel()" title="Экспорт реестра в Excel">📤 Экспорт (.xlsx)</button>
+        <button class="btn btn-sm" style="background:#fff;border:1.5px solid var(--accent);color:var(--accent);font-weight:700;margin-right:6px" onclick="document.getElementById('input_upload_poa').click()" title="Импорт реестра из Excel">📥 Загрузить реестр (.xlsx)</button>
+        <button class="btn btn-sm" style="background:#eff6ff;border:1.5px solid #3b82f6;color:#1d4ed8;font-weight:700;margin-right:8px" onclick="document.getElementById('input_upload_poa_pdf').click()" title="Авторазбор скана или PDF бланка доверенности М-2">📑 Разбор скана / PDF</button>
+        <button class="btn btn-sm btn-primary" onclick="openAddPoaModal()">+ Добавить доверенность</button>
       `;
     }
     renderPoaView(container);
@@ -109,7 +113,7 @@ function renderSpecialistsView(container) {
         <div style="font-size:3rem; margin-bottom:12px">👷📋</div>
         <h2 style="margin:0 0 10px 0; font-size:1.3rem">База специалистов пуста</h2>
         <p style="color:var(--text-2); max-width:560px; margin:0 auto 1.5rem auto; font-size:.9rem; line-height:1.5">
-          Загрузите официальный документ Сбербанка (Word <b>.docx</b>) или таблицу Excel (<b>.xlsx</b>) с данными монтажников и паспортами. Система автоматически распознает ФИО, паспорта, телефоны и сформирует справочник.
+          Загрузите официальный документ (Word <b>.docx</b>) или таблицу Excel (<b>.xlsx</b>) с данными монтажников и паспортами. Система автоматически распознает ФИО, паспорта, телефоны и сформирует справочник.
         </p>
         <button class="btn btn-lg" onclick="document.getElementById('input_upload_specialists').click()" style="background:var(--accent); color:#fff; font-weight:700; padding:.8rem 2rem; font-size:1rem; border-radius:8px; cursor:pointer">
           📤 Выбрать файл для загрузки (.docx / .xlsx)
@@ -129,65 +133,24 @@ function renderSpecialistsView(container) {
     return matchName || matchPhone || matchPass || matchOrg;
   });
 
-  var rows = list.map(function(s) {
-    var poaBadge = '<span class="badge b-gray" style="font-size:.7rem">Нет</span>';
-    if (s.active_poas && s.active_poas.length > 0) {
-      var latest = s.active_poas[0];
-      var dStr = latest.valid_until ? new Date(latest.valid_until).toLocaleDateString('ru') : '';
-      poaBadge = `<span class="badge b-green" style="font-size:.72rem" title="${escHtml(latest.contractor || '')}">№ ${escHtml(latest.number)}${dStr ? ' (до ' + dStr + ')' : ''}</span>`;
-      if (s.active_poas.length > 1) {
-        poaBadge += ` <span style="font-size:.68rem; color:var(--text-3)">+${s.active_poas.length - 1}</span>`;
-      }
-    }
-
-    var passDisplay = '—';
-    if (s.passport_raw) {
-      passDisplay = `<div style="font-size:.8rem; line-height:1.25">${escHtml(s.passport_raw)}</div>`;
-    } else if (s.passport_series_number) {
-      passDisplay = `<div style="font-weight:600; font-size:.8rem">${escHtml(s.passport_series_number)}</div>`;
-      if (s.passport_issued_by) passDisplay += `<div style="font-size:.72rem; color:var(--text-3)">${escHtml(s.passport_issued_by)}</div>`;
-    }
-
-    return `
-      <tr style="border-bottom: 1px solid var(--border)">
-        <td style="padding: 10px 12px; font-weight:600">
-          <div>${escHtml(s.full_name)}</div>
-          <div style="font-size:.73rem; color:var(--text-3); font-weight:normal">${escHtml(s.position || 'Монтажник СКС')}</div>
-        </td>
-        <td style="padding: 10px 12px">
-          <div style="font-weight:600; font-size:.82rem">${escHtml(s.organization || 'ООО "Ультима"')}</div>
-          ${s.contractor_name ? '<div style="font-size:.72rem; color:var(--text-3)">' + escHtml(s.contractor_name) + '</div>' : ''}
-        </td>
-        <td style="padding: 10px 12px; white-space:nowrap; font-size:.85rem">
-          ${s.phone ? `<a href="tel:${escHtml(s.phone)}" style="color:var(--text); text-decoration:none">📞 ${escHtml(s.phone)}</a>` : '<span style="color:var(--text-3)">—</span>'}
-        </td>
-        <td style="padding: 10px 12px; max-width:320px">
-          ${passDisplay}
-        </td>
-        <td style="padding: 10px 12px">
-          ${poaBadge}
-        </td>
-        <td style="padding: 10px 12px; text-align:right; white-space:nowrap">
-          <button class="btn btn-sm btn-ghost" onclick="editSpecialist(${s.id})" title="Редактировать">✏️</button>
-          <button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteSpecialist(${s.id})" title="Удалить">✕</button>
-        </td>
-      </tr>
-    `;
-  }).join('');
+  var rows = list.map(renderSpecialistRowHtml).join('');
 
   container.innerHTML = `
     <!-- ФИЛЬТРЫ И ПОИСК -->
     <div class="card p mb" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap">
-      <div style="display:flex; gap:10px; align-items:center; flex:1; min-width:260px">
-        <input type="text" id="spec_search_input" value="${escHtml(S.specSearch)}" placeholder="🔍 Поиск по ФИО, телефону, паспорту или компании..." 
-               style="flex:1; padding:8px 12px; border:1px solid var(--border); border-radius:8px"
+      <div style="position:relative; flex:1; min-width:260px">
+        <input type="text" id="spec_search_input" value="${escHtml(S.specSearch || '')}" placeholder="🔍 Поиск по ФИО, телефону, паспорту или компании..." 
+               style="width:100%; padding:8px 32px 8px 12px; border:1px solid var(--border); border-radius:8px"
                oninput="onSpecSearch(this.value)">
+        <button id="spec_search_clear_btn" onclick="clearSpecSearch()" 
+                style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; color:var(--text-3); font-size:1.1rem; display:${S.specSearch ? 'block' : 'none'}" 
+                title="Очистить поиск">&times;</button>
       </div>
       <label style="display:flex; align-items:center; gap:6px; font-size:.85rem; font-weight:600; cursor:pointer; user-select:none">
         <input type="checkbox" ${withPass ? 'checked' : ''} onchange="onSpecPassportToggle(this.checked)">
         Только с паспортными данными (${(S.specialists||[]).filter(x => x.passport_raw && x.passport_raw.trim() !== '').length})
       </label>
-      <div style="font-size:.82rem; color:var(--text-3)">Показано: <b>${list.length}</b> из ${(S.specialists||[]).length}</div>
+      <div id="spec_count_badge" style="font-size:.82rem; color:var(--text-3)">Показано: <b>${list.length}</b> из ${(S.specialists||[]).length}</div>
     </div>
 
     <!-- ТАБЛИЦА СПЕЦИАЛИСТОВ -->
@@ -203,7 +166,7 @@ function renderSpecialistsView(container) {
             <th style="width:80px"></th>
           </tr>
         </thead>
-        <tbody>
+        <tbody id="spec_table_body">
           ${rows || '<tr><td colspan="6" style="text-align:center; padding:3rem; color:var(--text-3)">Специалисты не найдены</td></tr>'}
         </tbody>
       </table>
@@ -211,16 +174,125 @@ function renderSpecialistsView(container) {
   `;
 }
 
+function renderSpecialistRowHtml(s) {
+  var poaBadge = '<span class="badge b-gray" style="font-size:.7rem">Нет</span>';
+  if (s.active_poas && s.active_poas.length > 0) {
+    var latest = s.active_poas[0];
+    var dStr = latest.valid_until ? new Date(latest.valid_until).toLocaleDateString('ru') : '';
+    poaBadge = `<span class="badge b-green" style="font-size:.72rem" title="${escHtml(latest.contractor || '')}">№ ${escHtml(latest.number)}${dStr ? ' (до ' + dStr + ')' : ''}</span>`;
+    if (s.active_poas.length > 1) {
+      poaBadge += ` <span style="font-size:.68rem; color:var(--text-3)">+${s.active_poas.length - 1}</span>`;
+    }
+  }
+
+  var empBadge = '';
+  var empType = s.employment_type || 'subcontractor_worker';
+  if (empType === 'staff') {
+    empBadge = '<span class="badge b-green" style="font-size:.68rem">🏢 Штатный</span>';
+  } else if (empType === 'self_employed') {
+    empBadge = '<span class="badge b-blue" style="font-size:.68rem">💼 Самозанятый (СЗ)</span>';
+  } else if (empType === 'sole_proprietor') {
+    empBadge = '<span class="badge b-yellow" style="font-size:.68rem">🏛️ ИП</span>';
+  } else {
+    empBadge = '<span class="badge b-gray" style="font-size:.68rem">👷 Монтажник субподрядчика</span>';
+  }
+
+  var autoDisplay = s.auto_number 
+    ? `<div style="font-size:.73rem; color:var(--text-2); margin-top:3px" title="Автотранспорт для допуска">🚗 <b>${escHtml(s.auto_number)}</b></div>` 
+    : '';
+
+  var passDisplay = '—';
+  if (s.passport_raw) {
+    passDisplay = `<div style="font-size:.8rem; line-height:1.25">${escHtml(s.passport_raw)}</div>`;
+  } else if (s.passport_series_number) {
+    passDisplay = `<div style="font-weight:600; font-size:.8rem">${escHtml(s.passport_series_number)}</div>`;
+    if (s.passport_issued_by) passDisplay += `<div style="font-size:.72rem; color:var(--text-3)">${escHtml(s.passport_issued_by)}</div>`;
+  }
+
+  var basisDisplay = s.acting_basis
+    ? `<div style="font-size:.7rem; color:var(--text-3); margin-top:2px">Осн: ${escHtml(s.acting_basis)}</div>`
+    : '';
+
+  return `
+    <tr id="spec_row_${s.id}" data-spec-id="${s.id}" style="border-bottom: 1px solid var(--border); transition: background .2s">
+      <td style="padding: 10px 12px; font-weight:600">
+        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap">
+          <span>${escHtml(s.full_name)}</span>
+          ${empBadge}
+        </div>
+        <div style="font-size:.73rem; color:var(--text-3); font-weight:normal; margin-top:2px">
+          ${escHtml(s.position || 'Монтажник СКС')}
+        </div>
+        ${basisDisplay}
+        ${autoDisplay}
+      </td>
+      <td style="padding: 10px 12px">
+        <div style="font-weight:600; font-size:.82rem">${escHtml(s.organization || 'ООО "Ультима"')}</div>
+        ${s.contractor_name ? '<div style="font-size:.72rem; color:var(--text-3)">' + escHtml(s.contractor_name) + '</div>' : ''}
+      </td>
+      <td style="padding: 10px 12px; white-space:nowrap; font-size:.85rem">
+        ${s.phone ? `<a href="tel:${escHtml(s.phone)}" style="color:var(--text); text-decoration:none">📞 ${escHtml(s.phone)}</a>` : '<span style="color:var(--text-3)">—</span>'}
+      </td>
+      <td style="padding: 10px 12px; max-width:320px">
+        ${passDisplay}
+      </td>
+      <td style="padding: 10px 12px">
+        ${poaBadge}
+      </td>
+      <td style="padding: 10px 12px; text-align:right; white-space:nowrap">
+        <button class="btn btn-sm btn-ghost" onclick="editSpecialist(${s.id})" title="Редактировать">✏️</button>
+        <button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteSpecialist(${s.id})" title="Удалить">✕</button>
+      </td>
+    </tr>
+  `;
+}
+
+function updateSpecialistsList() {
+  var tbody = document.getElementById('spec_table_body');
+  var badge = document.getElementById('spec_count_badge');
+  if (tbody) {
+    var q = (S.specSearch || '').toLowerCase();
+    var withPass = S.specWithPassport;
+    var list = (S.specialists || []).filter(function(s) {
+      if (withPass && (!s.passport_raw || s.passport_raw.trim() === '')) return false;
+      if (!q) return true;
+      var matchName = (s.full_name || '').toLowerCase().includes(q);
+      var matchPhone = (s.phone || '').toLowerCase().includes(q);
+      var matchPass = (s.passport_raw || '').toLowerCase().includes(q) || (s.passport_series_number || '').toLowerCase().includes(q);
+      var matchOrg = (s.organization || '').toLowerCase().includes(q);
+      return matchName || matchPhone || matchPass || matchOrg;
+    });
+    tbody.innerHTML = list.map(renderSpecialistRowHtml).join('') || '<tr><td colspan="6" style="text-align:center; padding:3rem; color:var(--text-3)">Специалисты не найдены</td></tr>';
+    if (badge) badge.innerHTML = 'Показано: <b>' + list.length + '</b> из ' + (S.specialists||[]).length;
+  } else {
+    var container = document.getElementById('team_tab_content');
+    if (container) renderSpecialistsView(container);
+  }
+}
+
+var _specSearchTimer = null;
 function onSpecSearch(val) {
   S.specSearch = val;
-  var container = document.getElementById('team_tab_content');
-  if (container) renderSpecialistsView(container);
+  var btn = document.getElementById('spec_search_clear_btn');
+  if (btn) btn.style.display = val ? 'block' : 'none';
+  clearTimeout(_specSearchTimer);
+  _specSearchTimer = setTimeout(function() {
+    updateSpecialistsList();
+  }, 100);
+}
+
+function clearSpecSearch() {
+  S.specSearch = '';
+  var inp = document.getElementById('spec_search_input');
+  if (inp) { inp.value = ''; inp.focus(); }
+  var btn = document.getElementById('spec_search_clear_btn');
+  if (btn) btn.style.display = 'none';
+  updateSpecialistsList();
 }
 
 function onSpecPassportToggle(checked) {
   S.specWithPassport = checked;
-  var container = document.getElementById('team_tab_content');
-  if (container) renderSpecialistsView(container);
+  updateSpecialistsList();
 }
 
 function openAddSpecialistModal() {
@@ -263,6 +335,9 @@ function openAddSpecialistModal() {
           if (inputs.organization && s.organization) inputs.organization.value = s.organization;
           if (inputs.phone && s.phone) inputs.phone.value = s.phone;
           if (inputs.contractorId && s.contractor_id != null) inputs.contractorId.value = String(s.contractor_id);
+          if (inputs.employmentType && s.employment_type) inputs.employmentType.value = s.employment_type;
+          if (inputs.autoNumber && s.auto_number) inputs.autoNumber.value = s.auto_number;
+          if (inputs.actingBasis && s.acting_basis) inputs.actingBasis.value = s.acting_basis;
           if (inputs.passportRaw && s.passport_raw) inputs.passportRaw.value = s.passport_raw;
           if (inputs.passportSeriesNumber && s.passport_series_number) inputs.passportSeriesNumber.value = s.passport_series_number;
         },
@@ -271,12 +346,21 @@ function openAddSpecialistModal() {
         }
       }
     },
+    { key: 'employmentType', label: 'Форма занятости / Статус', type: 'select', value: 'subcontractor_worker', options: [
+        { value: 'subcontractor_worker', label: '👷 Монтажник субподрядчика' },
+        { value: 'staff', label: '🏢 Штатный сотрудник' },
+        { value: 'self_employed', label: '💼 Самозанятый (СЗ)' },
+        { value: 'sole_proprietor', label: '🏛️ Индивидуальный предприниматель (ИП)' }
+      ]
+    },
     { key: 'position', label: 'Должность', value: 'Монтажник СКС' },
     { key: 'organization', label: 'Организация', value: 'ООО "Ультима"' },
     { key: 'phone', label: 'Номер телефона', placeholder: '+7 (999) 000-00-00' },
     { key: 'contractorId', label: 'Привязка к контрагенту (если субподряд)', type: 'select', value: '', options:
         [{ value: '', label: '— Собственный сотрудник (ООО Ультима) —' }].concat((S.contractors || []).map(function(c) { return { value: c.id, label: c.name_short }; }))
     },
+    { key: 'autoNumber', label: 'Автотранспорт для допуска (марка, гос. номер)', placeholder: 'например: Газель А123ВС77' },
+    { key: 'actingBasis', label: 'Основание полномочий (Устав / Доверенность)', placeholder: 'например: Устава / Доверенность №1 от 15.01.2025' },
     { key: 'passportRaw', label: 'Полные паспортные данные (для допуска в Word)', type: 'textarea', placeholder: 'Серия, номер, кем и когда выдан, код подразделения' },
     { key: 'passportSeriesNumber', label: 'Серия и Номер паспорта (кратко)', placeholder: '5014 252604' }
   ], function(d) {
@@ -290,6 +374,9 @@ function openAddSpecialistModal() {
         organization: d.organization,
         phone: d.phone,
         contractor_id: d.contractorId || null,
+        employment_type: d.employmentType,
+        auto_number: d.autoNumber,
+        acting_basis: d.actingBasis,
         passport_raw: d.passportRaw,
         passport_series_number: d.passportSeriesNumber
       })
@@ -306,15 +393,25 @@ function openAddSpecialistModal() {
 function editSpecialist(id) {
   var s = (S.specialists || []).find(x => x.id === id);
   if (!s) return;
+  if (window.savePageScroll) window.savePageScroll('spec_row_' + id);
 
   showModal('✏️ Редактировать специалиста #' + id, [
     { key: 'fullName', label: 'ФИО специалиста', value: s.full_name, required: true },
+    { key: 'employmentType', label: 'Форма занятости / Статус', type: 'select', value: s.employment_type || 'subcontractor_worker', options: [
+        { value: 'subcontractor_worker', label: '👷 Монтажник субподрядчика' },
+        { value: 'staff', label: '🏢 Штатный сотрудник' },
+        { value: 'self_employed', label: '💼 Самозанятый (СЗ)' },
+        { value: 'sole_proprietor', label: '🏛️ Индивидуальный предприниматель (ИП)' }
+      ]
+    },
     { key: 'position', label: 'Должность', value: s.position || 'Монтажник СКС' },
     { key: 'organization', label: 'Организация', value: s.organization || 'ООО "Ультима"' },
     { key: 'phone', label: 'Номер телефона', value: s.phone || '' },
     { key: 'contractorId', label: 'Привязка к контрагенту (если субподряд)', type: 'select', value: s.contractor_id || '', options:
         [{ value: '', label: '— Собственный сотрудник (ООО Ультима) —' }].concat((S.contractors || []).map(function(c) { return { value: c.id, label: c.name_short }; }))
     },
+    { key: 'autoNumber', label: 'Автотранспорт для допуска (марка, гос. номер)', value: s.auto_number || '', placeholder: 'например: Газель А123ВС77' },
+    { key: 'actingBasis', label: 'Основание полномочий (Устав / Доверенность)', value: s.acting_basis || '', placeholder: 'например: Устава / Доверенность №1 от 15.01.2025' },
     { key: 'passportRaw', label: 'Полные паспортные данные (для письма на допуск)', type: 'textarea', value: s.passport_raw || '' },
     { key: 'passportSeriesNumber', label: 'Серия и Номер паспорта', value: s.passport_series_number || '' }
   ], function(d) {
@@ -327,6 +424,9 @@ function editSpecialist(id) {
         organization: d.organization,
         phone: d.phone,
         contractor_id: d.contractorId || null,
+        employment_type: d.employmentType,
+        auto_number: d.autoNumber,
+        acting_basis: d.actingBasis,
         passport_raw: d.passportRaw,
         passport_series_number: d.passportSeriesNumber
       })
@@ -335,6 +435,7 @@ function editSpecialist(id) {
       api('/specialists').then(function(specs) {
         S.specialists = specs;
         renderTeamActiveTabContent();
+        if (window.restorePageScroll) window.restorePageScroll('spec_row_' + id);
       });
     });
   });
@@ -356,7 +457,7 @@ function deleteSpecialist(id) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function renderPoaView(container) {
-  var q = (S.poaSearch || '').toLowerCase();
+  var q = String(S.poaSearch || '').trim().toLowerCase();
   var filterStatus = S.poaFilterStatus || 'all';
 
   if ((!S.powersOfAttorney || S.powersOfAttorney.length === 0) && !q && filterStatus === 'all') {
@@ -378,67 +479,40 @@ function renderPoaView(container) {
   var list = (S.powersOfAttorney || []).filter(function(p) {
     if (filterStatus !== 'all' && p.computed_status !== filterStatus) return false;
     if (!q) return true;
-    var matchNum = (p.number || '').toLowerCase().includes(q);
-    var matchPerson = (p.person_name || '').toLowerCase().includes(q);
-    var matchContr = (p.contractor_name || '').toLowerCase().includes(q);
-    var matchOrg = (p.organization || '').toLowerCase().includes(q);
-    return matchNum || matchPerson || matchContr || matchOrg;
+    var matchNum = String(p.number || '').toLowerCase().includes(q);
+    var matchPerson = String(p.person_name || p.specialist_name || '').toLowerCase().includes(q);
+    var matchContr = String(p.contractor_name || '').toLowerCase().includes(q);
+    var matchOrg = String(p.organization || '').toLowerCase().includes(q);
+    var matchPhone = String(p.specialist_phone || '').toLowerCase().includes(q);
+    return matchNum || matchPerson || matchContr || matchOrg || matchPhone;
   });
 
   var countActive = (S.powersOfAttorney || []).filter(x => x.computed_status === 'active').length;
   var countExpiring = (S.powersOfAttorney || []).filter(x => x.computed_status === 'expiring').length;
   var countExpired = (S.powersOfAttorney || []).filter(x => x.computed_status === 'expired').length;
 
-  var rows = list.map(function(p) {
-    var statusBadge = '';
-    if (p.computed_status === 'expired') {
-      statusBadge = '<span class="badge b-red">🔴 Просрочена</span>';
-    } else if (p.computed_status === 'expiring') {
-      statusBadge = '<span class="badge b-yellow">🟡 Истекает</span>';
-    } else {
-      statusBadge = '<span class="badge b-green">🟢 Действует</span>';
-    }
-
-    var issueDateStr = p.issue_date ? new Date(p.issue_date).toLocaleDateString('ru') : '—';
-    var validUntilStr = p.valid_until ? new Date(p.valid_until).toLocaleDateString('ru') : 'Бессрочно';
-
-    return `
-      <tr style="border-bottom: 1px solid var(--border)">
-        <td style="padding: 10px 12px; font-weight:700">
-          <div style="font-family:monospace; font-size:.92rem">${escHtml(p.number)}</div>
-        </td>
-        <td style="padding: 10px 12px; font-size:.85rem; color:var(--text-2)">${issueDateStr}</td>
-        <td style="padding: 10px 12px; font-weight:600; font-size:.85rem">
-          <div>${validUntilStr}</div>
-          <div style="margin-top:2px">${statusBadge}</div>
-        </td>
-        <td style="padding: 10px 12px">
-          <div style="font-weight:600">${escHtml(p.person_name)}</div>
-          ${p.specialist_phone ? '<div style="font-size:.72rem; color:var(--text-3)">📞 ' + escHtml(p.specialist_phone) + '</div>' : ''}
-        </td>
-        <td style="padding: 10px 12px; font-size:.85rem">${escHtml(p.organization || 'ООО "Ультима"')}</td>
-        <td style="padding: 10px 12px; font-weight:600; font-size:.85rem">${escHtml(p.contractor_name || '—')}</td>
-        <td style="padding: 10px 12px; text-align:right; white-space:nowrap">
-          <button class="btn btn-sm btn-ghost" onclick="editPoa(${p.id})" title="Редактировать">✏️</button>
-          <button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deletePoa(${p.id})" title="Удалить">✕</button>
-        </td>
-      </tr>
-    `;
-  }).join('');
+  var rows = list.map(renderPoaRowHtml).join('');
+  var countBadgeHtml = q 
+    ? `<div id="poa_count_badge" style="font-size:.76rem;color:var(--text-3);margin-top:4px">Найдено: <b>${list.length}</b> из ${(S.powersOfAttorney||[]).length}</div>`
+    : `<div id="poa_count_badge" style="font-size:.76rem;color:var(--text-3);margin-top:4px">Всего в реестре: <b>${(S.powersOfAttorney||[]).length}</b></div>`;
 
   container.innerHTML = `
     <!-- ПАНЕЛЬ ФИЛЬТРОВ И СТАТУСОВ -->
     <div class="card p mb" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap">
       <div style="display:flex; gap:8px; flex-wrap:wrap">
-        <button class="btn btn-sm ${filterStatus === 'all' ? '' : 'btn-ghost'}" onclick="setPoaFilter('all')">Все (${(S.powersOfAttorney||[]).length})</button>
-        <button class="btn btn-sm ${filterStatus === 'active' ? '' : 'btn-ghost'}" onclick="setPoaFilter('active')" style="color:var(--green)">🟢 Действующие (${countActive})</button>
-        <button class="btn btn-sm ${filterStatus === 'expiring' ? '' : 'btn-ghost'}" onclick="setPoaFilter('expiring')" style="color:var(--orange)">🟡 Истекают (<30 дн) (${countExpiring})</button>
-        <button class="btn btn-sm ${filterStatus === 'expired' ? '' : 'btn-ghost'}" onclick="setPoaFilter('expired')" style="color:var(--red)">🔴 Просроченные (${countExpired})</button>
+        <button class="btn btn-sm ${filterStatus === 'all' ? '' : 'btn-ghost'}" data-poa-filter="all" onclick="setPoaFilter('all')">Все (${(S.powersOfAttorney||[]).length})</button>
+        <button class="btn btn-sm ${filterStatus === 'active' ? '' : 'btn-ghost'}" data-poa-filter="active" onclick="setPoaFilter('active')" style="color:var(--green)">🟢 Действующие (${countActive})</button>
+        <button class="btn btn-sm ${filterStatus === 'expiring' ? '' : 'btn-ghost'}" data-poa-filter="expiring" onclick="setPoaFilter('expiring')" style="color:var(--orange)">🟡 Истекают (<30 дн) (${countExpiring})</button>
+        <button class="btn btn-sm ${filterStatus === 'expired' ? '' : 'btn-ghost'}" data-poa-filter="expired" onclick="setPoaFilter('expired')" style="color:var(--red)">🔴 Просроченные (${countExpired})</button>
       </div>
-      <div style="flex:1; min-width:240px; max-width:360px">
-        <input type="text" id="poa_search_input" value="${escHtml(S.poaSearch)}" placeholder="🔍 Поиск по номеру, ФИО или контрагенту..." 
-               style="width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:8px"
+      <div style="position:relative; flex:1; min-width:240px; max-width:360px">
+        <input type="text" id="poa_search_input" value="${escHtml(S.poaSearch || '')}" placeholder="🔍 Поиск по номеру, ФИО или контрагенту..." 
+               style="width:100%; padding:8px 32px 8px 12px; border:1px solid var(--border); border-radius:8px"
                oninput="onPoaSearch(this.value)">
+        <button id="poa_search_clear_btn" onclick="clearPoaSearch()" 
+                style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; color:var(--text-3); font-size:1.1rem; display:${S.poaSearch ? 'block' : 'none'}" 
+                title="Очистить поиск">&times;</button>
+        ${countBadgeHtml}
       </div>
     </div>
 
@@ -456,24 +530,137 @@ function renderPoaView(container) {
             <th style="width:80px"></th>
           </tr>
         </thead>
-        <tbody>
+        <tbody id="poa_table_body">
           ${rows || '<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--text-3)">Доверенности не найдены</td></tr>'}
         </tbody>
       </table>
     </div>
   `;
+
+  // input listener is directly inline oninput
+}
+
+function renderPoaRowHtml(p) {
+  if (!p) return '';
+  var statusBadge = '';
+  if (p.computed_status === 'expired') {
+    statusBadge = '<span class="badge b-red">⚠️ Просрочена</span>';
+  } else if (p.computed_status === 'expiring') {
+    statusBadge = '<span class="badge b-yellow">⏳ Истекает</span>';
+  } else {
+    statusBadge = '<span class="badge b-green">✓ Действует</span>';
+  }
+
+  var issueDateStr = '—';
+  if (p.issue_date) {
+    try {
+      var d1 = new Date(p.issue_date);
+      if (!isNaN(d1.getTime())) issueDateStr = d1.toLocaleDateString('ru');
+    } catch(e) {}
+  }
+
+  var validUntilStr = 'бессрочно';
+  if (p.valid_until) {
+    try {
+      var d2 = new Date(p.valid_until);
+      if (!isNaN(d2.getTime())) validUntilStr = d2.toLocaleDateString('ru');
+    } catch(e) {}
+  }
+
+  var personName = p.person_name || p.specialist_name || '—';
+  var contractorName = p.contractor_name || '—';
+  var orgName = p.organization || 'ООО "Ультима"';
+
+  return `
+    <tr id="poa_row_${p.id}" data-poa-id="${p.id}" style="border-bottom: 1px solid var(--border); transition: background .2s">
+      <td style="padding: 10px 12px; font-weight:700">
+        <div style="font-family:monospace; font-size:.92rem">${escHtml(p.number || '—')}</div>
+      </td>
+      <td style="padding: 10px 12px; font-size:.85rem; color:var(--text-2)">${issueDateStr}</td>
+      <td style="padding: 10px 12px; font-weight:600; font-size:.85rem">
+        <div>${validUntilStr}</div>
+        <div style="margin-top:2px">${statusBadge}</div>
+      </td>
+      <td style="padding: 10px 12px">
+        <div style="font-weight:600">${escHtml(personName)}</div>
+        ${p.specialist_phone ? '<div style="font-size:.72rem; color:var(--text-3)">📞 ' + escHtml(p.specialist_phone) + '</div>' : ''}
+      </td>
+      <td style="padding: 10px 12px; font-size:.85rem">${escHtml(orgName)}</td>
+      <td style="padding: 10px 12px; font-weight:600; font-size:.85rem">${escHtml(contractorName)}</td>
+      <td style="padding: 10px 12px; text-align:right; white-space:nowrap">
+        <button class="btn btn-sm btn-ghost" style="color:var(--accent);font-weight:700;margin-right:2px" onclick="openPoaInEditor(${p.id})" title="Открыть в Редакторе форму М-2 с печатью организации">📄 М-2</button>
+        ${p.scan_url ? `<a href="${escHtml(p.scan_url)}" target="_blank" class="btn btn-sm btn-ghost" style="color:#1d4ed8;margin-right:2px" title="Открыть прикрепленный скан/PDF">📎 Скан</a>` : ''}
+        <button class="btn btn-sm btn-ghost" onclick="editPoa(${p.id})" title="Редактировать">✏️</button>
+        <button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deletePoa(${p.id})" title="Удалить">🗑️</button>
+      </td>
+    </tr>
+  `;
+}
+
+function updatePoaList() {
+  var tbody = document.getElementById('poa_table_body');
+  var badge = document.getElementById('poa_count_badge');
+  if (tbody) {
+    var q = String(S.poaSearch || '').trim().toLowerCase();
+    var filterStatus = S.poaFilterStatus || 'all';
+    var list = (S.powersOfAttorney || []).filter(function(p) {
+      if (filterStatus !== 'all' && p.computed_status !== filterStatus) return false;
+      if (!q) return true;
+      var matchNum = String(p.number || '').toLowerCase().includes(q);
+      var matchPerson = String(p.person_name || p.specialist_name || '').toLowerCase().includes(q);
+      var matchContr = String(p.contractor_name || '').toLowerCase().includes(q);
+      var matchOrg = String(p.organization || '').toLowerCase().includes(q);
+      var matchPhone = String(p.specialist_phone || '').toLowerCase().includes(q);
+      return matchNum || matchPerson || matchContr || matchOrg || matchPhone;
+    });
+    tbody.innerHTML = list.map(renderPoaRowHtml).join('') || '<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--text-3)">Доверенности не найдены</td></tr>';
+    if (badge) {
+      badge.innerHTML = q 
+        ? ('Найдено: <b>' + list.length + '</b> из ' + (S.powersOfAttorney||[]).length)
+        : ('Всего в реестре: <b>' + (S.powersOfAttorney||[]).length + '</b>');
+    }
+  } else {
+    var container = document.getElementById('team_tab_content');
+    if (container) renderPoaView(container);
+  }
 }
 
 function setPoaFilter(status) {
   S.poaFilterStatus = status;
-  var container = document.getElementById('team_tab_content');
-  if (container) renderPoaView(container);
+  var filterBtns = document.querySelectorAll('[data-poa-filter]');
+  if (filterBtns && filterBtns.length) {
+    filterBtns.forEach(function(btn) {
+      if (btn.getAttribute('data-poa-filter') === status) {
+        btn.classList.remove('btn-ghost');
+      } else {
+        btn.classList.add('btn-ghost');
+      }
+    });
+    updatePoaList();
+  } else {
+    var container = document.getElementById('team_tab_content');
+    if (container) renderPoaView(container);
+  }
 }
 
+var _poaSearchTimer = null;
 function onPoaSearch(val) {
   S.poaSearch = val;
-  var container = document.getElementById('team_tab_content');
-  if (container) renderPoaView(container);
+  var btn = document.getElementById('poa_search_clear_btn');
+  if (btn) btn.style.display = val ? 'block' : 'none';
+  clearTimeout(_poaSearchTimer);
+  _poaSearchTimer = setTimeout(function() {
+    updatePoaList();
+  }, 60);
+}
+
+function clearPoaSearch() {
+  S.poaSearch = '';
+  var inp = document.getElementById('poa_search_input');
+  if (inp) { inp.value = ''; inp.focus(); }
+  var btn = document.getElementById('poa_search_clear_btn');
+  if (btn) btn.style.display = 'none';
+  updatePoaList();
 }
 
 function openAddPoaModal() {
@@ -555,6 +742,11 @@ function openAddPoaModal() {
       api('/powers-of-attorney').then(function(poas) {
         S.powersOfAttorney = poas;
         renderTeamActiveTabContent();
+        if (res && res.id) {
+          if (typeof showToast === 'function') {
+            showToast('✓ Доверенность № ' + (res.number || '') + ' создана! <a href="javascript:void(0)" onclick="openPoaInEditor(' + res.id + ')" style="color:#fff;text-decoration:underline;font-weight:700;margin-left:8px">Открыть в Редакторе М-2 →</a>', 'success', 8000);
+          }
+        }
       });
     });
   });
@@ -563,6 +755,7 @@ function openAddPoaModal() {
 function editPoa(id) {
   var p = (S.powersOfAttorney || []).find(x => x.id === id);
   if (!p) return;
+  if (window.savePageScroll) window.savePageScroll('poa_row_' + id);
 
   var issueDateStr = p.issue_date ? p.issue_date.slice(0, 10) : '';
   var validUntilStr = p.valid_until ? p.valid_until.slice(0, 10) : '';
@@ -591,6 +784,7 @@ function editPoa(id) {
       api('/powers-of-attorney').then(function(poas) {
         S.powersOfAttorney = poas;
         renderTeamActiveTabContent();
+        if (window.restorePageScroll) window.restorePageScroll('poa_row_' + id);
       });
     });
   });
@@ -621,7 +815,7 @@ function renderUsersView(container) {
     var regBadge = u.assigned_regions ? '<div style="font-size:.72rem;color:var(--text-3);margin-top:2px" title="Закрепленные регионы">📍 ' + escHtml(u.assigned_regions) + '</div>' : '';
 
     return `
-      <tr style="border-bottom: 1px solid var(--border)">
+      <tr id="user_row_${u.id}" data-user-id="${u.id}" style="border-bottom: 1px solid var(--border); transition: background .2s">
         <td style="padding: 10px 12px"><b>#${u.id}</b></td>
         <td style="padding: 10px 12px; font-weight:600">${escHtml(u.username)}</td>
         <td style="padding: 10px 12px">
@@ -701,6 +895,7 @@ function toggleUserForm(open) {
 function editUser(id) {
   var user = (S.users || []).find(u => u.id === id);
   if (!user) return;
+  if (window.savePageScroll) window.savePageScroll('user_row_' + id);
 
   var issueDateStr = user.passport_issue_date ? user.passport_issue_date.slice(0, 10) : '';
 
@@ -729,7 +924,11 @@ function editUser(id) {
       body: JSON.stringify(d)
     }).then(function(res) {
       if (res && res.error) return alert(res.error);
-      api('/users').then(list => { S.users = list; renderApp(); });
+      api('/users').then(list => {
+        S.users = list;
+        renderApp();
+        if (window.restorePageScroll) window.restorePageScroll('user_row_' + id);
+      });
     });
   });
 }
@@ -784,7 +983,13 @@ function uploadSpecialistsFile(input) {
       alert('Ошибка при загрузке: ' + res.error);
     } else {
       alert('✅ Специалисты успешно загружены!\nДобавлено новых: ' + (res.inserted || 0) + '\nОбновлено: ' + (res.updated || 0) + '\nВсего в файле: ' + (res.total || 0));
-      pageUsers();
+      api('/specialists').then(function(specs) {
+        S.specialists = Array.isArray(specs) ? specs : [];
+        var bSpecs = document.getElementById('badge_specs_count');
+        if (bSpecs) bSpecs.textContent = '(' + S.specialists.length + ')';
+        var container = document.getElementById('team_tab_content');
+        if (container) renderSpecialistsView(container);
+      });
     }
   })
   .catch(function(err) {
@@ -819,7 +1024,13 @@ function uploadPoaFile(input) {
       var p = res.poa || {};
       var c = res.contractors || {};
       alert('✅ Реестр доверенностей успешно загружен!\nДоверенностей добавлено: ' + (p.inserted || 0) + '\nДоверенностей обновлено: ' + (p.updated || 0) + '\nКонтрагентов связано/обновлено: ' + ((c.added || 0) + (c.updated || 0)));
-      pageUsers();
+      api('/powers-of-attorney').then(function(poas) {
+        S.powersOfAttorney = Array.isArray(poas) ? poas : [];
+        var bPoa = document.getElementById('badge_poa_count');
+        if (bPoa) bPoa.textContent = '(' + S.powersOfAttorney.length + ')';
+        var container = document.getElementById('team_tab_content');
+        if (container) renderPoaView(container);
+      });
     }
   })
   .catch(function(err) {
@@ -830,3 +1041,209 @@ function uploadPoaFile(input) {
     if (banner) banner.innerHTML = '';
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// РАБОТА С ДОВЕРЕННОСТЯМИ М-2 (Редактор, распознавание, экспорт/шаблон)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function openPoaInEditor(poaId) {
+  var p = (S.powersOfAttorney || []).find(function(x) { return x.id === poaId; });
+  var num = p ? p.number : poaId;
+  if (typeof window.openDocumentEditor !== 'function') {
+    return alert('Редактор документов временно недоступен');
+  }
+  window.openDocumentEditor({
+    templateCode: 'poa_m2',
+    poaId: poaId,
+    title: 'Доверенность № ' + num + ' (форма М-2)',
+    onSaved: function() {
+      api('/powers-of-attorney').then(function(poas) {
+        S.powersOfAttorney = poas;
+        renderTeamActiveTabContent();
+      });
+    }
+  });
+}
+
+function uploadAndParsePoaFile(input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+
+  var fd = new FormData();
+  fd.append('file', file);
+
+  if (typeof showToast === 'function') {
+    showToast('⏳ Распознавание формы доверенности М-2...', 'info', 4000);
+  }
+
+  fetch('/api/powers-of-attorney/parse-file', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + (S.token || '') },
+    body: fd
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(res) {
+    input.value = '';
+    if (!res || !res.ok) {
+      return alert(res && res.error ? res.error : 'Не удалось распознать документ доверенности');
+    }
+
+    var d = res.data || {};
+    var fileUrl = res.file_url || '';
+
+    // Открываем модальное окно для сверки распознанных данных и создания
+    showModal('📑 Распознана доверенность (Форма М-2)', [
+      { key: 'number', label: 'Номер доверенности', value: d.number || '', required: true },
+      { key: 'organization', label: 'Организация выдачи', value: d.organization || 'ООО "Ультима"', required: true },
+      { key: 'personName', label: 'Подотчетное лицо (ФИО)', value: d.person_name || '', required: true },
+      { key: 'contractorName', label: 'Контрагент (Поставщик)', value: d.contractor_name || '' },
+      { key: 'issueDate', label: 'Дата выдачи', type: 'date', value: d.issue_date || '' },
+      { key: 'validUntil', label: 'Срок действия', type: 'date', value: d.valid_until || '' },
+      { key: 'scanUrl', label: 'Файл / скан', value: fileUrl, readonly: true }
+    ], function(formData) {
+      api('/powers-of-attorney', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          number: formData.number,
+          person_name: formData.personName,
+          contractor_name: formData.contractorName,
+          organization: formData.organization,
+          issue_date: formData.issueDate || null,
+          valid_until: formData.validUntil || null,
+          scan_url: fileUrl,
+          specialist_id: d.specialist_id || null
+        })
+      }).then(function(newPoa) {
+        if (newPoa && newPoa.error) return alert(newPoa.error);
+        api('/powers-of-attorney').then(function(poas) {
+          S.powersOfAttorney = poas;
+          renderTeamActiveTabContent();
+          if (newPoa && newPoa.id) {
+            openPoaInEditor(newPoa.id);
+          }
+        });
+      });
+    }, {
+      submitLabel: '✓ Добавить в реестр и открыть в Редакторе'
+    });
+  })
+  .catch(function(err) {
+    input.value = '';
+    alert('Ошибка при распознавании файла: ' + (err.message || err));
+  });
+}
+
+function exportPoaToExcel() {
+  var list = S.powersOfAttorney || [];
+  if (!list.length) {
+    return alert('Реестр доверенностей пуст.');
+  }
+
+  var q = String(S.poaSearch || '').trim().toLowerCase();
+  var filterStatus = S.poaFilterStatus || 'all';
+  var filtered = list.filter(function(p) {
+    if (filterStatus !== 'all' && p.computed_status !== filterStatus) return false;
+    if (!q) return true;
+    var matchNum = String(p.number || '').toLowerCase().includes(q);
+    var matchPerson = String(p.person_name || p.specialist_name || '').toLowerCase().includes(q);
+    var matchContr = String(p.contractor_name || '').toLowerCase().includes(q);
+    var matchOrg = String(p.organization || '').toLowerCase().includes(q);
+    var matchPhone = String(p.specialist_phone || '').toLowerCase().includes(q);
+    return matchNum || matchPerson || matchContr || matchOrg || matchPhone;
+  });
+
+  if (!filtered.length) {
+    return alert('Нет доверенностей, соответствующих условиям фильтра.');
+  }
+
+  if (window.XLSX) {
+    var rows = [
+      ['Номер доверенности', 'Дата выдачи', 'Срок действия', 'Статус', 'Подотчетное лицо', 'Телефон', 'Организация', 'Контрагент']
+    ];
+    filtered.forEach(function(p) {
+      var st = p.computed_status === 'expired' ? 'Просрочена' : (p.computed_status === 'expiring' ? 'Истекает' : 'Действует');
+      var iDate = p.issue_date ? p.issue_date.slice(0, 10).split('-').reverse().join('.') : '';
+      var vDate = p.valid_until ? p.valid_until.slice(0, 10).split('-').reverse().join('.') : 'Бессрочно';
+      rows.push([
+        p.number || '',
+        iDate,
+        vDate,
+        st,
+        p.person_name || '',
+        p.specialist_phone || '',
+        p.organization || '',
+        p.contractor_name || ''
+      ]);
+    });
+
+    var ws = window.XLSX.utils.aoa_to_sheet(rows);
+    var wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, 'Доверенности');
+    var filename = 'Reestr_Doverennostey_' + new Date().toISOString().slice(0, 10) + '.xlsx';
+    window.XLSX.writeFile(wb, filename);
+  } else {
+    var csvContent = 'data:text/csv;charset=utf-8,\uFEFF' +
+      'Номер;Дата выдачи;Срок действия;Статус;Подотчетное лицо;Организация;Контрагент\n' +
+      filtered.map(function(p) {
+        var st = p.computed_status === 'expired' ? 'Просрочена' : (p.computed_status === 'expiring' ? 'Истекает' : 'Действует');
+        var iDate = p.issue_date ? p.issue_date.slice(0, 10).split('-').reverse().join('.') : '';
+        var vDate = p.valid_until ? p.valid_until.slice(0, 10).split('-').reverse().join('.') : 'Бессрочно';
+        return [
+          `"${p.number || ''}"`,
+          `"${iDate}"`,
+          `"${vDate}"`,
+          `"${st}"`,
+          `"${p.person_name || ''}"`,
+          `"${p.organization || ''}"`,
+          `"${p.contractor_name || ''}"`
+        ].join(';');
+      }).join('\n');
+    var encodedUri = encodeURI(csvContent);
+    var link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', 'Reestr_Doverennostey_' + new Date().toISOString().slice(0, 10) + '.csv');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+}
+
+function downloadPoaTemplateExcel() {
+  if (window.XLSX) {
+    var rows = [
+      ['Номер доверенности', 'Дата выдачи', 'Срок действия', 'Подотчетное лицо', 'Организация', 'Контрагент'],
+      ['0УБП-000450', '30.10.2026', '31.12.2026', 'Чайка Алексей Николаевич', 'ООО "Ультима"', 'АО Электротехмонтаж'],
+      ['0УБП-000451', '30.10.2026', '31.12.2026', 'Иванов Иван Иванович', 'ООО "Кабельные Системы"', 'ООО "СДЭК Бизнес Пост"']
+    ];
+    var ws = window.XLSX.utils.aoa_to_sheet(rows);
+    var wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, 'Шаблон доверенностей');
+    window.XLSX.writeFile(wb, 'Shablon_Reestra_Doverennostey.xlsx');
+  } else {
+    alert('Библиотека XLSX загружается. Попробуйте через пару секунд.');
+  }
+}
+
+window.pageUsers = pageUsers;
+window.setTeamTab = setTeamTab;
+window.renderTeamActiveTabContent = renderTeamActiveTabContent;
+window.onPoaSearch = onPoaSearch;
+window.clearPoaSearch = clearPoaSearch;
+window.setPoaFilter = setPoaFilter;
+window.updatePoaList = updatePoaList;
+window.uploadPoaFile = uploadPoaFile;
+window.openAddPoaModal = openAddPoaModal;
+window.editPoa = editPoa;
+window.deletePoa = deletePoa;
+window.openPoaInEditor = openPoaInEditor;
+window.uploadAndParsePoaFile = uploadAndParsePoaFile;
+window.exportPoaToExcel = exportPoaToExcel;
+window.downloadPoaTemplateExcel = downloadPoaTemplateExcel;
+window.uploadSpecialistsFile = uploadSpecialistsFile;
+window.openAddSpecialistModal = openAddSpecialistModal;
+window.editSpecialist = editSpecialist;
+window.deleteSpecialist = deleteSpecialist;
+window.onSpecSearch = onSpecSearch;
+window.clearSpecSearch = clearSpecSearch;
+window.onSpecPassportToggle = onSpecPassportToggle;

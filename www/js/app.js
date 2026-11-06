@@ -1,9 +1,15 @@
 function init() {
   setupOfflineListeners();
+  if (S.user && !isPageAllowedForRole(S.page, S.user.role)) {
+    S.page = getDefaultPageForRole(S.user.role);
+  }
   renderNav();
   if (!S.token) {
     renderApp();
     return;
+  }
+  if (typeof refreshSessionToken === 'function') {
+    refreshSessionToken();
   }
 
   loadNotifications();
@@ -23,7 +29,8 @@ function init() {
     idbGet('import-info'),
     idbGet('marches'),
     idbGet('users'),
-    idbGet('contractors')
+    idbGet('contractors'),
+    idbGet('contracts')
   ]).then(function(cached) {
     var cachedStats = cached[0] || {};
     var cachedTasks = Array.isArray(cached[1]) ? cached[1] : [];
@@ -32,29 +39,20 @@ function init() {
     var cachedMarches = Array.isArray(cached[4]) ? cached[4] : [];
     var cachedUsers = Array.isArray(cached[5]) ? cached[5] : [];
     var cachedContractors = Array.isArray(cached[6]) ? cached[6] : [];
+    var cachedContracts = Array.isArray(cached[7]) ? cached[7] : [];
 
-    var requests = [api('/stats'), api('/tasks'), api('/chains'), api('/import-info'), api('/marches')];
-    if (S.user && S.user.role === 'admin') {
-      requests.push(api('/users'));
-      requests.push(api('/contractors'));
-    }
-
-    Promise.all(requests).then(function(res) {
-      var netStats = (res[0] && !res[0].error) ? res[0] : cachedStats;
-      var netTasks = Array.isArray(res[1]) ? res[1] : cachedTasks;
-      var netChains = Array.isArray(res[2]) ? res[2] : cachedChains;
-      var netImportInfo = (res[3] && !res[3].error) ? res[3] : cachedImportInfo;
-      var netMarches = Array.isArray(res[4]) ? res[4] : cachedMarches;
-      var netUsers = Array.isArray(res[5]) ? res[5] : cachedUsers;
-      var netContractors = Array.isArray(res[6]) ? res[6] : cachedContractors;
-
-      S.stats = netStats;
-      S.tasks = netTasks;
-      S.chains = netChains;
-      S.importInfo = netImportInfo;
-      S.marches = netMarches;
-      S.users = netUsers;
-      S.contractors = netContractors;
+    // МГНОВЕННЫЙ СТАРТ: если данные уже есть в локальном кэше (IndexedDB),
+    // сразу показываем интерфейс пользователю за 50 мс, не заставляя ждать 30 секунд спиннера!
+    var hasLocalCache = cachedTasks.length > 0 || cachedContracts.length > 0;
+    if (hasLocalCache) {
+      S.stats = cachedStats;
+      S.tasks = cachedTasks;
+      S.chains = cachedChains;
+      S.importInfo = cachedImportInfo;
+      S.marches = cachedMarches;
+      S.contracts = cachedContracts;
+      S.contractors = cachedContractors;
+      S.users = cachedUsers;
 
       if (Array.isArray(S.chains) && S.chains.length) {
         var firstReal = S.chains.find(function(c){ return c.id && c.id !== '(без региона)'; });
@@ -63,6 +61,88 @@ function init() {
 
       refreshOutboxCount();
       renderApp();
+    }
+
+    var isWorkerRole = S.user && (S.user.role === 'worker' || S.user.role === 'installer' || S.user.role === 'contractor');
+    var requests = [
+      api('/stats').catch(function(){ return {}; }),
+      api('/tasks').catch(function(){ return []; }),
+      api('/chains').catch(function(){ return []; }),
+      api('/import-info').catch(function(){ return null; }),
+      api('/marches').catch(function(){ return []; }),
+      !isWorkerRole ? api('/contracts').catch(function(){ return []; }) : Promise.resolve([]),
+      !isWorkerRole ? api('/contractors').catch(function(){ return []; }) : Promise.resolve([]),
+      !isWorkerRole ? api('/specialists').catch(function(){ return []; }) : Promise.resolve([]),
+      (S.user && (S.user.role === 'admin' || S.user.role === 'director')) ? api('/users').catch(function(){ return []; }) : Promise.resolve([]),
+      api('/own-companies').catch(function(){ return []; }),
+      api('/subcontract-contracts').catch(function(){ return []; }),
+      api('/subcontract-pricelists').catch(function(){ return []; }),
+      api('/customer-tariffs/regions').catch(function(){ return []; })
+    ];
+
+    Promise.all(requests).then(function(res) {
+      var netStats = (res[0] && !res[0].error) ? res[0] : cachedStats;
+      var netTasks = Array.isArray(res[1]) ? res[1] : cachedTasks;
+      var netChains = Array.isArray(res[2]) ? res[2] : cachedChains;
+      var netImportInfo = (res[3] && !res[3].error) ? res[3] : cachedImportInfo;
+      var netMarches = Array.isArray(res[4]) ? res[4] : cachedMarches;
+      var contractsData = (res[5] && res[5].contracts) ? res[5].contracts : (Array.isArray(res[5]) ? res[5] : cachedContracts);
+      var netContractors = Array.isArray(res[6]) ? res[6] : cachedContractors;
+      var netSpecialists = Array.isArray(res[7]) ? res[7] : [];
+      var netUsers = Array.isArray(res[8]) ? res[8] : cachedUsers;
+      var netOwnCompanies = Array.isArray(res[9]) ? res[9] : [];
+      var netSubContracts = Array.isArray(res[10]) ? res[10] : [];
+      var netSubPricelists = Array.isArray(res[11]) ? res[11] : [];
+      var netCustomerTariffRegions = Array.isArray(res[12]) ? res[12] : [];
+
+      S.stats = netStats;
+      S.tasks = netTasks;
+      S.chains = netChains;
+      S.importInfo = netImportInfo;
+      S.marches = netMarches;
+      S.contracts = contractsData;
+      if (res[5] && res[5].stats) S.contractStats = res[5].stats;
+      S.contractors = netContractors;
+      S.specialists = netSpecialists;
+      S.users = netUsers;
+      S.ownCompanies = netOwnCompanies;
+      S.subContracts = netSubContracts;
+      S.subPricelists = netSubPricelists;
+      S.customerTariffRegions = netCustomerTariffRegions;
+
+      // Обновляем локальный кэш свежими данными с сервера
+      if (Array.isArray(netTasks) && netTasks.length) idbSet('tasks', netTasks);
+      if (Array.isArray(contractsData) && contractsData.length) idbSet('contracts', contractsData);
+      if (Array.isArray(netContractors) && netContractors.length) idbSet('contractors', netContractors);
+      if (Array.isArray(netUsers) && netUsers.length) idbSet('users', netUsers);
+      if (Array.isArray(netSubContracts) && netSubContracts.length) idbSet('subcontract-contracts', netSubContracts);
+      if (Array.isArray(netSubPricelists) && netSubPricelists.length) idbSet('subcontract-pricelists', netSubPricelists);
+      if (Array.isArray(netMarches) && netMarches.length) idbSet('marches', netMarches);
+      if (netStats && Object.keys(netStats).length) idbSet('stats', netStats);
+
+      if (Array.isArray(S.chains) && S.chains.length) {
+        var firstReal = S.chains.find(function(c){ return c.id && c.id !== '(без региона)'; });
+        S.selChain = (firstReal || S.chains[0]).id;
+      }
+
+      refreshOutboxCount();
+      renderApp();
+
+      // Фоновая актуализация профиля текущего пользователя
+      if (S.token) {
+        api('/profile').then(function(p) {
+          if (p && p.id && S.user) {
+            var updatedUser = Object.assign({}, S.user, {
+              fullName: p.fullName || p.full_name || S.user.fullName,
+              email: p.email !== undefined ? p.email : S.user.email,
+              avatarUrl: p.avatarUrl || null
+            });
+            S.user = updatedUser;
+            try { localStorage.setItem('user', JSON.stringify(updatedUser)); } catch(e){}
+            renderNav();
+          }
+        }).catch(function(){});
+      }
 
       if (S.isOnline) {
         syncOutbox();
@@ -77,6 +157,7 @@ function init() {
       S.marches = cachedMarches;
       S.users = cachedUsers;
       S.contractors = cachedContractors;
+      S.contracts = cachedContracts;
 
       if (Array.isArray(S.chains) && S.chains.length) {
         var firstReal = S.chains.find(function(c){ return c.id && c.id !== '(без региона)'; });
@@ -89,12 +170,118 @@ function init() {
   });
 }
 
+
+function getDefaultPageForRole(role) {
+  var r = String(role || '').toLowerCase();
+  if (r === 'worker' || r === 'installer' || r === 'contractor') return 'tasks';
+  if (r === 'to_engineer' || r === 'designer') return 'tasks';
+  if (r === 'logistics') return 'supply';
+  return 'dashboard';
+}
+
+function isPageAllowedForRole(page, role) {
+  var r = String(role || '').toLowerCase();
+  if (r === 'admin') return true;
+  if (!page || page === 'profile') return true;
+
+  if (r === 'worker' || r === 'installer' || r === 'contractor') {
+    return ['tasks', 'card', 'chat', 'help'].includes(page);
+  }
+  if (r === 'director') {
+    return !['data', 'logs'].includes(page);
+  }
+  if (r === 'manager') {
+    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'templates', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'chat', 'help'].includes(page) || page.startsWith('dash-');
+  }
+  if (r === 'to_engineer' || r === 'logistics') {
+    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'templates', 'supply', 'tasks', 'card', 'kanban', 'marches', 'march-detail', 'contractors', 'data', 'chat', 'help'].includes(page) || page.startsWith('dash-');
+  }
+  if (r === 'designer') {
+    return ['contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'templates', 'tasks', 'card', 'kanban', 'chat', 'help'].includes(page);
+  }
+  if (r === 'accountant') {
+    return ['dashboard', 'contracts', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'templates', 'tasks', 'card', 'contractors', 'chat', 'help'].includes(page) || page.startsWith('dash-');
+  }
+  return true;
+}
+
+window.getDefaultPageForRole = getDefaultPageForRole;
+window.isPageAllowedForRole = isPageAllowedForRole;
+
+function backupCardDraftToLocalStorage() {
+  if (S.cardId && S.cardDraft) {
+    var hasDraft = (
+      Object.keys(S.cardDraft).filter(function(k){ return !k.startsWith('_'); }).length > 0 ||
+      !!S.cardDraft._smrDirty ||
+      !!S.cardDraft._tmcDirty
+    );
+    if (hasDraft) {
+      try {
+        localStorage.setItem('task_draft_' + S.cardId, JSON.stringify(S.cardDraft));
+      } catch(e) {}
+    } else {
+      try {
+        localStorage.removeItem('task_draft_' + S.cardId);
+      } catch(e) {}
+    }
+  }
+}
+window.backupCardDraftToLocalStorage = backupCardDraftToLocalStorage;
+
+function clearCardDraftFromLocalStorage(taskId) {
+  var id = taskId || S.cardId;
+  if (id) {
+    try {
+      localStorage.removeItem('task_draft_' + id);
+    } catch(e) {}
+  }
+}
+window.clearCardDraftFromLocalStorage = clearCardDraftFromLocalStorage;
+
+function updateCardSaveBar() {
+  var bar = document.getElementById('card_unsaved_bar');
+  var hasDraft = S.cardDraft && (
+    Object.keys(S.cardDraft).filter(function(k){ return !k.startsWith('_'); }).length > 0 ||
+    !!S.cardDraft._smrDirty ||
+    !!S.cardDraft._tmcDirty
+  );
+  backupCardDraftToLocalStorage();
+  if (hasDraft) {
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'card_unsaved_bar';
+      bar.className = 'unsaved-bar';
+      bar.innerHTML = '<span>⚠️ У вас есть несохранённые изменения</span>' +
+        '<button class="btn btn-sm" id="cardSaveBtn" onclick="window.saveCard(false)">💾 Сохранить</button>' +
+        '<button class="btn btn-sm btn-ghost" id="cardResetBtn" onclick="window._resetCardDraft()">↩️ Сбросить</button>';
+      document.body.appendChild(bar);
+    }
+    bar.style.display = 'flex';
+  } else {
+    if (bar) bar.style.display = 'none';
+  }
+}
+window.updateCardSaveBar = updateCardSaveBar;
+
 function go(page) {
+  if (page === 'tasks') {
+    S.lastOpenedTaskId = null;
+  }
+  if (S.page === 'card' && S.cardId) {
+    S.lastOpenedTaskId = S.cardId;
+  }
+  if (S.page === 'card' && S.cardDraft && Object.keys(S.cardDraft).length > 0) {
+    if (typeof window.saveCard === 'function') window.saveCard(true);
+  }
+  if (S.user && !isPageAllowedForRole(page, S.user.role)) {
+    if (typeof showToast === "function") showToast("⚠️ Данный раздел недоступен для вашей роли", "warning");
+    return;
+  }
   S.page = page;
   toggleMobileSidebar(false);
   renderNav();
   renderApp();
-  
+
   // Подсветка активной вкладки в мобильном навбаре
   var navItems = document.querySelectorAll('.mob-nav-item');
   if (navItems.length) {
@@ -204,8 +391,8 @@ function renderNav() {
         var role = String(S.user.role || '').toLowerCase();
         if (role === 'admin') return true; // Администратор видит всё
 
-        // Монтажник (полевой)
-        if (role === 'worker' || role === 'installer') {
+        // Монтажник (полевой) и подрядчик
+        if (role === 'worker' || role === 'installer' || role === 'contractor') {
           return item.id === 'tasks' || item.id === 'chat' || item.id === 'help';
         }
         // Руководитель
@@ -214,23 +401,19 @@ function renderNav() {
         }
         // Менеджер
         if (role === 'manager') {
-          return ['dashboard', 'tasks', 'kanban', 'marches', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
+          return ['dashboard', 'contracts', 'tasks', 'kanban', 'marches', 'contractors', 'chat', 'help'].includes(item.id);
         }
-        // Специалист ТО
-        if (role === 'to_engineer') {
-          return ['tasks', 'kanban', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
-        }
-        // Специалист по логистике
-        if (role === 'logistics') {
-          return ['supply', 'tasks', 'marches', 'contractors', 'chat', 'aichat', 'help'].includes(item.id);
+        // Специалист ТО / Логист (объединенные права: Цепи + Обзор + Маршруты)
+        if (role === 'to_engineer' || role === 'logistics') {
+          return ['dashboard', 'contracts', 'tasks', 'kanban', 'marches', 'supply', 'data', 'sub_contracts', 'sub_pricelists', 'customer_tariffs', 'contractors', 'chat', 'help'].includes(item.id);
         }
         // Проектировщик
         if (role === 'designer') {
-          return ['tasks', 'kanban', 'chat', 'aichat', 'help'].includes(item.id);
+          return ['contracts', 'tasks', 'kanban', 'chat', 'help'].includes(item.id);
         }
         // Финансист
         if (role === 'accountant') {
-          return ['dashboard', 'tasks', 'contractors', 'chat', 'help'].includes(item.id);
+          return ['dashboard', 'contracts', 'tasks', 'contractors', 'chat', 'help'].includes(item.id);
         }
         return true;
       });
@@ -305,7 +488,7 @@ function renderNav() {
     var initial = (userName.trim()[0] || 'U').toUpperCase();
     var isProfileActive = S.page === 'profile';
     var avatarInner = (S.user && S.user.avatarUrl) 
-      ? '<img src="' + escHtml(S.user.avatarUrl) + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;" onerror="this.parentElement.innerHTML=\'' + initial + '\'">'
+      ? '<img src="' + escHtml(S.user.avatarUrl) + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;" onerror="this.parentElement.innerHTML=\'' + initial + '\';if(S.user){S.user.avatarUrl=null;try{localStorage.setItem(\'user\',JSON.stringify(S.user))}catch(e){}}">'
       : initial;
 
     footerEl.innerHTML = 
@@ -329,19 +512,50 @@ function doLogout() {
 }
 
 function setApp(html) { document.getElementById('app').innerHTML = html; }
+var kanbanSearchTimeout = null;
+var searchTimeout = null;
+
 // ─── RENDER ───────────────────────────────────────────────────────────────────
 function renderApp() {
   if (!S.token) {
     setApp(pageLogin());
+    setTimeout(function() {
+      var uEl = document.getElementById('luser');
+      if (uEl) uEl.focus();
+    }, 50);
     return;
+  }
+  if (S.user && !isPageAllowedForRole(S.page, S.user.role)) {
+    S.page = getDefaultPageForRole(S.user.role);
+    renderNav();
   }
   if (document.body) {
     document.body.classList.toggle('page-kanban-active', S.page === 'kanban');
   }
 
-  // 1. ЗАПОМИНАЕМ ФОКУС (Безопасно)
+  // 1. ЗАПОМИНАЕМ ФОКУС И СКРОЛЛЫ (Безопасно)
+  var kanbanScrollState = null;
+  if (S.page === 'kanban') {
+    var kBoard = document.querySelector('.kanban');
+    if (kBoard) {
+      kanbanScrollState = {
+        boardLeft: kBoard.scrollLeft,
+        cols: {}
+      };
+      document.querySelectorAll('.kcol').forEach(function(col) {
+        var colCards = col.querySelector('.kcol-cards');
+        var colStatus = col.getAttribute('data-status') || col.id;
+        if (colCards && colStatus) {
+          kanbanScrollState.cols[colStatus] = colCards.scrollTop;
+        }
+      });
+    }
+  }
+
   var activeEl = document.activeElement;
   var activeId = (activeEl && activeEl.id) ? activeEl.id : null;
+  var activeName = (activeEl && activeEl.name) ? activeEl.name : null;
+  var activePlaceholder = (activeEl && activeEl.placeholder) ? activeEl.placeholder : null;
   var start = null, end = null;
   
   // Проверяем, поддерживает ли элемент выделение (только для текстовых инпутов)
@@ -358,13 +572,22 @@ function renderApp() {
   if      (S.page === 'dashboard' || S.page.startsWith('dash-')) setApp(pageDash());
   else if (S.page === 'users')     setApp(pageUsers());
   else if (S.page === 'logs')      setApp(pageLogs());
-  else if (S.page === 'aichat')    setApp(pageAiChat());
+  else if (S.page === 'aichat')    go('tasks');
   else if (S.page === 'chat')      setApp(pageChat());
+  else if (S.page === 'contracts') setApp(pageContracts());
+  else if (S.page === 'sub_contracts') setApp(pageSubContracts());
+  else if (S.page === 'sub_pricelists') setApp(pageSubPricelists());
+  else if (S.page === 'customer_tariffs') setApp(pageCustomerTariffs());
+  else if (S.page === 'templates') renderTemplatesPage();
   else if (S.page === 'contractors') setApp(pageContractors());
   else if (S.page === 'supply')    setApp(pageSupply());
   else if (S.page === 'kanban')    setApp(pageKanban());
   else if (S.page === 'tasks')     setApp(pageTasks());
-  else if (S.page === 'card')      setApp(pageCard());
+  else if (S.page === 'card') {
+    setApp(pageCard());
+    if (window.renderCardSmrCalculator && S.cardId) window.renderCardSmrCalculator(S.cardId);
+    if (window.renderSmrChecklist && S.cardId) window.renderSmrChecklist(S.cardId);
+  }
   else if (S.page === 'data')      setApp(pageData());
   else if (S.page === 'marches')   setApp(pageMarches());
   else if (S.page === 'march-detail') setApp(pageMarchDetail());
@@ -374,17 +597,62 @@ function renderApp() {
   // 3. Вешаем события заново
   bindEvents();
 
-  // 4. ВОЗВРАЩАЕМ ФОКУС
-  if (activeId) {
-    var el = document.getElementById(activeId);
-    if (el) {
-      el.focus();
-      if (start !== null && el.setSelectionRange) {
-        try { el.setSelectionRange(start, end); } catch(e) {}
+  // 3.1. Восстанавливаем скролл канбана (доска и колонки)
+  if (S.page === 'kanban' && kanbanScrollState) {
+    var newBoard = document.querySelector('.kanban');
+    if (newBoard) newBoard.scrollLeft = kanbanScrollState.boardLeft;
+    document.querySelectorAll('.kcol').forEach(function(col) {
+      var colCards = col.querySelector('.kcol-cards');
+      var colStatus = col.getAttribute('data-status') || col.id;
+      if (colCards && colStatus && kanbanScrollState.cols[colStatus] !== undefined) {
+        colCards.scrollTop = kanbanScrollState.cols[colStatus];
       }
+    });
+  }
+
+  // 3.2. Если было сохранено целевое место (строка таблицы, карточка), восстанавливаем
+  if (window.restorePageScroll && window._savedScrollState && window._savedScrollState.targetId) {
+    window.restorePageScroll();
+  }
+
+  // 3.3. Если открыт выбор подрядчика (S.cpTaskId) вне страницы tasks, рендерим его модалку
+  var oldCp = document.getElementById('_app_contractor_picker_modal');
+  if (oldCp) oldCp.remove();
+  if (S.cpTaskId && S.page !== 'tasks' && typeof renderContractorPicker === 'function') {
+    var cpWrap = document.createElement('div');
+    cpWrap.innerHTML = renderContractorPicker();
+    if (cpWrap.firstElementChild) {
+      cpWrap.firstElementChild.id = '_app_contractor_picker_modal';
+      document.body.appendChild(cpWrap.firstElementChild);
+    }
+  }
+
+  // 4. ВОЗВРАЩАЕМ ФОКУС
+  var elToFocus = null;
+  if (activeId) {
+    elToFocus = document.getElementById(activeId);
+  } else if (activeName) {
+    try {
+      elToFocus = document.querySelector('input[name="' + CSS.escape(activeName) + '"], textarea[name="' + CSS.escape(activeName) + '"], select[name="' + CSS.escape(activeName) + '"]');
+    } catch(e) {}
+  } else if (activePlaceholder) {
+    try {
+      elToFocus = document.querySelector('input[placeholder="' + CSS.escape(activePlaceholder) + '"]');
+    } catch(e) {}
+  }
+  if (elToFocus) {
+    elToFocus.focus();
+    if (start !== null && elToFocus.setSelectionRange) {
+      try { elToFocus.setSelectionRange(start, end); } catch(e) {}
     }
   }
 }
+
+
+
+// ─── СТРАНИЦЫ СПРАВОЧНИКОВ СУБПОДРЯДА ───────────────────────────────────────
+// Реализованы в public/js/pages/subcontracts.js
+
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 // Загрузка и показ уведомлений
@@ -487,16 +755,76 @@ document.addEventListener('click', function(e) {
 
 function pageLogin() {
   return `
-    <div style="display:flex;align-items:center;justify-content:center;min-height:80vh">
-      <div class="card p" style="width:100%;max-width:320px;text-align:center">
-        <h1 class="page-title">Вход в Stockeasy</h1>
-        <div id="lerr" style="color:var(--red);font-size:.8rem;margin-bottom:1rem"></div>
-        <input id="luser" type="text" placeholder="Логин" style="width:100%;margin-bottom:.75rem">
-        <input id="lpass" type="password" placeholder="Пароль" style="width:100%;margin-bottom:1.25rem">
-        <button class="btn" style="width:100%" onclick="doLogin()">Войти</button>
+    <div class="login-screen">
+      <div class="login-card">
+        <div class="login-header">
+          <div class="login-logo-badge">
+            <img src="images/logo.ico" alt="Stockeasy" onerror="this.style.display='none'">
+          </div>
+          <h1 class="login-title">Вход в Stockeasy</h1>
+          <p class="login-subtitle">Единая система управления проектами и заявками</p>
+        </div>
+
+        <div id="lerr" class="login-error-alert" role="alert">
+          <span style="font-size:1.15rem;line-height:1">⚠️</span>
+          <span id="lerr-text"></span>
+        </div>
+
+        <form id="login-form" onsubmit="event.preventDefault(); doLogin();" autocomplete="on">
+          <div class="login-group">
+            <label class="login-label" for="luser">Логин или имя пользователя</label>
+            <div class="login-input-wrap">
+              <input id="luser" name="username" class="login-input" type="text" placeholder="Введите ваш логин" autocomplete="username" autofocus required>
+            </div>
+          </div>
+
+          <div class="login-group">
+            <label class="login-label" for="lpass">Пароль</label>
+            <div class="login-input-wrap">
+              <input id="lpass" name="password" class="login-input login-input-pass" type="password" placeholder="Введите пароль" autocomplete="current-password" required>
+              <button type="button" class="login-eye-btn" onclick="toggleLoginPassword()" title="Показать или скрыть пароль" aria-label="Показать пароль">
+                <svg id="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <button id="lbtn" type="submit" class="login-submit-btn">
+            <span id="lbtn-text">Войти в систему</span>
+          </button>
+        </form>
+
+        <div class="login-footer-info">
+          Корпоративный доступ &bull; Stockeasy &copy; ${new Date().getFullYear()}
+        </div>
       </div>
     </div>
   `;
+}
+
+function toggleLoginPassword() {
+  var pInput = document.getElementById('lpass');
+  var eyeIcon = document.getElementById('eye-icon');
+  if (!pInput) return;
+  if (pInput.type === 'password') {
+    pInput.type = 'text';
+    if (eyeIcon) {
+      eyeIcon.innerHTML = `
+        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+        <line x1="1" y1="1" x2="23" y2="23"></line>
+      `;
+    }
+  } else {
+    pInput.type = 'password';
+    if (eyeIcon) {
+      eyeIcon.innerHTML = `
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+        <circle cx="12" cy="12" r="3"></circle>
+      `;
+    }
+  }
 }
 
 
@@ -522,7 +850,16 @@ function bindEvents() {
   });
   // kanban filters
   var kq = document.getElementById('kq');
-  if (kq) kq.addEventListener('input', function(){ S.kanbanQ = this.value; renderApp(); });
+  if (kq) {
+    kq.addEventListener('input', function(){
+      var val = this.value;
+      clearTimeout(kanbanSearchTimeout);
+      kanbanSearchTimeout = setTimeout(function() {
+        S.kanbanQ = val;
+        renderApp();
+      }, 200);
+    });
+  }
   var kreg = document.getElementById('kreg');
   if (kreg) kreg.addEventListener('change', function(){ S.kanbanReg = this.value; renderApp(); });
   var kmgr = document.getElementById('kmgr');
@@ -564,34 +901,80 @@ function bindEvents() {
   if (addBtn) addBtn.addEventListener('click', addTask);
   var ntask = document.getElementById('ntask');
   if (ntask) ntask.addEventListener('keypress', function(e){ if(e.key==='Enter') addTask(); });
-    // Живое редактирование карточки заявки
+    // Живое отслеживание изменений карточки заявки (с показом плашки сохранения)
+  // Живое отслеживание изменений карточки заявки (с показом плашки сохранения)
   var cardForm = document.getElementById('cardForm');
   if (cardForm) {
     cardForm.addEventListener('change', function(e) {
       var el = e.target;
-      if (!el.name) return;
+      if (el.closest && (el.closest('#portsBlock') || el.closest('#taskMaterialsBlock'))) return;
+      var fieldName = el.name || el.dataset.key || el.getAttribute('data-field');
+      if (!fieldName) return;
       var newVal = (el.type === 'checkbox') ? el.checked : el.value;
-      var t = S.tasks.find(function(x){ return String(x.id) === String(S.cardId); });
+      var t = (S.tasks || []).find(function(x){ return String(x.id) === String(S.cardId); });
       if (!t) return;
-      var origVal = t[el.name];
+      var origVal = t[fieldName];
       var isBool = typeof newVal === 'boolean';
-      var same = isBool ? (!!origVal === newVal) : (String(origVal||'') === String(newVal));
-      if (same) {
-        delete S.cardDraft[el.name];
+      var same = false;
+      if (isBool) {
+        same = (!!origVal === newVal);
+      } else if (el.type === 'date') {
+        var oStr = origVal ? String(origVal).slice(0, 10) : '';
+        var nStr = newVal ? String(newVal).slice(0, 10) : '';
+        same = (oStr === nStr);
+      } else if (el.type === 'number') {
+        same = (newVal === '' && (origVal === null || origVal === undefined || origVal === '')) || (Number(origVal) === Number(newVal));
       } else {
-        S.cardDraft[el.name] = newVal;
+        same = (String(origVal || '') === String(newVal));
       }
-      renderApp();
+      if (same) {
+        delete S.cardDraft[fieldName];
+      } else {
+        S.cardDraft[fieldName] = newVal;
+      }
+      updateCardSaveBar();
+    });
+
+    // Для текстовых и числовых полей — отмечаем несохраненные изменения при вводе
+    cardForm.addEventListener('input', function(e) {
+      var el = e.target;
+      if (el.closest && (el.closest('#portsBlock') || el.closest('#taskMaterialsBlock'))) return;
+      if (el.type === 'checkbox' || el.type === 'radio') return;
+      var fieldName = el.name || el.dataset.key || el.getAttribute('data-field');
+      if (!fieldName) return;
+      var t = (S.tasks || []).find(function(x){ return String(x.id) === String(S.cardId); });
+      if (!t) return;
+      var origVal = t[fieldName];
+      var same = false;
+      if (el.type === 'date') {
+        var oStr = origVal ? String(origVal).slice(0, 10) : '';
+        var nStr = el.value ? String(el.value).slice(0, 10) : '';
+        same = (oStr === nStr);
+      } else if (el.type === 'number') {
+        same = (el.value === '' && (origVal === null || origVal === undefined || origVal === '')) || (Number(origVal) === Number(el.value));
+      } else {
+        same = (String(origVal || '') === String(el.value || ''));
+      }
+      if (same) {
+        delete S.cardDraft[fieldName];
+      } else {
+        S.cardDraft[fieldName] = el.value;
+      }
+      updateCardSaveBar();
     });
   }
   var cardSaveBtn = document.getElementById('cardSaveBtn');
-  if (cardSaveBtn) cardSaveBtn.addEventListener('click', function(){ S.cardConfirmOpen = true; renderApp(); });
+  if (cardSaveBtn) cardSaveBtn.addEventListener('click', function(){ 
+    if (typeof window.saveCard === 'function') window.saveCard(false); 
+  });
   var cardResetBtn = document.getElementById('cardResetBtn');
-  if (cardResetBtn) cardResetBtn.addEventListener('click', function(){ S.cardDraft = {}; S.cardConfirmOpen = false; renderApp(); });
+  if (cardResetBtn) cardResetBtn.addEventListener('click', function(){ if (typeof window._resetCardDraft === 'function') window._resetCardDraft(); else { S.cardDraft = {}; S.cardConfirmOpen = false; renderApp(); } });
   var cardConfirmCancelBtn = document.getElementById('cardConfirmCancelBtn');
   if (cardConfirmCancelBtn) cardConfirmCancelBtn.addEventListener('click', function(){ S.cardConfirmOpen = false; renderApp(); });
   var cardConfirmOkBtn = document.getElementById('cardConfirmOkBtn');
-  if (cardConfirmOkBtn) cardConfirmOkBtn.addEventListener('click', saveCard);
+  if (cardConfirmOkBtn) cardConfirmOkBtn.addEventListener('click', function(){
+    if (typeof window.saveCard === 'function') window.saveCard(false);
+  });
   // task filters: быстрый поиск с дебаунсом
   var tq = document.getElementById('tq');
   if (tq) {
@@ -618,29 +1001,79 @@ function bindEvents() {
   }
 }
 
+window.addEventListener('beforeunload', function() {
+  if (S.cardDraft && Object.keys(S.cardDraft).length > 0 && S.cardId) {
+    if (typeof window.saveCard === 'function') window.saveCard(true);
+  }
+});
+
 // ─── Парсинг Excel на стороне браузера ───────────────────────────────────────
 
 function doLogin() {
-  var u = document.getElementById('luser').value;
-  var p = document.getElementById('lpass').value;
-  if(!u || !p) return;
+  var uInput = document.getElementById('luser');
+  var pInput = document.getElementById('lpass');
+  var errBox = document.getElementById('lerr');
+  var errText = document.getElementById('lerr-text');
+  var btn = document.getElementById('lbtn');
+  var btnText = document.getElementById('lbtn-text');
+
+  if (!uInput || !pInput) return;
+
+  var u = uInput.value.trim();
+  var p = pInput.value;
+
+  if (errBox) errBox.style.display = 'none';
+
+  if (!u || !p) {
+    if (errBox && errText) {
+      errText.textContent = 'Пожалуйста, введите логин и пароль';
+      errBox.style.display = 'flex';
+    }
+    if (!u) uInput.focus();
+    else pInput.focus();
+    return;
+  }
+
+  // Индикация процесса входа
+  if (btn) {
+    btn.disabled = true;
+    if (btnText) btnText.textContent = 'Входим в систему...';
+  }
 
   fetch('/api/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: u, password: p })
   })
-  .then(r => r.json().then(data => ({ status: r.status, data })))
-  .then(res => {
+  .then(function(r) { return r.json().then(function(data) { return { status: r.status, data: data }; }); })
+  .then(function(res) {
     if (res.status !== 200) {
-      document.getElementById('lerr').textContent = res.data.error;
+      if (errBox && errText) {
+        errText.textContent = (res.data && res.data.error) ? res.data.error : 'Неверный логин или пароль';
+        errBox.style.display = 'flex';
+      }
+      if (btn) {
+        btn.disabled = false;
+        if (btnText) btnText.textContent = 'Войти в систему';
+      }
+      pInput.focus();
+      pInput.select();
     } else {
       S.token = res.data.token;
       S.user = res.data.user;
       localStorage.setItem('token', S.token);
       localStorage.setItem('user', JSON.stringify(S.user));
       location.reload();
-       // Перезагружаем данные уже с токеном
+    }
+  })
+  .catch(function(err) {
+    if (errBox && errText) {
+      errText.textContent = 'Ошибка связи с сервером. Попробуйте еще раз.';
+      errBox.style.display = 'flex';
+    }
+    if (btn) {
+      btn.disabled = false;
+      if (btnText) btnText.textContent = 'Войти в систему';
     }
   });
 }

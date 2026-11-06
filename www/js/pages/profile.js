@@ -52,7 +52,7 @@ function pageProfile() {
           <!-- Секция аватара -->
           <div style="display:flex; align-items:center; gap:1.25rem; flex-wrap:wrap;">
             <div id="profile_avatar_preview" style="width:76px; height:76px; border-radius:50%; background:var(--orange); color:#fff; display:flex; align-items:center; justify-content:center; font-size:1.8rem; font-weight:700; flex-shrink:0; overflow:hidden; border:2px solid var(--border); box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-              ${u.avatarUrl ? `<img src="${escHtml(u.avatarUrl)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.parentElement.innerHTML='${initial}'">` : initial}
+              ${u.avatarUrl ? `<img src="${escHtml(u.avatarUrl)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.parentElement.innerHTML='${initial}'; var btn=document.getElementById('btn_delete_avatar'); if(btn) btn.style.display='none';">` : initial}
             </div>
             <div style="display:flex; flex-direction:column; gap:6px;">
               <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -155,7 +155,7 @@ function updateProfileAvatarDisplay(url) {
 
   if (previewEl) {
     if (url) {
-      previewEl.innerHTML = '<img src="' + escHtml(url) + '" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML=\'' + initial + '\'">';
+      previewEl.innerHTML = '<img src="' + escHtml(url) + '" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML=\'' + initial + '\';if(btnDel)btnDel.style.display=\'none\';">';
     } else {
       previewEl.innerHTML = initial;
     }

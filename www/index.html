@@ -65,6 +65,9 @@
       </div>
       
       <div class="topbar-right">
+        <!-- Кнопка обновления приложения при новом пуше в Git -->
+        <div id="update-btn-container"></div>
+
         <!-- Статус сети / оффлайн индикатор -->
         <div id="network-status-pill" style="display:none; align-items:center; gap:6px; font-size:.78rem; font-weight:600; padding:4px 10px; border-radius:12px; background:rgba(34,197,94,0.12); color:#16a34a; margin-right:8px; cursor:pointer;" onclick="manualSync()" title="Нажмите для проверки связи и ручной синхронизации">
           <span id="network-status-dot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#16a34a;"></span>
@@ -141,23 +144,32 @@
 </div>
 
   <!-- МОДУЛЬНАЯ АРХИТЕКТУРА JAVASCRIPT (с версионированием кэша) -->
-  <script src="js/state.js?v=2.1"></script>
-  <script src="js/helpers.js?v=2.1"></script>
-  <script src="js/offline.js?v=2.1"></script>
-  <script src="js/api.js?v=2.1"></script>
-  <script src="js/pages/dashboard.js?v=2.1"></script>
-  <script src="js/pages/tasks.js?v=2.1"></script>
-  <script src="js/pages/kanban.js?v=2.1"></script>
-  <script src="js/pages/card.js?v=2.1"></script>
-  <script src="js/pages/marches.js?v=2.1"></script>
-  <script src="js/pages/contractors.js?v=2.1"></script>
-  <script src="js/pages/users.js?v=2.1"></script>
-  <script src="js/pages/data.js?v=2.1"></script>
-  <script src="js/pages/chat.js?v=2.1"></script>
-  <script src="js/pages/profile.js?v=2.1"></script>
-  <script src="js/pages/supply.js?v=2.1"></script>
-  <script src="js/pages/logs.js?v=2.1"></script>
-  <script src="js/pages/help.js?v=2.1"></script>
-  <script src="js/app.js?v=2.1"></script>
+  <script src="js/state.js?v=3.0"></script>
+  <script src="js/helpers.js?v=3.0"></script>
+  <script src="js/hints.js?v=2.1"></script>
+  <script src="js/windowManager.js?v=2.4"></script>
+  <script src="js/offline.js?v=2.5"></script>
+  <script src="js/api.js?v=2.5"></script>
+  <script src="js/pages/dashboard.js?v=2.5"></script>
+  <script src="js/pages/tasks.js?v=3.0"></script>
+  <script src="js/pages/kanban.js?v=2.5"></script>
+  <script src="js/subcontractWizard.js?v=3.0"></script>
+  <script src="js/pages/card.js?v=4.5"></script>
+  <script src="js/idModeration.js?v=1.5"></script>
+  <script src="js/pages/marches.js?v=2.5"></script>
+  <script src="js/pages/contracts.js?v=3.5"></script>
+  <script src="js/pages/subcontracts.js?v=2.0"></script>
+  <script src="js/pages/contractors.js?v=4.0"></script>
+  <script src="js/documentEditor.js?v=2.0"></script>
+  <script src="js/pages/templates.js?v=2.0"></script>
+  <script src="js/pages/users.js?v=3.0"></script>
+  <script src="js/pages/data.js?v=2.5"></script>
+  <script src="js/pages/chat.js?v=2.5"></script>
+  <script src="js/pages/profile.js?v=2.5"></script>
+  <script src="js/pages/supply.js?v=2.5"></script>
+  <script src="js/pages/logs.js?v=2.5"></script>
+  <script src="js/pages/help.js?v=2.5"></script>
+  <script src="js/app.js?v=3.0"></script>
+  <script src="js/updater.js?v=1.0"></script>
 </body>
 </html>

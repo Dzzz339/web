@@ -1,10 +1,10 @@
 function pageSupply() {
   S.supplyTab = S.supplyTab || 'stages';
 
-  var tabSwitcher = '<div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap">' +
-    '<button class="btn btn-sm ' + (S.supplyTab === 'stages' ? 'btn-primary' : 'btn-ghost') + '" onclick="S.supplyTab=\'stages\';renderApp()">🔗 Этапы по регионам</button>' +
-    '<button class="btn btn-sm ' + (S.supplyTab === 'cpsat' ? 'btn-primary' : 'btn-ghost') + '" onclick="S.supplyTab=\'cpsat\';renderApp();loadSupplyWarehousesView()">📦 Склады и CP-SAT снабжение</button>' +
-    '<button class="btn btn-sm ' + (S.supplyTab === 'forecast' ? 'btn-primary' : 'btn-ghost') + '" onclick="S.supplyTab=\'forecast\';renderApp();loadSupplyForecastView()">📈 Прогнозирование и Заказы (MRP)</button>' +
+  var tabSwitcher = '<div class="swipe-carousel-row" style="margin-bottom:1rem">' +
+    '<button class="btn btn-sm carousel-card ' + (S.supplyTab === 'stages' ? 'btn-primary' : 'btn-ghost') + '" onclick="S.supplyTab=\'stages\';renderApp()"><span class="btn-svg-icon">' + ICONS.link + '</span><span>Этапы по регионам</span></button>' +
+    '<button class="btn btn-sm carousel-card ' + (S.supplyTab === 'cpsat' ? 'btn-primary' : 'btn-ghost') + '" onclick="S.supplyTab=\'cpsat\';renderApp();loadSupplyWarehousesView()"><span class="btn-svg-icon">' + ICONS.box + '</span><span>Склады и CP-SAT снабжение</span></button>' +
+    '<button class="btn btn-sm carousel-card ' + (S.supplyTab === 'forecast' ? 'btn-primary' : 'btn-ghost') + '" onclick="S.supplyTab=\'forecast\';renderApp();loadSupplyForecastView()"><span class="btn-svg-icon">' + ICONS.trendingUp + '</span><span>Прогнозирование и Заказы (MRP)</span></button>' +
   '</div>';
 
   // ─── ВКЛАДКА 3: ПРОГНОЗИРОВАНИЕ И ЗАКАЗЫ (MRP) ─────────────────────────────
@@ -548,7 +548,7 @@ function openCreatePurchaseOrderModal(prefillMatId, prefillQty) {
         { key: 'quantity', label: 'Количество', type: 'number', value: prefillQty || 100, required: true },
         { key: 'unit_price', label: 'Цена за ед. (руб.)', type: 'number', value: (mats.find(function(m){return m.id == (prefillMatId || (mats[0] ? mats[0].id : null));}) || {}).price_default || 45 },
         { key: 'expected_date', label: 'Ожидаемая дата поставки', type: 'date', value: defaultDate },
-        { key: 'notes', label: 'Примечание к заказу', type: 'text', placeholder: 'Например: закупка кабеля под проект Сбера' }
+        { key: 'notes', label: 'Примечание к заказу', type: 'text', placeholder: 'Например: закупка кабеля под проект Заказчика' }
       ], function(d) {
         var q = parseFloat(d.quantity) || 0;
         var p = parseFloat(d.unit_price) || 0;

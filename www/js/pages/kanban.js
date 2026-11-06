@@ -5,7 +5,7 @@
 var KANBAN_COLS = [
   {
     id: 'new',
-    label: '1. Новые (за сегодня)',
+    label: '1. Новые (дата последней загрузки)',
     color: '#475569',
     badgeCls: 'b-gray',
     icon: '📥',
@@ -126,11 +126,11 @@ var KANBAN_COLS = [
 ];
 
 var KANBAN_PHASES = [
-  { id: 'all', label: 'Все 10 этапов', iconKey: 'layers', shortLabel: 'Все этапы', colIds: [] },
-  { id: 'intake', label: '1. Вход и ТЗ (1–3)', iconKey: 'inbox', shortLabel: 'Вход и ТЗ', range: 'Этапы 1–3', colIds: ['new', 'review', 'rejected'] },
-  { id: 'assign', label: '2. Назначение (4–5)', iconKey: 'userCheck', shortLabel: 'Назначение', range: 'Этапы 4–5', colIds: ['in_progress', 'assigned'] },
-  { id: 'work', label: '3. СМР и ИД (6–8)', iconKey: 'tool', shortLabel: 'СМР и ИД', range: 'Этапы 6–8', colIds: ['install', 'smr_done', 'id_in_progress'] },
-  { id: 'close', label: '4. Сдача и Оплата (9–10)', iconKey: 'check', shortLabel: 'Сдача и Оплата', range: 'Этапы 9–10', colIds: ['accepted', 'billing'] }
+  { id: 'all', label: '<span class="chip-svg-icon">' + ICONS.layers + '</span><span>Все 10 этапов</span>', shortLabel: 'Все этапы', colIds: [] },
+  { id: 'intake', label: '<span class="chip-svg-icon">' + ICONS.inbox + '</span><span>1. Вход и ТЗ (1–3)</span>', shortLabel: 'Вход и ТЗ', range: 'Этапы 1–3', colIds: ['new', 'review', 'rejected'] },
+  { id: 'assign', label: '<span class="chip-svg-icon">' + ICONS.userCheck + '</span><span>2. Назначение (4–5)</span>', shortLabel: 'Назначение', range: 'Этапы 4–5', colIds: ['in_progress', 'assigned'] },
+  { id: 'work', label: '<span class="chip-svg-icon">' + ICONS.tool + '</span><span>3. СМР и ИД (6–8)</span>', shortLabel: 'СМР и ИД', range: 'Этапы 6–8', colIds: ['install', 'smr_done', 'id_in_progress'] },
+  { id: 'close', label: '<span class="chip-svg-icon">' + ICONS.check + '</span><span>4. Сдача и Оплата (9–10)</span>', shortLabel: 'Сдача и Оплата', range: 'Этапы 9–10', colIds: ['accepted', 'billing'] }
 ];
 
 function setKanbanPhase(phaseId) {
@@ -250,11 +250,12 @@ function moveKanbanTaskToCol(taskId, colId) {
   var currentCol = getTaskKanbanCol(t);
   if (currentCol.id === targetCol.id) return;
 
-  if (S.user && S.user.role === 'worker') {
+  if (S.user && (S.user.role === 'worker' || S.user.role === 'installer' || S.user.role === 'contractor')) {
     return alert('У рабочих нет прав на изменение этапа заявки');
   }
 
   var targetStatus = targetCol.targetMacro;
+  if (window.savePageScroll) window.savePageScroll('kcard_' + taskId);
   changeTaskMacroStatus(taskId, targetStatus);
 }
 
@@ -279,6 +280,7 @@ function pageKanban() {
   var quick = S.kanbanQuick || 'all';
 
   var todayStr = new Date().toISOString().split('T')[0];
+  var latestInfo = getLatestImportMetrics(S.tasks || []);
 
   var regions = Array.from(new Set(S.tasks.map(function(t){ return (t.region || '').trim(); }).filter(Boolean))).sort();
   var managers = Array.from(new Set(S.tasks.map(function(t){ return (t.manager || '').trim(); }).filter(Boolean))).sort();
@@ -300,9 +302,7 @@ function pageKanban() {
 
     // Быстрый фильтр
     if (quick === 'today') {
-      var isToday = (t.dateZayavki && t.dateZayavki === todayStr) || 
-                    (t.currentDate && t.currentDate === todayStr);
-      if (!isToday && (t.macroStatus || 'new') !== 'new') return false;
+      if (!isTaskMatchingStage(t, 'new', latestInfo)) return false;
     } else if (quick === 'overdue') {
       var isOvd = t.overdueDays > 0 || (t.stageDue && new Date(t.stageDue) < new Date());
       if (!isOvd) return false;
@@ -335,7 +335,7 @@ function pageKanban() {
     return sum + Number(t.openRemarksCount || 0); 
   }, 0);
   var todayCount = S.tasks.filter(function(t){
-    return !t.archived && ((t.dateZayavki && t.dateZayavki === todayStr) || (t.currentDate && t.currentDate === todayStr) || (t.macroStatus || 'new') === 'new');
+    return !t.archived && isTaskMatchingStage(t, 'new', latestInfo);
   }).length;
 
   // Расчет объектов по фазам для табов
@@ -407,7 +407,7 @@ function pageKanban() {
       var curMs = (t.macroStatus || 'new').toLowerCase();
       var custName = (t.customer || '').trim();
 
-      var isTaskToday = (t.dateZayavki && t.dateZayavki === todayStr) || (t.currentDate && t.currentDate === todayStr);
+      var isTaskToday = isTaskMatchingStage(t, 'new', latestInfo);
 
       // Бейдж срока / просрочки
       var dueBadge = '';
@@ -455,7 +455,7 @@ function pageKanban() {
         '</div>';
       }
 
-      cards += '<div class="kcard" draggable="true" ' +
+      cards += '<div class="kcard" id="kcard_' + tid + '" data-tid="' + tid + '" draggable="true" ' +
         'ondragstart="kanbanCardDragStart(event, \'' + tid + '\')" ' +
         'ondragend="kanbanCardDragEnd(event)" ' +
         'onclick="openCard(\'' + tid + '\')" style="cursor:pointer">' +
@@ -500,25 +500,12 @@ function pageKanban() {
           '<span style="font-weight:700;color:var(--blue)">' + fmtMoney(fin.total || t.amount) + '</span>' +
         '</div>' +
 
-        // 6. Подвал карточки (ДВУХЪЯРУСНЫЙ):
-        // Ярус 1: Выпадающий список макро-статуса + кнопка отката
+        // 6. Подвал карточки: Выпадающий список макро-статуса
         '<div style="display:flex;align-items:center;gap:4px;margin-top:6px" onclick="event.stopPropagation()">' +
           '<select class="kcard-status-select" onchange="changeTaskMacroStatus(\'' + tid + '\', this.value)" title="Макро-статус процесса">' +
             statusOptions +
           '</select>' +
-          (canUndo ? '<button type="button" class="btn btn-xs btn-ghost" onclick="undoIdStep(\'' + tid + '\')" title="Откатить шаг регламента назад" style="padding:3px 6px;font-size:.76rem;border:1px solid var(--border);border-radius:6px;background:#f8fafc;color:var(--text-2);flex-shrink:0">↩</button>' : '') +
         '</div>' +
-
-        // Ярус 2: Кнопка шага регламента во ВСЮ ширину карточки (никогда не вылезает)
-        (nextStep ? (
-          '<div style="margin-top:4px" onclick="event.stopPropagation()">' +
-            '<button type="button" class="kcard-step-btn ' + (canStep ? '' : 'disabled') + '" onclick="advanceIdStep(\'' + tid + '\')" ' +
-            (canStep ? '' : 'title="Требуется роль: ' + nextStep.role + '"') + '>' +
-              '▶ ' + escHtml(nextStep.action) +
-            '</button>' +
-          '</div>'
-        ) : '') +
-
       '</div>';
     });
 
@@ -559,35 +546,20 @@ function pageKanban() {
   var isRemActive = quick === 'remarks';
   var isMineActive = quick === 'mine';
 
-  var quickFiltersHtml = '<div class="kanban-quick-filters-row swipe-carousel-row" style="margin-bottom:.2rem;">' +
-    '<button type="button" class="quick-filter-chip carousel-card' + (isAllActive ? ' active' : '') + '" onclick="setKanbanQuick(\'all\')">' +
-      '<span class="chip-svg-icon">' + ICONS.layers + '</span>' +
-      '<span>Все объекты (' + S.tasks.filter(function(t){ return !t.archived; }).length + ')</span>' +
-    '</button>' +
-    '<button type="button" class="quick-filter-chip carousel-card' + (isTodayActive ? ' active' : '') + '" onclick="setKanbanQuick(\'today\')">' +
-      '<span class="chip-svg-icon">' + ICONS.spark + '</span>' +
-      '<span>Новые сегодня (' + todayCount + ')</span>' +
-    '</button>' +
-    '<button type="button" class="quick-filter-chip carousel-card' + (isOvdActive ? ' active' : '') + '" onclick="setKanbanQuick(\'overdue\')">' +
-      '<span class="chip-svg-icon">' + ICONS.clock + '</span>' +
-      '<span>С просрочкой (' + S.tasks.filter(function(t){ return !t.archived && (t.overdueDays > 0 || (t.stageDue && new Date(t.stageDue) < new Date())); }).length + ')</span>' +
-    '</button>' +
-    '<button type="button" class="quick-filter-chip carousel-card' + (isRemActive ? ' active' : '') + '" onclick="setKanbanQuick(\'remarks\')">' +
-      '<span class="chip-svg-icon">' + ICONS.alert + '</span>' +
-      '<span>С замечаниями (' + S.tasks.filter(function(t){ return !t.archived && Number(t.openRemarksCount || 0) > 0; }).length + ')</span>' +
-    '</button>' +
-    '<button type="button" class="quick-filter-chip carousel-card' + (isMineActive ? ' active' : '') + '" onclick="setKanbanQuick(\'mine\')">' +
-      '<span class="chip-svg-icon">' + ICONS.user + '</span>' +
-      '<span>Мои объекты</span>' +
-    '</button>' +
+  var quickFiltersHtml = '<div class="kanban-quick-filters-row swipe-carousel-row" style="margin-bottom:.45rem">' +
+    '<button type="button" class="quick-filter-chip carousel-card' + (isAllActive ? ' active' : '') + '" onclick="setKanbanQuick(\'all\')"><span class="chip-svg-icon">' + ICONS.layers + '</span><span>Все объекты (' + S.tasks.filter(function(t){ return !t.archived; }).length + ')</span></button>' +
+    '<button type="button" class="quick-filter-chip carousel-card' + (isTodayActive ? ' active' : '') + '" onclick="setKanbanQuick(\'today\')"><span class="chip-svg-icon">' + ICONS.spark + '</span><span>Новые сегодня (' + todayCount + ')</span></button>' +
+    '<button type="button" class="quick-filter-chip carousel-card' + (isOvdActive ? ' active' : '') + '" onclick="setKanbanQuick(\'overdue\')"><span class="chip-svg-icon">' + ICONS.clock + '</span><span>С просрочкой (' + S.tasks.filter(function(t){ return !t.archived && (t.overdueDays > 0 || (t.stageDue && new Date(t.stageDue) < new Date())); }).length + ')</span></button>' +
+    '<button type="button" class="quick-filter-chip carousel-card' + (isRemActive ? ' active' : '') + '" onclick="setKanbanQuick(\'remarks\')"><span class="chip-svg-icon">' + ICONS.alert + '</span><span>С замечаниями (' + S.tasks.filter(function(t){ return !t.archived && Number(t.openRemarksCount || 0) > 0; }).length + ')</span></button>' +
+    '<button type="button" class="quick-filter-chip carousel-card' + (isMineActive ? ' active' : '') + '" onclick="setKanbanQuick(\'mine\')"><span class="chip-svg-icon">' + ICONS.profile + '</span><span>Мои объекты</span></button>' +
   '</div>';
 
   // Сводная информационная плашка
   var summaryHtml = '<div class="kanban-summary" style="margin-bottom:.4rem;padding:6px 12px">' +
-    '<div class="kanban-summary-item"><span class="chip-svg-icon" style="width:14px;height:14px;display:inline-flex;margin-right:4px;">' + ICONS.tasks + '</span>Показано: <span class="kanban-summary-val">' + filtered.length + ' объектов</span></div>' +
-    '<div class="kanban-summary-item"><span class="chip-svg-icon" style="width:14px;height:14px;display:inline-flex;margin-right:4px;">' + ICONS.analytics + '</span>Общий объем: <span class="kanban-summary-val" style="color:var(--blue)">' + fmtMoney(totalAmount) + '</span></div>' +
-    (totalOverdue > 0 ? '<div class="kanban-summary-item" style="color:var(--red)"><span class="chip-svg-icon" style="width:14px;height:14px;display:inline-flex;margin-right:4px;">' + ICONS.clock + '</span>Нарушен срок: <span class="kanban-summary-val" style="color:var(--red)">' + totalOverdue + '</span></div>' : '') +
-    (totalRemarks > 0 ? '<div class="kanban-summary-item" style="color:var(--orange-dark)"><span class="chip-svg-icon" style="width:14px;height:14px;display:inline-flex;margin-right:4px;">' + ICONS.alert + '</span>Замечаний: <span class="kanban-summary-val" style="color:var(--orange-dark)">' + totalRemarks + '</span></div>' : '') +
+    '<div class="kanban-summary-item"><span class="chip-svg-icon" style="width:13px;height:13px">' + ICONS.tasks + '</span>Показано: <span class="kanban-summary-val">' + filtered.length + ' объектов</span></div>' +
+    '<div class="kanban-summary-item"><span class="chip-svg-icon" style="width:13px;height:13px">' + ICONS.calc + '</span>Общий объем: <span class="kanban-summary-val" style="color:var(--blue)">' + fmtMoney(totalAmount) + '</span></div>' +
+    (totalOverdue > 0 ? '<div class="kanban-summary-item" style="color:var(--red)"><span class="chip-svg-icon" style="width:13px;height:13px">' + ICONS.clock + '</span>Нарушен срок: <span class="kanban-summary-val" style="color:var(--red)">' + totalOverdue + '</span></div>' : '') +
+    (totalRemarks > 0 ? '<div class="kanban-summary-item" style="color:var(--orange-dark)"><span class="chip-svg-icon" style="width:13px;height:13px">' + ICONS.alert + '</span>Замечаний: <span class="kanban-summary-val" style="color:var(--orange-dark)">' + totalRemarks + '</span></div>' : '') +
   '</div>';
 
   // Фазовые вкладки (10 этапов разбиты по 4 фазам)
@@ -595,10 +567,8 @@ function pageKanban() {
     KANBAN_PHASES.map(function(ph) {
       var isActive = ph.id === curPhase;
       var count = phaseCounts[ph.id] || 0;
-      var iconSvg = ph.iconKey && ICONS[ph.iconKey] ? ('<span class="chip-svg-icon">' + ICONS[ph.iconKey] + '</span>') : '';
       return '<button type="button" class="kanban-phase-btn carousel-card' + (isActive ? ' active' : '') + '" onclick="setKanbanPhase(\'' + ph.id + '\')">' +
-        iconSvg +
-        '<span>' + escHtml(ph.label) + '</span>' +
+        '<span>' + ph.label + '</span>' +
         '<span class="kanban-phase-cnt">' + count.toLocaleString('ru') + '</span>' +
       '</button>';
     }).join('') +
@@ -619,19 +589,17 @@ function pageKanban() {
   var kanbanClass = 'kanban' + (curPhase !== 'all' ? ' phase-focused' : '');
 
   return '<div class="kanban-top-section">' +
-      '<div class="kanban-header-row" style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-bottom:.2rem">' +
-        '<h1 class="page-title" style="margin-bottom:0;font-size:1.15rem">Канбан</h1>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.4rem">' +
+        '<div style="display:flex;align-items:center;gap:.65rem;flex-wrap:wrap">' +
+          '<h1 class="page-title" style="margin-bottom:0;font-size:1.15rem">Канбан</h1>' +
+          phaseTabsHtml +
+        '</div>' +
         '<div style="display:flex;align-items:center;gap:6px">' +
           collapseToggleBtn +
           scrollButtonsHtml +
         '</div>' +
       '</div>' +
-      '<div class="kanban-phase-scroll-wrap" style="width:100%;margin-bottom:.2rem">' +
-        phaseTabsHtml +
-      '</div>' +
-      '<div class="kanban-quick-filters-scroll-wrap" style="width:100%;margin-bottom:.3rem">' +
-        quickFiltersHtml +
-      '</div>' +
+      quickFiltersHtml +
       '<div style="display:flex;flex-wrap:wrap;gap:.4rem;align-items:center">' +
         '<input id="kq" type="text" placeholder="Поиск по ID, адресу, исполнителю..." style="flex:2;min-width:180px" value="' + escHtml(S.kanbanQ || '') + '">' +
         '<select id="kreg"><option value="">Все регионы (' + regions.length + ')</option>' + mkOpts(regions, reg) + '</select>' +
