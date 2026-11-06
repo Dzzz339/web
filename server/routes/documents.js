@@ -1105,17 +1105,15 @@ router.delete('/document-templates/:id', authenticateToken, requireRole('admin',
 // 9.7. Сформировать документ для предпросмотра и редактирования в приложении (БЕЗ СКАЧИВАНИЯ)
 router.post('/documents/render', authenticateToken, async (req, res) => {
   try {
-    const {
-      template_code,
-      template_id,
-      task_id,
-      contract_id,
-      subcontract_id,
-      subcontract_contract_id,
-      poa_id,
-      custom_data = {},
-      force_fresh = false
-    } = req.body;
+    const template_code = req.body.template_code || req.body.templateCode;
+    const template_id = req.body.template_id || req.body.templateId;
+    const task_id = req.body.task_id || req.body.taskId;
+    const contract_id = req.body.contract_id || req.body.contractId;
+    const subcontract_id = req.body.subcontract_id || req.body.subcontractId;
+    const subcontract_contract_id = req.body.subcontract_contract_id || req.body.subcontractContractId;
+    const poa_id = req.body.poa_id || req.body.poaId;
+    const custom_data = req.body.custom_data || req.body.customData || {};
+    const force_fresh = Boolean(req.body.force_fresh || req.body.forceFresh);
 
     // 1. Ищем шаблон
     let template = null;
@@ -1231,31 +1229,30 @@ router.post('/documents/render', authenticateToken, async (req, res) => {
 // 9.8. Сохранить документ (из редактора в реестр системы)
 router.post('/documents/save', authenticateToken, async (req, res) => {
   try {
-    const {
-      id, // если редактируется существующий
-      task_id,
-      contract_id,
-      subcontract_id,
-      subcontract_contract_id,
-      poa_id,
-      doc_type = 'custom',
-      doc_format = 'word',
-      doc_number,
-      doc_date,
-      title,
-      content_html,
-      content_json,
-      status = 'generated',
-      meta = {}
-    } = req.body;
+    const id = req.body.id;
+    const task_id = req.body.task_id || req.body.taskId;
+    const contract_id = req.body.contract_id || req.body.contractId;
+    const subcontract_id = req.body.subcontract_id || req.body.subcontractId;
+    const subcontract_contract_id = req.body.subcontract_contract_id || req.body.subcontractContractId;
+    const poa_id = req.body.poa_id || req.body.poaId;
+    const doc_type = req.body.doc_type || req.body.docType || 'custom';
+    const doc_format = req.body.doc_format || req.body.docFormat || 'word';
+    const doc_number = req.body.doc_number || req.body.docNumber;
+    const doc_date = req.body.doc_date || req.body.docDate;
+    const title = req.body.title;
+    const content_html = req.body.content_html || req.body.contentHtml;
+    const content_json = req.body.content_json || req.body.contentJson;
+    const status = req.body.status || 'generated';
+    const meta = req.body.meta || {};
 
     if (!title) return res.status(400).json({ error: 'Заголовок документа обязателен' });
 
     const userRole = req.user?.role || 'user';
 
     // Защита от редактирования в статусах отправки / подписания (по замечаниям руководства)
+    let exRes = null;
     if (id) {
-      const exRes = await pool.query('SELECT status, content_html FROM task_documents WHERE id = $1', [id]);
+      exRes = await pool.query('SELECT status, content_html, file_url FROM task_documents WHERE id = $1', [id]);
       if (exRes.rows.length) {
         const curStatus = exRes.rows[0].status;
         if (['agreed', 'sent', 'signed', 'terminated', 'cancelled'].includes(curStatus) && userRole !== 'admin') {
@@ -1284,20 +1281,29 @@ router.post('/documents/save', authenticateToken, async (req, res) => {
       }
     }
 
-    // Создаем фоновый DOCX/HTML файл на диске на случай если понадобится скачать
-    const safeId = String(task_id || contract_id || subcontract_contract_id || 'doc').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const timestamp = Date.now();
+    // Создаем или обновляем фоновый DOCX/HTML файл на диске
     const ext = doc_format === 'excel' ? 'xlsx' : 'docx';
-    const fileName = `${doc_type}_${safeId}_${timestamp}.${ext}`;
-    const filePath = path.join(DOCS_DIR, fileName);
+    let fileName = null;
+    let filePath = null;
+    let fileUrl = null;
+
+    if (id && exRes && exRes.rows.length && exRes.rows[0].file_url) {
+      fileUrl = exRes.rows[0].file_url;
+      const relPath = fileUrl.replace(/^\/uploads\/?/, '');
+      filePath = path.join(UPLOADS_DIR, relPath);
+    } else {
+      const safeId = String(task_id || contract_id || subcontract_contract_id || 'doc').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const timestamp = Date.now();
+      fileName = `${doc_type}_${safeId}_${timestamp}.${ext}`;
+      filePath = path.join(DOCS_DIR, fileName);
+      fileUrl = `/uploads/documents/${fileName}`;
+    }
 
     if (content_html) {
       // Сохраняем Word-совместимый HTML
       const wordHeader = `<!DOCTYPE html><html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>${title}</title><style>@page { size: 210mm 297mm; margin: 20mm 15mm 20mm 20mm; } body { font-family: 'Times New Roman', serif; font-size: 11pt; color: #000; } table { border-collapse: collapse; width: 100%; } td, th { border: 1pt solid #000; padding: 4pt 6pt; }</style></head><body>${content_html}</body></html>`;
       fs.writeFileSync(filePath, wordHeader, 'utf8');
     }
-
-    const fileUrl = `/uploads/documents/${fileName}`;
 
     let resolvedContractId = contract_id || null;
     if (!resolvedContractId && task_id) {

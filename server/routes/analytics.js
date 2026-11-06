@@ -307,15 +307,22 @@ router.post('/excel/import-rows', authenticateToken, requireRole('admin', 'direc
             excel_comment = EXCLUDED.excel_comment,
             status        = CASE 
                               WHEN tasks.status IN ('done', 'paid', 'cancelled') THEN tasks.status 
+                              WHEN EXCLUDED.status IN ('done', 'paid', 'cancelled') THEN EXCLUDED.status
                               WHEN COALESCE(NULLIF(EXCLUDED.contractor, ''), NULLIF(tasks.contractor, '')) IS NOT NULL THEN 'progress' 
                               ELSE EXCLUDED.status 
                             END,
             macro_status  = CASE
+                              WHEN tasks.macro_status IN ('accepted', 'billing', 'paid', 'archived') THEN tasks.macro_status
+                              WHEN EXCLUDED.status = 'paid' THEN 'paid'
+                              WHEN EXCLUDED.status = 'done' THEN 'accepted'
                               WHEN tasks.macro_status IS NOT NULL AND tasks.macro_status != 'new' THEN tasks.macro_status
                               WHEN COALESCE(NULLIF(EXCLUDED.contractor, ''), NULLIF(tasks.contractor, '')) IS NOT NULL THEN 'assigned'
                               ELSE COALESCE(tasks.macro_status, 'new')
                             END,
             stage_num     = CASE
+                              WHEN tasks.stage_num IS NOT NULL AND tasks.stage_num >= 7 THEN tasks.stage_num
+                              WHEN EXCLUDED.status = 'paid' THEN 8
+                              WHEN EXCLUDED.status = 'done' THEN 7
                               WHEN tasks.stage_num IS NOT NULL AND tasks.stage_num > 0 THEN tasks.stage_num
                               WHEN COALESCE(NULLIF(EXCLUDED.contractor, ''), NULLIF(tasks.contractor, '')) IS NOT NULL THEN 1
                               ELSE COALESCE(tasks.stage_num, 0)
@@ -343,7 +350,7 @@ router.post('/excel/import-rows', authenticateToken, requireRole('admin', 'direc
           safeDate(t.dataVyhoda), t.priemka, t.oplata,
           t.idStatus, Number(t.amount)||0, Number(t.distanceKm)||0, Number(t.pricePerUnit)||0,
           t.techLink, t.edoNumber, t.invoiceInfo, t.vedoStatus, t.excelComment,
-          (t.contractor && String(t.contractor).trim()) ? 'progress' : (t.status||'progress'), 
+          (t.status === 'done' || t.status === 'paid' || t.status === 'cancelled') ? t.status : ((t.contractor && String(t.contractor).trim()) ? 'progress' : (t.status||'progress')), 
           t.priority||'low', Number(t.overdueDays)||0,
           t.stage || getInitialStage(t.status, t),
           JSON.stringify(t.rawData || {}),
@@ -352,8 +359,8 @@ router.post('/excel/import-rows', authenticateToken, requireRole('admin', 'direc
           resolvedCustomer,
           resolvedContractId,
           resolvedOwnCompanyId,
-          (t.contractor && String(t.contractor).trim()) ? 'assigned' : 'new',
-          (t.contractor && String(t.contractor).trim()) ? 1 : 0
+          (t.status === 'done' || t.status === 'paid') ? (t.status === 'paid' ? 'paid' : 'accepted') : ((t.contractor && String(t.contractor).trim()) ? 'assigned' : 'new'),
+          (t.status === 'done' || t.status === 'paid') ? (t.status === 'paid' ? 8 : 7) : ((t.contractor && String(t.contractor).trim()) ? 1 : 0)
         ]);
 
         if (Array.isArray(t.items) && t.items.length > 0) {

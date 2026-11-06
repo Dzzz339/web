@@ -1232,7 +1232,7 @@
       '<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:8px;padding:12px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">' +
         '<div>' +
           '<div style="font-weight:700;color:#92400e;font-size:.9rem">Исполнитель СМР еще не назначен</div>' +
-          '<div style="font-size:.78rem;color:#b45309;margin-top:2px">' + (!isAccepted ? 'Назначение подрядчика станет доступно после входного контроля заявки' : 'Назначьте подрядчика для расчета сметы и формирования заказ-наряда') + '</div>' +
+          '<div style="font-size:.78rem;color:#b45309;margin-top:2px">' + (!isAccepted ? 'Назначение подрядчика станет доступно после входного контроля заявки' : 'Назначьте подрядчика для расчета сметы и формирования Заказа') + '</div>' +
         '</div>' +
         '<button type="button" class="btn btn-sm btn-primary" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="openSubcontractWizardModal(\'' + escHtml(taskId) + '\')"') + '>+ Назначить исполнителя</button>' +
       '</div>'
@@ -1457,8 +1457,8 @@
         '<button type="button" class="btn btn-sm btn-ghost" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="window._openBudgetDistributorModal(\'' + escHtml(taskId) + '\')"') + ' style="font-size:.78rem;font-weight:600;border:1.5px solid var(--border);padding:4px 10px;color:var(--text)" title="Рассчитать цену за единицу от согласованного бюджета">' +
           '🧮 Расчет от общей суммы' +
         '</button>' +
-        '<button type="button" class="btn btn-sm btn-primary" onclick="window.exportDoc(\'app2\', \'' + escHtml(taskId) + '\')" style="font-size:.78rem;font-weight:700;padding:4px 12px;display:inline-flex;align-items:center;gap:5px" title="Сформировать официальное Приложение № 1 (Заказ-наряд на объект) к договору субподряда">' +
-          '📄 Приложение № 1 (Заказ-наряд)' +
+        '<button type="button" class="btn btn-sm btn-primary" onclick="window.exportDoc(\'app2\', \'' + escHtml(taskId) + '\')" style="font-size:.78rem;font-weight:700;padding:4px 12px;display:inline-flex;align-items:center;gap:5px" title="Сформировать официальное Приложение № 1 (Заказ на объект) к договору субподряда">' +
+          '📄 Приложение № 1 (Заказ)' +
         '</button>' +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="window.downloadSubcontractDocx(\'' + escHtml(taskId) + '\')" style="font-size:.78rem;font-weight:700;padding:4px 11px;border:1.5px solid #93c5fd;color:#1d4ed8;display:inline-flex;align-items:center;gap:5px" title="Сформировать официальный Договор субподряда (.docx) с Приложениями № 1 и № 2 по форме ООО «Кабельные Системы» / ООО «К10»">' +
           '🤝 Договор субподряда (.docx)' +
@@ -2757,7 +2757,7 @@ window.openQuickSubcontractCreateModal = function(taskId, contrName) {
         '<label style="display:block;font-size:.74rem;font-weight:700;color:var(--text-3);margin-bottom:3px">ТИПОВОЙ ПРАЙС-ЛИСТ К ДОГОВОРУ:</label>' +
         '<select id="_qsub_pricelist" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
           '<option value="Прайс-лист КС (Разовые/СФР)">Прайс-лист КС (Разовые/СФР)</option>' +
-          '<option value="Типовой Сбербанк (<=10 портов)">Типовой Сбербанк (<=10 портов)</option>' +
+          '<option value="Типовой норматив (<=10 портов)">Типовой норматив (<=10 портов)</option>' +
           '<option value="Индивидуальный расчет">Индивидуальный расчет по смете</option>' +
         '</select>' +
       '</div>' +

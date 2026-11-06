@@ -462,7 +462,7 @@ router.post('/tasks/:id/checklist', authenticateToken, async (req, res) => {
 // GET /api/tasks/:id/materials
 router.get('/tasks/:id/materials', authenticateToken, async (req, res) => {
   try {
-    const { rows } = await pool.query(`
+    let { rows } = await pool.query(`
       SELECT 
         tm.id,
         tm.task_id,
@@ -491,6 +491,43 @@ router.get('/tasks/:id/materials', authenticateToken, async (req, res) => {
         COALESCE(NULLIF(regexp_replace(tm.pos_num, '[^0-9.]', '', 'g'), ''), '9999')::numeric ASC NULLS LAST,
         tm.id ASC
     `, [req.params.id]);
+
+    // Если в task_materials пусто, но в task_items есть материалы — авто-синхронизируем!
+    if (!rows.length) {
+      const { rows: items } = await pool.query(`SELECT * FROM task_items WHERE task_id = $1 ORDER BY id ASC`, [req.params.id]);
+      if (items.length) {
+        for (let idx = 0; idx < items.length; idx++) {
+          const it = items[idx];
+          const qty = Number(it.quantity) || 1;
+          const price = Number(it.price_customer || it.price_contractor || 0) || 0;
+          const total = Number(it.amount_customer || it.amount_contractor || (qty * price)) || 0;
+          await pool.query(`
+            INSERT INTO task_materials (
+              task_id, pos_num, item_name, article, unit, plan_qty, fact_qty, price, total_price, supplier, source
+            ) VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, 'task_items')
+          `, [
+            req.params.id, String(idx + 1), it.work_type, it.article_plan || it.article || null,
+            it.unit || 'шт', qty, price, total, it.supplier || null
+          ]);
+        }
+        const recheck = await pool.query(`
+          SELECT 
+            tm.id, tm.task_id, tm.material_id, tm.pos_num,
+            COALESCE(tm.item_name, m.name) AS name, tm.model,
+            COALESCE(tm.article, m.code) AS code, tm.supplier,
+            COALESCE(tm.unit, m.unit, 'шт') AS unit, tm.plan_qty, tm.fact_qty,
+            COALESCE(tm.price, m.price_default, 0) AS price_default,
+            COALESCE(tm.total_price, ROUND(COALESCE(tm.fact_qty, tm.plan_qty, 0) * COALESCE(tm.price, m.price_default, 0))) AS total_price,
+            tm.mass_kg, tm.note, tm.calc_details, tm.source, tm.is_written_off, tm.written_off_at, m.category
+          FROM task_materials tm
+          LEFT JOIN materials m ON tm.material_id = m.id
+          WHERE tm.task_id = $1
+          ORDER BY tm.id ASC
+        `, [req.params.id]);
+        rows = recheck.rows;
+      }
+    }
+
     res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

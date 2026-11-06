@@ -469,10 +469,10 @@
                 var pCount = c.price_items_count || (c.price_list_id ? 22 : 0);
                 plHtml = '<div style="display:flex;flex-direction:column;gap:2px">' +
                   '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
-                    '<span style="font-weight:700;color:#1d4ed8;font-size:.80rem">' + escHtml(c.price_list_name || 'Приложение №1 (Тарифная сетка Сбер)') + '</span>' +
+                    '<span style="font-weight:700;color:#1d4ed8;font-size:.80rem">' + escHtml(c.price_list_name || 'Приложение №1 (Тарифная сетка Заказчика)') + '</span>' +
                     '<span class="badge b-blue" style="font-size:.68rem;padding:2px 6px">' + pCount + ' поз.</span>' +
                   '</div>' +
-                  '<span style="font-size:.73rem;color:var(--text-3)">Расчет цены для Сбера (' + pCount + ' позиции)</span>' +
+                  '<span style="font-size:.73rem;color:var(--text-3)">Тарифная сетка (' + pCount + ' расценки)</span>' +
                 '</div>';
               }
 
@@ -942,9 +942,9 @@
               // 5. Заказчик / Направление + быстрые подсказки
               '<div>' +
                 '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Заказчик / Направление работ</label>' +
-                '<input type="text" id="spl_customer_tag" value="' + escHtml(defaultTag) + '" placeholder="ПАО Сбербанк, ОСФР, Россельхоз, Разовые объекты..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
+                '<input type="text" id="spl_customer_tag" value="' + escHtml(defaultTag) + '" placeholder="Корпоративный заказчик, ОСФР, Россельхоз, Разовые объекты..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
                 '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">' +
-                  '<button type="button" class="btn btn-xs btn-ghost" style="border:1px solid var(--border);font-size:.72rem;padding:2px 8px" onclick="document.getElementById(\'spl_customer_tag\').value=\'ПАО Сбербанк\'">ПАО Сбербанк</button>' +
+                  '<button type="button" class="btn btn-xs btn-ghost" style="border:1px solid var(--border);font-size:.72rem;padding:2px 8px" onclick="document.getElementById(\'spl_customer_tag\').value=\'Корпоративный заказчик\'">Корпоративный заказчик</button>' +
                   '<button type="button" class="btn btn-xs btn-ghost" style="border:1px solid var(--border);font-size:.72rem;padding:2px 8px" onclick="document.getElementById(\'spl_customer_tag\').value=\'ОСФР\'">ОСФР</button>' +
                   '<button type="button" class="btn btn-xs btn-ghost" style="border:1px solid var(--border);font-size:.72rem;padding:2px 8px" onclick="document.getElementById(\'spl_customer_tag\').value=\'Росприроднадзор\'">Росприроднадзор</button>' +
                   '<button type="button" class="btn btn-xs btn-ghost" style="border:1px solid var(--border);font-size:.72rem;padding:2px 8px" onclick="document.getElementById(\'spl_customer_tag\').value=\'Коммерческие объекты\'">Коммерческие</button>' +
@@ -1166,7 +1166,7 @@
               '<div style="grid-column:1/-1;background:#f8fafc;padding:12px 14px;border-radius:8px;border:1.5px solid var(--border)">' +
                 '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Тип приложения (прайса) к договору *</label>' +
                 '<select id="sc_appendix_type" ' + (isLocked ? 'disabled' : '') + ' style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff;font-weight:600">' +
-                  '<option value="tariff" ' + ((c ? c.appendix_type : 'tariff') === 'tariff' ? 'selected' : '') + '>📊 Приложение №1: Тарифная сетка на период (например, Сбер, 22 расценки)</option>' +
+                  '<option value="tariff" ' + ((c ? c.appendix_type : 'tariff') === 'tariff' ? 'selected' : '') + '>📊 Приложение №1: Тарифная сетка на период (22 расценки)</option>' +
                   '<option value="order_fixed" ' + ((c && c.appendix_type === 'order_fixed') ? 'selected' : '') + '>📝 Приложение-заявка (разовый заказ-наряд, 1 строка от суммы/портов)</option>' +
                   '<option value="order_custom" ' + ((c && c.appendix_type === 'order_custom') ? 'selected' : '') + '>📋 Приложение-заявка (своя таблица работ и сметы по объекту)</option>' +
                   '<option value="invoice_only" ' + ((c && c.appendix_type === 'invoice_only') ? 'selected' : '') + '>🧾 Без типового прайса (разовые работы по счёту и актам)</option>' +
@@ -1182,7 +1182,7 @@
               // Тэг / Конечный заказчик
               '<div>' +
                 '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Тэг / Конечный заказчик</label>' +
-                '<input type="text" id="sc_customer_tag" value="' + escHtml(c ? (c.customer_tag || '') : '') + '" placeholder="Росприроднадзор, ОСФР, Сбербанк..." ' + (isLocked ? 'disabled' : '') + ' style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:' + (isLocked ? '#f8fafc' : '#fff') + '">' +
+                '<input type="text" id="sc_customer_tag" value="' + escHtml(c ? (c.customer_tag || '') : '') + '" placeholder="Росприроднадзор, ОСФР, Корпоративный заказчик..." ' + (isLocked ? 'disabled' : '') + ' style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:' + (isLocked ? '#f8fafc' : '#fff') + '">' +
                 '<div style="font-size:.72rem;color:var(--text-3);margin-top:3px">СМР, ПИР или наименование заказчика</div>' +
               '</div>' +
 
@@ -1505,9 +1505,8 @@
             '<div style="display:flex;flex-direction:column;gap:14px;margin-bottom:16px">' +
               '<div>' +
                 '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Название прайс-листа *</label>' +
-                '<input type="text" id="spl_name" required value="' + escHtml(pl ? pl.name : '') + '" placeholder="Например: Индивидуальный прайс (Сбербанк)" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
+                '<input type="text" id="spl_name" required value="' + escHtml(pl ? pl.name : '') + '" placeholder="Например: Индивидуальный тарифный прайс" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
               '</div>' +
-
               '<div>' +
                 '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Привязка к исполнителю (необязательно)</label>' +
                 '<select id="spl_contractor_id" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
@@ -1515,10 +1514,9 @@
                   contractorOpts +
                 '</select>' +
               '</div>' +
-
               '<div>' +
                 '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Тэг / Направление работ</label>' +
-                '<input type="text" id="spl_customer_tag" value="' + escHtml(pl ? (pl.customer_tag || '') : '') + '" placeholder="ПАО Сбербанк, ОСФР, Разовые объекты..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
+                '<input type="text" id="spl_customer_tag" value="' + escHtml(pl ? (pl.customer_tag || '') : '') + '" placeholder="Корпоративный заказчик, ОСФР, Разовые объекты..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
               '</div>' +
 
               '<div>' +
@@ -1830,7 +1828,7 @@
   // ─── 4. УНИВЕРСАЛЬНАЯ ПАНЕЛЬ НАВИГАЦИИ ПО ПРАЙСАМ И ДОГОВОРАМ ───────────────
   window.renderSubcontractWorkspaceNav = function(activeTab) {
     var tabs = [
-      { id: 'customer_tariffs', icon: '🏛️', label: 'Прайсы Заказчиков (Вход Сбера 2026)', desc: 'Тарифная сетка Сбербанка 2026' },
+      { id: 'customer_tariffs', icon: '🏛️', label: 'Тарифная сетка Заказчиков', desc: 'Утвержденная тарифная сетка Заказчика' },
       { id: 'sub_pricelists',   icon: '🤝', label: 'Прайсы субподряда (Расход)', desc: 'Расценки для монтажников' },
       { id: 'sub_contracts',    icon: '📑', label: 'Договоры субподряда', desc: 'Рамочные договоры и реквизиты' }
     ];
@@ -1953,7 +1951,7 @@
         '<td style="padding:10px 12px;text-align:center;font-size:.84rem;font-weight:600">' + escHtml(t.unit || 'порт') + '</td>' +
         '<td style="padding:10px 12px;text-align:right">' +
           '<div style="font-weight:800;font-size:.95rem;color:#137333">' + formatMoney(p) + '</div>' +
-          '<div style="font-size:.72rem;color:var(--text-3)">Тариф Сбера (Вход)</div>' +
+          '<div style="font-size:.72rem;color:var(--text-3)">Тариф Заказчика (Вход)</div>' +
         '</td>' +
         '<td style="padding:10px 12px;text-align:right">' +
           '<div style="font-weight:700;font-size:.9rem;color:#c5221f">' + formatMoney(recSub) + '</div>' +
@@ -1977,10 +1975,10 @@
       '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;margin-bottom:1.5rem">' +
         '<div>' +
           '<h1 class="page-title" style="margin:0;display:flex;align-items:center;gap:10px;font-size:1.45rem;font-weight:800">' +
-            '<span>🏛️ Прайсы Заказчиков: ПАО Сбербанк 2026 (3 категория)</span>' +
+            '<span>🏛️ Прайсы Заказчиков: Генеральная тарифная сетка</span>' +
           '</h1>' +
           '<div style="font-size:.84rem;color:var(--text-3);margin-top:4px">' +
-            'Утвержденная сетка тарифов по 37 регионам РФ: эталон входного аудита смет, исключающий занижение расценок банком' +
+            'Утвержденная сетка тарифов по 37 регионам РФ: эталон входного аудита смет, исключающий занижение расценок заказчиком' +
           '</div>' +
         '</div>' +
         '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">' +
@@ -2020,7 +2018,7 @@
       '<div class="card" style="padding:16px 20px;border-radius:12px;border:1.5px solid var(--border);background:#fff;margin-bottom:1.5rem">' +
         '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">' +
           '<div style="min-width:260px">' +
-            '<label style="display:block;font-size:.76rem;font-weight:700;color:var(--text-3);margin-bottom:4px">ВЫБОР РЕГИОНА СБЕРБАНКА (37 регионов):</label>' +
+            '<label style="display:block;font-size:.76rem;font-weight:700;color:var(--text-3);margin-bottom:4px">ВЫБОР РЕГИОНА ТАРИФА (37 регионов):</label>' +
             '<select class="form-control" style="width:100%;font-weight:700;font-size:.9rem;border-radius:8px" onchange="S.selectedTariffRegion=this.value;renderApp()">' +
               regOptions +
             '</select>' +
@@ -2045,7 +2043,7 @@
                 '<th style="padding:12px;font-size:.76rem;font-weight:700;color:var(--text-3);width:40px;text-align:center">№</th>' +
                 '<th style="padding:12px;font-size:.76rem;font-weight:700;color:var(--text-3)">НАИМЕНОВАНИЕ РАБОТ / НАСЕЛЕННЫЙ ПУНКТ</th>' +
                 '<th style="padding:12px;font-size:.76rem;font-weight:700;color:var(--text-3);width:80px;text-align:center">ЕД. ИЗМ.</th>' +
-                '<th style="padding:12px;font-size:.76rem;font-weight:700;color:var(--text-3);width:160px;text-align:right">ТАРИФ СБЕРА (ВХОД)</th>' +
+                '<th style="padding:12px;font-size:.76rem;font-weight:700;color:var(--text-3);width:160px;text-align:right">ТАРИФ ЗАКАЗЧИКА (ВХОД)</th>' +
                 '<th style="padding:12px;font-size:.76rem;font-weight:700;color:var(--text-3);width:180px;text-align:right">РАСХОД СУБПОДРЯДА</th>' +
                 '<th style="padding:12px;font-size:.76rem;font-weight:700;color:var(--text-3);width:100px;text-align:center">ДЕЙСТВИЕ</th>' +
               '</tr>' +
@@ -2095,7 +2093,7 @@
       '</div>' +
       '<div style="padding:20px">' +
         '<div style="margin-bottom:14px">' +
-          '<label style="display:block;font-size:.8rem;font-weight:700;color:var(--text-3);margin-bottom:6px">РЕГИОН ТАРИФОВ СБЕРБАНКА:</label>' +
+          '<label style="display:block;font-size:.8rem;font-weight:700;color:var(--text-3);margin-bottom:6px">РЕГИОН ТАРИФНОЙ СЕТКИ:</label>' +
           '<select id="_gen_sub_region" class="form-control" style="width:100%;font-weight:700">' + regOpts + '</select>' +
         '</div>' +
         '<div style="margin-bottom:14px">' +
@@ -2179,7 +2177,7 @@
     box.style.cssText = 'background:#fff;border-radius:14px;max-width:580px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,0.2);overflow:hidden;animation:slideDown 0.15s ease';
 
     box.innerHTML = '<div style="padding:16px 20px;border-bottom:1.5px solid var(--border);display:flex;justify-content:space-between;align-items:center">' +
-        '<div style="font-weight:800;font-size:1.15rem;display:flex;align-items:center;gap:8px"><span>🏛️ Входной аудит цены: Сбербанк 2026</span></div>' +
+        '<div style="font-weight:800;font-size:1.15rem;display:flex;align-items:center;gap:8px"><span>🏛️ Входной аудит цены по тарифной сетке</span></div>' +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'' + modalId + '\').remove()" style="font-size:1.2rem;line-height:1;border:none">✕</button>' +
       '</div>' +
       '<div id="_task_audit_content" style="padding:24px;text-align:center;color:var(--text-3)">Загрузка аудита тарифов...</div>';
@@ -2221,7 +2219,7 @@
             '<span style="font-weight:800">' + escHtml(taskId) + '</span>' +
           '</div>' +
           '<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:.85rem">' +
-            '<span style="color:var(--text-3)">Регион Сбера:</span>' +
+            '<span style="color:var(--text-3)">Регион тарифа:</span>' +
             '<span style="font-weight:700">' + escHtml(res.sber_region || '—') + '</span>' +
           '</div>' +
           '<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:.85rem">' +
@@ -2309,7 +2307,7 @@
         '<div id="_qa_result" style="display:none;margin-top:14px;border-radius:10px;padding:12px;font-size:.88rem"></div>' +
         '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">' +
           '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'' + modalId + '\').remove()">Закрыть</button>' +
-          '<button type="button" class="btn btn-sm btn-primary" onclick="submitQuickAudit()">🔍 Сверить с контрактом Сбера</button>' +
+          '<button type="button" class="btn btn-sm btn-primary" onclick="submitQuickAudit()">🔍 Сверить с тарифом Заказчика</button>' +
         '</div>' +
       '</div>';
 
@@ -2409,19 +2407,19 @@
     var basePrice = regInfo ? Number(regInfo.base_port_price || 0) : 0;
 
     if (amt <= 0) {
-      return '<div style="margin-top:2px"><span class="badge" style="background:#fff3e0;color:#e65100;font-size:.67rem;padding:1px 5px;border-radius:4px;cursor:pointer;font-weight:700" onclick="event.stopPropagation();openTaskAuditModal(\'' + tid + '\')" title="Сумма заявки не заполнена (клик для аудита Сбера)">⚠️ Нет суммы</span></div>';
+      return '<div style="margin-top:2px"><span class="badge" style="background:#fff3e0;color:#e65100;font-size:.67rem;padding:1px 5px;border-radius:4px;cursor:pointer;font-weight:700" onclick="event.stopPropagation();openTaskAuditModal(\'' + tid + '\')" title="Сумма заявки не заполнена (клик для аудита тарифа)">⚠️ Нет суммы</span></div>';
     }
 
     if (basePrice > 0 && amt < (basePrice - 100)) {
       var pct = Math.round(((basePrice - amt) / basePrice) * 100);
-      return '<div style="margin-top:2px"><span class="badge" style="background:#fce8e6;color:#c5221f;font-size:.67rem;padding:1px 5px;border-radius:4px;cursor:pointer;font-weight:700" onclick="event.stopPropagation();openTaskAuditModal(\'' + tid + '\')" title="Смета занижена банком на ' + pct + '% (тариф Сбера ' + formatMoneyNum(basePrice) + ' ₽)! Клик для деталей">⚠️ -' + pct + '%</span></div>';
+      return '<div style="margin-top:2px"><span class="badge" style="background:#fce8e6;color:#c5221f;font-size:.67rem;padding:1px 5px;border-radius:4px;cursor:pointer;font-weight:700" onclick="event.stopPropagation();openTaskAuditModal(\'' + tid + '\')" title="Смета занижена на ' + pct + '% (базовый тариф ' + formatMoneyNum(basePrice) + ' ₽)! Клик для деталей">⚠️ -' + pct + '%</span></div>';
     }
 
     if (basePrice > 0 && Math.abs(amt - basePrice) <= 100) {
-      return '<div style="margin-top:2px"><span class="badge" style="background:#e6f4ea;color:#137333;font-size:.67rem;padding:1px 5px;border-radius:4px;cursor:pointer;font-weight:700" onclick="event.stopPropagation();openTaskAuditModal(\'' + tid + '\')" title="Смета точно соответствует утвержденному тарифу Сбера 2026">✅ Сбер ' + escHtml(sberReg) + '</span></div>';
+      return '<div style="margin-top:2px"><span class="badge" style="background:#e6f4ea;color:#137333;font-size:.67rem;padding:1px 5px;border-radius:4px;cursor:pointer;font-weight:700" onclick="event.stopPropagation();openTaskAuditModal(\'' + tid + '\')" title="Смета точно соответствует утвержденному тарифу Заказчика">✅ Тариф ' + escHtml(sberReg) + '</span></div>';
     }
 
-    return '<div style="margin-top:2px"><span class="badge" style="background:#e8f0fe;color:#1a73e8;font-size:.67rem;padding:1px 5px;border-radius:4px;cursor:pointer;font-weight:700" onclick="event.stopPropagation();openTaskAuditModal(\'' + tid + '\')" title="Тарифная сетка Сбербанка 2026 (' + escHtml(sberReg) + ')">🏛️ Сбер ' + escHtml(sberReg) + '</span></div>';
+    return '<div style="margin-top:2px"><span class="badge" style="background:#e8f0fe;color:#1a73e8;font-size:.67rem;padding:1px 5px;border-radius:4px;cursor:pointer;font-weight:700" onclick="event.stopPropagation();openTaskAuditModal(\'' + tid + '\')" title="Тарифная сетка Заказчика (' + escHtml(sberReg) + ')">🏛️ Тариф ' + escHtml(sberReg) + '</span></div>';
   };
 
 })();

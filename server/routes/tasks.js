@@ -60,23 +60,27 @@ router.get('/tasks', authenticateToken, async (req, res) => {
     const role = String(req.user?.role || '').toLowerCase();
     const isWorker = role === 'worker' || role === 'installer' || role === 'contractor';
 
-    // Если зашел рабочий / монтажник, показываем только ЕГО задачи (по ФИО, логину или субподряду)
+    // Если зашел рабочий / монтажник / подрядчик, показываем только ЕГО задачи (по ФИО, логину, названию подрядчика или субподряду)
     if (isWorker) {
       query += ` WHERE (
         t.assignee = $1 OR 
         t.assignee = $2 OR 
+        ($1 <> '' AND t.contractor ILIKE '%' || $1 || '%') OR
+        ($2 <> '' AND t.contractor ILIKE '%' || $2 || '%') OR
+        ($3::integer IS NOT NULL AND t.contractor_id = $3::integer) OR
         EXISTS (
           SELECT 1 FROM task_subcontracts sub 
           WHERE sub.task_id = t.id AND (
-            sub.installer_fio ILIKE $1 OR 
-            sub.installer_fio ILIKE $2 OR
+            ($1 <> '' AND sub.installer_fio ILIKE '%' || $1 || '%') OR 
+            ($2 <> '' AND sub.installer_fio ILIKE '%' || $2 || '%') OR
+            ($3::integer IS NOT NULL AND sub.contractor_id = $3::integer) OR
             (sub.specialist_id IS NOT NULL AND sub.specialist_id IN (
-              SELECT id FROM specialists WHERE full_name ILIKE $1 OR full_name ILIKE $2
+              SELECT id FROM specialists WHERE ($1 <> '' AND full_name ILIKE '%' || $1 || '%') OR ($2 <> '' AND full_name ILIKE '%' || $2 || '%')
             ))
           )
         )
       )`;
-      params.push(req.user.fullName || '', req.user.username || '');
+      params.push(req.user.fullName || '', req.user.username || '', req.user.contractorId || null);
     }
 
     query += ' ORDER BY t.created_at';
@@ -357,8 +361,28 @@ router.put('/tasks/:id', authenticateToken, async (req, res) => {
     // Защита полей от несанкционированного изменения по ролям
     if (!isAdminOrDirector) {
       if (role === 'worker' || role === 'installer' || role === 'contractor') {
-        // Защита от BOLA/IDOR: монтажник может обновлять только свою назначенную задачу
-        if (currentTask.assignee && currentTask.assignee !== req.user.fullName) {
+        // Защита от BOLA/IDOR: монтажник/подрядчик может обновлять только свою назначенную задачу
+        const uName = (req.user.fullName || '').toLowerCase().trim();
+        const uLogin = (req.user.username || '').toLowerCase().trim();
+        const tAssignee = (currentTask.assignee || '').toLowerCase().trim();
+        const tContractor = (currentTask.contractor || '').toLowerCase().trim();
+        
+        let isMyTask = false;
+        if (tAssignee && (tAssignee === uName || tAssignee === uLogin)) isMyTask = true;
+        if (tContractor && uName && (tContractor === uName || tContractor.includes(uName) || uName.includes(tContractor))) isMyTask = true;
+        if (req.user.contractorId && currentTask.contractor_id === req.user.contractorId) isMyTask = true;
+
+        if (!isMyTask) {
+          const { rows: subCheck } = await pool.query(
+            `SELECT 1 FROM task_subcontracts WHERE task_id = $1 AND (
+              installer_fio ILIKE $2 OR installer_fio ILIKE $3 OR (contractor_id IS NOT NULL AND $4::integer IS NOT NULL AND contractor_id = $4::integer)
+            ) LIMIT 1`,
+            [req.params.id, `%${req.user.fullName || ''}%`, `%${req.user.username || ''}%`, req.user.contractorId || null]
+          );
+          if (subCheck.length) isMyTask = true;
+        }
+
+        if (!isMyTask) {
           return res.status(403).json({ error: 'Доступ ограничен: данная заявка назначена другому специалисту' });
         }
 
@@ -1413,14 +1437,31 @@ router.post('/ai/parse-pdf', authenticateToken, uploadAttachment.single('file'),
   }
 });
 
-// Хелпер: может ли этот пользователь трогать вложения этой заявки
+// Хелпер: может ли этот пользователь трогать вложения и порты этой заявки
 async function canAccessTaskAttachments(user, taskId) {
   if (!user) return false;
   const role = String(user.role || '').toLowerCase();
   if (['admin', 'director', 'manager', 'logistics', 'designer', 'accountant', 'to_engineer'].includes(role)) return true;
-  const { rows } = await pool.query('SELECT assignee FROM tasks WHERE id = $1', [taskId]);
+  const { rows } = await pool.query('SELECT assignee, contractor, contractor_id FROM tasks WHERE id = $1', [taskId]);
   if (!rows[0]) return false;
-  return rows[0].assignee === user.fullName;
+  const t = rows[0];
+  const uName = (user.fullName || '').toLowerCase().trim();
+  const uLogin = (user.username || '').toLowerCase().trim();
+  const tAssignee = (t.assignee || '').toLowerCase().trim();
+  const tContractor = (t.contractor || '').toLowerCase().trim();
+
+  if (tAssignee && (tAssignee === uName || tAssignee === uLogin)) return true;
+  if (tContractor && uName && (tContractor === uName || tContractor.includes(uName) || uName.includes(tContractor))) return true;
+  if (user.contractorId && t.contractor_id === user.contractorId) return true;
+
+  // Проверяем субподряд
+  const { rows: subRows } = await pool.query(
+    `SELECT 1 FROM task_subcontracts WHERE task_id = $1 AND (
+      installer_fio ILIKE $2 OR installer_fio ILIKE $3 OR (contractor_id IS NOT NULL AND $4::integer IS NOT NULL AND contractor_id = $4::integer)
+    ) LIMIT 1`,
+    [taskId, `%${user.fullName || ''}%`, `%${user.username || ''}%`, user.contractorId || null]
+  );
+  return subRows.length > 0;
 }
 
 router.get('/tasks/:id/attachments', authenticateToken, async (req, res) => {
@@ -1533,10 +1574,16 @@ router.post('/tasks/:id/ports', authenticateToken, async (req, res) => {
     if (!(await canAccessTaskAttachments(req.user, req.params.id))) {
       return res.status(403).json({ error: 'Нет доступа к этой заявке' })
     }
-    const { portNumber, patchPanel, room, marking, cableLength, cabinet, unit, crimping, testingStatus } = req.body;
+    const { 
+      portNumber, patchPanel, room, marking, cableLength, cabinet, unit, crimping, testingStatus,
+      building, floor, cableMark, outletMarking, notes
+    } = req.body;
     const { rows } = await pool.query(
-      `INSERT INTO task_ports (task_id, port_number, patch_panel, room, marking, cable_length, cabinet, unit, crimping, testing_status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      `INSERT INTO task_ports (
+        task_id, port_number, patch_panel, room, marking, cable_length, cabinet, unit, crimping, testing_status,
+        building, floor, cable_mark, outlet_marking, notes
+      )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
       [
         req.params.id,
         portNumber || null,
@@ -1547,7 +1594,12 @@ router.post('/tasks/:id/ports', authenticateToken, async (req, res) => {
         cabinet || null,
         unit || null,
         crimping || null,
-        testingStatus || null
+        testingStatus || null,
+        building || null,
+        floor || null,
+        cableMark || null,
+        outletMarking || null,
+        notes || null
       ]
     )
     res.json(rows[0])
@@ -1569,8 +1621,11 @@ router.post('/tasks/:id/ports/batch', authenticateToken, async (req, res) => {
     const inserted = [];
     for (const p of ports) {
       const { rows } = await pool.query(
-        `INSERT INTO task_ports (task_id, port_number, patch_panel, room, marking, cable_length, cabinet, unit, crimping, testing_status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+        `INSERT INTO task_ports (
+          task_id, port_number, patch_panel, room, marking, cable_length, cabinet, unit, crimping, testing_status,
+          building, floor, cable_mark, outlet_marking, notes
+        )
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
         [
           req.params.id,
           p.portNumber || p.port_number || null,
@@ -1581,7 +1636,12 @@ router.post('/tasks/:id/ports/batch', authenticateToken, async (req, res) => {
           p.cabinet || null,
           p.unit || null,
           p.crimping || null,
-          p.testingStatus || p.testing_status || null
+          p.testingStatus || p.testing_status || null,
+          p.building || null,
+          p.floor || null,
+          p.cableMark || p.cable_mark || null,
+          p.outletMarking || p.outlet_marking || null,
+          p.notes || null
         ]
       );
       if (rows[0]) inserted.push(rows[0]);
@@ -1597,7 +1657,10 @@ router.put('/ports/:rowId', authenticateToken, async (req, res) => {
     if (!(await canAccessTaskAttachments(req.user, existing[0].task_id))) {
       return res.status(403).json({ error: 'Нет доступа' })
     }
-    const { portNumber, patchPanel, room, marking, cableLength, cabinet, unit, crimping, testingStatus } = req.body;
+    const { 
+      portNumber, patchPanel, room, marking, cableLength, cabinet, unit, crimping, testingStatus,
+      building, floor, cableMark, outletMarking, notes
+    } = req.body;
     const { rows } = await pool.query(
       `UPDATE task_ports SET
         port_number   = CASE WHEN $2::boolean THEN $3 ELSE port_number END,
@@ -1608,7 +1671,12 @@ router.put('/ports/:rowId', authenticateToken, async (req, res) => {
         cabinet       = CASE WHEN $12::boolean THEN $13 ELSE cabinet END,
         unit          = CASE WHEN $14::boolean THEN $15 ELSE unit END,
         crimping      = CASE WHEN $16::boolean THEN $17 ELSE crimping END,
-        testing_status= CASE WHEN $18::boolean THEN $19 ELSE testing_status END
+        testing_status= CASE WHEN $18::boolean THEN $19 ELSE testing_status END,
+        building      = CASE WHEN $20::boolean THEN $21 ELSE building END,
+        floor         = CASE WHEN $22::boolean THEN $23 ELSE floor END,
+        cable_mark    = CASE WHEN $24::boolean THEN $25 ELSE cable_mark END,
+        outlet_marking= CASE WHEN $26::boolean THEN $27 ELSE outlet_marking END,
+        notes         = CASE WHEN $28::boolean THEN $29 ELSE notes END
        WHERE id=$1 RETURNING *`,
       [
         req.params.rowId,
@@ -1620,7 +1688,12 @@ router.put('/ports/:rowId', authenticateToken, async (req, res) => {
         cabinet !== undefined, cabinet || null,
         unit !== undefined, unit || null,
         crimping !== undefined, crimping || null,
-        testingStatus !== undefined, testingStatus || null
+        testingStatus !== undefined, testingStatus || null,
+        building !== undefined, building || null,
+        floor !== undefined, floor || null,
+        cableMark !== undefined, cableMark || null,
+        outletMarking !== undefined, outletMarking || null,
+        notes !== undefined, notes || null
       ]
     )
     res.json(rows[0])
@@ -1919,7 +1992,78 @@ router.post('/tasks/:id/items', authenticateToken, requireRole('admin', 'directo
       [req.params.id]
     );
 
+    // Синхронизация правок с task_materials (вкладка "Закрытие и учет ТМЦ")
+    if (rows[0]) {
+      const it = rows[0];
+      await pool.query(`
+        UPDATE task_materials SET
+          item_name = COALESCE($1, item_name),
+          plan_qty = COALESCE($2, plan_qty),
+          fact_qty = COALESCE($2, fact_qty),
+          unit = COALESCE($3, unit),
+          price = COALESCE($4, price),
+          total_price = COALESCE($5, total_price),
+          supplier = COALESCE($6, supplier),
+          article = COALESCE($7, article)
+        WHERE task_id = $8 AND (
+          LOWER(TRIM(item_name)) = LOWER(TRIM($9)) OR
+          pos_num = $10
+        ) AND (is_written_off IS FALSE OR is_written_off IS NULL)
+      `, [
+        it.work_type, it.quantity, it.unit,
+        it.price_customer || it.price_contractor || null,
+        it.amount_customer || it.amount_contractor || null,
+        it.supplier, it.article_plan || it.article,
+        req.params.id, it.work_type, String(it.id)
+      ]);
+    }
+
     res.json(rows[0]);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Дублировать / разделить позицию материала (для разделения по источникам поставки)
+router.post('/tasks/:id/items/:itemId/duplicate', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics', 'to_engineer'), async (req, res) => {
+  try {
+    const { id, itemId } = req.params;
+    const { rows: source } = await pool.query('SELECT * FROM task_items WHERE id = $1 AND task_id = $2', [itemId, id]);
+    if (!source.length) return res.status(404).json({ error: 'Позиция не найдена' });
+    const s = source[0];
+    const { rows: copy } = await pool.query(`
+      INSERT INTO task_items (
+        task_id, work_type, quantity, unit,
+        price_customer, amount_customer,
+        contractor_id, contractor_name,
+        price_contractor, amount_contractor,
+        distance_km, status, comment,
+        article, supplier,
+        article_plan, article_fact, shipment_date, shipment_method
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+      RETURNING *
+    `, [
+      s.task_id, s.work_type, s.quantity, s.unit,
+      s.price_customer, s.amount_customer,
+      s.contractor_id, s.contractor_name,
+      s.price_contractor, s.amount_contractor,
+      s.distance_km, s.status, s.comment,
+      s.article, s.supplier,
+      s.article_plan, s.article_fact, s.shipment_date, s.shipment_method
+    ]);
+
+    // Синхронизируем дубликат и в task_materials
+    await pool.query(`
+      INSERT INTO task_materials (
+        task_id, item_name, article, unit, plan_qty, fact_qty, price, total_price, supplier, source
+      ) VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, 'task_items')
+    `, [
+      s.task_id, s.work_type, s.article_plan || s.article, s.unit || 'шт',
+      s.quantity, s.price_customer || s.price_contractor || 0,
+      s.amount_customer || s.amount_contractor || 0, s.supplier
+    ]);
+
+    res.json(copy[0]);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1971,6 +2115,29 @@ router.post('/tasks/:id/items/batch', authenticateToken, requireRole('admin', 'd
         ]
       );
       if (rows[0]) inserted.push(rows[0]);
+    }
+
+    // Синхронизируем со спецификацией ТМЦ (task_materials для вкладки "Закрытие и учет ТМЦ")
+    if (replaceExisting) {
+      await pool.query('DELETE FROM task_materials WHERE task_id = $1 AND (is_written_off IS FALSE OR is_written_off IS NULL)', [req.params.id]);
+    }
+    for (let idx = 0; idx < inserted.length; idx++) {
+      const it = inserted[idx];
+      const name = it.work_type;
+      const qty = Number(it.quantity) || 1;
+      const unit = it.unit || 'шт';
+      const price = Number(it.price_customer || it.price_contractor || 0) || 0;
+      const total = Number(it.amount_customer || it.amount_contractor || (qty * price)) || 0;
+      const art = it.article_plan || it.article || null;
+      const supp = it.supplier || null;
+
+      await pool.query(`
+        INSERT INTO task_materials (
+          task_id, pos_num, item_name, article, unit, plan_qty, fact_qty, price, total_price, supplier, source
+        ) VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, 'items_excel')
+      `, [
+        req.params.id, String(idx + 1), name, art, unit, qty, price, total, supp
+      ]);
     }
 
     await pool.query(
@@ -2069,7 +2236,78 @@ router.put('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', '
       [req.params.id]
     );
 
+    // Синхронизация правок с task_materials (вкладка "Закрытие и учет ТМЦ")
+    if (rows[0]) {
+      const it = rows[0];
+      await pool.query(`
+        UPDATE task_materials SET
+          item_name = COALESCE($1, item_name),
+          plan_qty = COALESCE($2, plan_qty),
+          fact_qty = COALESCE($2, fact_qty),
+          unit = COALESCE($3, unit),
+          price = COALESCE($4, price),
+          total_price = COALESCE($5, total_price),
+          supplier = COALESCE($6, supplier),
+          article = COALESCE($7, article)
+        WHERE task_id = $8 AND (
+          LOWER(TRIM(item_name)) = LOWER(TRIM($9)) OR
+          pos_num = $10
+        ) AND (is_written_off IS FALSE OR is_written_off IS NULL)
+      `, [
+        it.work_type, it.quantity, it.unit,
+        it.price_customer || it.price_contractor || null,
+        it.amount_customer || it.amount_contractor || null,
+        it.supplier, it.article_plan || it.article,
+        req.params.id, it.work_type, String(it.id)
+      ]);
+    }
+
     res.json(rows[0]);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Дублировать / разделить позицию материала (для разделения по источникам поставки)
+router.post('/tasks/:id/items/:itemId/duplicate', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics', 'to_engineer'), async (req, res) => {
+  try {
+    const { id, itemId } = req.params;
+    const { rows: source } = await pool.query('SELECT * FROM task_items WHERE id = $1 AND task_id = $2', [itemId, id]);
+    if (!source.length) return res.status(404).json({ error: 'Позиция не найдена' });
+    const s = source[0];
+    const { rows: copy } = await pool.query(`
+      INSERT INTO task_items (
+        task_id, work_type, quantity, unit,
+        price_customer, amount_customer,
+        contractor_id, contractor_name,
+        price_contractor, amount_contractor,
+        distance_km, status, comment,
+        article, supplier,
+        article_plan, article_fact, shipment_date, shipment_method
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+      RETURNING *
+    `, [
+      s.task_id, s.work_type, s.quantity, s.unit,
+      s.price_customer, s.amount_customer,
+      s.contractor_id, s.contractor_name,
+      s.price_contractor, s.amount_contractor,
+      s.distance_km, s.status, s.comment,
+      s.article, s.supplier,
+      s.article_plan, s.article_fact, s.shipment_date, s.shipment_method
+    ]);
+
+    // Синхронизируем дубликат и в task_materials
+    await pool.query(`
+      INSERT INTO task_materials (
+        task_id, item_name, article, unit, plan_qty, fact_qty, price, total_price, supplier, source
+      ) VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, 'task_items')
+    `, [
+      s.task_id, s.work_type, s.article_plan || s.article, s.unit || 'шт',
+      s.quantity, s.price_customer || s.price_contractor || 0,
+      s.amount_customer || s.amount_contractor || 0, s.supplier
+    ]);
+
+    res.json(copy[0]);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

@@ -712,7 +712,7 @@ function renderContractorAddForm(container, curTab) {
   var labels = {
     customer: { 
       title: '🏛️ Добавить нового Заказчика', 
-      typeText: 'Заказчик наших услуг (ПАО Сбербанк, ОСФР и др.)',
+      typeText: 'Заказчик наших услуг (Корпоративные заказчики, ОСФР и др.)',
       contractTitle: 'Генеральный договор',
       curatorPlaceholder: 'ФИО куратора Заказчика',
       btn: '+ Сохранить Заказчика'
@@ -1274,7 +1274,7 @@ function openAddContractorContractModal(contractorId, contractorName) {
     { key: 'ownCompanyId', label: 'Наше юрлицо (Генподрядчик)', type: 'select', value: 2, options: ownOptions, required: true },
     { key: 'contractNumber', label: 'Номер договора', placeholder: 'например: К10/24-СЗ', required: true },
     { key: 'contractDate', label: 'Дата заключения договора', type: 'date', value: new Date().toISOString().slice(0, 10), required: true },
-    { key: 'priceProtocol', label: 'Подключить стандартный протокол цен (Приложение №1 Сбербанк)?', type: 'select', value: 'yes', options: [
+    { key: 'priceProtocol', label: 'Подключить стандартный протокол цен (Приложение №1)?', type: 'select', value: 'yes', options: [
         { value: 'yes', label: '✓ Да, создать Приложение №1 со шкалой (1–3 порта: 3000/2500 ₽, ТКШ, пробег 12 ₽/км)' },
         { value: 'no', label: 'Нет, без прайс-листа (только рамочный договор)' }
       ]

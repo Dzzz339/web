@@ -753,6 +753,306 @@ const SYSTEM_TEMPLATES = [
 
 </div>
     `
+  },
+  {
+    code: 'aosr_act',
+    name: 'Акт освидетельствования скрытых работ (АОСР)',
+    category: 'closing',
+    doc_format: 'word',
+    description: 'Официальный Акт освидетельствования скрытых и иных работ (АОСР) по форме приказа Ростехнадзора.',
+    template_html: `
+<div class="a4-page-content" style="font-family:'Times New Roman',Times,serif;font-size:12.5px;line-height:1.35;color:#000">
+  <div style="text-align:center;font-weight:700;font-size:15px;margin-bottom:12px;text-transform:uppercase">
+    АКТ ОСВИДЕТЕЛЬСТВОВАНИЯ СКРЫТЫХ РАБОТ
+  </div>
+
+  <div style="display:flex;justify-content:space-between;margin-bottom:14px;font-size:12.5px">
+    <div>{{город}}</div>
+    <div>{{дата_документа_прописью}}</div>
+  </div>
+
+  <table style="width:100%;margin-bottom:14px;font-size:12px;line-height:1.4">
+    <tr>
+      <td style="width:15%;font-weight:700;vertical-align:top">Заказчик:</td>
+      <td style="width:85%;vertical-align:top">{{наш_заказчик}}</td>
+    </tr>
+    <tr>
+      <td style="font-weight:700;vertical-align:top">Подрядчик:</td>
+      <td style="vertical-align:top">{{наша_организация_полная}}</td>
+    </tr>
+    <tr>
+      <td style="font-weight:700;vertical-align:top">Основание:</td>
+      <td style="vertical-align:top">{{номер_и_дата_контракта}}</td>
+    </tr>
+    <tr>
+      <td style="font-weight:700;vertical-align:top">Представитель:</td>
+      <td style="vertical-align:top">Ответственный представитель Подрядчика: {{ответственный_фио}}</td>
+    </tr>
+  </table>
+
+  <p style="text-align:justify;margin:0 0 10px 0;text-indent:25px">
+    Комиссия в составе представителей Заказчика и Подрядчика произвела осмотр и освидетельствование скрытых работ, выполненных {{наша_организация_полная}}, и составила настоящий акт:
+  </p>
+
+  <p style="text-align:justify;margin:0 0 8px 0">
+    <b>1. К освидетельствованию предъявлены следующие работы:</b> Прокладка внутренней слаботочной кабельной сети СКС в кабельных каналах и лотках за подшивными потолками на объекте Заказчика по адресу: <u>{{адрес_объекта}}</u>.
+  </p>
+
+  <p style="text-align:justify;margin:0 0 8px 0">
+    <b>2. Работы выполнены в соответствии с проектно-сметной документацией:</b> Рабочая документация, утвержденная к производству работ, чертежи планов расположения кабельных трасс СКС.
+  </p>
+
+  <p style="text-align:justify;margin:0 0 8px 0">
+    <b>3. При выполнении работ применены материалы и оборудование:</b> {{материалы_текст_аоср}}. Паспорта качества и сертификаты соответствия зарегистрированы в Журнале входного контроля.
+  </p>
+
+  <p style="text-align:justify;margin:0 0 8px 0">
+    <b>4. Документы, подтверждающие соответствие работ требованиям:</b> Протокол приемо-сдаточных испытаний СКС № 1 от {{дата_документа}} (тестирование целостности жил и схемы разводки T568B на {{порты_факт}} портов).
+  </p>
+
+  <p style="text-align:justify;margin:0 0 8px 0">
+    <b>5. Сроки выполнения работ:</b> Дата начала: {{дата_начала_работ}} / Дата окончания: {{дата_окончания_работ}}.
+  </p>
+
+  <p style="text-align:justify;margin:0 0 15px 0">
+    <b>6. Решение комиссии:</b> Работы выполнены в полном соответствии с проектом, требованиями ГОСТ Р 53246-2008 и условиями контракта. Разрешается производство последующих работ по закрытию подвесных потолков и финишной отделке помещений.
+  </p>
+
+  <table style="width:100%;margin-top:25px;font-size:12px">
+    <tr>
+      <td style="width:48%;vertical-align:top">
+        <b>От Заказчика:</b><br/><br/>
+        _____________________ / _____________________ /<br/>
+        <span style="font-size:10px;color:#666">М.П.</span>
+      </td>
+      <td style="width:48%;vertical-align:top">
+        <b>От Подрядчика:</b><br/><br/>
+        _____________________ / {{ответственный_фио}} /<br/>
+        <span style="font-size:10px;color:#666">М.П.</span>
+      </td>
+    </tr>
+  </table>
+</div>
+    `
+  },
+  {
+    code: 'equipment_acceptance_act',
+    name: 'Акт приемки смонтированного оборудования',
+    category: 'closing',
+    doc_format: 'word',
+    description: 'Официальный акт приемки и готовности к пусконаладке смонтированного слаботочного и активного сетевого оборудования.',
+    template_html: `
+<div class="a4-page-content" style="font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.35;color:#000">
+  <div style="text-align:center;font-weight:700;font-size:15px;margin-bottom:4px;text-transform:uppercase">
+    АКТ ПРИЕМКИ СМОНТИРОВАННОГО ОБОРУДОВАНИЯ
+  </div>
+  <div style="display:flex;justify-content:space-between;margin-bottom:12px;font-size:12px">
+    <div>{{город}}</div>
+    <div>Дата: {{дата_документа}}</div>
+  </div>
+
+  <table style="width:100%;margin-bottom:12px;font-size:11.5px;line-height:1.35">
+    <tr><td style="width:15%;font-weight:700">Заказчик:</td><td>{{наш_заказчик}}</td></tr>
+    <tr><td style="font-weight:700">Подрядчик:</td><td>{{наша_организация_полная}}</td></tr>
+    <tr><td style="font-weight:700">Основание:</td><td>{{номер_и_дата_контракта}}</td></tr>
+  </table>
+
+  <p style="text-align:justify;margin:0 0 10px 0;text-indent:25px">
+    Комиссия в составе представителей Заказчика и Подрядчика (ответственный исполнитель: <b>{{ответственный_фио}}</b>) составила настоящий акт в том, что Подрядчик выполнил работы по монтажу оборудования согласно контракту:
+  </p>
+
+  {{таблица_приемки_оборудования}}
+
+  <p style="text-align:justify;margin:8px 0">
+    Работы по монтажу оборудования выполнены в полном объеме в соответствии с ПСД и требованиями ГОСТ.
+    Оборудование смонтировано, закреплено, подключено и признается готовым к пусконаладочным работам.
+  </p>
+
+  <table style="width:100%;margin-top:25px;font-size:12px">
+    <tr>
+      <td style="width:48%;vertical-align:top">
+        <b>От Заказчика:</b><br/><br/>
+        _____________________ / _____________________ /<br/>
+        <span style="font-size:10px;color:#666">М.П.</span>
+      </td>
+      <td style="width:48%;vertical-align:top">
+        <b>От Подрядчика:</b><br/><br/>
+        _____________________ / {{ответственный_фио}} /<br/>
+        <span style="font-size:10px;color:#666">М.П.</span>
+      </td>
+    </tr>
+  </table>
+</div>
+    `
+  },
+  {
+    code: 'technical_readiness_act',
+    name: 'Акт технической готовности выполненных работ',
+    category: 'closing',
+    doc_format: 'word',
+    description: 'Акт технической готовности электромонтажных и слаботочных работ (Форма 2 по ВСН 123-90).',
+    template_html: `
+<div class="a4-page-content" style="font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.35;color:#000">
+  <div style="text-align:center;font-weight:700;font-size:15px;margin-bottom:4px;text-transform:uppercase">
+    АКТ ТЕХНИЧЕСКОЙ ГОТОВНОСТИ ВЫПОЛНЕННЫХ РАБОТ
+  </div>
+  <div style="display:flex;justify-content:space-between;margin-bottom:12px;font-size:12px">
+    <div>{{город}}</div>
+    <div>{{дата_документа_прописью}}</div>
+  </div>
+
+  <table style="width:100%;margin-bottom:12px;font-size:11.5px;line-height:1.35">
+    <tr><td style="width:15%;font-weight:700">Заказчик:</td><td>{{наш_заказчик}}</td></tr>
+    <tr><td style="font-weight:700">Подрядчик:</td><td>{{наша_организация_полная}}</td></tr>
+    <tr><td style="font-weight:700">Основание:</td><td>{{номер_и_дата_контракта}}</td></tr>
+    <tr><td style="font-weight:700">Объект:</td><td>{{адрес_объекта}}</td></tr>
+  </table>
+
+  <p style="text-align:justify;margin:0 0 10px 0;text-indent:25px">
+    Настоящий акт составлен представителем Подрядчика (<b>{{ответственный_фио}}</b>) о том, что монтажные работы по устройству Структурированной кабельной системы (СКС) на объекте выполнены в полном объеме. Общее количество портов составляет <b>{{порты_факт}} шт.</b> Схема разводки соответствует стандарту T568B, целостность линий проверена.
+  </p>
+
+  {{таблица_технической_готовности}}
+
+  <p style="text-align:justify;margin:8px 0">
+    Работы сданы в состоянии готовности для эксплуатации и передачи исполнительной документации (ИД).
+  </p>
+
+  <table style="width:100%;margin-top:25px;font-size:12px">
+    <tr>
+      <td style="width:48%;vertical-align:top">
+        <b>Сдал от Подрядчика:</b><br/><br/>
+        _____________________ / {{ответственный_фио}} /<br/>
+        <span style="font-size:10px;color:#666">М.П.</span>
+      </td>
+      <td style="width:48%;vertical-align:top">
+        <b>Принял от Заказчика:</b><br/><br/>
+        _____________________ / _____________________ /<br/>
+        <span style="font-size:10px;color:#666">М.П.</span>
+      </td>
+    </tr>
+  </table>
+</div>
+    `
+  },
+  {
+    code: 'input_control_journal',
+    name: 'Журнал входного контроля материалов и оборудования',
+    category: 'id',
+    doc_format: 'word',
+    description: 'Журнал входного контроля материалов, кабельной продукции и оборудования с фиксацией паспортов и сертификатов.',
+    template_html: `
+<div class="a4-page-content" style="font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.35;color:#000">
+  <div style="text-align:center;font-weight:700;font-size:15px;margin-bottom:6px;text-transform:uppercase">
+    ЖУРНАЛ ВХОДНОГО КОНТРОЛЯ МАТЕРИАЛОВ И ОБОРУДОВАНИЯ
+  </div>
+  <div style="margin-bottom:12px;font-size:11.5px;line-height:1.4">
+    <div><b>Объект:</b> {{наш_заказчик}}, {{адрес_объекта}}</div>
+    <div><b>Подрядчик:</b> {{наша_организация_полная}}</div>
+    <div><b>Основание:</b> {{номер_и_дата_контракта}}</div>
+  </div>
+
+  {{таблица_входного_контроля}}
+
+  <p style="font-size:11px;color:#444;margin-top:10px;font-style:italic">
+    Все материалы и оборудование проверены на наличие заводской маркировки, целостность упаковки и соответствие сертификатам качества. Бракованной продукции не выявлено.
+  </p>
+
+  <div style="margin-top:20px;font-size:12px">
+    <b>Ответственный за входной контроль:</b> ____________________ / {{ответственный_фио}} /
+  </div>
+</div>
+    `
+  },
+  {
+    code: 'protocol_psi_sks',
+    name: 'Протокол приемо-сдаточных испытаний (ПСИ) СКС',
+    category: 'id',
+    doc_format: 'word',
+    description: 'Официальный протокол приемо-сдаточных испытаний кабельной системы с автоматическим кабельным журналом портов.',
+    template_html: `
+<div class="a4-page-content" style="font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.35;color:#000">
+  <div style="text-align:center;font-weight:700;font-size:15px;margin-bottom:4px;text-transform:uppercase">
+    ПРОТОКОЛ ПРИЕМО-СДАТОЧНЫХ ИСПЫТАНИЙ СКС
+  </div>
+  <div style="display:flex;justify-content:space-between;margin-bottom:12px;font-size:12px">
+    <div>{{дата_документа_прописью}}</div>
+    <div>№ {{номер_заявки}}-ПСИ</div>
+  </div>
+
+  <table style="width:100%;margin-bottom:10px;font-size:11.5px;line-height:1.35">
+    <tr><td style="width:25%;font-weight:700">Наименование объекта:</td><td>{{тип_объекта}} № {{номер_всп}}</td></tr>
+    <tr><td style="font-weight:700">Адрес объекта:</td><td>{{адрес_объекта}}</td></tr>
+    <tr><td style="font-weight:700">Основание (Договор):</td><td>{{номер_и_дата_контракта}}</td></tr>
+    <tr><td style="font-weight:700">Заказчик:</td><td>{{наш_заказчик}}</td></tr>
+    <tr><td style="font-weight:700">Исполнитель:</td><td>{{наша_организация_полная}}</td></tr>
+  </table>
+
+  <div style="background:#f8fafc;border:1px solid #cbd5e1;padding:8px 12px;margin:8px 0;font-size:11.5px">
+    <div style="font-weight:700;margin-bottom:3px">Технические характеристики СКС:</div>
+    <div>• <b>Категория СКС:</b> 5e / 6 &nbsp;|&nbsp; • <b>Тип кабеля:</b> UTP &nbsp;|&nbsp; • <b>Стандарт расшивки:</b> TIA-568B</div>
+    <div>• <b>Метод проверки:</b> Тестирование целостности жил и схемы разводки (Wire Map)</div>
+  </div>
+
+  <div style="background:#ecfdf5;border:1px solid #a7f3d0;padding:8px 12px;margin:8px 0;font-size:11.5px">
+    <div style="font-weight:700;color:#065f46;margin-bottom:3px">Сводные результаты (авторасчет по журналу):</div>
+    <div>Всего портов предъявлено: <b>{{порты_факт}}</b> &nbsp;|&nbsp; Успешно (PASS): <b>{{порты_факт}}</b> &nbsp;|&nbsp; Не прошло (FAIL): <b>0</b></div>
+    <div>Процент исправности линий: <b style="color:#15803d">100%</b></div>
+  </div>
+
+  <p style="text-align:justify;margin:8px 0;font-size:11.5px">
+    <b>Заключение комиссии:</b> Смонтированная кабельная система проверена на соответствие стандарту Т568В и целостность линий. Сводный процент исправности составляет 100%. Система признается готовой к эксплуатации.
+  </p>
+
+  <div style="font-weight:700;margin:12px 0 4px 0;font-size:12px">Результаты тестирования линий связи СКС:</div>
+  {{таблица_линий_пси}}
+
+  <table style="width:100%;margin-top:20px;font-size:12px">
+    <tr>
+      <td style="width:48%;vertical-align:top">
+        <b>От Заказчика:</b><br/><br/>
+        _____________________ / _____________________ /<br/>
+        <span style="font-size:10px;color:#666">М.П.</span>
+      </td>
+      <td style="width:48%;vertical-align:top">
+        <b>От Исполнителя:</b><br/><br/>
+        _____________________ / {{ответственный_фио}} /<br/>
+        <span style="font-size:10px;color:#666">М.П.</span>
+      </td>
+    </tr>
+  </table>
+</div>
+    `
+  },
+  {
+    code: 'ip_addressing_statement',
+    name: 'Ведомость IP-адресации активного оборудования',
+    category: 'id',
+    doc_format: 'word',
+    description: 'Ведомость распределения IP-адресов управления коммутаторов и сетевого оборудования с возможностью редактирования в браузере.',
+    template_html: `
+<div class="a4-page-content" style="font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.35;color:#000">
+  <div style="text-align:center;font-weight:700;font-size:15px;margin-bottom:6px;text-transform:uppercase">
+    ВЕДОМОСТЬ IP-АДРЕСАЦИИ АКТИВНОГО ОБОРУДОВАНИЯ
+  </div>
+  <div style="margin-bottom:12px;font-size:11.5px;line-height:1.4">
+    <div><b>Заказчик:</b> {{наш_заказчик}}</div>
+    <div><b>Объект:</b> {{адрес_объекта}}</div>
+    <div><b>Основание:</b> {{номер_и_дата_контракта}}</div>
+    <div><b>Ответственный за настройку:</b> {{ответственный_фио}}</div>
+  </div>
+
+  {{таблица_ip_адресации}}
+
+  <p style="font-size:11.5px;margin:12px 0">
+    Настройки применены и проверены. Оборудование доступно по сети, сетевые порты управления протестированы.
+  </p>
+
+  <div style="margin-top:25px;font-size:12px">
+    <b>Проверил ответственный исполнитель:</b> ____________________ / {{ответственный_фио}} /
+  </div>
+</div>
+    `
   }
 ];
 

@@ -1771,7 +1771,7 @@ function renderContractTabAgreements(c, agreements) {
       <div>
         <div style="font-weight:700; font-size:.95rem">Дополнительные соглашения к договору (${agreements.length} регионов)</div>
         <div style="font-size:.8rem; color:var(--text-3); margin-top:2px">
-          Каждое ДС закрепляет отдельный филиал/город, индивидуальный номер Сбербанка и региональную стоимость работ
+          Каждое ДС закрепляет отдельный филиал/город, внешний номер договора Заказчика и региональную стоимость работ
         </div>
       </div>
       <div>
@@ -1802,7 +1802,7 @@ function renderContractTabAgreements(c, agreements) {
           <tr style="background:var(--bg)">
             <th style="width:90px">№ ДС</th>
             <th>Регион / Город</th>
-            <th>Номер Сбербанка</th>
+            <th>Номер Заказчика</th>
             <th>Региональная цена</th>
             <th>Лимит по ДС</th>
             <th style="text-align:center; width:90px">Заявок</th>
@@ -1964,7 +1964,7 @@ function renderContractAgreementsSubTable(c) {
               <th style="padding:6px 10px; width:75px">№ ДС</th>
               <th style="padding:6px 10px; min-width:130px">Регион / Город</th>
               <th style="padding:6px 10px; width:125px">Дата ДС</th>
-              <th style="padding:6px 10px; width:140px">Номер Сбербанка</th>
+              <th style="padding:6px 10px; width:140px">Номер Заказчика</th>
               <th style="padding:6px 10px; width:145px">Тариф / Порт (Пр. 1)</th>
               <th style="padding:6px 10px; width:115px">Лимит по ДС</th>
               <th style="padding:6px 10px; width:80px; text-align:center">Заявки</th>
@@ -2025,7 +2025,7 @@ function openEditAgreementModal(contractId, agreementId) {
         </div>
 
         <div>
-          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Номер Сбербанка (внешний № договора/ДС)</label>
+          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Внешний номер Заказчика (№ договора/ДС)</label>
           <input type="text" id="ag_field_ext_num" value="${escHtml(ag.external_number || '')}" placeholder="Например: 50005273313" style="width:100%; font-family:monospace">
         </div>
 
@@ -2161,7 +2161,7 @@ function openAddAgreementModal(contractId) {
         </div>
 
         <div>
-          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Номер Сбербанка (внешний № договора/ДС)</label>
+          <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Внешний номер Заказчика (№ договора/ДС)</label>
           <input type="text" id="add_ag_ext_num" placeholder="Например: 50005273313" style="width:100%; font-family:monospace">
         </div>
 
@@ -2731,7 +2731,6 @@ function openContractForm(id) {
 
   var custSet = new Set();
   custSet.add('ОСФР по Новосибирской области');
-  custSet.add('ПАО Сбербанк');
   custSet.add('ПАО Ростелеком');
   custSet.add('СФР');
   if (Array.isArray(S.contractors)) {
@@ -3168,7 +3167,7 @@ function buildAgreementPopupHtml(c, ag) {
       <div style="font-weight:700; font-size:.88rem; color:#0f172a; margin-bottom:4px">
         📍 ${escHtml(cityLabel)}
       </div>
-      ${ag.external_number ? `<div style="font-size:.74rem; color:#64748b; margin-bottom:4px">Сбербанк: <b>${escHtml(ag.external_number)}</b></div>` : ''}
+      ${ag.external_number ? `<div style="font-size:.74rem; color:#64748b; margin-bottom:4px">Внешний №: <b>${escHtml(ag.external_number)}</b></div>` : ''}
       <div style="font-size:.8rem; margin-bottom:3px">
         💰 Тариф: <b>${priceText}</b>
       </div>
@@ -3824,6 +3823,81 @@ function setContractActivePreview(contractId, attachmentId) {
  * ЧЕК-ЛИСТ ЗАКРЫВАЮЩИХ ДОКУМЕНТОВ (5 ЭТАПОВ, ДА/НЕТ, ПРИВЯЗКА ФАЙЛОВ/ССЫЛОК)
  * ========================================================================= */
 
+function getChecklistTemplateCode(key, label) {
+  var k = String(key || '').toLowerCase();
+  var l = String(label || '').toLowerCase();
+
+  if (k === 'exec_doc' || l.includes('альбом') || l.includes('исполнительная документация')) return 'id_album';
+  if (k === 'fluke_tests' || l.includes('fluke') || l.includes('испытан') || l.includes('пси') || l.includes('протокол')) return 'protocol_psi_sks';
+  if (l.includes('скрыт') || l.includes('аоср')) return 'aosr_act';
+  if (l.includes('приемк') && (l.includes('оборудован') || l.includes('монтаж'))) return 'equipment_acceptance_act';
+  if (l.includes('готовност')) return 'technical_readiness_act';
+  if (l.includes('входного контроля') || l.includes('входной контроль')) return 'input_control_journal';
+  if (l.includes('ip') || l.includes('адресац')) return 'ip_addressing_statement';
+  if (l.includes('сдал') || l.includes('принял') || l.includes('сдачи-приемки')) return 'completion_act';
+  return null;
+}
+
+window.openClosingDocEditor = function(contractId, key, label) {
+  var tplCode = getChecklistTemplateCode(key, label) || 'id_album';
+  if (typeof window.openDocumentEditor !== 'function') {
+    alert('Редактор документов временно недоступен');
+    return;
+  }
+
+  var linkedTask = (S.tasks || []).find(function(t) {
+    var tCid = t.contract_id != null ? t.contract_id : t.contractId;
+    return String(tCid) === String(contractId);
+  });
+  var taskId = linkedTask ? linkedTask.id : null;
+
+  window.openDocumentEditor({
+    templateCode: tplCode,
+    contractId: contractId,
+    taskId: taskId,
+    onSaved: function(savedDoc) {
+      if (!savedDoc) return;
+      var fileUrl = savedDoc.file_url || ('/api/documents/' + savedDoc.id + '/download');
+      var fileName = savedDoc.title ? (savedDoc.title + '.docx') : (label + '.docx');
+
+      var c = (window._activeContract && String(window._activeContract.id) === String(contractId))
+        ? window._activeContract 
+        : ((S.contracts || []).find(function(x){ return String(x.id) === String(contractId); }));
+
+      var cl = {};
+      if (c && c.checklist) {
+        try {
+          cl = typeof c.checklist === 'string' ? JSON.parse(c.checklist) : Object.assign({}, c.checklist);
+        } catch(e) { cl = {}; }
+      }
+
+      var currentData = normalizeChecklistItemData(cl[key]);
+      currentData.required = true;
+      currentData.file_url = fileUrl;
+      currentData.file_name = fileName;
+      currentData.status = 'ready';
+      currentData.updated_at = new Date().toISOString();
+      cl[key] = currentData;
+
+      api('/contracts/' + contractId + '/checklist', {
+        method: 'PATCH',
+        body: JSON.stringify({ checklist: cl })
+      }).then(function(res) {
+        if (c) c.checklist = cl;
+        var inList = (S.contracts || []).find(function(x){ return x.id === contractId; });
+        if (inList) inList.checklist = cl;
+        if (typeof showToast === 'function') {
+          showToast('✓ Документ успешно сформирован и прикреплен к чек-листу договора!', 'success');
+        }
+        if (typeof renderContractsTable === 'function') renderContractsTable();
+        if (typeof openContractModal === 'function') openContractModal(contractId, 'terms');
+      }).catch(function(err) {
+        console.error('Checklist update error:', err);
+      });
+    }
+  });
+};
+
 window._toggleIdSubitems = function(contractId) {
   if (!window._openIdSubitems) window._openIdSubitems = new Set();
   if (window._openIdSubitems.has(contractId)) {
@@ -3872,6 +3946,15 @@ function renderContractChecklistSection(c) {
     var isDone = (d.status === 'accepted' || d.status === 'completed');
     var isCustom = !CONTRACT_DEFAULT_CHECKLIST_ITEMS.some(function(defItem) { return defItem.key === item.key; });
     var isReq = d.required;
+    var tplCode = getChecklistTemplateCode(item.key, item.label);
+    var editorBtn = '';
+    if (isReq && tplCode) {
+      editorBtn = `
+        <button type="button" class="btn btn-xs" onclick="openClosingDocEditor(${c.id}, '${item.key}', '${escHtml(item.label)}')" style="font-size:.72rem; padding:2px 7px; background:#eff6ff; border:1px solid #93c5fd; color:#1d4ed8; font-weight:700; display:inline-flex; align-items:center; gap:3px; white-space:nowrap" title="Сформировать документ в визуальном редакторе Stockeasy с автозаполнением">
+          <span>⚡</span> В редакторе
+        </button>
+      `;
+    }
 
     var fileHtml = '';
     if (d.file_url) {
@@ -3921,6 +4004,7 @@ function renderContractChecklistSection(c) {
                 <option value="accepted" ${d.status === 'accepted' ? 'selected' : ''}>👁️ 4. Принят</option>
                 <option value="completed" ${d.status === 'completed' ? 'selected' : ''}>🏆 5. Завершен</option>
               </select>
+              ${editorBtn}
               ${!d.file_url ? `
                 <button class="btn btn-xs btn-outline" onclick="openChecklistAttachmentModal(${c.id}, '${item.key}')" style="font-size:.72rem; padding:2px 6px; white-space:nowrap" title="Прикрепить файл с ПК или ссылку на Seafile">+ Файл</button>
               ` : `
@@ -4127,6 +4211,19 @@ function openChecklistAttachmentModal(contractId, key) {
       </div>
       <div style="font-size:.85rem; color:var(--text); font-weight:600; margin-bottom:14px; background:#f8fafc; padding:8px 12px; border-radius:6px; border:1px solid #e2e8f0">
         ${escHtml(itemDef.label)}
+      </div>
+
+      <!-- Вариант 0: Сформировать в редакторе Stockeasy -->
+      <div style="margin-bottom:14px; padding:12px; border:1.5px solid #93c5fd; border-radius:8px; background:#eff6ff">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px">
+          <div>
+            <div style="font-size:.82rem; font-weight:700; color:#1e40af">⚡ Сформировать в редакторе Stockeasy</div>
+            <div style="font-size:.72rem; color:#3b82f6; margin-top:2px">Автозаполнение реквизитов, объемов и материалов из договора и заявки</div>
+          </div>
+          <button type="button" class="btn btn-sm btn-primary" onclick="document.getElementById('contract_checklist_attach_modal_backdrop').style.display='none'; openClosingDocEditor(${contractId}, '${key}', '${escHtml(itemDef.label)}')" style="font-weight:700">
+            Открыть в редакторе
+          </button>
+        </div>
       </div>
 
       <!-- Вариант 1: Загрузить с ПК -->
@@ -5245,12 +5342,12 @@ function openCreateTaskForContractModal(contractId, agreementId) {
   var defaultCust = (c.customer_name || '').trim();
   var custOptions = [];
   if (defaultCust) custOptions.push(defaultCust);
-  if (!custOptions.includes('ПАО Сбербанк')) custOptions.push('ПАО Сбербанк');
   if (Array.isArray(S.contractors)) {
     S.contractors.filter(function(x){ return x.type === 'customer'; }).forEach(function(x){
       if (!custOptions.includes(x.name_short)) custOptions.push(x.name_short);
     });
   }
+  if (!custOptions.length) custOptions.push('Заказчик');
 
   modal.innerHTML = `
     <div style="padding:18px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:#fafafa; border-radius:12px 12px 0 0">
@@ -5284,8 +5381,8 @@ function openCreateTaskForContractModal(contractId, agreementId) {
             <input type="text" id="ct_id" value="${escHtml(suggestedId)}" required style="width:100%; font-weight:700; border-color:var(--orange)">
           </div>
           <div>
-            <label id="ct_vsp_label" class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">${defaultCust.toLowerCase().includes('сбер') ? '№ ВСП / Отделение' : 'Тип / наименование объекта'} ${(typeof getHintIcon === 'function') ? getHintIcon(defaultCust.toLowerCase().includes('сбер') ? 'vsp' : 'address') : ''}</label>
-            <input type="text" id="ct_vsp" placeholder="${defaultCust.toLowerCase().includes('сбер') ? 'Например: ВСП 0128' : 'Например: Административное здание, Склад, Офис'}" style="width:100%">
+            <label id="ct_vsp_label" class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">№ Отделения / филиала / объекта ${(typeof getHintIcon === 'function') ? getHintIcon('vsp') : ''}</label>
+            <input type="text" id="ct_vsp" placeholder="Например: Отделение 0128, Административное здание, Офис" style="width:100%">
           </div>
         </div>
 
@@ -5294,7 +5391,7 @@ function openCreateTaskForContractModal(contractId, agreementId) {
             <label class="fw6" style="font-size:.75rem; display:block; margin-bottom:4px">Заказчик (Организация) ${(typeof getHintIcon === 'function') ? getHintIcon('customer') : ''}</label>
             <select id="ct_customer" onchange="onContractTaskCustomerChange(this.value)" style="width:100%">
               ${custOptions.map(function(opt) {
-                var isSel = (opt.toLowerCase().trim() === defaultCust.toLowerCase().trim() || (!defaultCust && opt === 'ПАО Сбербанк')) ? 'selected' : '';
+                var isSel = (opt.toLowerCase().trim() === defaultCust.toLowerCase().trim() || (!defaultCust && opt === custOptions[0])) ? 'selected' : '';
                 return `<option value="${escHtml(opt)}" ${isSel}>${escHtml(opt)}</option>`;
               }).join('')}
             </select>
@@ -5371,14 +5468,13 @@ function closeCreateTaskForContractModal() {
 }
 
 window.onContractTaskCustomerChange = function(val) {
-  var isS = String(val || '').toLowerCase().includes('сбер');
   var lbl = document.getElementById('ct_vsp_label');
   var inp = document.getElementById('ct_vsp');
   if (lbl) {
-    lbl.innerHTML = (isS ? '№ ВСП / Отделение' : 'Тип / наименование объекта') + ' ' + ((typeof getHintIcon === 'function') ? getHintIcon(isS ? 'vsp' : 'address') : '');
+    lbl.innerHTML = '№ Отделения / филиала / объекта ' + ((typeof getHintIcon === 'function') ? getHintIcon('vsp') : '');
   }
   if (inp) {
-    inp.placeholder = isS ? 'Например: ВСП 0128' : 'Например: Административное здание, Склад, Офис';
+    inp.placeholder = 'Например: Отделение 0128, Административное здание, Офис';
   }
 };
 

@@ -33,9 +33,10 @@ export function requireRole(...allowedRoles) {
     // Администратор всегда имеет полный доступ
     if (userRole === 'admin') return next();
     
-    // Поддержка алиаса worker -> installer
-    const normalizedRole = userRole === 'worker' ? 'installer' : userRole;
-    const normalizedAllowed = allowedRoles.map(r => String(r).toLowerCase() === 'worker' ? 'installer' : String(r).toLowerCase());
+    // Поддержка алиасов исполнителей: worker / contractor -> installer
+    const isWorkerRole = ['worker', 'contractor', 'installer'].includes(userRole);
+    const normalizedRole = isWorkerRole ? 'installer' : userRole;
+    const normalizedAllowed = allowedRoles.map(r => ['worker', 'contractor', 'installer'].includes(String(r).toLowerCase()) ? 'installer' : String(r).toLowerCase());
 
     if (normalizedAllowed.includes(normalizedRole)) {
       return next();

@@ -772,7 +772,13 @@ export async function initDB() {
   await pool.query(`ALTER TABLE task_ports ADD COLUMN IF NOT EXISTS unit TEXT`);
   await pool.query(`ALTER TABLE task_ports ADD COLUMN IF NOT EXISTS crimping TEXT`);
   await pool.query(`ALTER TABLE task_ports ADD COLUMN IF NOT EXISTS testing_status TEXT`);
+  await pool.query(`ALTER TABLE task_ports ADD COLUMN IF NOT EXISTS building TEXT`);
+  await pool.query(`ALTER TABLE task_ports ADD COLUMN IF NOT EXISTS floor TEXT`);
+  await pool.query(`ALTER TABLE task_ports ADD COLUMN IF NOT EXISTS cable_mark TEXT`);
+  await pool.query(`ALTER TABLE task_ports ADD COLUMN IF NOT EXISTS outlet_marking TEXT`);
+  await pool.query(`ALTER TABLE task_ports ADD COLUMN IF NOT EXISTS notes TEXT`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS smr_actual_end_date DATE`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS contractor_id INTEGER`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS task_checklists (

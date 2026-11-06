@@ -108,6 +108,41 @@ function statBox(lbl, val, sub, color) {
 }
 
 // ─── ОЦЕНКА РИСКОВ ДЕДЛАЙНОВ («УСПЕЕМ / НЕ УСПЕЕМ») ─────────────────────────
+function parseDeadlineDate(val) {
+  if (!val) return null;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  var s = String(val).trim();
+  if (!s) return null;
+  var mIso = s.match(/^(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})/);
+  if (mIso) {
+    var dt = new Date(parseInt(mIso[1], 10), parseInt(mIso[2], 10) - 1, parseInt(mIso[3], 10));
+    return isNaN(dt.getTime()) ? null : dt;
+  }
+  var mRu = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
+  if (mRu) {
+    var ry = parseInt(mRu[3], 10);
+    if (ry < 100) ry += 2000;
+    var dtRu = new Date(ry, parseInt(mRu[2], 10) - 1, parseInt(mRu[1], 10));
+    return isNaN(dtRu.getTime()) ? null : dtRu;
+  }
+  var dNat = new Date(s);
+  return isNaN(dNat.getTime()) ? null : dNat;
+}
+
+function isTaskOverdue(t) {
+  if (!t) return false;
+  if (['done', 'paid', 'cancelled'].includes(t.status)) return false;
+  var dl = parseDeadlineDate(t.deadline);
+  if (dl) {
+    var now = new Date();
+    now.setHours(0, 0, 0, 0);
+    dl.setHours(0, 0, 0, 0);
+    return dl.getTime() < now.getTime();
+  }
+  return Number(t.overdueDays) > 0;
+}
+window.isTaskOverdue = isTaskOverdue;
+
 function getTaskDeadlineRisk(t) {
   if (['done', 'paid', 'cancelled'].includes(t.status)) {
     return {
@@ -119,7 +154,18 @@ function getTaskDeadlineRisk(t) {
     };
   }
 
-  if (!t.deadline) {
+  var dl = parseDeadlineDate(t.deadline);
+  if (!dl) {
+    if (Number(t.overdueDays) > 0) {
+      var ovd = Number(t.overdueDays);
+      return {
+        level: 'danger',
+        label: '🔴 Просрочено ' + ovd + ' дн.',
+        cls: 'b-red',
+        days: -ovd,
+        hint: 'Критическое нарушение дедлайна! Требуется перенос срока или эскалация.'
+      };
+    }
     return {
       level: 'none',
       label: 'Срок не задан',
@@ -131,14 +177,12 @@ function getTaskDeadlineRisk(t) {
 
   var now = new Date();
   now.setHours(0, 0, 0, 0);
-  var dl = new Date(t.deadline);
   dl.setHours(0, 0, 0, 0);
   var diffTime = dl.getTime() - now.getTime();
   var daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  var isOverdue = daysLeft < 0 || (Number(t.overdueDays) > 0);
 
-  if (isOverdue) {
-    var ovd = Math.max(Math.abs(daysLeft), Number(t.overdueDays) || 1);
+  if (daysLeft < 0) {
+    var ovd = Math.abs(daysLeft);
     return {
       level: 'danger',
       label: '🔴 Просрочено ' + ovd + ' дн.',
@@ -187,7 +231,7 @@ function getTaskDeadlineRisk(t) {
 
   return {
     level: 'ok',
-    label: '✓ В графике (+' + daysLeft + ' дн.)',
+    label: '🟢 В графике (+' + daysLeft + ' дн.)',
     cls: 'b-green',
     days: daysLeft,
     hint: 'Запас до дедлайна достаточный: ' + daysLeft + ' дн.'
@@ -725,16 +769,17 @@ function pageTasks() {
           effCust = linkedContract.customer_name;
         }
       }
-      effCust = (effCust && effCust.trim()) || 'ПАО Сбербанк';
+      effCust = (effCust && effCust.trim()) || 'Заказчик';
       if (effCust.toLowerCase() !== cust.toLowerCase()) return false;
     }
-    if (ovd==='no'  && t.overdueDays>0)    return false;
+    if (ovd === 'yes' && !isTaskOverdue(t)) return false;
+    if (ovd === 'no'  && isTaskOverdue(t))  return false;
     if (S.taskArch === 'no' && t.archived) return false;
     if (S.taskStage && !isTaskMatchingStage(t, S.taskStage, latestInfo)) return false;
     if (S.taskView === 'montage' && (t.stageNum != null && t.stageNum > 2)) return false;
     if (S.taskView === 'id_queue' && t.stageNum !== 3) return false;
     if (S.taskView === 'design' && t.stageNum !== 4) return false;
-    if (S.taskView === 'sber' && (t.stageNum !== 5 && t.stageNum !== 6)) return false;
+    if ((S.taskView === 'sber' || S.taskView === 'customer') && (t.stageNum !== 5 && t.stageNum !== 6)) return false;
     if (S.taskView === 'remarks' && !(Number(t.openRemarksCount) > 0)) return false;
     if (S.taskView === 'payment' && (t.stageNum !== 7 && t.stageNum !== 8)) return false;
     if (S.taskView === 'done' && t.stageNum !== 9) return false;
@@ -748,7 +793,7 @@ function pageTasks() {
   var sumDone    = filtered.filter(function(t){return t.status==='done';}).reduce(function(s,t){ return s + Number(t.amount || 0); }, 0);
   var sumAct     = filtered.filter(function(t){return t.status==='progress';}).reduce(function(s,t){ return s + Number(t.amount || 0); }, 0);
   
-  var cntOvd     = filtered.filter(function(t){return t.overdueDays > 0;}).length;
+  var cntOvd     = filtered.filter(function(t){return isTaskOverdue(t);}).length;
   
   var portsDone  = filtered.filter(function(t){return t.status==='done';}).reduce(function(s,t){return s + Number(t.fact || 0);}, 0);
   var portsTotal = filtered.reduce(function(s,t){return s + Number(t.inOrder || 0);}, 0);
@@ -771,7 +816,7 @@ function pageTasks() {
         c = linkedC.customer_name;
       }
     }
-    customerSet.add((c && c.trim()) || 'ПАО Сбербанк');
+    customerSet.add((c && c.trim()) || 'Заказчик');
   });
   (S.contracts || []).forEach(function(c) {
     if (c.customer_name && c.customer_name.trim()) customerSet.add(c.customer_name.trim());
@@ -2142,7 +2187,7 @@ function createSingleTask() {
     invoiceInfo:  document.getElementById('nt_invoiceInfo').value.trim(),
     comment:      document.getElementById('nt_comment').value.trim(),
     vsp:          document.getElementById('nt_vsp').value.trim(),
-    customer:     (document.getElementById('nt_customer') ? document.getElementById('nt_customer').value : 'ПАО Сбербанк'),
+    customer:     (document.getElementById('nt_customer') ? document.getElementById('nt_customer').value : 'Заказчик'),
     manager:      document.getElementById('nt_manager').value.trim(),
     contact:      document.getElementById('nt_contact').value.trim()
   };

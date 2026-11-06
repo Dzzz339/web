@@ -76,7 +76,7 @@ function pageDash(subSection) {
           c = linkedC.customer_name;
         }
       }
-      c = (c && c.trim()) || 'ПАО Сбербанк';
+      c = (c && c.trim()) || 'Заказчик';
 
       if (!custMap[c]) {
         custMap[c] = { name: c, total: 0, done: 0, overdue: 0, inWork: 0, amount: 0, contractsCount: 0 };

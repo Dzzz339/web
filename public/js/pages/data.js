@@ -10,7 +10,7 @@ function pageData() {
   }
 
   // Список заказчиков для выпадающего списка
-  var custOptions = ['ПАО Сбербанк'];
+  var custOptions = [];
   if (Array.isArray(S.contractors)) {
     S.contractors.filter(function(c){ return c.type === 'customer'; }).forEach(function(c){
       if (!custOptions.includes(c.name_short)) custOptions.push(c.name_short);
@@ -95,7 +95,7 @@ function pageData() {
         // ПАНЕЛЬ ЗАГРУЗКИ ДОКУМЕНТОВ
         '<div style="display:flex; gap:.4rem; margin-bottom:12px; flex-wrap:wrap">' +
           '<input type="file" id="ai_pdf_upload" accept=".pdf" style="display:none" onchange="processPdfWithAi(this)">' +
-          '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--blue); border-color:var(--blue)" onclick="document.getElementById(\'ai_pdf_upload\').click()" title="Извлечь данные из PDF заказа Сбера">✨ Заполнить через ИИ</button>' +
+          '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--blue); border-color:var(--blue)" onclick="document.getElementById(\'ai_pdf_upload\').click()" title="Извлечь данные из PDF заказа Заказчика">✨ Заполнить через ИИ</button>' +
           '<input type="file" id="nt_scheme_upload" multiple accept="image/*,.pdf,.dwg" style="display:none" onchange="handlePendingFiles(\'scheme\', this)">' +
           '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'nt_scheme_upload\').click()" title="Прикрепить схему объекта">🗺️ Схема</button>' +
           '<input type="file" id="nt_checklist_upload" multiple accept="image/*,.pdf,.xlsx,.xls,.docx" style="display:none" onchange="handlePendingFiles(\'checklist\', this)">' +
@@ -252,18 +252,31 @@ function parseDate(v) {
     // 3. Строка
     var s = String(v).trim();
     if (!s || s.length < 6) return null;
+
+    // Сначала проверяем классический русский формат 02.04.2026 или 02/04/2026
+    var mRu = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
+    if (mRu) {
+      var dd = parseInt(mRu[1], 10), mm = parseInt(mRu[2], 10), yy = parseInt(mRu[3], 10);
+      if (yy < 100) yy += 2000;
+      if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+        return yy + '-' + String(mm).padStart(2, '0') + '-' + String(dd).padStart(2, '0');
+      }
+    }
+
+    // Проверяем формат ISO YYYY-MM-DD
+    var mIso = s.match(/^(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})/);
+    if (mIso) {
+      var iy = parseInt(mIso[1], 10), im = parseInt(mIso[2], 10), id = parseInt(mIso[3], 10);
+      if (im >= 1 && im <= 12 && id >= 1 && id <= 31) {
+        return iy + '-' + String(im).padStart(2, '0') + '-' + String(id).padStart(2, '0');
+      }
+    }
+
     // Попытка прочитать длинную строку "Thu Apr 02..."
     var tryNative = new Date(s);
     if (!isNaN(tryNative.getTime())) {
       var ny = tryNative.getFullYear(), nm = tryNative.getMonth() + 1, nd = tryNative.getDate();
       if (ny >= 1900 && ny <= 2100) return ny + '-' + String(nm).padStart(2, '0') + '-' + String(nd).padStart(2, '0');
-    }
-    // Попытка прочитать формат 02.04.2026
-    var mRu = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})$/);
-    if (mRu) {
-      var dd = parseInt(mRu[1]), mm = parseInt(mRu[2]), yy = parseInt(mRu[3]);
-      if (yy < 100) yy += 2000;
-      return yy + '-' + String(mm).padStart(2, '0') + '-' + String(dd).padStart(2, '0');
     }
     return null;
   }
@@ -345,18 +358,44 @@ function parseDate(v) {
       var colMap = {};
       var usedCols = new Set();
       var targets = ['Номер', 'Статус', 'Регион', 'Адрес', 'ТИП РАБОТ', 'Тип объекта', '№ ГОСБ', '№ ВСП', 
-                     'Дата заявки', 'Дата окончания работ', 'Текущая дата', 'Менеджер Сбера', 
+                     'Дата заявки', 'Дата окончания работ', 'Текущая дата', 'Менеджер Заказчика', 'Менеджер Сбера', 
                      'Контакт', 'Подрядчик', 'В заказе', 'Факт', 'Обследование', 'Доступ', 
                      'Дата выхода', 'Приёмка', 'Оплата подрядчику', 'ИД', 'Сумма договора', 
                      'Стоимость за ед.', 'Ссылка на Тех.Информацию', '№ документа в ЭДО', 
                      '№ счета/сумма', 'В ЭДО', 'Комментарий', 'дней просрочки', 'Удаленность', 'ТМЦ', 'Допы'];
 
+      // Словарь явных синонимов и типичных опечаток в сводных таблицах
+      var keyAliases = {
+        '№ документа в ЭДО': ['докуметавэдо', 'документавэдо', 'номердокументавэдо', 'нодокуметавэдо', 'нодокументавэдо', 'документвэдо', 'номерэдо', 'нодокументаэдо', 'нодокуметаэдо'],
+        'Приёмка': ['приемкафотоот', 'приемкафото', 'приемка', 'приемкаот', 'приемкаработ', 'приемкафакт'],
+        'Статус': ['статус', 'состояние', 'статусзаявки'],
+        'Оплата подрядчику': ['оплатаподрядчику', 'оплатаподрядч', 'оплатамонтажнику', 'оплата'],
+        'ИД': ['ид', 'исполнительнаядокументация'],
+        'В ЭДО': ['вэдо', 'статусвэдо'],
+        'дней просрочки': ['днейпросрочки', 'просрочка', 'днейдодедлайна', 'просрочкадней']
+      };
+
       targets.forEach(function(target) {
-        var normTarget = target.toLowerCase().replace(/[^а-яёa-z0-9]/g, '');
+        var normTarget = target.toLowerCase().replace(/ё/g, 'е').replace(/[^а-яa-z0-9]/g, '');
+
+        // 1. Проверяем точные синонимы из словаря
+        if (keyAliases[target]) {
+          var aliasMatch = keys.find(function(k) {
+            if (usedCols.has(k)) return false;
+            var nk = k.toLowerCase().replace(/ё/g, 'е').replace(/[^а-яa-z0-9]/g, '');
+            return keyAliases[target].some(function(al){ return nk === al || nk.startsWith(al) || al.startsWith(nk); });
+          });
+          if (aliasMatch) {
+            colMap[target] = aliasMatch;
+            usedCols.add(aliasMatch);
+            return;
+          }
+        }
         
-        // 1. Ищем идеальное совпадение
+        // 2. Ищем идеальное совпадение
         var exactMatch = keys.find(function(k) {
-          return k.toLowerCase().replace(/[^а-яёa-z0-9]/g, '') === normTarget && !usedCols.has(k);
+          var nk = k.toLowerCase().replace(/ё/g, 'е').replace(/[^а-яa-z0-9]/g, '');
+          return nk === normTarget && !usedCols.has(k);
         });
         
         if (exactMatch) {
@@ -365,7 +404,7 @@ function parseDate(v) {
           return;
         }
 
-        // 2. Ищем мягкое совпадение
+        // 3. Ищем мягкое совпадение
         var bestMatch = null;
         var minDistance = 2;
 
@@ -373,7 +412,7 @@ function parseDate(v) {
           var key = String(keys[i]);
           if (usedCols.has(key)) continue;
 
-          var normKey = key.toLowerCase().replace(/[^а-яёa-z0-9]/g, '');
+          var normKey = key.toLowerCase().replace(/ё/g, 'е').replace(/[^а-яa-z0-9]/g, '');
           if ((normKey.includes(normTarget) || normTarget.includes(normKey)) && normTarget.length > 2) {
             bestMatch = key;
             break;
@@ -429,16 +468,54 @@ function parseDate(v) {
           else if (work && !existing.workType.includes(work)) {
             existing.workType += '; ' + work;
           }
+
+          // Обогащаем статус, ЭДО и приемку из последующих строк заявки (если в первой строке были пустыми)
+          var rowRawSt = strVal(row[colMap['Статус']]).toLowerCase();
+          if (existing.status !== 'done' && existing.status !== 'paid') {
+            if (rowRawSt.includes('оплачен') || rowRawSt.includes('оплата') || rowRawSt.includes('закрыт')) {
+              existing.status = 'paid';
+              existing.stage = 'payment';
+            } else if (rowRawSt.includes('готов') || rowRawSt.includes('сдан') || rowRawSt.includes('принят') || rowRawSt.includes('выполнен') || rowRawSt.includes('завершен') || rowRawSt.includes('ок')) {
+              existing.status = 'done';
+              existing.stage = 'acceptance';
+            }
+          }
+          var rowEdo = strVal(row[colMap['№ документа в ЭДО']]);
+          if (!existing.edoNumber && rowEdo) existing.edoNumber = rowEdo;
+          var rowPriemka = strVal(row[colMap['Приёмка']]);
+          if (!existing.priemka && rowPriemka) existing.priemka = rowPriemka;
+          var rowOplata = strVal(row[colMap['Оплата подрядчику']]);
+          if (!existing.oplata && rowOplata) existing.oplata = rowOplata;
           continue;
         }
 
         var rawStatus = strVal(row[colMap['Статус']]).toLowerCase();
         var status = 'progress';
-        if (rawStatus.includes('оплачен')) status = 'paid';
-        else if (rawStatus.includes('готов')) status = 'done';
-        else if (rawStatus.includes('отмен') || rawStatus.includes('стоп')) status = 'cancelled';
+        if (rawStatus.includes('оплачен') || rawStatus.includes('оплата') || rawStatus.includes('закрыт')) {
+          status = 'paid';
+        } else if (rawStatus.includes('готов') || rawStatus.includes('сдан') || rawStatus.includes('принят') || rawStatus.includes('выполнен') || rawStatus.includes('завершен') || rawStatus.includes('ок')) {
+          status = 'done';
+        } else if (rawStatus.includes('отмен') || rawStatus.includes('стоп') || rawStatus.includes('отказ')) {
+          status = 'cancelled';
+        }
 
+        var dlDate = parseDate(row[colMap['Дата окончания работ']]);
         var overdue = parseNum(row[colMap['дней просрочки']]);
+        if (status === 'done' || status === 'paid') {
+          overdue = 0;
+        } else if (dlDate) {
+          var dlParsed = new Date(dlDate + 'T00:00:00');
+          var nowZero = new Date();
+          nowZero.setHours(0, 0, 0, 0);
+          if (!isNaN(dlParsed.getTime())) {
+            var diffDays = Math.ceil((nowZero.getTime() - dlParsed.getTime()) / (1000 * 60 * 60 * 24));
+            if (diffDays > 0) {
+              overdue = Math.max(diffDays, overdue > 0 ? overdue : 0);
+            } else {
+              overdue = 0;
+            }
+          }
+        }
         var addr = strVal(row[colMap['Адрес']]);
 
         var rawOplata = strVal(row[colMap['Оплата подрядчику']]).toLowerCase();
@@ -448,10 +525,12 @@ function parseDate(v) {
         var dataVyhoda = parseDate(row[colMap['Дата выхода']]);
 
         var stage = 'request';
-        if (status === 'paid' || rawOplata.includes('оплач') || rawOplata.includes('да') || rawOplata.includes('+') || rawIdStatus.includes('оплач')) {
+        if (status === 'paid') {
           stage = 'payment';
         } else if (status === 'done' || rawPriemka.includes('принят') || rawPriemka.includes('да') || rawPriemka.includes('+') || rawIdStatus.includes('принят')) {
           stage = 'acceptance';
+        } else if (rawOplata.includes('оплач') || rawIdStatus.includes('оплач')) {
+          stage = 'payment';
         } else if (fact > 0 && inOrder > 0 && fact >= inOrder) {
           stage = 'control';
         } else if (dataVyhoda || fact > 0 || status === 'progress') {
@@ -460,7 +539,7 @@ function parseDate(v) {
           stage = 'survey';
         }
 
-        if (stage === 'request' && status !== 'cancelled') {
+        if (stage === 'request' && status !== 'cancelled' && status !== 'done' && status !== 'paid') {
           status = 'pending';
         }
 
@@ -475,9 +554,9 @@ function parseDate(v) {
           gosb: strVal(row[colMap['№ ГОСБ']]),
           vsp: strVal(row[colMap['№ ВСП']]),
           dateZayavki: parseDate(row[colMap['Дата заявки']]),
-          deadline: parseDate(row[colMap['Дата окончания работ']]),
+          deadline: dlDate,
           currentDate: parseDate(row[colMap['Текущая дата']]),
-          manager: strVal(row[colMap['Менеджер Сбера']]),
+          manager: strVal(row[colMap['Менеджер Заказчика'] || colMap['Менеджер Сбера'] || colMap['Менеджер']]),
           contact: strVal(row[colMap['Контакт']]),
           contractor: contractor,
           inOrder: inOrder,
@@ -1001,7 +1080,7 @@ function processPdfWithAi(inputEl) {
 // ─── TABS & PENDING FILES (Заказ / Схема / Чек-лист на форме создания) ──────
 S.pendingSchemeFiles = [];
 S.pendingChecklistFiles = [];
-
+
 // Обработчик выбора договора в Сценарии 3: автозаполнение полей заявки
 function onScenario3ContractChange(contractId) {
   var badge = document.getElementById('nt_contract_autofill_badge');

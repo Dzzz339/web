@@ -152,6 +152,14 @@ function safeDateIso(val) {
   if (s.length >= 10 && s[4] === '-' && s[7] === '-') {
     return s.slice(0, 10);
   }
+  var ruM = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
+  if (ruM) {
+    var dd = parseInt(ruM[1], 10), mm = parseInt(ruM[2], 10), yy = parseInt(ruM[3], 10);
+    if (yy < 100) yy += 2000;
+    if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+      return yy + '-' + String(mm).padStart(2, '0') + '-' + String(dd).padStart(2, '0');
+    }
+  }
   var d = new Date(s);
   if (!isNaN(d.getTime())) {
     try {
@@ -163,7 +171,7 @@ function safeDateIso(val) {
 
 function safeDateRu(val) {
   var iso = safeDateIso(val);
-  return iso ? iso.split('-').reverse().join('.') : '';
+  return (iso && iso.includes('-')) ? iso.split('-').reverse().join('.') : (val || '');
 }
 
 window.safeDateIso = safeDateIso;
@@ -321,9 +329,9 @@ function canUserEditField(user, key) {
   if (r === 'admin' || r === 'director') return true;
 
   // 2. Полевые монтажники и подрядчики
-  // Могут менять ТОЛЬКО факт выполнения, дату выхода и доступы/обследование
+  // Могут менять факт выполнения, дату завершения/выхода, статус СМР и доступы/обследование
   if (r === 'installer' || r === 'worker' || r === 'contractor') {
-    return ['fact', 'dataVyhoda', 'obsledovanie', 'dostup', 'priemka'].includes(key);
+    return ['fact', 'dataVyhoda', 'smrActualEndDate', 'statusSmr', 'obsledovanie', 'dostup', 'priemka'].includes(key);
   }
 
   // 3. Проектировщик (ИД)

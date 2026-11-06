@@ -63,7 +63,7 @@ function init() {
       renderApp();
     }
 
-    var isWorkerRole = S.user && (S.user.role === 'worker' || S.user.role === 'installer');
+    var isWorkerRole = S.user && (S.user.role === 'worker' || S.user.role === 'installer' || S.user.role === 'contractor');
     var requests = [
       api('/stats').catch(function(){ return {}; }),
       api('/tasks').catch(function(){ return []; }),
@@ -173,7 +173,7 @@ function init() {
 
 function getDefaultPageForRole(role) {
   var r = String(role || '').toLowerCase();
-  if (r === 'worker' || r === 'installer') return 'tasks';
+  if (r === 'worker' || r === 'installer' || r === 'contractor') return 'tasks';
   if (r === 'to_engineer' || r === 'designer') return 'tasks';
   if (r === 'logistics') return 'supply';
   return 'dashboard';
@@ -184,7 +184,7 @@ function isPageAllowedForRole(page, role) {
   if (r === 'admin') return true;
   if (!page || page === 'profile') return true;
 
-  if (r === 'worker' || r === 'installer') {
+  if (r === 'worker' || r === 'installer' || r === 'contractor') {
     return ['tasks', 'card', 'chat', 'help'].includes(page);
   }
   if (r === 'director') {
@@ -382,8 +382,8 @@ function renderNav() {
         var role = String(S.user.role || '').toLowerCase();
         if (role === 'admin') return true; // Администратор видит всё
 
-        // Монтажник (полевой)
-        if (role === 'worker' || role === 'installer') {
+        // Монтажник (полевой) и подрядчик
+        if (role === 'worker' || role === 'installer' || role === 'contractor') {
           return item.id === 'tasks' || item.id === 'chat' || item.id === 'help';
         }
         // Руководитель

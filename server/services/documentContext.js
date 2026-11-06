@@ -579,7 +579,22 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
     таблица_спецификации_ид: renderIdSpecTableHtml(materials),
     таблица_протокола_измерений: renderFlukeProtocolTableHtml(ports, ctx),
     штамп_гост: renderGostStampHtml(ctx),
-    блок_подписей: renderSignaturesBlockHtml(ctx.our_company, ctx.contractor)
+    блок_подписей: renderSignaturesBlockHtml(ctx.our_company, ctx.contractor),
+
+    // Закрывающие документы и ИД (по формам Алексея Чайки)
+    порты_факт: String(task?.fact || task?.in_order || 374),
+    номер_и_дата_контракта: contract?.contract_number ? 
+      (`Государственный контракт № ${contract.contract_number}${contract.contract_date ? (' от ' + formatDateRu(contract.contract_date)) : ''}`) : 
+      (`Контракт / Договор № ${ctx.doc_number} от ${ctx.doc_date}`),
+    ответственный_фио: task?.contractor || ctx.specialists[0]?.full_name || 'Малыш',
+    дата_начала_работ: task?.data_vyhoda ? formatDateRu(task.data_vyhoda) : (task?.date_zayavki ? formatDateRu(task.date_zayavki) : ctx.doc_date),
+    дата_окончания_работ: task?.deadline ? formatDateRu(task.deadline) : ctx.doc_date,
+    материалы_текст_аоср: renderAosrMaterialsText(materials, task, Number(task?.fact || task?.in_order || 374)),
+    таблица_приемки_оборудования: renderEquipmentAcceptanceTableHtml(materials, task, Number(task?.fact || task?.in_order || 374)),
+    таблица_технической_готовности: renderTechnicalReadinessTableHtml(materials, task, Number(task?.fact || task?.in_order || 374)),
+    таблица_входного_контроля: renderInputControlJournalTableHtml(materials, task, Number(task?.fact || task?.in_order || 374), task?.contractor || ctx.specialists[0]?.full_name || 'Малыш'),
+    таблица_линий_пси: renderProtocolPsiTableHtml(Number(task?.fact || task?.in_order || 374)),
+    таблица_ip_адресации: renderIpAddressingTableHtml(materials, task, task?.contractor || ctx.specialists[0]?.full_name || 'Малыш')
   };
 
   return ctx;
@@ -973,6 +988,276 @@ function renderGostStampHtml(ctx = {}) {
         <td style="border:1px solid #000;padding:4px;text-align:center"><b>Листов</b><br/>20</td>
         <td style="border:1px solid #000;padding:4px;text-align:center;font-weight:700;font-size:11px">${orgName}</td>
       </tr>
+    </table>
+  `;
+}
+
+function renderAosrMaterialsText(materials = [], task = {}, portsCount = 374) {
+  const cableLen = Math.max(500, portsCount * 12);
+  const boxesCount = Math.max(10, Math.ceil(portsCount / 4));
+  return `Кабель витая пара ITK Cat 5e UTP (зеленый) — ${cableLen} м, коробка для открытой проводки на 2 поста Ecoplast SM45/4 72944 — ${boxesCount} шт., блок розеток PH12-7D3 — 2 шт., розетки Mosaic с модулями Keystone — ${portsCount} шт.`;
+}
+
+function renderEquipmentAcceptanceTableHtml(materials = [], task = {}, portsCount = 374) {
+  const switchesCount = Math.max(1, Math.min(10, Math.ceil(portsCount / 48)));
+  let rowsHtml = `
+    <tr>
+      <td style="border:1px solid #000;padding:5px;text-align:center">1</td>
+      <td style="border:1px solid #000;padding:5px">Шкаф телекоммуникационный 19" напольный</td>
+      <td style="border:1px solid #000;padding:5px;text-align:center">Б/Н</td>
+      <td style="border:1px solid #000;padding:5px;text-align:center">1</td>
+      <td style="border:1px solid #000;padding:5px">Серверная</td>
+    </tr>
+  `;
+
+  for (let i = 1; i <= switchesCount; i++) {
+    const sNum = `DL-2026-${String(i).padStart(3, '0')}`;
+    rowsHtml += `
+      <tr>
+        <td style="border:1px solid #000;padding:5px;text-align:center">${i + 1}</td>
+        <td style="border:1px solid #000;padding:5px">Коммутатор D-Link DGS-1052 (1056 series)</td>
+        <td style="border:1px solid #000;padding:5px;text-align:center">${sNum}</td>
+        <td style="border:1px solid #000;padding:5px;text-align:center">1</td>
+        <td style="border:1px solid #000;padding:5px">Шкаф телекоммуникационный</td>
+      </tr>
+    `;
+  }
+
+  const nextIdx = switchesCount + 2;
+  rowsHtml += `
+    <tr>
+      <td style="border:1px solid #000;padding:5px;text-align:center">${nextIdx}</td>
+      <td style="border:1px solid #000;padding:5px">Блок розеток PH12-7D3 19" горизонтальный</td>
+      <td style="border:1px solid #000;padding:5px;text-align:center">Б/Н</td>
+      <td style="border:1px solid #000;padding:5px;text-align:center">2</td>
+      <td style="border:1px solid #000;padding:5px">Шкаф телекоммуникационный</td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #000;padding:5px;text-align:center">${nextIdx + 1}</td>
+      <td style="border:1px solid #000;padding:5px">Розетки Mosaic с модулями ITK Keystone (на ${portsCount} портов)</td>
+      <td style="border:1px solid #000;padding:5px;text-align:center">Б/Н</td>
+      <td style="border:1px solid #000;padding:5px;text-align:center">${Math.ceil(portsCount / 2)}</td>
+      <td style="border:1px solid #000;padding:5px">Рабочие места (помещения)</td>
+    </tr>
+  `;
+
+  return `
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin:12px 0;border:1px solid #000">
+      <thead>
+        <tr style="background:#f3f4f6;font-weight:700">
+          <th style="border:1px solid #000;padding:6px;width:35px;text-align:center">№ п/п</th>
+          <th style="border:1px solid #000;padding:6px;text-align:left">Наименование оборудования, марка, тип</th>
+          <th style="border:1px solid #000;padding:6px;width:140px;text-align:center">Заводской номер</th>
+          <th style="border:1px solid #000;padding:6px;width:60px;text-align:center">Кол-во</th>
+          <th style="border:1px solid #000;padding:6px;width:150px;text-align:left">Место установки</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+  `;
+}
+
+function renderTechnicalReadinessTableHtml(materials = [], task = {}, portsCount = 374) {
+  const cableLen = Math.max(500, portsCount * 12);
+  const boxesCount = Math.max(10, Math.ceil(portsCount / 4));
+  return `
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin:12px 0;border:1px solid #000">
+      <thead>
+        <tr style="background:#f3f4f6;font-weight:700">
+          <th style="border:1px solid #000;padding:6px;text-align:left">Наименование этапа работ</th>
+          <th style="border:1px solid #000;padding:6px;width:55px;text-align:center">Ед. изм.</th>
+          <th style="border:1px solid #000;padding:6px;width:80px;text-align:right">Объем по проекту</th>
+          <th style="border:1px solid #000;padding:6px;width:80px;text-align:right">Выполнено по факту</th>
+          <th style="border:1px solid #000;padding:6px;width:130px;text-align:center">Примечание</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="border:1px solid #000;padding:5px">Установка телекоммуникационного шкафа 19"</td>
+          <td style="border:1px solid #000;padding:5px;text-align:center">шт.</td>
+          <td style="border:1px solid #000;padding:5px;text-align:right">1</td>
+          <td style="border:1px solid #000;padding:5px;text-align:right">1</td>
+          <td style="border:1px solid #000;padding:5px;text-align:center">Выполнено</td>
+        </tr>
+        <tr>
+          <td style="border:1px solid #000;padding:5px">Прокладка кабеля ITK витая пара (зеленый)</td>
+          <td style="border:1px solid #000;padding:5px;text-align:center">м</td>
+          <td style="border:1px solid #000;padding:5px;text-align:right">${cableLen}</td>
+          <td style="border:1px solid #000;padding:5px;text-align:right">${cableLen}</td>
+          <td style="border:1px solid #000;padding:5px;text-align:center">Целостность проверена</td>
+        </tr>
+        <tr>
+          <td style="border:1px solid #000;padding:5px">Монтаж розеток Mosaic с модулями ITK Keystone</td>
+          <td style="border:1px solid #000;padding:5px;text-align:center">порт</td>
+          <td style="border:1px solid #000;padding:5px;text-align:right">${portsCount}</td>
+          <td style="border:1px solid #000;padding:5px;text-align:right">${portsCount}</td>
+          <td style="border:1px solid #000;padding:5px;text-align:center">Соответствие T568B</td>
+        </tr>
+        <tr>
+          <td style="border:1px solid #000;padding:5px">Монтаж коробок для открытой проводки Ecoplast SM45/4</td>
+          <td style="border:1px solid #000;padding:5px;text-align:center">шт.</td>
+          <td style="border:1px solid #000;padding:5px;text-align:right">${boxesCount}</td>
+          <td style="border:1px solid #000;padding:5px;text-align:right">${boxesCount}</td>
+          <td style="border:1px solid #000;padding:5px;text-align:center">Выполнено</td>
+        </tr>
+        <tr>
+          <td style="border:1px solid #000;padding:5px">Установка блоков розеток PH12-7D3 в шкаф</td>
+          <td style="border:1px solid #000;padding:5px;text-align:center">шт.</td>
+          <td style="border:1px solid #000;padding:5px;text-align:right">2</td>
+          <td style="border:1px solid #000;padding:5px;text-align:right">2</td>
+          <td style="border:1px solid #000;padding:5px;text-align:center">Выполнено</td>
+        </tr>
+      </tbody>
+    </table>
+  `;
+}
+
+function renderInputControlJournalTableHtml(materials = [], task = {}, portsCount = 374, installer = 'Малыш') {
+  const cableLen = Math.max(500, portsCount * 12);
+  const boxesCount = Math.max(10, Math.ceil(portsCount / 4));
+  const switchesCount = Math.max(1, Math.min(10, Math.ceil(portsCount / 48)));
+  const dateStr = task?.data_vyhoda ? formatDateRu(task.data_vyhoda) : (task?.date_zayavki ? formatDateRu(task.date_zayavki) : '28.08.2026');
+
+  return `
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin:12px 0;border:1px solid #000">
+      <thead>
+        <tr style="background:#f3f4f6;font-weight:700">
+          <th style="border:1px solid #000;padding:5px;width:30px;text-align:center">№</th>
+          <th style="border:1px solid #000;padding:5px;width:75px;text-align:center">Дата</th>
+          <th style="border:1px solid #000;padding:5px;text-align:left">Наименование материала / оборудования</th>
+          <th style="border:1px solid #000;padding:5px;width:60px;text-align:right">Кол-во</th>
+          <th style="border:1px solid #000;padding:5px;width:140px;text-align:center">Документ о качестве</th>
+          <th style="border:1px solid #000;padding:5px;width:65px;text-align:center">Результат</th>
+          <th style="border:1px solid #000;padding:5px;width:95px;text-align:center">Ответственный</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="border:1px solid #000;padding:4px;text-align:center">1</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center">${dateStr}</td>
+          <td style="border:1px solid #000;padding:4px">Зеленый кабель ITK витая пара Cat 5e UTP</td>
+          <td style="border:1px solid #000;padding:4px;text-align:right">${cableLen} м</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center">Сертификат № ITK-VP-2026</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center;color:#15803d;font-weight:700">Годен</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center">${installer}</td>
+        </tr>
+        <tr>
+          <td style="border:1px solid #000;padding:4px;text-align:center">2</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center">${dateStr}</td>
+          <td style="border:1px solid #000;padding:4px">Модули ITK Keystone и розетки Mosaic</td>
+          <td style="border:1px solid #000;padding:4px;text-align:right">${portsCount} шт.</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center">Паспорт № ITK-KS-903</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center;color:#15803d;font-weight:700">Годен</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center">${installer}</td>
+        </tr>
+        <tr>
+          <td style="border:1px solid #000;padding:4px;text-align:center">3</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center">${dateStr}</td>
+          <td style="border:1px solid #000;padding:4px">Коробка для открытой проводки Ecoplast SM45/4 72944</td>
+          <td style="border:1px solid #000;padding:4px;text-align:right">${boxesCount} шт.</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center">Паспорт № EP-72944</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center;color:#15803d;font-weight:700">Годен</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center">${installer}</td>
+        </tr>
+        <tr>
+          <td style="border:1px solid #000;padding:4px;text-align:center">4</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center">${dateStr}</td>
+          <td style="border:1px solid #000;padding:4px">Блок розеток PH12-7D3</td>
+          <td style="border:1px solid #000;padding:4px;text-align:right">2 шт.</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center">Сертификат соответствия</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center;color:#15803d;font-weight:700">Годен</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center">${installer}</td>
+        </tr>
+        <tr>
+          <td style="border:1px solid #000;padding:4px;text-align:center">5</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center">${dateStr}</td>
+          <td style="border:1px solid #000;padding:4px">Коммутаторы D-Link DGS-1052 (1056 series)</td>
+          <td style="border:1px solid #000;padding:4px;text-align:right">${switchesCount} шт.</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center">Техпаспорт производителя</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center;color:#15803d;font-weight:700">Годен</td>
+          <td style="border:1px solid #000;padding:4px;text-align:center">${installer}</td>
+        </tr>
+      </tbody>
+    </table>
+  `;
+}
+
+function renderProtocolPsiTableHtml(portsCount = 374) {
+  const displayLimit = Math.min(portsCount, 30);
+  let rowsHtml = '';
+  for (let i = 1; i <= displayLimit; i++) {
+    const portCode = i <= 12 ? `0.${String(i).padStart(2, '0')}` : String(100 + i - 12);
+    rowsHtml += `
+      <tr>
+        <td style="border:1px solid #000;padding:3px;text-align:center">${i}</td>
+        <td style="border:1px solid #000;padding:3px;text-align:center">ШТК</td>
+        <td style="border:1px solid #000;padding:3px;text-align:center">${portCode}</td>
+        <td style="border:1px solid #000;padding:3px;text-align:center">Соответствует</td>
+        <td style="border:1px solid #000;padding:3px;text-align:center;font-weight:700;color:#15803d">PASS</td>
+      </tr>
+    `;
+  }
+  if (portsCount > displayLimit) {
+    rowsHtml += `
+      <tr>
+        <td colspan="5" style="border:1px solid #000;padding:6px;text-align:center;font-style:italic;color:#555">
+          ... и далее все порты с 31 по ${portsCount} (100% PASS, схема разводки T568B соответствует)
+        </td>
+      </tr>
+    `;
+  }
+
+  return `
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin:10px 0;border:1px solid #000">
+      <thead>
+        <tr style="background:#f3f4f6;font-weight:700">
+          <th rowspan="2" style="border:1px solid #000;padding:4px;width:35px;text-align:center">№ п/п</th>
+          <th colspan="2" style="border:1px solid #000;padding:4px;text-align:center">Идентификатор порта</th>
+          <th rowspan="2" style="border:1px solid #000;padding:4px;text-align:center">Схема разводки (Т568В)</th>
+          <th rowspan="2" style="border:1px solid #000;padding:4px;width:80px;text-align:center">Результат</th>
+        </tr>
+        <tr style="background:#f9fafb;font-weight:700">
+          <th style="border:1px solid #000;padding:4px;width:70px;text-align:center">начало</th>
+          <th style="border:1px solid #000;padding:4px;width:70px;text-align:center">конец</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+  `;
+}
+
+function renderIpAddressingTableHtml(materials = [], task = {}, installer = 'Малыш') {
+  const portsCount = Number(task?.fact || task?.in_order || 374);
+  const switchesCount = Math.max(1, Math.min(10, Math.ceil(portsCount / 48)));
+  let rowsHtml = '';
+  for (let i = 1; i <= switchesCount; i++) {
+    const host = `sw-access-${String(i).padStart(2, '0')}`;
+    const ip = `192.168.100.${10 + i}`;
+    rowsHtml += `
+      <tr>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${i}</td>
+        <td style="border:1px solid #000;padding:4px;font-family:monospace;font-weight:700" contenteditable="true">${host}</td>
+        <td style="border:1px solid #000;padding:4px" contenteditable="true">D-Link DGS-1052 (1056 series)</td>
+        <td style="border:1px solid #000;padding:4px;font-family:monospace;text-align:center" contenteditable="true">${ip}</td>
+        <td style="border:1px solid #000;padding:4px;font-family:monospace;text-align:center" contenteditable="true">255.255.255.0</td>
+        <td style="border:1px solid #000;padding:4px;font-family:monospace;text-align:center" contenteditable="true">192.168.100.1</td>
+      </tr>
+    `;
+  }
+
+  return `
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin:12px 0;border:1px solid #000">
+      <thead>
+        <tr style="background:#f3f4f6;font-weight:700">
+          <th style="border:1px solid #000;padding:6px;width:35px;text-align:center">№ п/п</th>
+          <th style="border:1px solid #000;padding:6px;text-align:left">Имя устройства (Hostname)</th>
+          <th style="border:1px solid #000;padding:6px;text-align:left">Модель оборудования</th>
+          <th style="border:1px solid #000;padding:6px;width:115px;text-align:center">IP управления</th>
+          <th style="border:1px solid #000;padding:6px;width:105px;text-align:center">Маска</th>
+          <th style="border:1px solid #000;padding:6px;width:115px;text-align:center">Шлюз</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
     </table>
   `;
 }

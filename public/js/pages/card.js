@@ -358,12 +358,6 @@ window.cardTransitionToSmr = function(taskId) {
   }
 };
 
-window.cardOpenCloudFolderModal = function(taskId, fieldKey) {
-  var old = document.getElementById('_cloud_folder_modal');
-  if (old) old.remove();
-
-  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); }) || {};
-  
 window.confirmSmrDate = function(taskId, dateVal) {
   var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); });
   var payload = { smrActualEndDate: dateVal };
@@ -458,42 +452,342 @@ window.rejectSmrFact = function(taskId) {
   });
 };
 
-window.generateSequentialPorts = function(taskId) {
+window.openCableJournalGeneratorModal = function(taskId) {
   var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
-  var count = Number(t.fact || t.inOrder || t.ports || 14);
-  if (!count || count <= 0) count = 14;
+  var planCount = Number(t.inOrder || t.ports || t.fact || 24);
+  if (!planCount || planCount <= 0) planCount = 24;
 
-  if (!confirm('Сгенерировать ' + count + ' портов с последовательной нумерацией (Порт 1 .. Порт ' + count + ')?\nТекущие строки КЖ будут заменены.')) return;
+  var oldM = document.getElementById('_kj_generator_modal');
+  if (oldM) oldM.remove();
+
+  var defaultBuilding = (t.address ? t.address.split(',')[0].trim() : (t.customer || 'Основной'));
+  if (!defaultBuilding || defaultBuilding.length > 30) defaultBuilding = 'Корпус 1';
+
+  var modal = document.createElement('div');
+  modal.id = '_kj_generator_modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.65);z-index:99999;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(3px)';
+
+  modal.innerHTML = '<div style="background:#fff;border-radius:10px;box-shadow:0 20px 40px rgba(0,0,0,0.25);width:100%;max-width:580px;max-height:90vh;overflow-y:auto;border:1px solid #cbd5e1;display:flex;flex-direction:column">' +
+    '<div style="padding:14px 18px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;background:#f8fafc;border-top-left-radius:10px;border-top-right-radius:10px">' +
+      '<div style="display:flex;align-items:center;gap:8px">' +
+        '<span style="font-size:1.3rem">⚡</span>' +
+        '<div>' +
+          '<div style="font-weight:700;font-size:1rem;color:#0f172a">Генератор структуры Кабельного Журнала (СКС)</div>' +
+          '<div style="font-size:.74rem;color:#64748b">Формирование шкафов, патч-панелей и маркировки по стандарту ИД</div>' +
+        '</div>' +
+      '</div>' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_kj_generator_modal\').remove()" style="font-size:1.1rem;padding:2px 8px;color:#64748b">✕</button>' +
+    '</div>' +
+
+    '<div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;font-size:.84rem">' +
+      '<div style="background:#f1f5f9;padding:10px 12px;border-radius:6px;border-left:4px solid #3b82f6;font-size:.78rem;color:#334155">' +
+        'Объект: <b>#' + escHtml(t.id) + '</b> · План портов в заказе: <b>' + (t.inOrder || t.ports || '—') + ' шт.</b>' +
+      '</div>' +
+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+        '<div>' +
+          '<label style="display:block;font-size:.76rem;font-weight:700;color:#475569;margin-bottom:4px">Шкаф / ТКШ:</label>' +
+          '<input type="text" id="kj_gen_cabinet" value="ТКШ-1" class="inp" style="width:100%;font-size:.82rem;padding:5px 8px">' +
+        '</div>' +
+        '<div>' +
+          '<label style="display:block;font-size:.76rem;font-weight:700;color:#475569;margin-bottom:4px">Корпус / Здание:</label>' +
+          '<input type="text" id="kj_gen_building" value="' + escHtml(defaultBuilding) + '" class="inp" style="width:100%;font-size:.82rem;padding:5px 8px">' +
+        '</div>' +
+      '</div>' +
+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+        '<div>' +
+          '<label style="display:block;font-size:.76rem;font-weight:700;color:#475569;margin-bottom:4px">Емкость патч-панели:</label>' +
+          '<select id="kj_gen_panel_cap" class="inp" style="width:100%;font-size:.82rem;padding:5px 8px" onchange="window._updateKjGenPreview()">' +
+            '<option value="24" selected>24 порта (стандарт СКС)</option>' +
+            '<option value="48">48 портов</option>' +
+            '<option value="16">16 портов</option>' +
+          '</select>' +
+        '</div>' +
+        '<div>' +
+          '<label style="display:block;font-size:.76rem;font-weight:700;color:#475569;margin-bottom:4px">Формат маркировки портов:</label>' +
+          '<select id="kj_gen_marking_fmt" class="inp" style="width:100%;font-size:.82rem;padding:5px 8px" onchange="window._updateKjGenPreview()">' +
+            '<option value="panel_port" selected>ПП.порт (1.01..1.24, 2.01..2.24) — стандарт СКС</option>' +
+            '<option value="floor_port">этаж.порт (1.1..1.24, 2.1..2.24) — поэтажный</option>' +
+            '<option value="seq">Сквозной порт (1, 2, ... N)</option>' +
+          '</select>' +
+        '</div>' +
+      '</div>' +
+
+      '<div>' +
+        '<label style="display:block;font-size:.76rem;font-weight:700;color:#475569;margin-bottom:4px">Режим распределения:</label>' +
+        '<div style="display:flex;gap:16px;background:#f8fafc;padding:8px 12px;border-radius:6px;border:1px solid #e2e8f0">' +
+          '<label style="display:flex;align-items:center;gap:6px;font-size:.8rem;font-weight:600;cursor:pointer">' +
+            '<input type="radio" name="kj_mode" value="total" checked onchange="window._toggleKjGenMode(\'total\')"> ⚡ Экспресс по общему объему' +
+          '</label>' +
+          '<label style="display:flex;align-items:center;gap:6px;font-size:.8rem;font-weight:600;cursor:pointer">' +
+            '<input type="radio" name="kj_mode" value="floors" onchange="window._toggleKjGenMode(\'floors\')"> 🏢 Поэтажная структура (как в ИД)' +
+          '</label>' +
+        '</div>' +
+      '</div>' +
+
+      '<div id="kj_gen_total_wrap">' +
+        '<label style="display:block;font-size:.76rem;font-weight:700;color:#475569;margin-bottom:4px">Общее количество портов для генерации:</label>' +
+        '<input type="number" id="kj_gen_total_count" min="1" max="2000" value="' + planCount + '" class="inp" style="width:100%;font-size:.85rem;font-weight:700;padding:5px 8px" oninput="window._updateKjGenPreview()">' +
+      '</div>' +
+
+      '<div id="kj_gen_floors_wrap" style="display:none">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+          '<label style="font-size:.76rem;font-weight:700;color:#475569;margin:0">Распределение портов по этажам:</label>' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="window._addKjFloorRow()" style="font-size:.72rem;padding:2px 6px;color:#2563eb">+ Добавить этаж</button>' +
+        '</div>' +
+        '<div id="kj_floors_list" style="display:flex;flex-direction:column;gap:6px;max-height:140px;overflow-y:auto;padding-right:4px">' +
+          '<div class="kj-floor-item" style="display:flex;gap:8px;align-items:center">' +
+            '<input type="text" class="inp kj-floor-name" value="1" placeholder="Этаж" style="width:100px;font-size:.78rem;padding:4px 6px">' +
+            '<input type="number" class="inp kj-floor-qty" value="' + planCount + '" placeholder="Портов" min="1" style="flex:1;font-size:.78rem;padding:4px 6px" oninput="window._updateKjGenPreview()">' +
+            '<button type="button" class="btn btn-xs btn-ghost" style="color:#ef4444" onclick="this.parentElement.remove();window._updateKjGenPreview()">✖</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+        '<div>' +
+          '<label style="display:block;font-size:.76rem;font-weight:700;color:#475569;margin-bottom:4px">Марка кабеля по умолчанию:</label>' +
+          '<input type="text" id="kj_gen_cable_mark" value="UTP 4x2x0.52 Cat.5e LSZH" class="inp" style="width:100%;font-size:.8rem;padding:5px 8px">' +
+        '</div>' +
+        '<div>' +
+          '<label style="display:block;font-size:.76rem;font-weight:700;color:#475569;margin-bottom:4px">Схема обжима:</label>' +
+          '<input type="text" id="kj_gen_crimping" value="T568B" class="inp" style="width:100%;font-size:.8rem;padding:5px 8px">' +
+        '</div>' +
+      '</div>' +
+
+      '<div id="kj_gen_preview_box" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:8px 12px;font-size:.78rem;color:#1e40af;line-height:1.4">' +
+      '</div>' +
+
+      '<label style="display:flex;align-items:center;gap:6px;font-size:.78rem;color:#475569;cursor:pointer">' +
+        '<input type="checkbox" id="kj_gen_replace_existing" checked>' +
+        'Заменить текущие строки КЖ сгенерированными' +
+      '</label>' +
+    '</div>' +
+
+    '<div style="padding:12px 18px;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end;gap:8px;background:#f8fafc;border-bottom-left-radius:10px;border-bottom-right-radius:10px">' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_kj_generator_modal\').remove()">Отмена</button>' +
+      '<button type="button" class="btn btn-sm btn-primary" id="kj_gen_execute_btn" onclick="window._executeKjGeneration(\'' + taskId + '\')" style="font-weight:700">⚡ Сгенерировать порты</button>' +
+    '</div>' +
+  '</div>';
+
+  document.body.appendChild(modal);
+  window._updateKjGenPreview();
+};
+
+window._toggleKjGenMode = function(mode) {
+  var tWrap = document.getElementById('kj_gen_total_wrap');
+  var fWrap = document.getElementById('kj_gen_floors_wrap');
+  if (mode === 'floors') {
+    if (tWrap) tWrap.style.display = 'none';
+    if (fWrap) fWrap.style.display = 'block';
+  } else {
+    if (tWrap) tWrap.style.display = 'block';
+    if (fWrap) fWrap.style.display = 'none';
+  }
+  window._updateKjGenPreview();
+};
+
+window._addKjFloorRow = function() {
+  var list = document.getElementById('kj_floors_list');
+  if (!list) return;
+  var items = list.querySelectorAll('.kj-floor-item');
+  var nextFloor = items.length + 1;
+  var row = document.createElement('div');
+  row.className = 'kj-floor-item';
+  row.style.cssText = 'display:flex;gap:8px;align-items:center';
+  row.innerHTML = '<input type="text" class="inp kj-floor-name" value="' + nextFloor + '" placeholder="Этаж" style="width:100px;font-size:.78rem;padding:4px 6px">' +
+    '<input type="number" class="inp kj-floor-qty" value="24" placeholder="Портов" min="1" style="flex:1;font-size:.78rem;padding:4px 6px" oninput="window._updateKjGenPreview()">' +
+    '<button type="button" class="btn btn-xs btn-ghost" style="color:#ef4444" onclick="this.parentElement.remove();window._updateKjGenPreview()">✖</button>';
+  list.appendChild(row);
+  window._updateKjGenPreview();
+};
+
+window._updateKjGenPreview = function() {
+  var previewBox = document.getElementById('kj_gen_preview_box');
+  if (!previewBox) return;
+
+  var cap = parseInt(document.getElementById('kj_gen_panel_cap')?.value) || 24;
+  var mode = document.querySelector('input[name=kj_mode]:checked')?.value || 'total';
+  var markFmt = document.getElementById('kj_gen_marking_fmt')?.value || 'panel_port';
+  var cabinet = document.getElementById('kj_gen_cabinet')?.value || 'ТКШ-1';
+
+  var totalPorts = 0;
+  if (mode === 'floors') {
+    var floorInputs = document.querySelectorAll('.kj-floor-qty');
+    floorInputs.forEach(function(inp) { totalPorts += (parseInt(inp.value) || 0); });
+  } else {
+    totalPorts = parseInt(document.getElementById('kj_gen_total_count')?.value) || 0;
+  }
+
+  if (totalPorts <= 0) {
+    previewBox.innerHTML = '⚠️ Укажите количество портов для расчета структуры.';
+    return;
+  }
+
+  var panelsNeeded = Math.ceil(totalPorts / cap);
+  var lastPanelPorts = totalPorts % cap === 0 ? cap : (totalPorts % cap);
+
+  var sampleMark1 = markFmt === 'floor_port' ? '1.1' : (markFmt === 'seq' ? '1' : '1.01');
+  var sampleMark2 = markFmt === 'floor_port' ? '1.24' : (markFmt === 'seq' ? String(cap) : ('1.' + (cap < 10 ? '0' + cap : cap)));
+
+  previewBox.innerHTML = '<b>Расчет СКС:</b> Для <b>' + totalPorts + ' портов</b> будет сформировано <b>' + panelsNeeded + ' патч-панел' + (panelsNeeded === 1 ? 'ь' : (panelsNeeded < 5 ? 'и' : 'ей')) + '</b> по ' + cap + ' портов в шкафу <b>' + escHtml(cabinet) + '</b>.<br>' +
+    '• ПП-1 .. ПП-' + panelsNeeded + ' (на последней панели ' + lastPanelPorts + ' из ' + cap + ' портов).<br>' +
+    '• Пример маркировки: <code style="background:#dbeafe;padding:1px 4px;border-radius:3px">' + sampleMark1 + ' .. ' + sampleMark2 + '</code>.<br>' +
+    '• Длины кабелей будут оставлены пустыми (0 м) для последующего ввода монтажником по результатам измерений.';
+};
+
+window._executeKjGeneration = function(taskId) {
+  var btn = document.getElementById('kj_gen_execute_btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Генерация...';
+  }
+
+  var cap = parseInt(document.getElementById('kj_gen_panel_cap')?.value) || 24;
+  var mode = document.querySelector('input[name=kj_mode]:checked')?.value || 'total';
+  var markFmt = document.getElementById('kj_gen_marking_fmt')?.value || 'panel_port';
+  var cabinet = (document.getElementById('kj_gen_cabinet')?.value || 'ТКШ-1').trim();
+  var building = (document.getElementById('kj_gen_building')?.value || '').trim();
+  var cableMark = (document.getElementById('kj_gen_cable_mark')?.value || 'UTP 4x2x0.52 Cat.5e LSZH').trim();
+  var crimping = (document.getElementById('kj_gen_crimping')?.value || 'T568B').trim();
+  var replaceExisting = Boolean(document.getElementById('kj_gen_replace_existing')?.checked);
 
   var ports = [];
-  for (var i = 1; i <= count; i++) {
-    var pNum = String(i);
-    var mark = '1.' + (i < 10 ? '0' + i : i);
-    ports.push({
-      portNumber: pNum,
-      marking: mark,
-      room: 'Помещение 1',
-      cabinet: 'ТКШ-1',
-      unit: '24U',
-      patchPanel: 'ПП-1',
-      cableLength: 25,
-      crimping: 'T568B',
-      testingStatus: 'pass'
+
+  if (mode === 'floors') {
+    var floorItems = document.querySelectorAll('.kj-floor-item');
+    var globalPortIdx = 0;
+    var currentPanel = 1;
+    var currentPortInPanel = 1;
+
+    floorItems.forEach(function(item) {
+      var fName = (item.querySelector('.kj-floor-name')?.value || '1').trim();
+      var fQty = parseInt(item.querySelector('.kj-floor-qty')?.value) || 0;
+
+      for (var p = 1; p <= fQty; p++) {
+        globalPortIdx++;
+        var mark = '';
+        if (markFmt === 'floor_port') {
+          mark = fName + '.' + p;
+        } else if (markFmt === 'seq') {
+          mark = String(globalPortIdx);
+        } else {
+          mark = currentPanel + '.' + (currentPortInPanel < 10 ? '0' + currentPortInPanel : currentPortInPanel);
+        }
+
+        ports.push({
+          portNumber: String(currentPortInPanel),
+          patchPanel: 'ПП-' + currentPanel,
+          room: 'Этаж ' + fName,
+          marking: mark,
+          cableLength: null,
+          cabinet: cabinet,
+          unit: Math.max(1, (24 - currentPanel + 1)) + 'U',
+          crimping: crimping,
+          testingStatus: 'untested',
+          building: building,
+          floor: fName,
+          cableMark: cableMark,
+          outletMarking: 'РМ-' + globalPortIdx,
+          notes: ''
+        });
+
+        currentPortInPanel++;
+        if (currentPortInPanel > cap) {
+          currentPanel++;
+          currentPortInPanel = 1;
+        }
+      }
     });
+  } else {
+    var totalCount = parseInt(document.getElementById('kj_gen_total_count')?.value) || 0;
+    if (totalCount <= 0) {
+      alert('Укажите корректное количество портов');
+      if (btn) { btn.disabled = false; btn.textContent = '⚡ Сгенерировать порты'; }
+      return;
+    }
+
+    for (var i = 1; i <= totalCount; i++) {
+      var pPanel = Math.floor((i - 1) / cap) + 1;
+      var pPort = ((i - 1) % cap) + 1;
+      var mark = '';
+      if (markFmt === 'floor_port') {
+        mark = pPanel + '.' + pPort;
+      } else if (markFmt === 'seq') {
+        mark = String(i);
+      } else {
+        mark = pPanel + '.' + (pPort < 10 ? '0' + pPort : pPort);
+      }
+
+      ports.push({
+        portNumber: String(pPort),
+        patchPanel: 'ПП-' + pPanel,
+        room: '',
+        marking: mark,
+        cableLength: null,
+        cabinet: cabinet,
+        unit: Math.max(1, (24 - pPanel + 1)) + 'U',
+        crimping: crimping,
+        testingStatus: 'untested',
+        building: building,
+        floor: String(pPanel),
+        cableMark: cableMark,
+        outletMarking: 'РМ-' + i,
+        notes: ''
+      });
+    }
+  }
+
+  if (!ports.length) {
+    alert('Не сформировано ни одной линии');
+    if (btn) { btn.disabled = false; btn.textContent = '⚡ Сгенерировать порты'; }
+    return;
   }
 
   api('/tasks/' + taskId + '/ports/batch', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ports: ports, replaceExisting: true })
+    body: JSON.stringify({ ports: ports, replaceExisting: replaceExisting })
   }).then(function(res) {
+    var modalEl = document.getElementById('_kj_generator_modal');
+    if (modalEl) modalEl.remove();
     if (typeof showToast === 'function') {
-      showToast('Сгенерировано ' + count + ' портов в КЖ', 'success');
+      showToast('Сформировано ' + ports.length + ' линий КЖ с разбивкой по ' + cap + ' портов на патч-панель', 'success');
     }
     refreshPortsList(taskId);
     if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
   }).catch(function(err) {
     alert('Ошибка генерации портов: ' + (err.message || err));
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '⚡ Сгенерировать порты';
+    }
+  });
+};
+
+window.generateSequentialPorts = window.openCableJournalGeneratorModal;
+
+window.syncFactFromKj = function(taskId, count) {
+  if (!confirm('Установить смонтированный объем в заявке: ' + count + ' шт. (по данным Кабельного журнала)?')) return;
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fact: count })
+  }).then(function(res) {
+    var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); });
+    if (t) {
+      t.fact = count;
+      t.factConfirmed = true;
+      if (res && res.task) Object.assign(t, res.task);
+    }
+    var inp = document.querySelector('#smrClosingBlock input[name=fact]');
+    if (inp) inp.value = count;
+    if (typeof showToast === 'function') showToast('Объем успешно синхронизирован из КЖ: ' + count + ' шт.', 'success');
+    if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
+    renderApp();
+  }).catch(function(err) {
+    alert('Ошибка обновления объема: ' + (err.message || err));
   });
 };
 
@@ -502,20 +796,25 @@ window.downloadCableJournalTemplate = function() {
     return alert('Библиотека XLSX еще загружается. Пожалуйста, подождите 2 секунды.');
   }
   var sampleRows = [
-    ['№', 'Порт / Розетка', 'Маркировка', 'Помещение', 'Шкаф / ТКШ', 'Юнит', 'Кросс / Панель', 'Длина трассы, м', 'Схема обжима', 'Результат теста (Fluke)'],
-    [1, '1', '1.01', 'Кабинет 101', 'ТКШ-1', '24U', 'ПП-1 (порт 1)', 18.5, 'T568B', 'PASS'],
-    [2, '2', '1.02', 'Кабинет 101', 'ТКШ-1', '24U', 'ПП-1 (порт 2)', 19.2, 'T568B', 'PASS'],
-    [3, '3', '1.03', 'Кабинет 102', 'ТКШ-1', '24U', 'ПП-1 (порт 3)', 24.0, 'T568B', 'PASS'],
-    [4, '4', '1.04', 'Кабинет 102', 'ТКШ-1', '24U', 'ПП-1 (порт 4)', 26.5, 'T568B', 'PASS'],
-    [5, '5', '1.05', 'Кабинет 103', 'ТКШ-1', '24U', 'ПП-1 (порт 5)', 31.0, 'T568B', 'PASS']
+    ['№ п/п', 'Корпус / Здание', 'Этаж', 'Шкаф (ТКШ)', 'ПП №', 'ПП порт', 'Маркировка', 'Марка кабеля', 'Длина, м', 'Помещение / Кабинет', 'Маркировка РМ', 'Схема обжима', 'Результат теста'],
+    [1, 'Главный', '1', 'ТКШ-1', '1', 1, '1.01', 'UTP 4x2x0.52 Cat.5e LSZH', 18.5, 'Кабинет 101', 'РМ-1', 'T568B', 'PASS'],
+    [2, 'Главный', '1', 'ТКШ-1', '1', 2, '1.02', 'UTP 4x2x0.52 Cat.5e LSZH', 19.2, 'Кабинет 101', 'РМ-2', 'T568B', 'PASS'],
+    [3, 'Главный', '1', 'ТКШ-1', '1', 3, '1.03', 'UTP 4x2x0.52 Cat.5e LSZH', 24.0, 'Кабинет 102', 'РМ-3', 'T568B', 'PASS'],
+    [4, 'Главный', '1', 'ТКШ-1', '1', 4, '1.04', 'UTP 4x2x0.52 Cat.5e LSZH', 26.5, 'Кабинет 102', 'РМ-4', 'T568B', 'PASS'],
+    [5, 'Главный', '1', 'ТКШ-1', '1', 5, '1.05', 'UTP 4x2x0.52 Cat.5e LSZH', 31.0, 'Кабинет 103', 'РМ-5', 'T568B', 'PASS']
   ];
   var ws = XLSX.utils.aoa_to_sheet(sampleRows);
   var wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Кабельный журнал');
-  XLSX.writeFile(wb, 'Шаблон_Кабельного_Журнала.xlsx');
+  XLSX.writeFile(wb, 'Шаблон_Кабельного_Журнала_ИД.xlsx');
 };
 
-var fieldLabels = {
+window.cardOpenCloudFolderModal = function(taskId, fieldKey) {
+  var old = document.getElementById('_cloud_folder_modal');
+  if (old) old.remove();
+
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); }) || {};
+  var fieldLabels = {
     priemka: 'Приёмка (фотоматериалы)',
     obsledovanie: 'Обследование объекта (акт, фото)',
     dostup: 'Допуск на объект (письма, заявки)'
@@ -1292,7 +1591,7 @@ function pageCard() {
 
       var pickerDisplay = showPicker ? 'block' : 'none';
 
-      var customerLabel = isSber ? 'Сбербанк' : (taskCustomer || 'Текущий заказчик');
+      var customerLabel = taskCustomer || 'Заказчик';
       var quickFiltersHtml = '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;align-items:center">' +
         '<button type="button" class="btn btn-sm ' + (filterMode !== 'all' ? 'btn-primary' : 'btn-ghost') + '" onclick="setCardContractFilterMode(\'customer\')" style="padding:2px 8px;font-size:.72rem">✓ Только ' + escHtml(customerLabel) + ' (' + customerContractsCount + ')</button>' +
         '<button type="button" class="btn btn-sm ' + (filterMode === 'all' ? 'btn-primary' : 'btn-ghost') + '" onclick="setCardContractFilterMode(\'all\')" style="padding:2px 8px;font-size:.72rem">Все заказчики (' + allContracts.length + ')</button>' +
@@ -1396,13 +1695,14 @@ function pageCard() {
       inp = '<input type="hidden" name="contractor" data-key="contractor" value="' + escHtml(curContrName) + '">' + contrCard;
     }
     else if (key === 'customer' && ['admin', 'director', 'manager', 'to_engineer'].includes(String(S.user ? S.user.role : '').toLowerCase())) {
-      var custOptsList = ['ПАО Сбербанк'];
+      var custOptsList = [];
       (S.contractors || []).filter(function(c){ return c.type === 'customer'; }).forEach(function(c){
         if (!custOptsList.includes(c.name_short)) custOptsList.push(c.name_short);
       });
       (S.contracts || []).forEach(function(c){
         if (c.customer_name && !custOptsList.includes(c.customer_name)) custOptsList.push(c.customer_name);
       });
+      if (!custOptsList.length) custOptsList.push('Заказчик');
       if (val && !custOptsList.includes(val)) custOptsList.unshift(val);
 
       var custDatalistOptions = custOptsList.map(function(opt) {
@@ -1631,12 +1931,13 @@ function pageCard() {
         '<select onchange="changeTaskMacroStatus(\'' + eid + '\', this.value)" style="background:#ffffff;color:#0f172a;font-weight:600;font-size:.82rem;padding:5px 10px;border:1.5px solid #cbd5e1;border-radius:6px;cursor:pointer;outline:none;box-shadow:0 1px 2px rgba(0,0,0,0.05)">' +
           Object.keys(MACRO_STATUSES).map(function(k){
             var curMs = (t.macroStatus || 'new').toLowerCase();
+            if (curMs === 'assigned' && !t.contractor && !t.assignee) curMs = 'in_progress';
             return '<option value="' + k + '"' + (curMs === k ? ' selected' : '') + ' style="color:#0f172a;background:#ffffff">' + MACRO_STATUSES[k].icon + ' ' + MACRO_STATUSES[k].name + '</option>';
           }).join('') +
         '</select>' +
       '</div>'
     : '<div style="display:flex;align-items:center;gap:6px">' +
-        macroStatusBadge(t.macroStatus || 'new') +
+        macroStatusBadge((t.macroStatus === 'assigned' && !t.contractor && !t.assignee) ? 'in_progress' : (t.macroStatus || 'new')) +
       '</div>';
 
   var dateZayavkiStr = t.dateZayavki ? t.dateZayavki.slice(0, 10).split('-').reverse().join('.') : '—';
@@ -2078,7 +2379,7 @@ function pageCard() {
           (!isWorker ? (
             '<details style="margin-bottom:8px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:6px 10px">' +
               '<summary style="cursor:pointer;font-size:.78rem;font-weight:600;color:var(--text-2);user-select:none;display:flex;align-items:center;justify-content:space-between">' +
-                '<span>📋 Реквизиты объекта / ВСП / ГОСБ (Сбер) ▾</span>' +
+                '<span>📋 Реквизиты объекта / отделения / филиала ▾</span>' +
                 '<span style="font-size:.72rem;color:var(--text-3)">' + ((t.gosb || t.vsp || t.tipObj) ? 'ГОСБ: ' + escHtml(t.gosb||'—') + ' · ВСП: ' + escHtml(t.vsp||'—') : 'развернуть') + '</span>' +
               '</summary>' +
               '<div style="margin-top:8px">' +
@@ -2188,7 +2489,7 @@ function pageCard() {
                '📥 Загрузить из Excel' +
                '<input type="file" accept=".xlsx,.xls" style="display:none" onchange="uploadMaterialsExcel(this.files[0], \'' + eid + '\')">' +
              '</label>' +
-             '<button class="btn btn-sm btn-ghost" onclick="window.openSberTemplateModal(\'' + eid + '\')" title="Заполнить типовой спецификацией материалов (Сбербанк: Банкомат, РМ, Wi-Fi, ВОЛС)">⚡ По типовику Сбера</button>' +
+             '<button class="btn btn-sm btn-ghost" onclick="window.openSberTemplateModal(\'' + eid + '\')" title="Заполнить типовой спецификацией материалов (Банкомат, РМ, Wi-Fi, ВОЛС)">⚡ По типовику Заказчика</button>' +
              '<button class="btn btn-sm btn-primary" onclick="openAddItemModal(\'' + eid + '\')">+ Добавить</button>')
           : '') +
       '</div>' +
@@ -2276,9 +2577,9 @@ function pageCard() {
   '</div>';
 
   var smrClosingBlock = (function() {
-    var rawDate = t.smrActualEndDate || t.dataVyhoda || t.smr_actual_end_date || t.data_vyhoda || '';
+    var rawDate = t.smrActualEndDate || t.smr_actual_end_date || (t.rawData && t.rawData.smrActualEndDate) || '';
     var formattedDate = rawDate ? String(rawDate).slice(0, 10) : '';
-    var reportedDate = t.contractorEndDate || t.dataVyhoda || t.data_vyhoda || (t.rawData && (t.rawData.contractorEndDate || t.rawData.dataVyhoda)) || '';
+    var reportedDate = t.contractorEndDate || (t.rawData && t.rawData.contractorEndDate) || '';
     var reportedDateStr = reportedDate ? String(reportedDate).slice(0, 10) : '';
     var isDateConfirmed = Boolean(t.smrDateConfirmed || (formattedDate && reportedDateStr && formattedDate === reportedDateStr));
 
@@ -2326,7 +2627,12 @@ function pageCard() {
         '</div>' +
         '<div>' +
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
-            '<label style="font-size:.78rem;font-weight:700;color:var(--text-2);margin:0">🔌 Фактически смонтировано (портов):</label>' +
+            '<div style="display:flex;align-items:center;gap:4px">' +
+              '<label style="font-size:.78rem;font-weight:700;color:var(--text-2);margin:0">🔌 Фактически смонтировано (портов):</label>' +
+              (kjPortsCount > 0 && Number(curFact) !== Number(kjPortsCount) ? (
+                '<button type="button" class="btn btn-xs btn-outline" onclick="window.syncFactFromKj(\'' + eid + '\', ' + kjPortsCount + ')" style="font-size:.68rem;padding:1px 5px;font-weight:700" title="Установить объем из Кабельного журнала">⚡ Из КЖ (' + kjPortsCount + ')</button>'
+              ) : '') +
+            '</div>' +
             (reportedPorts ? ('<span class="badge ' + (isFactConfirmed ? 'b-green' : 'b-amber') + '" style="font-size:.7rem;padding:1px 6px">' + (isFactConfirmed ? '✓ Подтверждено' : 'Заявлено: ' + reportedPorts + ' шт.') + '</span>') : '') +
           '</div>' +
           '<input type="number" class="inp" min="0" name="fact" data-key="fact" value="' + (t.fact != null ? t.fact : (t.inOrder || 0)) + '" style="padding:4px 8px;font-size:.84rem;width:100%">' +
@@ -2347,8 +2653,9 @@ function pageCard() {
           '</select>' +
         '</div>' +
         (hasPortsDesync ? (
-          '<div style="grid-column:1/-1;background:#fffbeb;border:1px solid #fde68a;border-radius:4px;padding:6px 10px;font-size:.76rem;color:#92400e;display:flex;align-items:center;gap:6px">' +
-            '<span>⚠️</span> <b>Внимание: Рассинхрон объема!</b> В Кабельном журнале <b>' + kjPortsCount + '</b> портов, а в факте указано <b>' + curFact + '</b>. Сверьте по исполнительной схеме и фотоотчету.' +
+          '<div style="grid-column:1/-1;background:#fffbeb;border:1px solid #fde68a;border-radius:4px;padding:6px 10px;font-size:.76rem;color:#92400e;display:flex;align-items:center;justify-content:space-between;gap:6px">' +
+            '<div><span>⚠️</span> <b>Внимание: Рассинхрон объема!</b> В Кабельном журнале <b>' + kjPortsCount + '</b> портов, а в факте указано <b>' + curFact + '</b>.</div>' +
+            '<button type="button" class="btn btn-xs btn-primary" onclick="window.syncFactFromKj(\'' + eid + '\', ' + kjPortsCount + ')" style="font-size:.72rem;padding:2px 8px;font-weight:700;white-space:nowrap">⚡ Синхронизировать факт (' + kjPortsCount + ' шт.)</button>' +
           '</div>'
         ) : '') +
       '</div>' +
@@ -2359,7 +2666,7 @@ function pageCard() {
             '<span id="portsCountBadge" class="badge b-gray" style="font-size:.72rem">0 портов</span>' +
           '</div>' +
           '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
-            '<button type="button" class="btn btn-sm btn-outline" onclick="window.generateSequentialPorts(\'' + eid + '\')" title="Сгенерировать последовательные порты по факту">⚡ ' + (Number(curFact) > 0 ? (curFact + ' портов по факту') : 'Сгенерировать порты') + '</button>' +
+            '<button type="button" class="btn btn-sm btn-outline" onclick="window.openCableJournalGeneratorModal(\'' + eid + '\')" title="Открыть мастер формирования шкафов, патч-панелей и маркировки по стандарту ИД">⚡ Мастер генерации КЖ</button>' +
             '<label class="btn btn-sm btn-ghost" style="cursor:pointer" title="Загрузить кабельный журнал из Excel">' +
               '📥 Загрузить КЖ из Excel' +
               '<input type="file" accept=".xlsx,.xls" style="display:none" onchange="uploadCableJournalExcel(this.files[0], \'' + eid + '\')">' +
@@ -2390,8 +2697,21 @@ function pageCard() {
             '📊 Скачать альбом ИД (.xlsx)' +
           '</a>' +
           '<button type="button" class="btn btn-sm btn-primary" onclick="window.openDocumentEditor({ templateCode: \'id_album\', taskId: \'' + eid + '\' })" title="Открыть альбом ИД во встроенном Редакторе документов">' +
-            '📄 Открыть в Редакторе (DOCX)' +
+            '📄 Альбом ИД (DOCX)' +
           '</button>' +
+          '<div style="position:relative;display:inline-block">' +
+            '<button type="button" class="btn btn-sm btn-ghost" onclick="var m=document.getElementById(\'id_doc_dropdown_' + eid + '\');if(m)m.style.display=(m.style.display===\'none\'?\'block\':\'none\');" style="border:1.5px solid #93c5fd;color:#1d4ed8;font-weight:700;display:inline-flex;align-items:center;gap:4px" title="Сформировать закрывающие акты и протоколы в редакторе Stockeasy">' +
+              '⚡ Закрывающие акты ▾' +
+            '</button>' +
+            '<div id="id_doc_dropdown_' + eid + '" style="display:none;position:absolute;right:0;top:100%;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 20px rgba(0,0,0,0.15);z-index:999;min-width:270px;padding:6px 0;margin-top:4px">' +
+              '<a href="javascript:void(0)" onclick="this.parentElement.style.display=\'none\';window.openDocumentEditor({ templateCode: \'aosr_act\', taskId: \'' + eid + '\' })" style="display:block;padding:7px 12px;font-size:.8rem;color:var(--text);text-decoration:none;font-weight:600" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'transparent\'">📋 Акт скрытых работ (АОСР)</a>' +
+              '<a href="javascript:void(0)" onclick="this.parentElement.style.display=\'none\';window.openDocumentEditor({ templateCode: \'equipment_acceptance_act\', taskId: \'' + eid + '\' })" style="display:block;padding:7px 12px;font-size:.8rem;color:var(--text);text-decoration:none;font-weight:600" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'transparent\'">📦 Акт приемки оборудования</a>' +
+              '<a href="javascript:void(0)" onclick="this.parentElement.style.display=\'none\';window.openDocumentEditor({ templateCode: \'technical_readiness_act\', taskId: \'' + eid + '\' })" style="display:block;padding:7px 12px;font-size:.8rem;color:var(--text);text-decoration:none;font-weight:600" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'transparent\'">⚙️ Акт технической готовности</a>' +
+              '<a href="javascript:void(0)" onclick="this.parentElement.style.display=\'none\';window.openDocumentEditor({ templateCode: \'input_control_journal\', taskId: \'' + eid + '\' })" style="display:block;padding:7px 12px;font-size:.8rem;color:var(--text);text-decoration:none;font-weight:600" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'transparent\'">📝 Журнал входного контроля</a>' +
+              '<a href="javascript:void(0)" onclick="this.parentElement.style.display=\'none\';window.openDocumentEditor({ templateCode: \'protocol_psi_sks\', taskId: \'' + eid + '\' })" style="display:block;padding:7px 12px;font-size:.8rem;color:var(--text);text-decoration:none;font-weight:600" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'transparent\'">📊 Протокол ПСИ СКС (PASS)</a>' +
+              '<a href="javascript:void(0)" onclick="this.parentElement.style.display=\'none\';window.openDocumentEditor({ templateCode: \'ip_addressing_statement\', taskId: \'' + eid + '\' })" style="display:block;padding:7px 12px;font-size:.8rem;color:var(--text);text-decoration:none;font-weight:600" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'transparent\'">🌐 Ведомость IP-адресации</a>' +
+            '</div>' +
+          '</div>' +
           (techVal ? (
             '<a href="' + escHtml(techVal) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="border:1px solid #3b82f6;color:#2563eb;font-weight:600">' +
               '☁️ Облако объекта (Seafile) ↗' +
@@ -3009,45 +3329,34 @@ function pageCard() {
 function refreshTaskItemsList(taskId) {
   var el = document.getElementById('taskItemsList');
   if (!el) return;
+  el.innerHTML = '<div style="text-align:center;padding:16px 0;color:var(--text-3);font-size:.82rem"><div class="spin" style="margin:0 auto 6px;width:18px;height:18px;border-top-color:var(--blue)"></div>Загрузка позиций спецификации…</div>';
+
   api('/tasks/' + encodeURIComponent(taskId) + '/items')
     .then(function(items) {
       if (!Array.isArray(items) || !items.length) {
-        el.innerHTML = '<div class="t3" style="padding:.6rem 0;font-size:.82rem">Позиции материалов пока не внесены. Нажмите «+ Добавить» или «⚡ По типовику Сбера», чтобы сформировать спецификацию.</div>';
+        el.innerHTML = '<div class="t3" style="padding:.6rem 0;font-size:.82rem">Позиции материалов пока не внесены. Нажмите «+ Добавить» или «⚡ По типовику Заказчика», чтобы сформировать спецификацию.</div>';
         updateItemsSummary(taskId, []);
         return;
       }
 
       var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
       var isLocked = t && (['accepted','billing','paid','archived'].includes((t.macroStatus||'').toLowerCase()) || t.status === 'cancelled' || (t.stageNum != null && t.stageNum >= 8));
-      var contractors = S.contractors || [];
 
-      // Определяем подрядчика по умолчанию из заявки
-      var defaultContrObj = null;
-      if (t) {
-        var tContrName = (t.contractor || (t.subcontract && t.subcontract.contractor_name) || '').trim();
-        var tContrId = t.contractor_id || (t.subcontract && t.subcontract.contractor_id);
-        if (tContrId) {
-          defaultContrObj = contractors.find(function(c) { return String(c.id) === String(tContrId); });
-        }
-        if (!defaultContrObj && tContrName) {
-          defaultContrObj = contractors.find(function(c) {
-            return (c.name_short && c.name_short.toLowerCase() === tContrName.toLowerCase()) ||
-                   (c.name_full && c.name_full.toLowerCase() === tContrName.toLowerCase()) ||
-                   (c.name && c.name.toLowerCase() === tContrName.toLowerCase());
-          });
-        }
-      }
+      var STANDARD_SOURCES = [
+        '🏬 Склад компании',
+        '🏬 Центральный склад',
+        '🏬 Склад объекта',
+        '🚚 ЭТМ',
+        '🚚 Линдекс',
+        '🚚 Анлан',
+        '🚚 Инсистем',
+        '🚚 Русский Свет',
+        '🚚 ДНС / Ситилинк',
+        '🛒 Закупка в розницу',
+        '📦 Давальческий материал Заказчика'
+      ];
 
       var rows = items.map(function(it, idx) {
-        var itContrId = it.contractor_id || (defaultContrObj ? defaultContrObj.id : null);
-        var itContrName = it.contractor_name || (defaultContrObj ? defaultContrObj.name_short : null);
-
-        var contOptions = '<option value="">(Не назначен)</option>' +
-          contractors.map(function(c) {
-            var selected = (String(itContrId) === String(c.id) || (itContrName && itContrName.toLowerCase() === (c.name_short||'').toLowerCase())) ? ' selected' : '';
-            return '<option value="' + c.id + '"' + selected + '>' + escHtml(c.name_short) + '</option>';
-          }).join('');
-
         var selectDisabled = isLocked ? ' disabled' : '';
 
         var artPlan = it.article_plan || it.article || '';
@@ -3062,40 +3371,51 @@ function refreshTaskItemsList(taskId) {
           artBadges = '<span class="t3" style="font-size:.7rem">—</span>';
         }
 
-        var shipmentInfo = '';
-        var sDate = it.shipment_date ? String(it.shipment_date).slice(0, 10).split('-').reverse().join('.') : '';
-        var sMethod = it.shipment_method || '';
-        if (sDate || sMethod) {
-          shipmentInfo = '<div style="font-size:.72rem;line-height:1.2">' +
-            (sDate ? '<div style="font-weight:600;color:var(--text)">📅 ' + escHtml(sDate) + '</div>' : '') +
-            (sMethod ? '<div style="color:var(--text-3);font-size:.68rem">🚚 ' + escHtml(sMethod) + '</div>' : '') +
-          '</div>';
-        } else {
-          shipmentInfo = '<span class="t3" style="font-size:.7rem">—</span>';
+        var curSupp = it.supplier || '';
+        var suppOptions = '<option value="">(Не выбран)</option>';
+        var foundInStandard = false;
+        STANDARD_SOURCES.forEach(function(s) {
+          var sel = (curSupp && curSupp.toLowerCase() === s.toLowerCase()) ? ' selected' : '';
+          if (sel) foundInStandard = true;
+          suppOptions += '<option value="' + escHtml(s) + '"' + sel + '>' + escHtml(s) + '</option>';
+        });
+        if (curSupp && !foundInStandard) {
+          suppOptions = '<option value="' + escHtml(curSupp) + '" selected>🚚 ' + escHtml(curSupp) + '</option>' + suppOptions;
         }
+        suppOptions += '<option value="__custom__">✏️ Вписать другого...</option>';
 
         var unitPrice = Number(it.price_contractor || it.price_customer || 0);
         var lineSum = Number(it.amount_contractor || it.amount_customer || ((Number(it.quantity) || 1) * unitPrice));
+        var escTaskId = String(taskId).replace(/'/g, "\\'");
 
         return '<tr style="border-bottom:1px solid var(--border);font-size:.78rem">' +
           '<td style="padding:4px 6px;font-weight:600;color:var(--text-3);text-align:center">' + (idx + 1) + '</td>' +
           '<td style="padding:4px 6px;max-width:240px">' +
             '<div style="font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(it.work_type) + '">' + escHtml(it.work_type) + '</div>' +
-            (it.supplier ? '<span class="badge" style="background:#f0fdf4;color:#166534;font-size:.68rem;padding:1px 5px;border:1px solid #bbf7d0;margin-top:2px;display:inline-block">Поставщик: <b>' + escHtml(it.supplier) + '</b></span>' : '') +
           '</td>' +
           '<td style="padding:4px 6px;white-space:nowrap">' + artBadges + '</td>' +
-          '<td style="padding:4px 6px;white-space:nowrap;font-weight:600">' + (it.quantity || 1) + ' ' + escHtml(it.unit || 'шт.') + '</td>' +
-          '<td style="padding:4px 6px;white-space:nowrap;color:var(--text-2)">' + fmtMoney(unitPrice) + '</td>' +
-          '<td style="padding:4px 6px;white-space:nowrap;font-weight:700;color:var(--text)">' + fmtMoney(lineSum) + '</td>' +
-          '<td style="padding:4px 6px;white-space:nowrap">' + shipmentInfo + '</td>' +
+          '<td style="padding:4px 6px;white-space:nowrap">' +
+            '<div style="display:inline-flex;align-items:center;gap:3px">' +
+              '<input type="number" min="0" step="any" class="field-input" value="' + (it.quantity || 1) + '" id="item_qty_' + it.id + '"' + selectDisabled + ' style="width:58px;padding:2px 4px;font-size:.78rem;font-weight:700;text-align:right;height:24px" oninput="window.calcItemRowSum(' + it.id + ')" onchange="window.updateItemInline(\'' + escTaskId + '\', ' + it.id + ', \'quantity\', this.value)">' +
+              '<span style="font-size:.72rem;color:var(--text-3)">' + escHtml(it.unit || 'шт.') + '</span>' +
+            '</div>' +
+          '</td>' +
+          '<td style="padding:4px 6px;white-space:nowrap">' +
+            '<input type="number" min="0" step="any" class="field-input" value="' + unitPrice + '" id="item_price_' + it.id + '"' + selectDisabled + ' style="width:72px;padding:2px 4px;font-size:.78rem;text-align:right;height:24px" oninput="window.calcItemRowSum(' + it.id + ')" onchange="window.updateItemInline(\'' + escTaskId + '\', ' + it.id + ', \'price\', this.value)">' +
+          '</td>' +
+          '<td style="padding:4px 6px;white-space:nowrap">' +
+            '<span id="item_sum_' + it.id + '" style="font-weight:700;color:var(--text)">' + fmtMoney(lineSum) + '</span>' +
+          '</td>' +
           '<td style="padding:4px 6px">' +
-            '<select class="field-input"' + selectDisabled + ' style="width:100%;max-width:145px;padding:2px 4px;font-size:.74rem;height:24px" onchange="updateItemContractor(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ',this.value)">' +
-              contOptions +
+            '<select class="field-input"' + selectDisabled + ' style="width:100%;max-width:175px;padding:2px 4px;font-size:.74rem;height:24px" onchange="window.onItemSupplierChange(\'' + escTaskId + '\', ' + it.id + ', this.value, this)">' +
+              suppOptions +
             '</select>' +
           '</td>' +
           '<td style="padding:4px 6px;text-align:right;white-space:nowrap">' +
-            (!isLocked ? '<button class="btn btn-xs btn-ghost" onclick="openEditItemModal(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ')" title="Редактировать">✏️</button>' : '') +
-            (!isLocked ? '<button class="btn btn-xs btn-ghost" style="color:var(--red)" onclick="deleteItemModal(\'' + taskId.replace(/'/g, "\\'") + '\',' + it.id + ')" title="Удалить">✕</button>' : '') +
+            (!isLocked ? '<button class="btn btn-xs btn-ghost" onclick="window.openLinkCatalogModal(\'' + escTaskId + '\', ' + it.id + ', \'' + escHtml(it.work_type).replace(/'/g, "\\'") + '\')" title="📦 Привязать к справочнику ТМЦ (каталогу)" style="padding:2px 5px">📦</button> ' : '') +
+            (!isLocked ? '<button class="btn btn-xs btn-ghost" onclick="window.duplicateTaskItem(\'' + escTaskId + '\', ' + it.id + ')" title="📋 Копировать / разбить строку" style="padding:2px 5px">📋</button> ' : '') +
+            (!isLocked ? '<button class="btn btn-xs btn-ghost" onclick="openEditItemModal(\'' + escTaskId + '\',' + it.id + ')" title="✏️ Редактировать детально" style="padding:2px 5px">✏️</button> ' : '') +
+            (!isLocked ? '<button class="btn btn-xs btn-ghost" style="color:var(--red);padding:2px 5px" onclick="deleteItemModal(\'' + escTaskId + '\',' + it.id + ')" title="✕ Удалить">✕</button>' : '') +
           '</td>' +
         '</tr>';
       }).join('');
@@ -3106,12 +3426,11 @@ function refreshTaskItemsList(taskId) {
             '<th style="padding:5px 6px;width:24px;text-align:center">№</th>' +
             '<th style="padding:5px 6px">Наименование материала</th>' +
             '<th style="padding:5px 6px;width:120px">Артикул (план/факт)</th>' +
-            '<th style="padding:5px 6px;width:80px">Кол-во</th>' +
-            '<th style="padding:5px 6px;width:80px">Цена (₽)</th>' +
-            '<th style="padding:5px 6px;width:90px">Сумма (₽)</th>' +
-            '<th style="padding:5px 6px;width:130px">Отгрузка</th>' +
-            '<th style="padding:5px 6px;width:150px">Подрядчик</th>' +
-            '<th style="padding:5px 6px;width:55px;text-align:right"></th>' +
+            '<th style="padding:5px 6px;width:100px">Кол-во</th>' +
+            '<th style="padding:5px 6px;width:95px">Цена (₽)</th>' +
+            '<th style="padding:5px 6px;width:105px">Сумма (₽)</th>' +
+            '<th style="padding:5px 6px;width:180px">Источник (Склад / Поставщик)</th>' +
+            '<th style="padding:5px 6px;width:95px;text-align:right"></th>' +
           '</tr></thead>' +
           '<tbody>' + rows + '</tbody>' +
         '</table></div>';
@@ -3122,6 +3441,94 @@ function refreshTaskItemsList(taskId) {
       el.innerHTML = '<div class="t3" style="color:var(--red);font-size:.8rem">Ошибка загрузки позиций: ' + (err.message || err) + '</div>';
     });
 }
+
+window.calcItemRowSum = function(id) {
+  var qInput = document.getElementById('item_qty_' + id);
+  var pInput = document.getElementById('item_price_' + id);
+  var sumEl = document.getElementById('item_sum_' + id);
+  if (!qInput || !pInput || !sumEl) return;
+  var q = parseFloat(qInput.value) || 0;
+  var p = parseFloat(pInput.value) || 0;
+  var s = q * p;
+  sumEl.textContent = fmtMoney(s);
+};
+
+window.updateItemInline = function(taskId, itemId, field, val) {
+  var qInput = document.getElementById('item_qty_' + itemId);
+  var pInput = document.getElementById('item_price_' + itemId);
+  var q = qInput ? (parseFloat(qInput.value) || 0) : (field === 'quantity' ? (parseFloat(val) || 0) : 1);
+  var p = pInput ? (parseFloat(pInput.value) || 0) : (field === 'price' ? (parseFloat(val) || 0) : 0);
+  var lineSum = q * p;
+
+  var postBody = {};
+  if (field === 'quantity') {
+    postBody.quantity = q;
+    postBody.amount_customer = lineSum;
+    postBody.amount_contractor = lineSum;
+  } else if (field === 'price') {
+    postBody.price_customer = p;
+    postBody.price_contractor = p;
+    postBody.amount_customer = lineSum;
+    postBody.amount_contractor = lineSum;
+  }
+
+  api('/tasks/' + encodeURIComponent(taskId) + '/items/' + itemId, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(postBody)
+  })
+  .then(function(res) {
+    if (res.error) return alert('Ошибка обновления: ' + res.error);
+    if (typeof showToast === 'function') showToast('✓ Сохранено', 'success');
+    api('/tasks/' + encodeURIComponent(taskId) + '/items').then(function(items) {
+      updateItemsSummary(taskId, items);
+      if (typeof loadCardMaterials === 'function') loadCardMaterials(taskId);
+    });
+  })
+  .catch(function(err) {
+    alert('Ошибка сохранения: ' + (err.message || err));
+  });
+};
+
+window.onItemSupplierChange = function(taskId, itemId, val, selEl) {
+  if (val === '__custom__') {
+    var customVal = prompt('Укажите название поставщика или склада:');
+    if (!customVal || !customVal.trim()) {
+      if (selEl) selEl.value = '';
+      return;
+    }
+    val = customVal.trim();
+  }
+
+  api('/tasks/' + encodeURIComponent(taskId) + '/items/' + itemId, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ supplier: val || null })
+  })
+  .then(function(res) {
+    if (res.error) return alert('Ошибка сохранения поставщика: ' + res.error);
+    if (typeof showToast === 'function') showToast('✓ Источник поставки сохранен: ' + (val || 'Не назначен'), 'success');
+    if (typeof loadCardMaterials === 'function') loadCardMaterials(taskId);
+  })
+  .catch(function(err) {
+    alert('Ошибка обновления поставщика: ' + (err.message || err));
+  });
+};
+
+window.duplicateTaskItem = function(taskId, itemId) {
+  api('/tasks/' + encodeURIComponent(taskId) + '/items/' + itemId + '/duplicate', {
+    method: 'POST'
+  })
+  .then(function(res) {
+    if (res.error) return alert('Ошибка дублирования позиции: ' + res.error);
+    if (typeof showToast === 'function') showToast('✓ Позиция продублирована для разделения по источникам', 'success');
+    refreshTaskItemsList(taskId);
+    if (typeof loadCardMaterials === 'function') loadCardMaterials(taskId);
+  })
+  .catch(function(err) {
+    alert('Ошибка дублирования: ' + (err.message || err));
+  });
+};
 
 function updateItemsSummary(taskId, items) {
   var countBadge = document.getElementById('cardItemsCountBadge');
@@ -3163,20 +3570,147 @@ function updateItemsSummary(taskId, items) {
     marginEl.style.color = margin >= 0 ? 'var(--green)' : 'var(--red)';
   }
 
-  // Обновляем кнопки персональных Приложений №2
+  // Комплектация по источникам поставки (Склады компании, ЭТМ, Линдекс, Анлан и т.д.)
   var ordersBar = document.getElementById('cardContractorOrdersBar');
   if (ordersBar) {
-    var cNames = Object.keys(contractorsMap);
-    if (cNames.length > 0) {
-      ordersBar.innerHTML = '<span style="font-weight:600;color:var(--text-3)">Заказы подрядчикам (Приложение №2):</span>' +
-        cNames.map(function(cn) {
-          return '<button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:.74rem" onclick="generateTaskDoc(\'' + taskId.replace(/'/g, "\\'") + '\', \'order_subcontract\')">📥 Заказ: ' + escHtml(cn) + ' (' + contractorsMap[cn] + ' поз.)</button>';
+    var suppMap = {};
+    (items || []).forEach(function(it) {
+      var s = (it.supplier || '').trim() || 'Не назначен';
+      suppMap[s] = (suppMap[s] || 0) + 1;
+    });
+    var sKeys = Object.keys(suppMap);
+    if (sKeys.length > 0) {
+      ordersBar.innerHTML = '<span style="font-weight:600;color:var(--text-3)">Поставки и комплектация по источникам:</span>' +
+        sKeys.map(function(sk) {
+          var isWh = sk.toLowerCase().includes('склад');
+          var isUnset = sk === 'Не назначен';
+          var badgeIcon = isWh ? '🏬 ' : (isUnset ? '⚠️ ' : '🚚 ');
+          var badgeColor = isWh ? 'background:#f0fdf4;border-color:#bbf7d0;color:#166534' : (isUnset ? 'background:#fffbeb;border-color:#fde68a;color:#92400e' : 'background:#eff6ff;border-color:#bfdbfe;color:#1e40af');
+          return '<span class="badge" style="' + badgeColor + ';border:1px solid;padding:3px 8px;font-size:.74rem;font-weight:600">' +
+            badgeIcon + escHtml(sk) + ' (' + suppMap[sk] + ' поз.)</span>';
         }).join('');
     } else {
       ordersBar.innerHTML = '';
     }
   }
 }
+
+window.openLinkCatalogModal = function(taskId, itemId, currentName) {
+  var oldM = document.getElementById('_link_catalog_modal');
+  if (oldM) oldM.remove();
+
+  var modal = document.createElement('div');
+  modal.id = '_link_catalog_modal';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = '<div class="modal-box" style="max-width:580px;width:95%;border-radius:10px;padding:20px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
+      '<div style="display:flex;align-items:center;gap:8px">' +
+        '<span style="font-size:1.3rem">📦</span>' +
+        '<div>' +
+          '<h3 style="margin:0;font-size:1.05rem;color:var(--text)">Привязка позиции к справочнику ТМЦ</h3>' +
+          '<div style="font-size:.74rem;color:var(--text-3);margin-top:2px">Выберите товар из каталога для подстановки артикула, единицы и цены</div>' +
+        '</div>' +
+      '</div>' +
+      '<button class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_link_catalog_modal\').remove()" style="font-size:1.1rem;padding:2px 8px">✕</button>' +
+    '</div>' +
+    '<div style="background:var(--bg);padding:8px 10px;border-radius:6px;border:1px solid var(--border);margin-bottom:12px;font-size:.78rem">' +
+      'Текущая строка: <b>' + escHtml(currentName || '—') + '</b>' +
+    '</div>' +
+    '<input type="text" id="_link_catalog_search" class="inp" placeholder="🔍 Поиск по названию или артикулу каталога..." style="width:100%;padding:6px 10px;font-size:.82rem;margin-bottom:10px" oninput="window._filterLinkCatalogList()">' +
+    '<div id="_link_catalog_list" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--card,#fff)">' +
+      '<div style="padding:16px;text-align:center;color:var(--text-3);font-size:.8rem"><div class="spin" style="margin:0 auto 6px;width:18px;height:18px"></div>Загрузка каталога материалов…</div>' +
+    '</div>' +
+    '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">' +
+      '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_link_catalog_modal\').remove()">Отмена</button>' +
+    '</div>' +
+  '</div>';
+
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
+
+  api('/materials').then(function(catalog) {
+    window._cachedCatalogMaterials = catalog || [];
+    window._curLinkTaskId = taskId;
+    window._curLinkItemId = itemId;
+    window._filterLinkCatalogList();
+    setTimeout(function() {
+      var sInp = document.getElementById('_link_catalog_search');
+      if (sInp) sInp.focus();
+    }, 100);
+  }).catch(function(err) {
+    var listEl = document.getElementById('_link_catalog_list');
+    if (listEl) listEl.innerHTML = '<div style="padding:12px;color:var(--red);font-size:.8rem">Ошибка загрузки справочника: ' + (err.message || err) + '</div>';
+  });
+};
+
+window._filterLinkCatalogList = function() {
+  var listEl = document.getElementById('_link_catalog_list');
+  if (!listEl) return;
+  var qInp = document.getElementById('_link_catalog_search');
+  var q = qInp ? qInp.value.toLowerCase().trim() : '';
+  var all = window._cachedCatalogMaterials || [];
+  var filtered = all.filter(function(m) {
+    if (!q) return true;
+    return (m.name && m.name.toLowerCase().includes(q)) ||
+           (m.code && m.code.toLowerCase().includes(q)) ||
+           (m.category && m.category.toLowerCase().includes(q));
+  });
+
+  if (!filtered.length) {
+    listEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-3);font-size:.8rem">В каталоге ничего не найдено по запросу «' + escHtml(q) + '»</div>';
+    return;
+  }
+
+  listEl.innerHTML = filtered.slice(0, 50).map(function(m) {
+    return '<div style="padding:8px 10px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;cursor:pointer;gap:8px" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'" onclick="window._applyCatalogLink(' + m.id + ')">' +
+      '<div style="min-width:0">' +
+        '<div style="font-weight:600;font-size:.82rem;color:var(--text)">' + escHtml(m.name) + '</div>' +
+        '<div style="font-size:.72rem;color:var(--text-3)">Арт: <b>' + escHtml(m.code || '—') + '</b> · Ед: ' + escHtml(m.unit || 'шт') + (m.price_default ? (' · Цена: ' + m.price_default + ' ₽') : '') + '</div>' +
+      '</div>' +
+      '<button type="button" class="btn btn-xs btn-outline" style="white-space:nowrap;padding:2px 8px;font-size:.72rem">Выбрать ↵</button>' +
+    '</div>';
+  }).join('');
+};
+
+window._applyCatalogLink = function(catalogId) {
+  var all = window._cachedCatalogMaterials || [];
+  var m = all.find(function(x) { return x.id === catalogId; });
+  if (!m) return;
+  var taskId = window._curLinkTaskId;
+  var itemId = window._curLinkItemId;
+
+  var qInput = document.getElementById('item_qty_' + itemId);
+  var curQty = qInput ? (parseFloat(qInput.value) || 1) : 1;
+  var pr = Number(m.price_default || 0);
+  var sum = Math.round(curQty * pr);
+
+  var payload = {
+    work_type: m.name,
+    article: m.code,
+    article_plan: m.code,
+    unit: m.unit || 'шт'
+  };
+  if (pr > 0) {
+    payload.price_customer = pr;
+    payload.price_contractor = pr;
+    payload.amount_customer = sum;
+    payload.amount_contractor = sum;
+  }
+
+  api('/tasks/' + encodeURIComponent(taskId) + '/items/' + itemId, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(function() {
+    var modal = document.getElementById('_link_catalog_modal');
+    if (modal) modal.remove();
+    if (typeof showToast === 'function') showToast('✓ Позиция привязана к каталогу ТМЦ: ' + m.name, 'success');
+    refreshTaskItemsList(taskId);
+    if (typeof loadCardMaterials === 'function') loadCardMaterials(taskId);
+  }).catch(function(err) {
+    alert('Ошибка привязки каталога: ' + (err.message || err));
+  });
+};
 
 function openAddItemModal(taskId) {
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
@@ -3267,9 +3801,20 @@ function openAddItemModal(taskId) {
           '</div>' +
         '</div>' +
         '<div style="margin-bottom:14px">' +
-          '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Подрядчик (исполнитель)</label>' +
-          '<select id="m_item_contractor" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
-            contrOptions +
+          '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Быстрый выбор склада / поставщика</label>' +
+          '<select onchange="if(this.value){ document.getElementById(\'m_item_supplier\').value = this.value; }" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+            '<option value="">-- Выбрать склад или типового поставщика --</option>' +
+            '<option value="🏬 Склад компании">🏬 Склад компании</option>' +
+            '<option value="🏬 Центральный склад">🏬 Центральный склад</option>' +
+            '<option value="🏬 Склад объекта">🏬 Склад объекта</option>' +
+            '<option value="🚚 ЭТМ">🚚 ЭТМ</option>' +
+            '<option value="🚚 Линдекс">🚚 Линдекс</option>' +
+            '<option value="🚚 Анлан">🚚 Анлан</option>' +
+            '<option value="🚚 Инсистем">🚚 Инсистем</option>' +
+            '<option value="🚚 Русский Свет">🚚 Русский Свет</option>' +
+            '<option value="🚚 ДНС / Ситилинк">🚚 ДНС / Ситилинк</option>' +
+            '<option value="🛒 Закупка в розницу">🛒 Закупка в розницу</option>' +
+            '<option value="📦 Давальческий материал Заказчика">📦 Давальческий материал Заказчика</option>' +
           '</select>' +
         '</div>' +
         '<div style="display:flex;justify-content:flex-end;gap:8px">' +
@@ -3336,6 +3881,7 @@ function submitTaskItemForm(e, taskId, itemId) {
     var m = document.getElementById('modal_item_add') || document.getElementById('modal_item_edit');
     if (m) m.remove();
     refreshTaskItemsList(taskId);
+    if (typeof loadCardMaterials === 'function') loadCardMaterials(taskId);
     if (typeof showToast === 'function') showToast(itemId ? '✓ Позиция обновлена' : '✓ Позиция добавлена');
   })
   .catch(function(err) {
@@ -3419,9 +3965,20 @@ function openEditItemModal(taskId, itemId) {
               '</div>' +
             '</div>' +
             '<div style="margin-bottom:14px">' +
-              '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Подрядчик (исполнитель)</label>' +
-              '<select id="m_item_contractor" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
-                contrOptions +
+              '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Быстрый выбор склада / поставщика</label>' +
+              '<select onchange="if(this.value){ document.getElementById(\'m_item_supplier\').value = this.value; }" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+                '<option value="">-- Выбрать склад или типового поставщика --</option>' +
+                '<option value="🏬 Склад компании">🏬 Склад компании</option>' +
+                '<option value="🏬 Центральный склад">🏬 Центральный склад</option>' +
+                '<option value="🏬 Склад объекта">🏬 Склад объекта</option>' +
+                '<option value="🚚 ЭТМ">🚚 ЭТМ</option>' +
+                '<option value="🚚 Линдекс">🚚 Линдекс</option>' +
+                '<option value="🚚 Анлан">🚚 Анлан</option>' +
+                '<option value="🚚 Инсистем">🚚 Инсистем</option>' +
+                '<option value="🚚 Русский Свет">🚚 Русский Свет</option>' +
+                '<option value="🚚 ДНС / Ситилинк">🚚 ДНС / Ситилинк</option>' +
+                '<option value="🛒 Закупка в розницу">🛒 Закупка в розницу</option>' +
+                '<option value="📦 Давальческий материал Заказчика">📦 Давальческий материал Заказчика</option>' +
               '</select>' +
             '</div>' +
             '<div style="display:flex;justify-content:flex-end;gap:8px">' +
@@ -3448,9 +4005,9 @@ window.openSberTemplateModal = function(taskId) {
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
         '<div>' +
           '<div style="font-weight:700;font-size:1.1rem;display:flex;align-items:center;gap:6px">' +
-            '<span>⚡</span> Типовые спецификации материалов Сбера' +
+            '<span>⚡</span> Типовые спецификации материалов Заказчика' +
           '</div>' +
-          '<div class="t3" style="font-size:.78rem;margin-top:2px">Сформировать спецификацию по стандарту СКС ПАО Сбербанк</div>' +
+          '<div class="t3" style="font-size:.78rem;margin-top:2px">Сформировать спецификацию по отраслевому стандарту СКС</div>' +
         '</div>' +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'modal_sber_presets\').remove()">✕</button>' +
       '</div>' +
@@ -3567,7 +4124,7 @@ window.applySberPreset = function(e, taskId) {
     items.push({ work_type: 'Патч-панель 24 порта cat.6 19" 1U', article_plan: 'PP-24-C6-1U', quantity: Math.max(1, Math.ceil((cnt * 2) / 24)), unit: 'шт.', supplier: 'Инсистем', price_customer: 3200, price_contractor: 2400 });
     items.push({ work_type: 'Короб кабельный 100х50 мм с разделительной перегородкой', article_plan: 'BOX-100X50-DIV', quantity: cnt * 5, unit: 'м', supplier: 'Склад', price_customer: 380, price_contractor: 290 });
   } else if (type === 'wifi_cctv') {
-    items.push({ work_type: 'Точка доступа Wi-Fi / IP-видеокамера Сбер', article_plan: 'AP-CCTV-DEV', quantity: cnt, unit: 'шт.', supplier: 'Заказчик', price_customer: 0, price_contractor: 0 });
+    items.push({ work_type: 'Точка доступа Wi-Fi / IP-видеокамера', article_plan: 'AP-CCTV-DEV', quantity: cnt, unit: 'шт.', supplier: 'Заказчик', price_customer: 0, price_contractor: 0 });
     items.push({ work_type: 'Кабель витая пара UTP 4 пары cat.6 LSZH нг(А)-HFLTx', article_plan: 'CS1-1C6AU-11', quantity: cnt * 50, unit: 'м', supplier: 'Инсистем', price_customer: 72, price_contractor: 55 });
     items.push({ work_type: 'Разъем RJ-45 cat.6 с защитным колпачком', article_plan: 'RJ45-C6-BOOT', quantity: cnt * 2, unit: 'шт.', supplier: 'Инсистем', price_customer: 45, price_contractor: 30 });
     items.push({ work_type: 'Модуль Keystone RJ-45 cat.6 в патч-панель', article_plan: 'KEYSTONE-C6-UTP', quantity: cnt, unit: 'шт.', supplier: 'Инсистем', price_customer: 190, price_contractor: 130 });
@@ -3590,7 +4147,7 @@ window.applySberPreset = function(e, taskId) {
     var m = document.getElementById('modal_sber_presets');
     if (m) m.remove();
     refreshTaskItemsList(taskId);
-    if (typeof showToast === 'function') showToast('✓ Сформировано ' + (res.count || items.length) + ' типовых позиций Сбера');
+    if (typeof showToast === 'function') showToast('✓ Сформировано ' + (res.count || items.length) + ' типовых позиций');
   })
   .catch(function(err) {
     alert('Ошибка: ' + (err.message || err));
@@ -3602,6 +4159,16 @@ function uploadMaterialsExcel(file, taskId) {
   if (!window.XLSX) {
     return alert('Библиотека XLSX еще не загрузилась. Подождите 1-2 секунды и попробуйте снова.');
   }
+
+  var listEl = document.getElementById('taskItemsList');
+  if (listEl) {
+    listEl.innerHTML = '<div style="text-align:center;padding:26px 16px;background:#f8fafc;border:1.5px dashed #93c5fd;border-radius:8px">' +
+      '<div class="spin" style="margin:0 auto 10px;width:24px;height:24px;border-top-color:var(--blue)"></div>' +
+      '<div style="font-weight:700;font-size:.9rem;color:var(--text)">⏳ Идет чтение и импорт Excel-файла...</div>' +
+      '<div style="font-size:.76rem;color:var(--text-3);margin-top:4px">Пожалуйста, подождите. Позиции считываются и сохраняются в базу данных.</div>' +
+    '</div>';
+  }
+
   var reader = new FileReader();
   reader.onload = function(e) {
     try {
@@ -3609,7 +4176,10 @@ function uploadMaterialsExcel(file, taskId) {
       var wb = XLSX.read(data, { type: 'array' });
       var firstSheet = wb.Sheets[wb.SheetNames[0]];
       var rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
-      if (!rows || rows.length < 2) return alert('Файл пуст или содержит только заголовки');
+      if (!rows || rows.length < 2) {
+        if (listEl) refreshTaskItemsList(taskId);
+        return alert('Файл пуст или содержит только заголовки');
+      }
 
       var headerIdx = 0;
       for (var i = 0; i < Math.min(10, rows.length); i++) {
@@ -3675,10 +4245,19 @@ function uploadMaterialsExcel(file, taskId) {
       }
 
       if (!parsedItems.length) {
+        if (listEl) refreshTaskItemsList(taskId);
         return alert('Не удалось распознать позиции материалов в файле. Проверьте колонки (Наименование, Ед. изм., Кол-во, Артикул).');
       }
 
       var replaceExisting = confirm('Найдено позиций материалов: ' + parsedItems.length + '.\nЗаменить текущую спецификацию? Нажмите «OK» для полной замены или «Отмена» для добавления в конец.');
+
+      if (listEl) {
+        listEl.innerHTML = '<div style="text-align:center;padding:26px 16px;background:#f8fafc;border:1.5px dashed #93c5fd;border-radius:8px">' +
+          '<div class="spin" style="margin:0 auto 10px;width:24px;height:24px;border-top-color:var(--blue)"></div>' +
+          '<div style="font-weight:700;font-size:.9rem;color:var(--text)">⏳ Сохранение ' + parsedItems.length + ' позиций в базу данных...</div>' +
+          '<div style="font-size:.76rem;color:var(--text-3);margin-top:4px">Спецификация синхронизируется со складом и накладной ТМЦ.</div>' +
+        '</div>';
+      }
 
       api('/tasks/' + encodeURIComponent(taskId) + '/items/batch', {
         method: 'POST',
@@ -3686,14 +4265,20 @@ function uploadMaterialsExcel(file, taskId) {
         body: JSON.stringify({ items: parsedItems, replaceExisting: replaceExisting })
       })
       .then(function(res) {
-        if (res.error) return alert('Ошибка загрузки спецификации: ' + res.error);
-        if (typeof showToast === 'function') showToast('✓ Загружено материалов: ' + (res.count || parsedItems.length));
+        if (res.error) {
+          if (listEl) refreshTaskItemsList(taskId);
+          return alert('Ошибка загрузки спецификации: ' + res.error);
+        }
+        if (typeof showToast === 'function') showToast('✓ Загружено материалов: ' + (res.count || parsedItems.length), 'success');
         refreshTaskItemsList(taskId);
+        if (typeof loadCardMaterials === 'function') loadCardMaterials(taskId);
       })
       .catch(function(err) {
+        if (listEl) refreshTaskItemsList(taskId);
         alert('Ошибка импорта материалов: ' + (err.message || err));
       });
     } catch(err) {
+      if (listEl) refreshTaskItemsList(taskId);
       alert('Ошибка чтения файла Excel: ' + (err.message || err));
     }
   };
@@ -3967,6 +4552,10 @@ function refreshPortsList(taskId) {
   var el = document.getElementById('portsList');
   if (!el) return;
 
+  var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
+  var planPorts = Number(t.inOrder || t.ports || 0);
+  var factPorts = (t.fact != null && t.fact !== '') ? Number(t.fact) : null;
+
   // Сбрасываем локальный счетчик для защиты от подтягивания чужих данных от предыдущих задач
   if (!window._curTaskPorts) window._curTaskPorts = {};
   if (window._curTaskPorts[taskId] !== undefined) {
@@ -3980,17 +4569,28 @@ function refreshPortsList(taskId) {
     if (!window._curTaskPorts) window._curTaskPorts = {};
     window._curTaskPorts[taskId] = pCount;
     window._curPortsCount = pCount;
-    if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
 
     var totalLen = 0;
     var passCount = 0;
     var failCount = 0;
+    var measuredCount = 0;
+
     (rows || []).forEach(function(r) {
-      if (r.cable_length) totalLen += Number(r.cable_length) || 0;
+      var l = Number(r.cable_length) || 0;
+      if (l > 0) {
+        totalLen += l;
+        measuredCount++;
+      }
       var st = String(r.testing_status || '').toLowerCase();
       if (st === 'pass' || st === 'ok' || st === 'годен' || st === '+') passCount++;
       else if (st === 'fail' || st === 'ошибка' || st === 'брак' || st === '-') failCount++;
     });
+
+    var unmeasuredCount = pCount - measuredCount;
+    if (!window._curTaskTotalCableLen) window._curTaskTotalCableLen = {};
+    window._curTaskTotalCableLen[taskId] = totalLen;
+
+    if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
 
     var badgeEl = document.getElementById('portsCountBadge');
     if (badgeEl) {
@@ -3998,12 +4598,56 @@ function refreshPortsList(taskId) {
       badgeEl.className = pCount > 0 ? 'badge b-blue' : 'badge b-gray';
     }
 
+    // Сводная шапка КЖ
+    var avgLenStr = measuredCount > 0 ? (totalLen / measuredCount).toFixed(1) + ' м' : '—';
+    var planProgressStr = planPorts > 0 ? (Math.round((pCount / planPorts) * 100) + '% от плана') : (pCount + ' линий');
+    var isFullSync = (factPorts !== null && factPorts === pCount && pCount > 0);
+
+    var summaryHeaderHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));gap:8px;margin-bottom:12px">' +
+      '<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px">' +
+        '<div style="font-size:.68rem;color:var(--text-3);text-transform:uppercase;font-weight:700">По плану / РД</div>' +
+        '<div style="font-size:1.15rem;font-weight:700;color:var(--text)">' + (planPorts ? (planPorts + ' шт.') : '—') + '</div>' +
+        '<div style="font-size:.72rem;color:var(--text-3);margin-top:2px">Факт в заявке: <b>' + (factPorts !== null ? (factPorts + ' шт.') : '0 шт.') + '</b></div>' +
+      '</div>' +
+      '<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px">' +
+        '<div style="font-size:.68rem;color:var(--text-3);text-transform:uppercase;font-weight:700">Внесено в КЖ</div>' +
+        '<div style="font-size:1.15rem;font-weight:700;color:var(--text)" id="portsTotalCount">' + pCount + ' шт.</div>' +
+        '<div style="font-size:.72rem;color:' + (isFullSync ? 'var(--green)' : 'var(--text-3)') + ';margin-top:2px">' +
+          (isFullSync ? '✓ Синхронизировано с фактом' : planProgressStr) +
+        '</div>' +
+      '</div>' +
+      '<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px">' +
+        '<div style="font-size:.68rem;color:var(--text-3);text-transform:uppercase;font-weight:700">Проложено кабеля</div>' +
+        '<div style="font-size:1.15rem;font-weight:700;color:var(--text)" id="portsTotalLen">' + (totalLen > 0 ? (totalLen.toFixed(1) + ' м') : '0 м') + '</div>' +
+        '<div style="font-size:.72rem;color:var(--text-3);margin-top:2px">Средняя трасса: <b>' + avgLenStr + '</b></div>' +
+      '</div>' +
+      '<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px">' +
+        '<div style="font-size:.68rem;color:var(--text-3);text-transform:uppercase;font-weight:700">Замеры тестером (Fluke)</div>' +
+        '<div style="font-size:1.15rem;font-weight:700;color:' + (passCount > 0 ? 'var(--green)' : 'var(--text)') + '" id="portsTotalStats">' +
+          '<span style="color:var(--green)">✓ ' + passCount + '</span>' +
+          (failCount > 0 ? ' <span style="color:var(--red);font-size:.9rem">/ ✗ ' + failCount + '</span>' : '') +
+        '</div>' +
+        '<div style="font-size:.72rem;color:var(--text-3);margin-top:2px">Не измерено: <b id="portsUnmeasuredCount">' + unmeasuredCount + ' шт.</b></div>' +
+      '</div>' +
+    '</div>';
+
     if (!Array.isArray(rows) || !rows.length) {
-      el.innerHTML = '<div style="padding:16px;text-align:center;border:1.5px dashed var(--border);border-radius:6px;background:var(--bg)">' +
-        '<div style="font-size:1.4rem;margin-bottom:4px">📊</div>' +
-        '<div style="font-weight:600;font-size:.85rem;color:var(--text)">Кабельный журнал пуст</div>' +
-        '<div style="font-size:.75rem;color:var(--text-3);margin-top:2px">Добавьте порты вручную или загрузите готовую таблицу из Excel</div>' +
-      '</div>';
+      el.innerHTML = summaryHeaderHtml +
+        '<div style="padding:24px 16px;text-align:center;border:1.5px dashed var(--border);border-radius:6px;background:var(--bg)">' +
+          '<div style="font-size:1.6rem;margin-bottom:6px">📊</div>' +
+          '<div style="font-weight:700;font-size:.9rem;color:var(--text)">Кабельный журнал пока пуст</div>' +
+          '<div style="font-size:.78rem;color:var(--text-3);margin-top:4px;max-width:440px;margin-left:auto;margin-right:auto">' +
+            'Воспользуйтесь «⚡ Мастером генерации КЖ» для автоматического создания шкафов и патч-панелей, загрузите готовую таблицу Excel или добавляйте линии вручную.' +
+          '</div>' +
+          '<div style="display:flex;justify-content:center;gap:8px;margin-top:14px;flex-wrap:wrap">' +
+            '<button type="button" class="btn btn-sm btn-primary" onclick="window.openCableJournalGeneratorModal(\'' + taskId + '\')">⚡ Мастер генерации КЖ</button>' +
+            '<label class="btn btn-sm btn-outline" style="cursor:pointer">' +
+              '📥 Загрузить КЖ из Excel' +
+              '<input type="file" accept=".xlsx,.xls" style="display:none" onchange="uploadCableJournalExcel(this.files[0], \'' + taskId + '\')">' +
+            '</label>' +
+            '<button type="button" class="btn btn-sm btn-ghost" onclick="addPortRow(\'' + taskId + '\')">+ Добавить строку</button>' +
+          '</div>' +
+        '</div>';
       return;
     }
 
@@ -4011,80 +4655,72 @@ function refreshPortsList(taskId) {
       var st = String(r.testing_status || '').toLowerCase();
       var isPass = (st === 'pass' || st === 'ok' || st === 'годен' || st === '+');
       var isFail = (st === 'fail' || st === 'ошибка' || st === 'брак' || st === '-');
+      var cLenVal = (r.cable_length != null && r.cable_length !== '') ? r.cable_length : '';
 
-      return '<tr style="border-bottom:1px solid var(--border);font-size:.8rem" data-port-id="' + r.id + '">' +
-        '<td style="padding:4px 6px;text-align:center;color:var(--text-3);font-size:.74rem">' + (idx + 1) + '</td>' +
-        '<td style="padding:4px 6px">' +
-          '<input type="text" class="input input-sm" style="width:100%;padding:3px 5px;font-size:.78rem;font-weight:600" value="' + (r.port_number || '').replace(/"/g, '&quot;') + '" placeholder="1" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'portNumber\',this.value)">' +
+      return '<tr style="border-bottom:1px solid var(--border);font-size:.78rem" data-port-id="' + r.id + '">' +
+        '<td style="padding:3px 4px;text-align:center;color:var(--text-3);font-size:.72rem">' + (idx + 1) + '</td>' +
+        '<td style="padding:3px 4px">' +
+          '<input type="text" class="input input-sm" style="width:100%;padding:2px 4px;font-size:.76rem" value="' + (r.building || '').replace(/"/g, '&quot;') + '" placeholder="Корпус" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'building\',this.value)">' +
         '</td>' +
-        '<td style="padding:4px 6px">' +
-          '<input type="text" class="input input-sm" style="width:100%;padding:3px 5px;font-size:.78rem" value="' + (r.marking || '').replace(/"/g, '&quot;') + '" placeholder="1.01" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'marking\',this.value)">' +
+        '<td style="padding:3px 4px">' +
+          '<input type="text" class="input input-sm" style="width:100%;padding:2px 4px;font-size:.76rem;text-align:center" value="' + (r.floor || '').replace(/"/g, '&quot;') + '" placeholder="1" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'floor\',this.value)">' +
         '</td>' +
-        '<td style="padding:4px 6px">' +
-          '<input type="text" class="input input-sm" style="width:100%;padding:3px 5px;font-size:.78rem" value="' + (r.room || '').replace(/"/g, '&quot;') + '" placeholder="Каб. 101" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'room\',this.value)">' +
+        '<td style="padding:3px 4px">' +
+          '<input type="text" class="input input-sm" style="width:100%;padding:2px 4px;font-size:.76rem" value="' + (r.cabinet || '').replace(/"/g, '&quot;') + '" placeholder="ТКШ-1" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'cabinet\',this.value)">' +
         '</td>' +
-        '<td style="padding:4px 6px">' +
-          '<input type="text" class="input input-sm" style="width:100%;padding:3px 5px;font-size:.78rem" value="' + (r.cabinet || '').replace(/"/g, '&quot;') + '" placeholder="ТКШ-1" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'cabinet\',this.value)">' +
+        '<td style="padding:3px 4px">' +
+          '<input type="text" class="input input-sm" style="width:100%;padding:2px 4px;font-size:.76rem;text-align:center" value="' + (r.patch_panel || '').replace(/"/g, '&quot;') + '" placeholder="ПП-1" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'patchPanel\',this.value)">' +
         '</td>' +
-        '<td style="padding:4px 6px">' +
-          '<input type="text" class="input input-sm" style="width:100%;padding:3px 5px;font-size:.78rem" value="' + (r.unit || '').replace(/"/g, '&quot;') + '" placeholder="24U" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'unit\',this.value)">' +
+        '<td style="padding:3px 4px">' +
+          '<input type="text" class="input input-sm" style="width:100%;padding:2px 4px;font-size:.76rem;text-align:center;font-weight:600" value="' + (r.port_number || '').replace(/"/g, '&quot;') + '" placeholder="1" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'portNumber\',this.value)">' +
         '</td>' +
-        '<td style="padding:4px 6px">' +
-          '<input type="text" class="input input-sm" style="width:100%;padding:3px 5px;font-size:.78rem" value="' + (r.patch_panel || '').replace(/"/g, '&quot;') + '" placeholder="ПП-1" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'patchPanel\',this.value)">' +
+        '<td style="padding:3px 4px">' +
+          '<input type="text" class="input input-sm" style="width:100%;padding:2px 4px;font-size:.76rem;font-weight:700;color:var(--text)" value="' + (r.marking || '').replace(/"/g, '&quot;') + '" placeholder="1.01" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'marking\',this.value)">' +
         '</td>' +
-        '<td style="padding:4px 6px">' +
-          '<input type="number" step="0.1" class="input input-sm port-len-input" data-field="cableLength" style="width:100%;padding:3px 5px;font-size:.78rem;text-align:right" value="' + (r.cable_length != null ? r.cable_length : '') + '" placeholder="0" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'cableLength\',this.value)">' +
+        '<td style="padding:3px 4px">' +
+          '<input type="text" class="input input-sm" style="width:100%;padding:2px 4px;font-size:.76rem" value="' + (r.room || '').replace(/"/g, '&quot;') + '" placeholder="Каб. 101" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'room\',this.value)">' +
         '</td>' +
-        '<td style="padding:4px 6px">' +
-          '<input type="text" list="crimpingOptionsList" class="input input-sm" style="width:100%;padding:3px 5px;font-size:.78rem" value="' + (r.crimping || 'T568B').replace(/"/g, '&quot;') + '" placeholder="T568B" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'crimping\',this.value)">' +
+        '<td style="padding:3px 4px">' +
+          '<input type="text" class="input input-sm" style="width:100%;padding:2px 4px;font-size:.76rem" value="' + (r.outlet_marking || '').replace(/"/g, '&quot;') + '" placeholder="РМ-1" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'outletMarking\',this.value)">' +
         '</td>' +
-        '<td style="padding:4px 6px">' +
-          '<select class="input input-sm" style="width:100%;padding:2px 4px;font-size:.75rem;font-weight:600;color:' + (isPass ? 'var(--green)' : (isFail ? 'var(--red)' : 'var(--text)')) + '" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'testingStatus\',this.value); this.style.color = (this.value===\'pass\'?\'var(--green)\':(this.value===\'fail\'?\'var(--red)\':\'var(--text)\'))">' +
-            '<option value="pass"' + (isPass ? ' selected' : '') + ' style="color:var(--green)">✓ Годен (PASS)</option>' +
-            '<option value="fail"' + (isFail ? ' selected' : '') + ' style="color:var(--red)">✗ Ошибка (FAIL)</option>' +
-            '<option value="untested"' + (!isPass && !isFail ? ' selected' : '') + ' style="color:var(--text-3)">○ Не тестирован</option>' +
+        '<td style="padding:3px 4px">' +
+          '<input type="text" class="input input-sm" style="width:100%;padding:2px 4px;font-size:.76rem" value="' + (r.cable_mark || '').replace(/"/g, '&quot;') + '" placeholder="UTP Cat.5e" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'cableMark\',this.value)">' +
+        '</td>' +
+        '<td style="padding:3px 4px">' +
+          '<input type="text" class="input input-sm port-len-input" data-field="cableLength" style="width:100%;padding:2px 4px;font-size:.76rem;text-align:right;font-weight:600" value="' + cLenVal + '" placeholder="0" oninput="_updatePortsTotalsUI(\'' + taskId + '\')" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'cableLength\',this.value)">' +
+        '</td>' +
+        '<td style="padding:3px 4px">' +
+          '<select class="input input-sm port-status-select" style="width:100%;padding:2px 3px;font-size:.73rem;font-weight:600;color:' + (isPass ? 'var(--green)' : (isFail ? 'var(--red)' : 'var(--text-3)')) + '" onchange="savePortField(' + r.id + ',\'' + taskId + '\',\'testingStatus\',this.value); this.style.color = (this.value===\'pass\'?\'var(--green)\':(this.value===\'fail\'?\'var(--red)\':\'var(--text-3)\'))">' +
+            '<option value="pass"' + (isPass ? ' selected' : '') + ' style="color:var(--green)">✓ PASS</option>' +
+            '<option value="fail"' + (isFail ? ' selected' : '') + ' style="color:var(--red)">✗ FAIL</option>' +
+            '<option value="untested"' + (!isPass && !isFail ? ' selected' : '') + ' style="color:var(--text-3)">○ Не измер.</option>' +
           '</select>' +
         '</td>' +
-        '<td style="padding:4px 6px;text-align:center">' +
-          '<button type="button" class="btn btn-sm btn-ghost" style="padding:2px 6px;color:var(--red);opacity:.7" title="Удалить строку" onclick="deletePortRow(' + r.id + ',\'' + taskId + '\')">✖</button>' +
+        '<td style="padding:3px 4px;text-align:center">' +
+          '<button type="button" class="btn btn-sm btn-ghost" style="padding:2px 5px;color:var(--red);opacity:.7;font-size:.74rem" title="Удалить строку" onclick="deletePortRow(' + r.id + ',\'' + taskId + '\')">✖</button>' +
         '</td>' +
       '</tr>';
     }).join('');
 
-    el.innerHTML = '<datalist id="crimpingOptionsList">' +
-        '<option value="T568B">' +
-        '<option value="T568A">' +
-        '<option value="Прямой (Straight)">' +
-        '<option value="Кроссовер (Cross)">' +
-      '</datalist>' +
+    el.innerHTML = summaryHeaderHtml +
       '<div style="overflow-x:auto;border:1.5px solid var(--border);border-radius:6px;margin-bottom:10px;background:var(--card)">' +
-        '<table style="width:100%;border-collapse:collapse;text-align:left;font-size:.82rem">' +
-          '<thead><tr style="background:var(--bg);font-size:.76rem;color:var(--text-3);border-bottom:1px solid var(--border)">' +
-            '<th style="padding:6px 8px;width:30px;text-align:center">№</th>' +
-            '<th style="padding:6px 8px;width:75px">Порт</th>' +
-            '<th style="padding:6px 8px;width:95px">Маркировка</th>' +
-            '<th style="padding:6px 8px;min-width:110px">Помещение</th>' +
-            '<th style="padding:6px 8px;width:85px">Шкаф</th>' +
-            '<th style="padding:6px 8px;width:65px">Юнит</th>' +
-            '<th style="padding:6px 8px;width:95px">Кросс (ПП)</th>' +
-            '<th style="padding:6px 8px;width:75px;text-align:right">Длина, м</th>' +
-            '<th style="padding:6px 8px;width:80px">Обжим</th>' +
-            '<th style="padding:6px 8px;width:115px">Правильность</th>' +
-            '<th style="padding:6px 8px;width:36px;text-align:center"></th>' +
+        '<table style="width:100%;border-collapse:collapse;text-align:left;font-size:.78rem;min-width:920px">' +
+          '<thead><tr style="background:var(--bg);font-size:.72rem;color:var(--text-3);border-bottom:1.5px solid var(--border)">' +
+            '<th style="padding:6px 4px;width:28px;text-align:center">№</th>' +
+            '<th style="padding:6px 4px;width:85px">Корпус</th>' +
+            '<th style="padding:6px 4px;width:50px;text-align:center">Этаж</th>' +
+            '<th style="padding:6px 4px;width:75px">Шкаф</th>' +
+            '<th style="padding:6px 4px;width:60px;text-align:center">ПП №</th>' +
+            '<th style="padding:6px 4px;width:60px;text-align:center">Порт ПП</th>' +
+            '<th style="padding:6px 4px;width:85px">Маркировка</th>' +
+            '<th style="padding:6px 4px;min-width:100px">Кабинет / РМ</th>' +
+            '<th style="padding:6px 4px;width:80px">Розетка</th>' +
+            '<th style="padding:6px 4px;width:105px">Кабель</th>' +
+            '<th style="padding:6px 4px;width:70px;text-align:right">Длина, м</th>' +
+            '<th style="padding:6px 4px;width:95px">Тест</th>' +
+            '<th style="padding:6px 4px;width:30px;text-align:center"></th>' +
           '</tr></thead>' +
           '<tbody id="portsTableBody">' + rowsHtml + '</tbody>' +
-          '<tfoot><tr style="background:var(--bg);font-size:.82rem;font-weight:700;border-top:2px solid var(--border)">' +
-            '<td colspan="7" style="padding:8px 10px;text-align:right;color:var(--text-2)">' +
-              'ИТОГО ПОРТОВ: <span id="portsTotalCount" style="color:var(--text)">' + pCount + '</span> шт.' +
-            '</td>' +
-            '<td id="portsTotalLen" style="padding:8px 6px;text-align:right;color:var(--text);font-size:.85rem">' +
-              (totalLen > 0 ? (totalLen.toFixed(1) + ' м') : '—') +
-            '</td>' +
-            '<td colspan="3" id="portsTotalStats" style="padding:8px 10px;font-size:.78rem;color:var(--text-3)">' +
-              'Годных: <b style="color:var(--green)">' + passCount + '</b> · ' +
-              'С ошибкой: <b style="color:var(--red)">' + failCount + '</b>' +
-            '</td>' +
-          '</tr></tfoot>' +
         '</table>' +
       '</div>';
   }).catch(function(err) {
@@ -4106,14 +4742,23 @@ function refreshPortsList(taskId) {
 
 function savePortField(rowId, taskId, field, value) {
   var data = {};
-  data[field] = value;
+  if (field === 'cableLength') {
+    if (value !== null && value !== undefined && value !== '') {
+      var parsedL = parseFloat(String(value).replace(',', '.'));
+      data[field] = !isNaN(parsedL) ? parsedL : null;
+    } else {
+      data[field] = null;
+    }
+  } else {
+    data[field] = value;
+  }
+
   api('/ports/' + rowId, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   }).then(function() {
     _updatePortsTotalsUI(taskId);
-    if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
   }).catch(function(err) {
     console.error('Ошибка сохранения ячейки порта:', err);
   });
@@ -4125,36 +4770,86 @@ function _updatePortsTotalsUI(taskId) {
   var totalLen = 0;
   var passCount = 0;
   var failCount = 0;
+  var measuredCount = 0;
 
   rows.forEach(function(r) {
     var lenInp = r.querySelector('.port-len-input');
-    if (lenInp && lenInp.value) totalLen += Number(lenInp.value) || 0;
-    var sel = r.querySelector('select');
+    if (lenInp && lenInp.value) {
+      var l = parseFloat(String(lenInp.value).replace(',', '.'));
+      if (!isNaN(l) && l > 0) {
+        totalLen += l;
+        measuredCount++;
+      }
+    }
+    var sel = r.querySelector('.port-status-select');
     if (sel) {
       if (sel.value === 'pass') passCount++;
       else if (sel.value === 'fail') failCount++;
     }
   });
 
+  if (!window._curTaskPorts) window._curTaskPorts = {};
+  window._curTaskPorts[taskId] = pCount;
+  window._curPortsCount = pCount;
+
+  if (!window._curTaskTotalCableLen) window._curTaskTotalCableLen = {};
+  window._curTaskTotalCableLen[taskId] = totalLen;
+
   var totalCountEl = document.getElementById('portsTotalCount');
-  if (totalCountEl) totalCountEl.textContent = pCount;
+  if (totalCountEl) totalCountEl.textContent = pCount + ' шт.';
   var totalLenEl = document.getElementById('portsTotalLen');
-  if (totalLenEl) totalLenEl.textContent = totalLen > 0 ? (totalLen.toFixed(1) + ' м') : '—';
+  if (totalLenEl) totalLenEl.textContent = totalLen > 0 ? (totalLen.toFixed(1) + ' м') : '0 м';
   var totalStatsEl = document.getElementById('portsTotalStats');
   if (totalStatsEl) {
-    totalStatsEl.innerHTML = 'Годных: <b style="color:var(--green)">' + passCount + '</b> · С ошибкой: <b style="color:var(--red)">' + failCount + '</b>';
+    totalStatsEl.innerHTML = '<span style="color:var(--green)">✓ ' + passCount + '</span>' +
+      (failCount > 0 ? ' <span style="color:var(--red);font-size:.9rem">/ ✗ ' + failCount + '</span>' : '');
   }
+  var unmeasuredEl = document.getElementById('portsUnmeasuredCount');
+  if (unmeasuredEl) unmeasuredEl.textContent = (pCount - measuredCount) + ' шт.';
+
   var badgeEl = document.getElementById('portsCountBadge');
   if (badgeEl) {
     badgeEl.textContent = pCount + ' портов' + (totalLen > 0 ? (' · ' + totalLen.toFixed(1) + ' м') : '');
     badgeEl.className = pCount > 0 ? 'badge b-blue' : 'badge b-gray';
   }
+
+  if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
 }
 
 function addPortRow(taskId) {
   var rows = document.querySelectorAll('#portsTableBody tr');
-  var nextNum = rows.length + 1;
-  var nextMark = '1.' + (nextNum < 10 ? '0' + nextNum : nextNum);
+  var count = rows.length;
+  var nextNum = count + 1;
+  var defaultCabinet = 'ТКШ-1';
+  var defaultPatch = 'ПП-1';
+  var defaultFloor = '1';
+  var defaultBuilding = 'Корпус 1';
+  var defaultCableMark = 'UTP Cat.5e';
+
+  if (count > 0) {
+    var lastRow = rows[count - 1];
+    var inps = lastRow.querySelectorAll('input');
+    if (inps && inps.length >= 10) {
+      if (inps[0].value) defaultBuilding = inps[0].value;
+      if (inps[1].value) defaultFloor = inps[1].value;
+      if (inps[2].value) defaultCabinet = inps[2].value;
+      if (inps[3].value) defaultPatch = inps[3].value;
+      var lastPNum = parseInt(inps[4].value);
+      if (!isNaN(lastPNum)) {
+        if (lastPNum >= 24) {
+          var pMatch = defaultPatch.match(/\d+/);
+          var nextPIdx = pMatch ? (parseInt(pMatch[0]) + 1) : 2;
+          defaultPatch = 'ПП-' + nextPIdx;
+          nextNum = 1;
+        } else {
+          nextNum = lastPNum + 1;
+        }
+      }
+      if (inps[8].value) defaultCableMark = inps[8].value;
+    }
+  }
+
+  var nextMark = defaultFloor + '.' + (nextNum < 10 ? '0' + nextNum : nextNum);
 
   api('/tasks/' + taskId + '/ports', {
     method: 'POST',
@@ -4163,16 +4858,19 @@ function addPortRow(taskId) {
       portNumber: String(nextNum),
       marking: nextMark,
       room: '',
-      cabinet: '',
+      cabinet: defaultCabinet,
       unit: '',
-      patchPanel: '',
+      patchPanel: defaultPatch,
+      building: defaultBuilding,
+      floor: defaultFloor,
+      cableMark: defaultCableMark,
+      outletMarking: '',
       cableLength: null,
       crimping: 'T568B',
-      testingStatus: 'pass'
+      testingStatus: 'untested'
     })
   }).then(function() {
     refreshPortsList(taskId);
-    if (window.renderSmrChecklist) window.renderSmrChecklist(taskId);
   });
 }
 
@@ -4209,11 +4907,11 @@ function uploadCableJournalExcel(file, taskId) {
         return alert('Файл пуст или содержит только одну строку.');
       }
 
-      // Определение строки заголовков
+      // Определение строки заголовков (учитываем файлы с шапкой-метаданными вроде "Позиции в шкафу...")
       var headerIdx = 0;
       for (var i = 0; i < Math.min(15, rows.length); i++) {
         var rowText = (rows[i] || []).join(' ').toLowerCase();
-        if (rowText.includes('порт') || rowText.includes('маркировк') || rowText.includes('помещен') || rowText.includes('шкаф') || rowText.includes('кросс')) {
+        if (rowText.includes('маркировк') || rowText.includes('пп порт') || rowText.includes('пп №') || (rowText.includes('порт') && rowText.includes('№ п/п'))) {
           headerIdx = i;
           break;
         }
@@ -4227,55 +4925,72 @@ function uploadCableJournalExcel(file, taskId) {
         });
       };
 
-      var colPort     = findCol(['порт', 'port', '№ розетки', 'номер розетки', 'розетк', 'точка']);
-      var colMarking  = findCol(['маркировк', 'бирка', 'marking', 'марка']);
-      var colRoom     = findCol(['помещен', 'комнат', 'кабинет', 'room', 'локация']);
-      var colCabinet  = findCol(['шкаф', 'ткш', 'стойка', 'rack', 'cabinet', 'шкафу']);
-      var colUnit     = findCol(['юнит', 'unit', ' u', 'высота']);
-      var colPatch    = findCol(['кросс', 'пп', 'патч', 'панель', 'patch']);
-      var colLen      = findCol(['длина', 'длинна', 'метраж', 'length', 'м.']);
-      var colCrimping = findCol(['обжим', 'схема', 'тип обжима', 'распиновка', 'crimping']);
-      var colTesting  = findCol(['правильн', 'тест', 'статус', 'fluke', 'результат', 'годен', 'испытан', 'test']);
+      var colBuilding = findCol(['корпус', 'здание', 'строение', 'объект']);
+      var colFloor    = findCol(['этаж', 'ярус']);
+      var colPatch    = findCol(['пп №', 'пп', 'патч-панель', 'кросс', 'панель', 'patch']);
+      var colPort     = findCol(['пп порт', 'порт пп', 'порт', 'port']);
+      var colMarking  = findCol(['маркировка', 'бирка', 'marking']);
+      var colCableMark= findCol(['марка кабеля', 'тип кабеля', 'кабель']);
+      var colLen      = findCol(['длина', 'метраж', 'length', 'м.']);
+      var colRoom     = findCol(['кабинет', 'помещен', 'комнат', 'room']);
+      var colOutlet   = findCol(['маркировка порта рм', 'розетк', 'рм', 'порт рм', 'точка']);
+      var colCabinet  = findCol(['шкаф', 'ткш', 'стойка', 'rack', 'cabinet']);
+      var colUnit     = findCol(['юнит', 'unit', ' u']);
+      var colTesting  = findCol(['тест', 'правильн', 'статус', 'fluke', 'годен', 'результат']);
+      var colNotes    = findCol(['примечание', 'комментар', 'note']);
 
       var parsedPorts = [];
       for (var r = headerIdx + 1; r < rows.length; r++) {
         var row = rows[r];
         if (!row || !row.length) continue;
 
-        var portNumber = colPort !== -1 ? String(row[colPort] || '').trim() : '';
-        var marking    = colMarking !== -1 ? String(row[colMarking] || '').trim() : '';
-        var room       = colRoom !== -1 ? String(row[colRoom] || '').trim() : '';
-        var cabinet    = colCabinet !== -1 ? String(row[colCabinet] || '').trim() : '';
-        var unit       = colUnit !== -1 ? String(row[colUnit] || '').trim() : '';
-        var patchPanel = colPatch !== -1 ? String(row[colPatch] || '').trim() : '';
-        var cableLength = colLen !== -1 ? parseFloat(String(row[colLen] || '').replace(',', '.')) : null;
-        var crimping   = colCrimping !== -1 ? String(row[colCrimping] || '').trim() : '';
-        var rawTesting = colTesting !== -1 ? String(row[colTesting] || '').trim() : '';
+        var portNumber  = colPort !== -1 ? String(row[colPort] || '').trim() : '';
+        var marking     = colMarking !== -1 ? String(row[colMarking] || '').trim() : '';
+        var building    = colBuilding !== -1 ? String(row[colBuilding] || '').trim() : '';
+        var floor       = colFloor !== -1 ? String(row[colFloor] || '').trim() : '';
+        var cabinet     = colCabinet !== -1 ? String(row[colCabinet] || '').trim() : 'ТКШ-1';
+        var unit        = colUnit !== -1 ? String(row[colUnit] || '').trim() : '';
+        var patchPanel  = colPatch !== -1 ? String(row[colPatch] || '').trim() : '';
+        var cableMark   = colCableMark !== -1 ? String(row[colCableMark] || '').trim() : '';
+        var room        = colRoom !== -1 ? String(row[colRoom] || '').trim() : '';
+        var outletMark  = colOutlet !== -1 ? String(row[colOutlet] || '').trim() : '';
+        var notes       = colNotes !== -1 ? String(row[colNotes] || '').trim() : '';
 
-        if (!portNumber && !marking && !room && !cabinet && !patchPanel) continue;
+        var rawLen = colLen !== -1 ? String(row[colLen] != null ? row[colLen] : '').trim().replace(',', '.') : '';
+        var cableLength = rawLen !== '' ? parseFloat(rawLen) : null;
+        if (isNaN(cableLength)) cableLength = null;
+
+        var rawTesting  = colTesting !== -1 ? String(row[colTesting] || '').trim() : '';
+
+        if (!portNumber && !marking && !room && !cabinet && !patchPanel && cableLength == null) continue;
 
         if (!portNumber && marking) portNumber = marking;
         else if (!portNumber) portNumber = String(parsedPorts.length + 1);
 
-        var testingStatus = 'pass';
+        var testingStatus = 'untested';
         var tLower = rawTesting.toLowerCase();
         if (tLower.includes('fail') || tLower.includes('ошиб') || tLower.includes('брак') || tLower.includes('не') || tLower === '-') {
           testingStatus = 'fail';
         } else if (tLower.includes('pass') || tLower.includes('ok') || tLower.includes('годен') || tLower === '+') {
           testingStatus = 'pass';
-        } else if (rawTesting) {
-          testingStatus = rawTesting;
+        } else if (cableLength != null && cableLength > 0) {
+          testingStatus = 'pass';
         }
 
         parsedPorts.push({
           portNumber: portNumber,
           marking: marking,
-          room: room,
+          building: building,
+          floor: floor,
           cabinet: cabinet,
           unit: unit,
           patchPanel: patchPanel,
-          cableLength: !isNaN(cableLength) ? cableLength : null,
-          crimping: crimping || 'T568B',
+          cableMark: cableMark,
+          room: room,
+          outletMarking: outletMark,
+          cableLength: cableLength,
+          notes: notes,
+          crimping: 'T568B',
           testingStatus: testingStatus
         });
       }
@@ -4285,15 +5000,13 @@ function uploadCableJournalExcel(file, taskId) {
           '<p style="color:var(--red);font-weight:700">❌ Не удалось распознать структуру кабельного журнала в Excel-файле.</p>' +
           '<p>Таблица должна содержать обязательные столбцы для корректного импорта:</p>' +
           '<ul style="margin:8px 0 12px 18px;color:var(--text-2)">' +
-            '<li><b>Порт / Номер розетки</b> (например, <i>1, 2, 3</i> или <i>Порт 1</i>)</li>' +
-            '<li><b>Маркировка</b> (например, <i>1.01, 1.02</i>)</li>' +
-            '<li><b>Помещение / Комната</b> (например, <i>Кабинет 101</i>)</li>' +
-            '<li><b>Шкаф / ТКШ</b> (например, <i>ТКШ-1</i>)</li>' +
-            '<li><b>Длина трассы, м</b> (например, <i>24.5</i>)</li>' +
-            '<li><b>Результат теста</b> (например, <i>PASS, Годен, OK</i>)</li>' +
+            '<li><b>ПП порт / Номер розетки</b> (например, <i>1, 2, 3</i>)</li>' +
+            '<li><b>Маркировка</b> (например, <i>1.01, 1.02</i> или <i>6.1</i>)</li>' +
+            '<li><b>ПП № / Панель</b> (например, <i>1, 2</i> или <i>ПП-1</i>)</li>' +
+            '<li><b>Длина трассы, м</b> (например, <i>30.7</i>)</li>' +
           '</ul>' +
           '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">' +
-            '<button class="btn btn-sm btn-primary" onclick="window.downloadCableJournalTemplate()">📥 Скачать шаблон КЖ (.xlsx)</button>' +
+            '<button class="btn btn-sm btn-primary" onclick="window.downloadCableJournalTemplate()">📥 Скачать типовой шаблон (.xlsx)</button>' +
             '<button class="btn btn-sm btn-ghost" onclick="closeModal()">Закрыть</button>' +
           '</div>' +
         '</div>';
@@ -5501,39 +6214,31 @@ function renderSmrChecklist(taskId) {
   var inOrderVal = Number(t.inOrder || t.ports || 0);
   var checkPorts = (factVal !== null && factVal > 0);
 
-  var rawDate = t.smrActualEndDate || t.dataVyhoda || t.smr_actual_end_date || t.data_vyhoda || (t.rawData && (t.rawData.smrActualEndDate || t.rawData.dataVyhoda));
-  var checkDate = Boolean(rawDate);
+  var rawEndDate = t.smrActualEndDate || t.smr_actual_end_date || (t.rawData && t.rawData.smrActualEndDate) || '';
+  var isFactNonZero = (factVal !== null && !isNaN(factVal) && factVal > 0);
+  var checkDate = Boolean(rawEndDate) && isFactNonZero;
   var deadlineVal = t.deadline || (t.rawData && t.rawData.deadline);
   var dateDesc = '';
-  if (rawDate) {
-    var dOut = new Date(rawDate);
-    var dOutStr = String(rawDate).slice(0, 10).split('-').reverse().join('.');
-    if (deadlineVal) {
+  if (rawEndDate) {
+    var dOut = new Date(rawEndDate);
+    var dOutStr = String(rawEndDate).slice(0, 10).split('-').reverse().join('.');
+    if (!isFactNonZero) {
+      dateDesc = 'Дата указана: ' + dOutStr + ' (⚠️ факт: 0 портов — работы не завершены!)';
+    } else if (deadlineVal) {
       var dDl = new Date(deadlineVal);
       var diffDays = Math.round((dOut - dDl) / (1000 * 60 * 60 * 24));
       if (diffDays > 0) {
-        dateDesc = 'Дата выхода: ' + dOutStr + ' (⚠️ сдача позже дедлайна на ' + diffDays + ' дн.)';
+        dateDesc = 'Завершено: ' + dOutStr + ' (⚠️ сдача позже дедлайна на ' + diffDays + ' дн.)';
       } else if (diffDays < 0) {
-        dateDesc = 'Дата выхода: ' + dOutStr + ' (✓ с опережением дедлайна на ' + Math.abs(diffDays) + ' дн.)';
+        dateDesc = 'Завершено: ' + dOutStr + ' (✓ с опережением дедлайна на ' + Math.abs(diffDays) + ' дн.)';
       } else {
-        dateDesc = 'Дата выхода: ' + dOutStr + ' (✓ в день дедлайна)';
+        dateDesc = 'Завершено: ' + dOutStr + ' (✓ в день дедлайна)';
       }
     } else {
-      dateDesc = 'Дата выхода: ' + dOutStr;
+      dateDesc = 'Завершено: ' + dOutStr;
     }
   } else {
-    if (deadlineVal) {
-      var dDl = new Date(deadlineVal);
-      var today = new Date();
-      var diffDays = Math.round((today - dDl) / (1000 * 60 * 60 * 24));
-      if (diffDays > 0) {
-        dateDesc = '⚠️ Просрочен дедлайн СМР (' + String(deadlineVal).slice(0, 10).split('-').reverse().join('.') + ') на ' + diffDays + ' дн.';
-      } else {
-        dateDesc = 'В графике (дедлайн: ' + String(deadlineVal).slice(0, 10).split('-').reverse().join('.') + ', осталось ' + Math.abs(diffDays) + ' дн.)';
-      }
-    } else {
-      dateDesc = 'Дата не заполнена в карточке';
-    }
+    dateDesc = 'Фактическая дата завершения СМР не зафиксирована';
   }
 
   var portsCount = (window._curTaskPorts && window._curTaskPorts[taskId] !== undefined) ? window._curTaskPorts[taskId] : 0;
@@ -5543,8 +6248,12 @@ function renderSmrChecklist(taskId) {
   // КЖ считается выполненным ТОЛЬКО если:
   // 1. Указан факт монтажа (> 0)
   // 2. В кабельном журнале заведено ровно столько линий, сколько смонтировано фактически
+  // 3. Проложена ненулевая длина кабеля (totalCableLen > 0) - кабель должен быть фактически затянут и измерен!
+  var totalCableLen = (window._curTaskTotalCableLen && window._curTaskTotalCableLen[taskId] !== undefined)
+    ? Number(window._curTaskTotalCableLen[taskId]) || 0
+    : 0;
   var hasVolumeSync = isFactSet && (portsCount > 0) && (portsCount === factValNum);
-  var checkKj = Boolean(hasVolumeSync);
+  var checkKj = Boolean(hasVolumeSync && totalCableLen > 0);
 
   var kjPct = (inOrderVal > 0 && portsCount > 0) ? Math.min(100, Math.round((portsCount / inOrderVal) * 100)) : (portsCount > 0 ? 100 : 0);
   var kjDesc = '';
@@ -5556,8 +6265,10 @@ function renderSmrChecklist(taskId) {
     kjDesc = portsCount + ' из ' + factValNum + ' линий в КЖ (' + Math.round((portsCount / factValNum) * 100) + '% от факта, ⚠️ не все смонтированные линии внесены)';
   } else if (portsCount > factValNum) {
     kjDesc = '⚠️ Рассинхрон объемов! В КЖ ' + portsCount + ' линий, а в факте указано ' + factValNum + ' портов';
+  } else if (totalCableLen === 0) {
+    kjDesc = portsCount + ' линий в КЖ (⚠️ Длина кабеля 0 м — замеры трасс не внесены, кабель не смонтирован!)';
   } else {
-    kjDesc = portsCount + ' линий/портов с маркировкой (✓ 100% соответствие факту монтажа)';
+    kjDesc = portsCount + ' линий с маркировкой, ' + totalCableLen.toFixed(1) + ' м кабеля (✓ 100% соответствие факту монтажа)';
   }
 
   var photosCount = (window._curTaskPhotos && window._curTaskPhotos[taskId] !== undefined) ? window._curTaskPhotos[taskId] : (window._curPhotoReportsCount || 0);
@@ -5573,7 +6284,8 @@ function renderSmrChecklist(taskId) {
       id: 'ports',
       title: '1. Смонтированный объем портов',
       desc: (factVal !== null && factVal > 0)
-        ? ('Смонтировано: ' + factVal + (inOrderVal ? ' из ' + inOrderVal + ' шт. (' + Math.round((factVal / inOrderVal) * 100) + '%)' : ' шт.'))
+        ? ('Смонтировано: ' + factVal + (inOrderVal ? ' из ' + inOrderVal + ' шт. (' + Math.round((factVal / inOrderVal) * 100) + '%)' : ' шт.') +
+           (portsCount > 0 ? ' · в КЖ: ' + portsCount + ' шт.' + (totalCableLen > 0 ? ' (' + totalCableLen.toFixed(1) + ' м)' : '') : ''))
         : (inOrderVal ? ('План: ' + inOrderVal + ' шт. (факт: 0 шт., работы не завершены)') : 'Факт монтажа не указан'),
       passed: checkPorts,
       action: '<button type="button" class="btn btn-xs btn-ghost" onclick="var inp=document.querySelector(\'#smrClosingBlock input[type=number]\');if(inp){inp.focus();inp.select();}" style="font-size:.7rem;padding:2px 6px">Указать факт</button>'
@@ -5776,7 +6488,7 @@ function loadCardSubcontracts(taskId) {
           '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
             '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
               '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'subcontract_agreement\')" title="Открыть Договор субподряда в редакторе Stockeasy">🤝 Договор</button>' +
-              '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'order_subcontract\')" title="Открыть Заявку / Заказ-наряд (Приложение №2) в редакторе Stockeasy">📄 Заказ-наряд (Прил. 2)</button>' +
+              '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'order_subcontract\')" title="Открыть Заявку / Заказ (Приложение №2) в редакторе Stockeasy">📄 Заказ (Прил. 2)</button>' +
               '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'completion_act\')" title="Открыть Акт сдачи-приемки («Сдал/Принял») в редакторе Stockeasy">🤝 Акт «Сдал/Принял»</button>' +
               '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'invoice\')" title="Открыть Счет от подрядчика в редакторе Stockeasy">💰 Счет</button>' +
               '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'tmc_act\')" title="Открыть Акт расхода ТМЦ в редакторе Stockeasy">📦 Акт ТМЦ</button>' +

@@ -38,7 +38,7 @@
           '<span style="font-size:1.25rem">👁️</span>' +
           '<div>' +
             '<div style="font-weight:800;font-size:1.05rem;color:#0f172a">Модерация исполнительной документации (ИД) · Заявка № ' + esc(taskId) + '</div>' +
-            '<div style="font-size:.78rem;color:var(--text-3)">Сплит-скрин проверки: соответствие ТЗ Сбера, чек-лист документов, просмотр файлов и отправка на Портал</div>' +
+            '<div style="font-size:.78rem;color:var(--text-3)">Сплит-скрин проверки: соответствие ТЗ Заказчика, чек-лист документов, просмотр файлов и отправка на Портал</div>' +
           '</div>' +
         '</div>' +
         '<div style="display:flex;align-items:center;gap:8px">' +
@@ -117,7 +117,7 @@
       '<div style="padding:14px;background:#fff;border-bottom:1px solid var(--border)">' +
         '<div style="margin-bottom:8px">' + slaHtml + '</div>' +
         '<div style="font-size:.84rem;line-height:1.5;color:#334155">' +
-          '<div><b>Заказчик:</b> ' + esc(task.customer || 'ПАО Сбербанк') + (task.vsp ? ' · ВСП: <b>' + esc(task.vsp) + '</b>' : '') + '</div>' +
+          '<div><b>Заказчик:</b> ' + esc(task.customer || 'Заказчик') + (task.vsp ? ' · ВСП: <b>' + esc(task.vsp) + '</b>' : '') + '</div>' +
           '<div style="font-size:.78rem;color:var(--text-2);margin-top:2px">📍 ' + esc(task.address || '—') + '</div>' +
         '</div>' +
         '<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);font-size:.78rem;display:grid;grid-template-columns:1fr 1fr;gap:6px">' +

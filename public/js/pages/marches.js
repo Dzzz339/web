@@ -563,7 +563,7 @@ function openFastAddPointsModal(marchId) {
             escHtml(t.address || '—') +
           '</div>' +
           '<div style="font-size:.75rem;color:var(--text-3);margin-top:2px">' +
-            'Портов: <b>' + ports + '</b> · Смета Сбера: <b>' + fmtMoney(sberAmount) + '</b>' +
+            'Портов: <b>' + ports + '</b> · Смета Заказчика: <b>' + fmtMoney(sberAmount) + '</b>' +
             (t.contractor ? ' · 👷 ' + escHtml(t.contractor) : '') +
           '</div>' +
         '</div>' +
