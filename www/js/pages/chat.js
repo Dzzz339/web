@@ -51,7 +51,9 @@ function pageChat() {
           <div onclick="openGeneralChat()" 
                style="padding:12px 14px; border-bottom:1px solid var(--border); cursor:pointer; display:flex; align-items:center; gap:10px; background:${!S.aiActive && S.activeRoomId ? 'var(--orange-bg)' : '#fff'}"
                onmouseover="this.style.background='var(--orange-bg)'" onmouseout="if(S.aiActive || !S.activeRoomId) this.style.background='#fff'">
-            <div style="background:#2563eb; color:#fff; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:1.1rem; flex-shrink:0;">📢</div>
+            <div style="background:#2563eb; color:#fff; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+              <span style="width:18px; height:18px; display:inline-flex;">${ICONS.paperPlane}</span>
+            </div>
             <div>
               <div style="font-weight:700; font-size:.9rem">Общий чат компании</div>
               <div style="font-size:.72rem; color:var(--text-3)">Все сотрудники</div>
@@ -140,13 +142,19 @@ function pageChat() {
         <!-- ИИ-ввод -->
         <div id="ai-input-area" style="padding:10px 16px; border-top:1px solid var(--border); display:flex; gap:10px; background:#fff">
           <input id="ai_text_input" type="text" placeholder="Задайте вопрос Стоки..." style="flex:1" onkeydown="if(event.key==='Enter') sendAiMessage(); if(event.key==='Escape') stopAiGeneration();">
-          <button class="btn" id="ai-send-btn" onclick="sendAiMessage()">Отправить ➔</button>
+          <button class="btn" id="ai-send-btn" onclick="sendAiMessage()" style="display:inline-flex; align-items:center; gap:6px;">
+            <span>Отправить</span>
+            <span style="width:16px; height:16px; display:inline-flex;">${ICONS.paperPlane}</span>
+          </button>
         </div>
         ` : `
         <!-- Шапка активного чата -->
         <div class="chat-conv-header" style="padding:10px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; background:#fafafa;">
           <div style="font-weight:700; font-size:.95rem; display:flex; align-items:center; gap:8px;" id="chat-title-box">
-            <button type="button" class="btn btn-sm btn-ghost chat-back-btn" onclick="closeMobileChat()" title="Назад к списку чатов">‹ Чаты</button>
+            <button type="button" class="btn btn-sm btn-ghost chat-back-btn" onclick="closeMobileChat()" title="Назад к списку чатов" style="display:inline-flex; align-items:center; gap:4px;">
+              <span style="width:14px; height:14px; display:inline-flex;">${ICONS.chevronLeft}</span>
+              <span>Чаты</span>
+            </button>
             <span id="chat-title">${S.activeRoomId ? 'Чат' : 'Выберите чат слева'}</span>
           </div>
         </div>
@@ -159,7 +167,10 @@ function pageChat() {
         <!-- Поле ввода (ВСЕГДА прижато к низу) -->
         <div id="chat-input-area" style="padding:12px 16px; border-top:1px solid var(--border); display:none; gap:10px; background:#fff">
           <input id="chat_text_input" type="text" placeholder="Напишите сообщение..." style="flex:1" onkeydown="if(event.key==='Enter') sendChatMessage()">
-          <button class="btn" onclick="sendChatMessage()">Отправить ➔</button>
+          <button class="btn" onclick="sendChatMessage()" style="display:inline-flex; align-items:center; gap:6px;">
+            <span>Отправить</span>
+            <span style="width:16px; height:16px; display:inline-flex;">${ICONS.paperPlane}</span>
+          </button>
         </div>
         `}
       </div>
@@ -336,7 +347,7 @@ function initChatSocket() {
 
 function openGeneralChat() {
   if (!S.chatList || !S.chatList.generalChat) return;
-  openChatRoom(S.chatList.generalChat.id, '📢 Общий чат компании');
+  openChatRoom(S.chatList.generalChat.id, 'Общий чат компании');
 }
 
 function openDirectChat(targetUserId, targetName) {
@@ -346,7 +357,7 @@ function openDirectChat(targetUserId, targetName) {
     body: JSON.stringify({ targetUserId: targetUserId })
   }).then(function(res) {
     if (res && res.roomId) {
-      openChatRoom(res.roomId, '💬 ' + targetName);
+      openChatRoom(res.roomId, targetName);
     }
   });
 }

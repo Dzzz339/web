@@ -291,15 +291,15 @@ function pageCard() {
     return '<option value="'+v+'"'+(curStage===v?' selected':'')+'>'+stageLabel[v]+'</option>';
   }).join('');
   var docBtns =
-    '<button class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\''+eid+'\')" title="Сформировать официальное письмо на допуск в Word (с паспортами монтажников)">📄 Допуск (.docx)</button>' +
-    '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'app2\',\''+eid+'\')" title="\u041f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u0435 \u21162">&#x2B07; \u041f\u0440\u0438\u043b. \u21162</button>' +
-    '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'invoice\',\''+eid+'\')" title="\u0421\u0447\u0451\u0442">&#x1F4CB; \u0421\u0447\u0451\u0442</button>' +
-    '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'act\',\''+eid+'\')" title="\u0410\u043a\u0442">&#x2714; \u0410\u043a\u0442</button>' +
-    '<button class="btn btn-sm btn-ghost" onclick="window.print()" title="\u041f\u0435\u0447\u0430\u0442\u044c / PDF">&#x1F5A8; \u041f\u0435\u0447\u0430\u0442\u044c</button>';
+    '<button class="btn btn-sm btn-ghost" onclick="openAccessLetterModal(\''+eid+'\')" title="Сформировать официальное письмо на допуск в Word (с паспортами монтажников)"><span class="btn-svg-icon">' + ICONS.fileText + '</span>Допуск (.docx)</button>' +
+    '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'app2\',\''+eid+'\')" title="Приложение №2"><span class="btn-svg-icon">' + ICONS.download + '</span>Прил. №2</button>' +
+    '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'invoice\',\''+eid+'\')" title="Счёт"><span class="btn-svg-icon">' + ICONS.calc + '</span>Счёт</button>' +
+    '<button class="btn btn-sm btn-ghost" onclick="exportDoc(\'act\',\''+eid+'\')" title="Акт"><span class="btn-svg-icon">' + ICONS.check + '</span>Акт</button>' +
+    '<button class="btn btn-sm btn-ghost" onclick="window.print()" title="Печать / PDF"><span class="btn-svg-icon">' + ICONS.printer + '</span>Печать</button>';
 
   var cancelBtn = t.status === 'cancelled'
-    ? '<span class="badge b-red" style="padding:6px 12px;font-weight:700">🚫 Заявка отменена' + (t.overdueReason ? ': ' + escHtml(t.overdueReason) : '') + '</span>'
-    : '<button class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="cancelTaskPrompt(\'' + eid + '\')" title="Отменить заявку с указанием причины">🚫 Отменить заявку</button>';
+    ? '<span class="badge b-red" style="padding:6px 12px;font-weight:700"><span class="btn-svg-icon">' + ICONS.cancel + '</span>Заявка отменена' + (t.overdueReason ? ': ' + escHtml(t.overdueReason) : '') + '</span>'
+    : '<button class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="cancelTaskPrompt(\'' + eid + '\')" title="Отменить заявку с указанием причины"><span class="btn-svg-icon">' + ICONS.cancel + '</span>Отменить заявку</button>';
 
   var macroStatusHtml = '<div style="display:flex;align-items:center;gap:6px">' +
     macroStatusBadge(t.macroStatus || 'new') +
@@ -478,22 +478,22 @@ function pageCard() {
 
   var tabsNav = '<div class="card-tabs-nav swipe-carousel-row">' +
     '<button type="button" class="card-tab-btn carousel-card ' + (curTab === 'main' ? 'active' : '') + '" data-tab="main" onclick="setCardTab(\'main\')">' +
-      '📌 Главное и Объект' +
+      '<span class="btn-svg-icon">' + ICONS.tasks + '</span><span>Главное и Объект</span>' +
     '</button>' +
     '<button type="button" class="card-tab-btn carousel-card ' + (curTab === 'items' ? 'active' : '') + '" data-tab="items" onclick="setCardTab(\'items\')">' +
-      '🤝 Субподряды и Спецификация <span id="cardTabItemsBadge" class="card-tab-badge badge-gray"></span>' +
+      '<span class="btn-svg-icon">' + ICONS.contractors + '</span><span>Субподряды и Спецификация</span> <span id="cardTabItemsBadge" class="card-tab-badge badge-gray"></span>' +
     '</button>' +
     '<button type="button" class="card-tab-btn carousel-card ' + (curTab === 'remarks' ? 'active' : '') + '" data-tab="remarks" onclick="setCardTab(\'remarks\')">' +
-      '⚠️ Замечания Сбера' + remarksTabBadge +
+      '<span class="btn-svg-icon">' + ICONS.alert + '</span><span>Замечания Сбера</span>' + remarksTabBadge +
     '</button>' +
     '<button type="button" class="card-tab-btn carousel-card ' + (curTab === 'files' ? 'active' : '') + '" data-tab="files" onclick="setCardTab(\'files\')">' +
-      '📎 Документы и Фото' +
+      '<span class="btn-svg-icon">' + ICONS.clip + '</span><span>Документы и Фото</span>' +
     '</button>' +
     '<button type="button" class="card-tab-btn carousel-card ' + (curTab === 'finance' ? 'active' : '') + '" data-tab="finance" onclick="setCardTab(\'finance\')">' +
-      '💰 Финансы' +
+      '<span class="btn-svg-icon">' + ICONS.analytics + '</span><span>Финансы</span>' +
     '</button>' +
     '<button type="button" class="card-tab-btn carousel-card ' + (curTab === 'history' ? 'active' : '') + '" data-tab="history" onclick="setCardTab(\'history\')">' +
-      '🕒 История' +
+      '<span class="btn-svg-icon">' + ICONS.clock + '</span><span>История</span>' +
     '</button>' +
   '</div>';
 
