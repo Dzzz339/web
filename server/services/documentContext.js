@@ -664,39 +664,39 @@ function replaceItemTokens(templateStr, itemObj) {
 function renderWorksTableHtml(works = [], finance = {}) {
   let rowsHtml = '';
   if (!works.length) {
-    rowsHtml = '<tr><td colspan="6" style="text-align:center;padding:8px">Монтажные работы СКС по объекту (1 компл.)</td></tr>';
+    rowsHtml = '<tr><td colspan="6" style="border:1px solid #000;text-align:center;padding:8px">Монтажные работы СКС по объекту (1 компл.)</td></tr>';
   } else {
     works.forEach(w => {
       rowsHtml += `
         <tr>
           <td style="border:1px solid #000;padding:5px 6px;text-align:center">${w.num}</td>
           <td style="border:1px solid #000;padding:5px 8px;text-align:left">${w.title}</td>
-          <td style="border:1px solid #000;padding:5px 6px;text-align:center">${w.unit}</td>
+          <td style="border:1px solid #000;padding:5px 6px;text-align:center;white-space:nowrap">${w.unit}</td>
           <td style="border:1px solid #000;padding:5px 6px;text-align:right">${w.qty}</td>
-          <td style="border:1px solid #000;padding:5px 6px;text-align:right">${w.price_formatted}</td>
-          <td style="border:1px solid #000;padding:5px 6px;text-align:right;font-weight:600">${w.total_formatted}</td>
+          <td style="border:1px solid #000;padding:5px 6px;text-align:right;white-space:nowrap">${w.price_formatted}</td>
+          <td style="border:1px solid #000;padding:5px 6px;text-align:right;font-weight:600;white-space:nowrap">${w.total_formatted}</td>
         </tr>
       `;
     });
   }
 
   return `
-    <table style="width:100%;border-collapse:collapse;font-size:12px;margin:12px 0;border:1px solid #000">
+    <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:12px;margin:12px 0;border:1px solid #000;box-sizing:border-box">
       <thead>
         <tr style="background:#f3f4f6;font-weight:700">
-          <th style="border:1px solid #000;padding:6px;width:30px;text-align:center">№</th>
-          <th style="border:1px solid #000;padding:6px;text-align:left">Наименование работ / услуг</th>
-          <th style="border:1px solid #000;padding:6px;width:45px;text-align:center">Ед. изм.</th>
-          <th style="border:1px solid #000;padding:6px;width:55px;text-align:right">Кол-во</th>
-          <th style="border:1px solid #000;padding:6px;width:85px;text-align:right">Цена</th>
-          <th style="border:1px solid #000;padding:6px;width:95px;text-align:right">Стоимость</th>
+          <th style="border:1px solid #000;padding:6px;width:28px;text-align:center">№</th>
+          <th style="border:1px solid #000;padding:6px 8px;text-align:left">Наименование работ / услуг</th>
+          <th style="border:1px solid #000;padding:6px;width:75px;text-align:center;white-space:nowrap">Ед. изм.</th>
+          <th style="border:1px solid #000;padding:6px;width:50px;text-align:right">Кол-во</th>
+          <th style="border:1px solid #000;padding:6px;width:80px;text-align:right;white-space:nowrap">Цена</th>
+          <th style="border:1px solid #000;padding:6px;width:90px;text-align:right;white-space:nowrap">Стоимость</th>
         </tr>
       </thead>
       <tbody>
         ${rowsHtml}
         <tr style="font-weight:700;background:#fafafa">
           <td colspan="5" style="border:1px solid #000;padding:6px 8px;text-align:right">ИТОГО:</td>
-          <td style="border:1px solid #000;padding:6px;text-align:right;font-size:13px">${finance.total_amount_formatted || '0 ₽'}</td>
+          <td style="border:1px solid #000;padding:6px;text-align:right;font-size:13px;white-space:nowrap">${finance.total_amount_formatted || '0 ₽'}</td>
         </tr>
       </tbody>
     </table>
@@ -722,7 +722,7 @@ function renderSpecialistsTableHtml(specialists = []) {
   });
 
   return `
-    <table style="width:100%;border-collapse:collapse;font-size:12px;margin:12px 0;border:1px solid #000">
+    <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:12px;margin:12px 0;border:1px solid #000;box-sizing:border-box">
       <thead>
         <tr style="background:#f3f4f6;font-weight:700">
           <th style="border:1px solid #000;padding:6px;width:30px;text-align:center">№</th>
@@ -753,32 +753,32 @@ function renderMaterialsTableHtml(materials = []) {
         <td style="border:1px solid #000;padding:5px 6px;text-align:center">${m.num}</td>
         <td style="border:1px solid #000;padding:5px 8px">${m.name}</td>
         <td style="border:1px solid #000;padding:5px 6px;text-align:center">${m.code}</td>
-        <td style="border:1px solid #000;padding:5px 6px;text-align:center">${m.unit}</td>
+        <td style="border:1px solid #000;padding:5px 6px;text-align:center;white-space:nowrap">${m.unit}</td>
         <td style="border:1px solid #000;padding:5px 6px;text-align:right">${m.qty}</td>
-        <td style="border:1px solid #000;padding:5px 6px;text-align:right">${m.price_formatted}</td>
-        <td style="border:1px solid #000;padding:5px 6px;text-align:right;font-weight:600">${m.total_formatted}</td>
+        <td style="border:1px solid #000;padding:5px 6px;text-align:right;white-space:nowrap">${m.price_formatted}</td>
+        <td style="border:1px solid #000;padding:5px 6px;text-align:right;font-weight:600;white-space:nowrap">${m.total_formatted}</td>
       </tr>
     `;
   });
 
   return `
-    <table style="width:100%;border-collapse:collapse;font-size:12px;margin:12px 0;border:1px solid #000">
+    <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:12px;margin:12px 0;border:1px solid #000;box-sizing:border-box">
       <thead>
         <tr style="background:#f3f4f6;font-weight:700">
           <th style="border:1px solid #000;padding:6px;width:30px;text-align:center">№</th>
           <th style="border:1px solid #000;padding:6px;text-align:left">Наименование ТМЦ</th>
           <th style="border:1px solid #000;padding:6px;width:80px;text-align:center">Артикул</th>
-          <th style="border:1px solid #000;padding:6px;width:45px;text-align:center">Ед. изм.</th>
+          <th style="border:1px solid #000;padding:6px;width:70px;text-align:center;white-space:nowrap">Ед. изм.</th>
           <th style="border:1px solid #000;padding:6px;width:55px;text-align:right">Кол-во</th>
-          <th style="border:1px solid #000;padding:6px;width:85px;text-align:right">Цена</th>
-          <th style="border:1px solid #000;padding:6px;width:95px;text-align:right">Сумма</th>
+          <th style="border:1px solid #000;padding:6px;width:85px;text-align:right;white-space:nowrap">Цена</th>
+          <th style="border:1px solid #000;padding:6px;width:95px;text-align:right;white-space:nowrap">Сумма</th>
         </tr>
       </thead>
       <tbody>
         ${rowsHtml}
         <tr style="font-weight:700;background:#fafafa">
           <td colspan="6" style="border:1px solid #000;padding:6px 8px;text-align:right">ИТОГО ТМЦ:</td>
-          <td style="border:1px solid #000;padding:6px;text-align:right;font-size:13px">${formatMoney(totalSum)}</td>
+          <td style="border:1px solid #000;padding:6px;text-align:right;font-size:13px;white-space:nowrap">${formatMoney(totalSum)}</td>
         </tr>
       </tbody>
     </table>
@@ -839,7 +839,7 @@ function renderKjTableHtml(ports = []) {
   });
 
   return `
-    <table style="width:100%;border-collapse:collapse;font-size:11px;margin:10px 0;border:1px solid #000">
+    <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:11px;margin:10px 0;border:1px solid #000;box-sizing:border-box">
       <thead>
         <tr style="background:#f3f4f6;font-weight:700">
           <th rowspan="2" style="border:1px solid #000;padding:4px;width:25px;text-align:center">№</th>
@@ -890,7 +890,7 @@ function renderIdSpecTableHtml(materials = []) {
   });
 
   return `
-    <table style="width:100%;border-collapse:collapse;font-size:11px;margin:10px 0;border:1px solid #000">
+    <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:11px;margin:10px 0;border:1px solid #000;box-sizing:border-box">
       <thead>
         <tr style="background:#f3f4f6;font-weight:700">
           <th style="border:1px solid #000;padding:4px;width:30px;text-align:center">Поз.</th>
@@ -935,7 +935,7 @@ function renderFlukeProtocolTableHtml(ports = [], ctx = {}) {
     <div style="font-size:11.5px;margin-bottom:8px">
       <b>Прибор:</b> Fluke Networks MicroScanner (MS2-100) зав. № 2780829 &nbsp;|&nbsp; <b>Дата поверки:</b> Действительна
     </div>
-    <table style="width:100%;border-collapse:collapse;font-size:11px;margin:10px 0;border:1px solid #000">
+    <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:11px;margin:10px 0;border:1px solid #000;box-sizing:border-box">
       <thead>
         <tr style="background:#f3f4f6;font-weight:700">
           <th style="border:1px solid #000;padding:4px;width:30px;text-align:center">№</th>
@@ -1042,7 +1042,7 @@ function renderEquipmentAcceptanceTableHtml(materials = [], task = {}, portsCoun
   `;
 
   return `
-    <table style="width:100%;border-collapse:collapse;font-size:11px;margin:12px 0;border:1px solid #000">
+    <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:11px;margin:12px 0;border:1px solid #000;box-sizing:border-box">
       <thead>
         <tr style="background:#f3f4f6;font-weight:700">
           <th style="border:1px solid #000;padding:6px;width:35px;text-align:center">№ п/п</th>
@@ -1061,7 +1061,7 @@ function renderTechnicalReadinessTableHtml(materials = [], task = {}, portsCount
   const cableLen = Math.max(500, portsCount * 12);
   const boxesCount = Math.max(10, Math.ceil(portsCount / 4));
   return `
-    <table style="width:100%;border-collapse:collapse;font-size:11px;margin:12px 0;border:1px solid #000">
+    <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:11px;margin:12px 0;border:1px solid #000;box-sizing:border-box">
       <thead>
         <tr style="background:#f3f4f6;font-weight:700">
           <th style="border:1px solid #000;padding:6px;text-align:left">Наименование этапа работ</th>
@@ -1119,7 +1119,7 @@ function renderInputControlJournalTableHtml(materials = [], task = {}, portsCoun
   const dateStr = task?.data_vyhoda ? formatDateRu(task.data_vyhoda) : (task?.date_zayavki ? formatDateRu(task.date_zayavki) : '28.08.2026');
 
   return `
-    <table style="width:100%;border-collapse:collapse;font-size:11px;margin:12px 0;border:1px solid #000">
+    <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:11px;margin:12px 0;border:1px solid #000;box-sizing:border-box">
       <thead>
         <tr style="background:#f3f4f6;font-weight:700">
           <th style="border:1px solid #000;padding:5px;width:30px;text-align:center">№</th>
@@ -1208,7 +1208,7 @@ function renderProtocolPsiTableHtml(portsCount = 374) {
   }
 
   return `
-    <table style="width:100%;border-collapse:collapse;font-size:11px;margin:10px 0;border:1px solid #000">
+    <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:11px;margin:10px 0;border:1px solid #000;box-sizing:border-box">
       <thead>
         <tr style="background:#f3f4f6;font-weight:700">
           <th rowspan="2" style="border:1px solid #000;padding:4px;width:35px;text-align:center">№ п/п</th>
@@ -1246,7 +1246,7 @@ function renderIpAddressingTableHtml(materials = [], task = {}, installer = 'М�
   }
 
   return `
-    <table style="width:100%;border-collapse:collapse;font-size:11px;margin:12px 0;border:1px solid #000">
+    <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:11px;margin:12px 0;border:1px solid #000;box-sizing:border-box">
       <thead>
         <tr style="background:#f3f4f6;font-weight:700">
           <th style="border:1px solid #000;padding:6px;width:35px;text-align:center">№ п/п</th>

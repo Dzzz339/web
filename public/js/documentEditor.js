@@ -731,8 +731,11 @@
       '<style>' +
       '@page { size: A4 portrait; margin: 15mm 15mm 15mm 20mm; }' +
       'body { font-family: "Times New Roman", Times, serif; font-size: 13px; line-height: 1.35; color: #000; margin: 0; padding: 0; background: #fff; }' +
-      'table { width: 100%; border-collapse: collapse; }' +
-      'td, th { border: 1px solid #000; padding: 5px 6px; }' +
+      'table { width: 100% !important; min-width: 0 !important; max-width: 100% !important; border-collapse: collapse; box-sizing: border-box; }' +
+      'table:not(.grid-table):not([border="1"]) td, table:not(.grid-table):not([border="1"]) th { border: none; padding: 3px 5px; vertical-align: top; }' +
+      'table.grid-table, table[border="1"], .grid-table { border: 1px solid #000 !important; border-collapse: collapse !important; width: 100% !important; }' +
+      'table.grid-table td, table.grid-table th, table[border="1"] td, table[border="1"] th, .grid-table td, .grid-table th { border: 1px solid #000 !important; padding: 4px 6px; }' +
+      'table.grid-table th, table[border="1"] th, .grid-table th { background: #f3f4f6; font-weight: 700; text-align: center; }' +
       'ol, ul { padding-left: 22px; }' +
       'p { margin: 0 0 8px 0; }' +
       '</style></head><body>' + htmlContent + '</body></html>');

@@ -3027,18 +3027,89 @@
   box-shadow: 0 4px 25px rgba(0, 0, 0, 0.3);
   box-sizing: border-box;
   background: #ffffff;
+  color: #000000;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
 }
 
-.a4-sheet table {
-  width: 100%;
+/* Принудительное ограничение таблиц внутри листа А4, снимающее глобальный min-width: 980px */
+.a4-sheet table,
+.doc-editor-container .a4-sheet table {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
   border-collapse: collapse;
+  box-sizing: border-box;
+  font-size: inherit;
+  margin-left: 0;
+  margin-right: 0;
 }
 
-.a4-sheet td, .a4-sheet th {
-  border: 1px solid #000000;
+/* По умолчанию для сервисных, шапочных и подвальных таблиц А4 рамки ячеек отключены */
+.a4-sheet table:not(.grid-table):not([border="1"]) > tr > td,
+.a4-sheet table:not(.grid-table):not([border="1"]) > tr > th,
+.a4-sheet table:not(.grid-table):not([border="1"]) > tbody > tr > td,
+.a4-sheet table:not(.grid-table):not([border="1"]) > tbody > tr > th,
+.a4-sheet table:not(.grid-table):not([border="1"]) > thead > tr > th {
+  border: none;
+  padding: 3px 5px;
+  vertical-align: top;
+  box-sizing: border-box;
+}
+
+/* Таблицы-сетки (сметы, перечни работ, спецификации, кабельные журналы, реестры) */
+.a4-sheet table.grid-table,
+.a4-sheet table[border="1"],
+.a4-sheet .grid-table {
+  border: 1px solid #000000 !important;
+  border-collapse: collapse !important;
+  box-sizing: border-box;
+  margin-top: 8px;
+  margin-bottom: 8px;
+  width: 100% !important;
+}
+
+.a4-sheet table.grid-table td,
+.a4-sheet table.grid-table th,
+.a4-sheet table[border="1"] td,
+.a4-sheet table[border="1"] th,
+.a4-sheet .grid-table td,
+.a4-sheet .grid-table th {
+  border: 1px solid #000000 !important;
   padding: 4px 6px;
+  box-sizing: border-box;
+  font-size: 11.5px;
+  line-height: 1.3;
+}
+
+.a4-sheet table.grid-table th,
+.a4-sheet table[border="1"] th,
+.a4-sheet .grid-table th {
+  background: #f4f4f5;
+  font-weight: 700;
+  text-align: center;
 }
 
 .a4-sheet:focus {
   outline: none;
+}
+
+/* Стили печати для документов */
+@media print {
+  .doc-editor-container header,
+  .doc-editor-container #_doc_toolbar,
+  .doc-editor-container #_doc_locked_banner {
+    display: none !important;
+  }
+  .doc-editor-container {
+    background: #fff !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .a4-sheet {
+    box-shadow: none !important;
+    padding: 0 !important;
+    width: 100% !important;
+    min-height: auto !important;
+  }
 }

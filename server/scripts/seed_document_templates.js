@@ -87,7 +87,7 @@ const SYSTEM_TEMPLATES = [
     <div><b>Срок выполнения:</b> {{срок_выполнения}}</div>
   </div>
 
-  <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:15px;border:1px solid #000">
+  <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:15px;border:1px solid #000;box-sizing:border-box">
     <tr>
       <td style="border:1px solid #000;padding:6px;width:30%;background:#f3f4f6;font-weight:700">Заказчик</td>
       <td style="border:1px solid #000;padding:6px">${'{{наш_заказчик}}'}</td>
@@ -342,48 +342,62 @@ const SYSTEM_TEMPLATES = [
     description: 'Счет на оплату с банковскими реквизитами и таблицей назначений платежа.',
     template_html: `
 <div class="a4-page-content" style="font-family:'Times New Roman',Times,serif;font-size:13px;line-height:1.35;color:#000">
-  <div style="border:1px solid #000;margin-bottom:15px;font-size:12px">
-    <table style="width:100%;border-collapse:collapse">
-      <tr>
-        <td style="border:1px solid #000;padding:6px;width:60%" colspan="2">
-          Банк получателя: <b>{{подрядчик_банк}}</b>
-        </td>
-        <td style="border:1px solid #000;padding:6px;width:15%">БИК</td>
-        <td style="border:1px solid #000;padding:6px;width:25%"><b>{{подрядчик_бик}}</b></td>
-      </tr>
-      <tr>
-        <td style="border:1px solid #000;padding:6px" colspan="2">
-          Получатель: <b>{{подрядчик_наименование_полное}}</b>
-        </td>
-        <td style="border:1px solid #000;padding:6px">Сч. №</td>
-        <td style="border:1px solid #000;padding:6px"><b>{{подрядчик_расчетный_счет}}</b></td>
-      </tr>
-      <tr>
-        <td style="border:1px solid #000;padding:6px;width:30%">ИНН: <b>{{подрядчик_инн}}</b></td>
-        <td style="border:1px solid #000;padding:6px;width:30%">КПП: <b>{{подрядчик_кпп}}</b></td>
-        <td style="border:1px solid #000;padding:6px">Корр. сч.</td>
-        <td style="border:1px solid #000;padding:6px"><b>{{подрядчик_корр_счет}}</b></td>
-      </tr>
-    </table>
-  </div>
+  <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px;table-layout:fixed;border:1px solid #000;box-sizing:border-box">
+    <colgroup>
+      <col style="width:33%">
+      <col style="width:27%">
+      <col style="width:12%">
+      <col style="width:28%">
+    </colgroup>
+    <tr>
+      <td colspan="2" rowspan="2" style="border:1px solid #000;padding:6px 8px;vertical-align:top">
+        <div style="font-size:11px;color:#555;margin-bottom:2px">Банк получателя</div>
+        <b>{{подрядчик_банк}}</b>
+      </td>
+      <td style="border:1px solid #000;padding:6px 8px;font-weight:600">БИК</td>
+      <td style="border:1px solid #000;padding:6px 8px"><b>{{подрядчик_бик}}</b></td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #000;padding:6px 8px;font-weight:600">Сч. №</td>
+      <td style="border:1px solid #000;padding:6px 8px"><b>{{подрядчик_корр_счет}}</b></td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #000;padding:6px 8px">ИНН <b>{{подрядчик_инн}}</b></td>
+      <td style="border:1px solid #000;padding:6px 8px">КПП <b>{{подрядчик_кпп}}</b></td>
+      <td rowspan="2" style="border:1px solid #000;padding:6px 8px;font-weight:600;vertical-align:top">Сч. №</td>
+      <td rowspan="2" style="border:1px solid #000;padding:6px 8px;vertical-align:top"><b>{{подрядчик_расчетный_счет}}</b></td>
+    </tr>
+    <tr>
+      <td colspan="2" style="border:1px solid #000;padding:6px 8px;vertical-align:top">
+        <div style="font-size:11px;color:#555;margin-bottom:2px">Получатель</div>
+        <b>{{подрядчик_наименование_полное}}</b>
+      </td>
+    </tr>
+  </table>
 
-  <div style="font-weight:700;font-size:16px;margin:20px 0 10px 0;border-bottom:2px solid #000;padding-bottom:6px">
+  <div style="font-weight:700;font-size:16px;margin:22px 0 12px 0;border-bottom:2px solid #000;padding-bottom:6px">
     Счет на оплату № {{номер_документа}} от {{дата_документа}}
   </div>
 
-  <div style="margin-bottom:15px;font-size:13px">
-    <b>Плательщик:</b> {{наша_организация_полная}}, ИНН {{наш_инн}}, КПП {{наш_кпп}}, {{наш_адрес}}<br/>
-    <b>Основание:</b> Заказ-наряд № {{номер_заявки}} по объекту {{тип_объекта}} № {{номер_всп}} ({{адрес_объекта}})
-  </div>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:12.5px;line-height:1.4">
+    <tr>
+      <td style="width:15%;font-weight:700;vertical-align:top;padding:2px 0">Плательщик:</td>
+      <td style="vertical-align:top;padding:2px 0">{{наша_организация_полная}}, ИНН {{наш_инн}}, КПП {{наш_кпп}}, {{наш_адрес}}</td>
+    </tr>
+    <tr>
+      <td style="font-weight:700;vertical-align:top;padding:2px 0">Основание:</td>
+      <td style="vertical-align:top;padding:2px 0">Заказ-наряд № {{номер_заявки}} по объекту {{тип_объекта}} № {{номер_всп}} ({{адрес_объекта}})</td>
+    </tr>
+  </table>
 
   {{таблица_работ}}
 
-  <div style="margin:15px 0;font-size:13px">
-    Всего к оплате: <b>{{сумма}}</b><br/>
-    Сумма прописью: <b>{{сумма_прописью}}</b>, {{ндс_инфо}}.
+  <div style="margin:14px 0;font-size:13px;line-height:1.4">
+    <div>Всего к оплате: <b>{{сумма}}</b></div>
+    <div>Сумма прописью: <b>{{сумма_прописью}}</b>, {{ндс_инфо}}.</div>
   </div>
 
-  <div style="margin-top:35px;display:flex;justify-content:space-between;font-size:13px">
+  <div style="margin-top:40px;display:flex;justify-content:space-between;font-size:13px">
     <div>
       Руководитель / ИП: ___________________ / {{подрядчик_директор}} /
     </div>
@@ -711,7 +725,7 @@ const SYSTEM_TEMPLATES = [
   <!-- ВЕДОМОСТЬ ДОКУМЕНТОВ И СОДЕРЖАНИЕ -->
   <div style="page-break-before:always;margin-top:20px">
     <div style="font-weight:700;font-size:14px;margin-bottom:10px;text-align:center">1. СОДЕРЖАНИЕ АЛЬБОМА ИСПОЛНИТЕЛЬНОЙ ДОКУМЕНТАЦИИ</div>
-    <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:20px;border:1px solid #000">
+    <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:20px;border:1px solid #000;box-sizing:border-box">
       <thead>
         <tr style="background:#f3f4f6">
           <th style="border:1px solid #000;padding:5px;width:35px;text-align:center">№</th>
@@ -771,22 +785,22 @@ const SYSTEM_TEMPLATES = [
     <div>{{дата_документа_прописью}}</div>
   </div>
 
-  <table style="width:100%;margin-bottom:14px;font-size:12px;line-height:1.4">
+  <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:12px;line-height:1.4">
     <tr>
-      <td style="width:15%;font-weight:700;vertical-align:top">Заказчик:</td>
-      <td style="width:85%;vertical-align:top">{{наш_заказчик}}</td>
+      <td style="width:18%;font-weight:700;vertical-align:top;padding:2px 0">Заказчик:</td>
+      <td style="width:82%;vertical-align:top;padding:2px 0">{{наш_заказчик}}</td>
     </tr>
     <tr>
-      <td style="font-weight:700;vertical-align:top">Подрядчик:</td>
-      <td style="vertical-align:top">{{наша_организация_полная}}</td>
+      <td style="font-weight:700;vertical-align:top;padding:2px 0">Подрядчик:</td>
+      <td style="vertical-align:top;padding:2px 0">{{наша_организация_полная}}</td>
     </tr>
     <tr>
-      <td style="font-weight:700;vertical-align:top">Основание:</td>
-      <td style="vertical-align:top">{{номер_и_дата_контракта}}</td>
+      <td style="font-weight:700;vertical-align:top;padding:2px 0">Основание:</td>
+      <td style="vertical-align:top;padding:2px 0">{{номер_и_дата_контракта}}</td>
     </tr>
     <tr>
-      <td style="font-weight:700;vertical-align:top">Представитель:</td>
-      <td style="vertical-align:top">Ответственный представитель Подрядчика: {{ответственный_фио}}</td>
+      <td style="font-weight:700;vertical-align:top;padding:2px 0">Представитель:</td>
+      <td style="vertical-align:top;padding:2px 0">Ответственный представитель Подрядчика: {{ответственный_фио}}</td>
     </tr>
   </table>
 
@@ -818,17 +832,28 @@ const SYSTEM_TEMPLATES = [
     <b>6. Решение комиссии:</b> Работы выполнены в полном соответствии с проектом, требованиями ГОСТ Р 53246-2008 и условиями контракта. Разрешается производство последующих работ по закрытию подвесных потолков и финишной отделке помещений.
   </p>
 
-  <table style="width:100%;margin-top:25px;font-size:12px">
+  <table style="width:100%;margin-top:28px;font-size:12px">
     <tr>
-      <td style="width:48%;vertical-align:top">
+      <td style="width:48%;vertical-align:top;padding-right:15px">
         <b>От Заказчика:</b><br/><br/>
-        _____________________ / _____________________ /<br/>
-        <span style="font-size:10px;color:#666">М.П.</span>
+        <div style="border-bottom:1px solid #000;padding-bottom:2px;margin-bottom:4px">&nbsp;</div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:#666">
+          <span>(подпись)</span>
+          <span>(расшифровка подписи)</span>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:#666">М.П.</div>
       </td>
-      <td style="width:48%;vertical-align:top">
+      <td style="width:48%;vertical-align:top;padding-left:15px">
         <b>От Подрядчика:</b><br/><br/>
-        _____________________ / {{ответственный_фио}} /<br/>
-        <span style="font-size:10px;color:#666">М.П.</span>
+        <div style="border-bottom:1px solid #000;padding-bottom:2px;margin-bottom:4px;display:flex;justify-content:space-between">
+          <span>&nbsp;</span>
+          <span>/ {{ответственный_фио}} /</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:#666">
+          <span>(подпись)</span>
+          <span>(расшифровка подписи)</span>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:#666">М.П.</div>
       </td>
     </tr>
   </table>
@@ -868,17 +893,28 @@ const SYSTEM_TEMPLATES = [
     Оборудование смонтировано, закреплено, подключено и признается готовым к пусконаладочным работам.
   </p>
 
-  <table style="width:100%;margin-top:25px;font-size:12px">
+  <table style="width:100%;margin-top:28px;font-size:12px">
     <tr>
-      <td style="width:48%;vertical-align:top">
+      <td style="width:48%;vertical-align:top;padding-right:15px">
         <b>От Заказчика:</b><br/><br/>
-        _____________________ / _____________________ /<br/>
-        <span style="font-size:10px;color:#666">М.П.</span>
+        <div style="border-bottom:1px solid #000;padding-bottom:2px;margin-bottom:4px">&nbsp;</div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:#666">
+          <span>(подпись)</span>
+          <span>(расшифровка подписи)</span>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:#666">М.П.</div>
       </td>
-      <td style="width:48%;vertical-align:top">
+      <td style="width:48%;vertical-align:top;padding-left:15px">
         <b>От Подрядчика:</b><br/><br/>
-        _____________________ / {{ответственный_фио}} /<br/>
-        <span style="font-size:10px;color:#666">М.П.</span>
+        <div style="border-bottom:1px solid #000;padding-bottom:2px;margin-bottom:4px;display:flex;justify-content:space-between">
+          <span>&nbsp;</span>
+          <span>/ {{ответственный_фио}} /</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:#666">
+          <span>(подпись)</span>
+          <span>(расшифровка подписи)</span>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:#666">М.П.</div>
       </td>
     </tr>
   </table>
@@ -918,17 +954,28 @@ const SYSTEM_TEMPLATES = [
     Работы сданы в состоянии готовности для эксплуатации и передачи исполнительной документации (ИД).
   </p>
 
-  <table style="width:100%;margin-top:25px;font-size:12px">
+  <table style="width:100%;margin-top:28px;font-size:12px">
     <tr>
-      <td style="width:48%;vertical-align:top">
+      <td style="width:48%;vertical-align:top;padding-right:15px">
         <b>Сдал от Подрядчика:</b><br/><br/>
-        _____________________ / {{ответственный_фио}} /<br/>
-        <span style="font-size:10px;color:#666">М.П.</span>
+        <div style="border-bottom:1px solid #000;padding-bottom:2px;margin-bottom:4px;display:flex;justify-content:space-between">
+          <span>&nbsp;</span>
+          <span>/ {{ответственный_фио}} /</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:#666">
+          <span>(подпись)</span>
+          <span>(расшифровка подписи)</span>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:#666">М.П.</div>
       </td>
-      <td style="width:48%;vertical-align:top">
+      <td style="width:48%;vertical-align:top;padding-left:15px">
         <b>Принял от Заказчика:</b><br/><br/>
-        _____________________ / _____________________ /<br/>
-        <span style="font-size:10px;color:#666">М.П.</span>
+        <div style="border-bottom:1px solid #000;padding-bottom:2px;margin-bottom:4px">&nbsp;</div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:#666">
+          <span>(подпись)</span>
+          <span>(расшифровка подписи)</span>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:#666">М.П.</div>
       </td>
     </tr>
   </table>
@@ -1007,17 +1054,28 @@ const SYSTEM_TEMPLATES = [
   <div style="font-weight:700;margin:12px 0 4px 0;font-size:12px">Результаты тестирования линий связи СКС:</div>
   {{таблица_линий_пси}}
 
-  <table style="width:100%;margin-top:20px;font-size:12px">
+  <table style="width:100%;margin-top:28px;font-size:12px">
     <tr>
-      <td style="width:48%;vertical-align:top">
+      <td style="width:48%;vertical-align:top;padding-right:15px">
         <b>От Заказчика:</b><br/><br/>
-        _____________________ / _____________________ /<br/>
-        <span style="font-size:10px;color:#666">М.П.</span>
+        <div style="border-bottom:1px solid #000;padding-bottom:2px;margin-bottom:4px">&nbsp;</div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:#666">
+          <span>(подпись)</span>
+          <span>(расшифровка подписи)</span>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:#666">М.П.</div>
       </td>
-      <td style="width:48%;vertical-align:top">
+      <td style="width:48%;vertical-align:top;padding-left:15px">
         <b>От Исполнителя:</b><br/><br/>
-        _____________________ / {{ответственный_фио}} /<br/>
-        <span style="font-size:10px;color:#666">М.П.</span>
+        <div style="border-bottom:1px solid #000;padding-bottom:2px;margin-bottom:4px;display:flex;justify-content:space-between">
+          <span>&nbsp;</span>
+          <span>/ {{ответственный_фио}} /</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:#666">
+          <span>(подпись)</span>
+          <span>(расшифровка подписи)</span>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:#666">М.П.</div>
       </td>
     </tr>
   </table>
