@@ -115,11 +115,11 @@
     updateSimClock();
     setInterval(updateSimClock, 10000);
 
-    // Панель быстрого переключения в правом нижнем углу
+    // Панель быстрого переключения в правом верхнем углу (вне экрана телефона)
     if (!document.getElementById('desktop-preview-toolbar')) {
       var bar = document.createElement('div');
       bar.id = 'desktop-preview-toolbar';
-      bar.style.cssText = 'position:fixed; bottom:12px; right:12px; z-index:99999; background:rgba(15,23,42,0.88); backdrop-filter:blur(8px); color:#fff; padding:5px 12px; border-radius:20px; font-size:11px; font-family:-apple-system,BlinkMacSystemFont,sans-serif; display:flex; align-items:center; gap:8px; box-shadow:0 8px 24px rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.18);';
+      bar.style.cssText = 'position:fixed; top:12px; right:12px; z-index:99999; background:rgba(15,23,42,0.88); backdrop-filter:blur(8px); color:#fff; padding:5px 12px; border-radius:20px; font-size:11px; font-family:-apple-system,BlinkMacSystemFont,sans-serif; display:flex; align-items:center; gap:8px; box-shadow:0 8px 24px rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.18);';
       bar.innerHTML = `
         <span style="font-weight:600; color:#38bdf8;">📱 Корпус смартфона</span>
         <button id="toggle-device-btn" style="background:#0284c7; color:#fff; border:none; padding:3px 10px; border-radius:12px; font-size:10px; font-weight:700; cursor:pointer;">
