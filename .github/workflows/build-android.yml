@@ -43,7 +43,7 @@ jobs:
       - name: Build Debug APK
         run: |
           cd android
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug -PappVersionCode=${{ github.run_number }} -PappVersionName="1.0.${{ github.run_number }}" --stacktrace
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
