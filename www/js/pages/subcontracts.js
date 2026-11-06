@@ -594,13 +594,13 @@
       // Заголовок
       '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;margin-bottom:1.5rem">' +
         '<div>' +
-          '<h1 class="page-title" style="margin:0;display:flex;align-items:center;gap:10px;font-size:1.45rem;font-weight:800"><span>📊 Прайсы субподряда</span></h1>' +
+          '<h1 class="page-title" style="margin:0;display:flex;align-items:center;gap:10px;font-size:1.45rem;font-weight:800"><span style="display:inline-flex;align-items:center;gap:8px">' + ICONS.calc + ' Прайсы субподряда</span></h1>' +
           '<div style="font-size:.84rem;color:var(--text-3);margin-top:4px">' +
             'Реестр тарифных сеток СМР: базовые (рекомендации руководства по регионам и заказчикам) и персональные прайсы исполнителей' +
           '</div>' +
         '</div>' +
-        '<div style="display:flex;gap:10px;align-items:center">' +
-          '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid var(--border);padding:8px 14px;border-radius:8px;font-weight:600" onclick="go(\'sub_contracts\')">📑 Договоры субподряда →</button>' +
+        '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">' +
+          '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid var(--border);padding:8px 14px;border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px" onclick="go(\'sub_contracts\')">' + ICONS.contracts + ' Договоры субподряда →</button>' +
           '<button type="button" class="btn btn-sm btn-primary" style="padding:8px 18px;font-weight:700;border-radius:8px" onclick="openSubPriceListModal()">+ Создать прайс-лист</button>' +
         '</div>' +
       '</div>' +
@@ -1828,25 +1828,25 @@
   // ─── 4. УНИВЕРСАЛЬНАЯ ПАНЕЛЬ НАВИГАЦИИ ПО ПРАЙСАМ И ДОГОВОРАМ ───────────────
   window.renderSubcontractWorkspaceNav = function(activeTab) {
     var tabs = [
-      { id: 'customer_tariffs', icon: '🏛️', label: 'Тарифная сетка Заказчиков', desc: 'Утвержденная тарифная сетка Заказчика' },
-      { id: 'sub_pricelists',   icon: '🤝', label: 'Прайсы субподряда (Расход)', desc: 'Расценки для монтажников' },
-      { id: 'sub_contracts',    icon: '📑', label: 'Договоры субподряда', desc: 'Рамочные договоры и реквизиты' }
+      { id: 'customer_tariffs', icon: ICONS.warehouse, label: 'Тарифная сетка Заказчиков' },
+      { id: 'sub_pricelists',   icon: ICONS.calc,      label: 'Прайсы субподряда (Расход)' },
+      { id: 'sub_contracts',    icon: ICONS.contracts, label: 'Договоры субподряда' }
     ];
 
-    var html = '<div style="display:flex;align-items:center;gap:10px;border-bottom:2px solid var(--border);margin-bottom:1.5rem;padding-bottom:10px;overflow-x:auto;flex-wrap:wrap">';
+    var html = '<div class="swipe-carousel-row" style="padding-bottom:10px;margin-bottom:1.25rem;border-bottom:1.5px solid var(--border);">';
     tabs.forEach(function(t) {
       var isActive = (activeTab === t.id);
       var btnStyle = isActive
         ? 'background:var(--primary,#1a73e8);color:#fff;border:none;box-shadow:0 2px 8px rgba(26,115,232,0.3)'
         : 'background:#f8f9fa;color:var(--text);border:1.5px solid var(--border)';
-      html += '<button type="button" class="btn btn-sm" style="font-weight:700;border-radius:10px;padding:8px 16px;display:flex;align-items:center;gap:8px;cursor:pointer;' + btnStyle + '" onclick="go(\'' + t.id + '\')">' +
-        '<span style="font-size:1.1rem">' + t.icon + '</span> ' +
+      html += '<button type="button" class="btn btn-sm carousel-card" style="font-weight:700;border-radius:10px;padding:8px 14px;display:inline-flex;align-items:center;gap:7px;cursor:pointer;flex-shrink:0;' + btnStyle + '" onclick="go(\'' + t.id + '\')">' +
+        '<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px">' + t.icon + '</span> ' +
         '<span>' + escHtml(t.label) + '</span>' +
       '</button>';
     });
 
-    html += '<button type="button" class="btn btn-sm btn-ghost" style="font-weight:600;border-radius:10px;padding:8px 14px;border:1.5px solid var(--border);display:flex;align-items:center;gap:6px;margin-left:auto" onclick="openOwnCompaniesModal()">' +
-      '<span>🏢</span> Собственные юрлица группы' +
+    html += '<button type="button" class="btn btn-sm btn-ghost carousel-card" style="font-weight:600;border-radius:10px;padding:8px 14px;border:1.5px solid var(--border);display:inline-flex;align-items:center;gap:6px;flex-shrink:0" onclick="openOwnCompaniesModal()">' +
+      '<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px">' + ICONS.contractors + '</span> Собственные юрлица группы' +
     '</button>';
     html += '</div>';
 
@@ -1975,14 +1975,14 @@
       '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;margin-bottom:1.5rem">' +
         '<div>' +
           '<h1 class="page-title" style="margin:0;display:flex;align-items:center;gap:10px;font-size:1.45rem;font-weight:800">' +
-            '<span>🏛️ Прайсы Заказчиков: Генеральная тарифная сетка</span>' +
+            '<span style="display:inline-flex;align-items:center;gap:8px">' + ICONS.warehouse + ' Прайсы Заказчиков: Генеральная тарифная сетка</span>' +
           '</h1>' +
           '<div style="font-size:.84rem;color:var(--text-3);margin-top:4px">' +
             'Утвержденная сетка тарифов по 37 регионам РФ: эталон входного аудита смет, исключающий занижение расценок заказчиком' +
           '</div>' +
         '</div>' +
         '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">' +
-          '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid var(--border);padding:8px 14px;border-radius:8px;font-weight:600" onclick="openQuickAuditModal()">🔍 Экспресс-аудит цены</button>' +
+          '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid var(--border);padding:8px 14px;border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px" onclick="openQuickAuditModal()">' + ICONS.search + ' Экспресс-аудит цены</button>' +
           '<button type="button" class="btn btn-sm btn-primary" style="padding:8px 18px;font-weight:700;border-radius:8px" onclick="openGenerateSubPriceFromSberModal(\'' + escHtml(curRegion) + '\')">✨ Сформировать прайс субподряда</button>' +
         '</div>' +
       '</div>' +

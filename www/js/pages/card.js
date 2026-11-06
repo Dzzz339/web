@@ -2115,52 +2115,52 @@ function pageCard() {
   var compactActionBar = (function() {
     var stageObj = (typeof APP_HINTS !== 'undefined' && APP_HINTS.stages && APP_HINTS.stages[curStageNum]) || { title: curStg.name, role: curStg.role, goal: idStageHelp[curStageNum] || curStg.name };
     var techBtn = techLinkVal
-      ? ('<a href="' + escHtml(techLinkVal) + '" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-primary" style="background:#2563eb;color:#fff;font-weight:700;font-size:.76rem;padding:3px 9px;text-decoration:none;display:inline-flex;align-items:center;gap:4px" title="Открыть папку с ТЗ на Яндекс.Диске">📁 Диск Заказчика ↗</a>' +
-         '<button type="button" class="btn btn-xs btn-ghost" onclick="window.editCardTechLink(\'' + eid + '\')" style="font-size:.72rem;padding:2px 6px;border:1px solid #bfdbfe;color:#1d4ed8;background:#fff" title="Изменить ссылку на Яндекс.Диск">✏️</button>')
-      : ('<button type="button" class="btn btn-xs btn-ghost" onclick="window.editCardTechLink(\'' + eid + '\')" style="font-size:.74rem;padding:3px 8px;border:1px dashed #3b82f6;color:#1d4ed8;background:#eff6ff">+ Папка на Яндекс.Диске</button>');
+      ? ('<a href="' + escHtml(techLinkVal) + '" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-primary carousel-card" style="background:#2563eb;color:#fff;font-weight:700;font-size:.76rem;padding:3px 9px;text-decoration:none;display:inline-flex;align-items:center;gap:4px;flex-shrink:0" title="Открыть папку с ТЗ на Яндекс.Диске">' + ICONS.fileText + ' Диск Заказчика ↗</a>' +
+         '<button type="button" class="btn btn-xs btn-ghost carousel-card" onclick="window.editCardTechLink(\'' + eid + '\')" style="font-size:.72rem;padding:2px 6px;border:1px solid #bfdbfe;color:#1d4ed8;background:#fff;flex-shrink:0" title="Изменить ссылку на Яндекс.Диск">' + ICONS.tool + '</button>')
+      : ('<button type="button" class="btn btn-xs btn-ghost carousel-card" onclick="window.editCardTechLink(\'' + eid + '\')" style="font-size:.74rem;padding:3px 8px;border:1px dashed #3b82f6;color:#1d4ed8;background:#eff6ff;display:inline-flex;align-items:center;gap:4px;flex-shrink:0">' + ICONS.link + ' + Диск</button>');
 
     var entryActions = '';
     if (!isWorker) {
       if (!isAccepted) {
-        entryActions = '<div style="display:inline-flex;gap:4px;align-items:center">' +
-          '<button type="button" class="btn btn-xs btn-primary" onclick="approveTaskEntry(\'' + eid + '\')" style="background:#16a34a;border-color:#16a34a;font-weight:700;padding:3px 9px;font-size:.76rem">✓ Принять заявку</button>' +
-          '<button type="button" class="btn btn-xs btn-ghost" onclick="openDeclineTaskModal(\'' + eid + '\')" style="color:#dc2626;border:1px solid #fca5a5;background:#fff;font-size:.74rem;padding:2px 7px">✕ Отклонить</button>' +
+        entryActions = '<div style="display:inline-flex;gap:4px;align-items:center;flex-shrink:0">' +
+          '<button type="button" class="btn btn-xs btn-primary carousel-card" onclick="approveTaskEntry(\'' + eid + '\')" style="background:#16a34a;border-color:#16a34a;font-weight:700;padding:3px 9px;font-size:.76rem;display:inline-flex;align-items:center;gap:4px">' + ICONS.check + ' Принять</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost carousel-card" onclick="openDeclineTaskModal(\'' + eid + '\')" style="color:#dc2626;border:1px solid #fca5a5;background:#fff;font-size:.74rem;padding:2px 7px;display:inline-flex;align-items:center;gap:4px">' + ICONS.cancel + ' Отклонить</button>' +
         '</div>';
       } else {
         var stageActionBtn = '';
         if (curStageNum === 3) {
-          stageActionBtn = '<button type="button" class="btn btn-xs btn-primary" onclick="window._takeTaskToStage(\'' + eid + '\', 4)" style="background:#2563eb;border-color:#2563eb;font-weight:700;padding:3px 10px;font-size:.76rem" title="Принять задачу в работу проектным отделом (норматив 3 дня)">📐 Взять в работу: ИД в проектировании</button>';
+          stageActionBtn = '<button type="button" class="btn btn-xs btn-primary carousel-card" onclick="window._takeTaskToStage(\'' + eid + '\', 4)" style="background:#2563eb;border-color:#2563eb;font-weight:700;padding:3px 10px;font-size:.76rem;display:inline-flex;align-items:center;gap:4px;flex-shrink:0" title="Принять задачу в работу проектным отделом (норматив 3 дня)">' + ICONS.fileText + ' В работу (ИД)</button>';
         } else if (curStageNum === 4) {
-          stageActionBtn = '<button type="button" class="btn btn-xs btn-primary" onclick="window._takeTaskToStage(\'' + eid + '\', 5)" style="background:#16a34a;border-color:#16a34a;font-weight:700;padding:3px 10px;font-size:.76rem" title="Завершить разработку альбома ИД и передать на согласование">📄 ИД готова (сдать Заказчику)</button>';
+          stageActionBtn = '<button type="button" class="btn btn-xs btn-primary carousel-card" onclick="window._takeTaskToStage(\'' + eid + '\', 5)" style="background:#16a34a;border-color:#16a34a;font-weight:700;padding:3px 10px;font-size:.76rem;display:inline-flex;align-items:center;gap:4px;flex-shrink:0" title="Завершить разработку альбома ИД и передать на согласование">' + ICONS.check + ' ИД готова</button>';
         } else if (curStageNum === 2 || (curStageNum === 1 && (Number(t.fact) > 0 || (t.rawData && t.rawData.dataVyhoda)))) {
-          stageActionBtn = '<button type="button" class="btn btn-xs btn-primary" onclick="window._takeTaskToStage(\'' + eid + '\', 3)" style="background:#059669;border-color:#059669;font-weight:700;padding:3px 10px;font-size:.76rem" title="Завершить СМР и перейти к закрытию и ИД">🏁 Закрыть СМР</button>';
+          stageActionBtn = '<button type="button" class="btn btn-xs btn-primary carousel-card" onclick="window._takeTaskToStage(\'' + eid + '\', 3)" style="background:#059669;border-color:#059669;font-weight:700;padding:3px 10px;font-size:.76rem;display:inline-flex;align-items:center;gap:4px;flex-shrink:0" title="Завершить СМР и перейти к закрытию и ИД">' + ICONS.check + ' Закрыть СМР</button>';
         }
 
-        entryActions = '<div style="display:inline-flex;gap:4px;align-items:center">' +
+        entryActions = '<div style="display:inline-flex;gap:4px;align-items:center;flex-shrink:0">' +
           stageActionBtn +
-          '<button type="button" class="btn btn-xs btn-ghost" onclick="toggleTaskEditLock()" style="padding:2px 8px;font-size:.72rem;border:1px solid ' + (S._taskEditUnlocked === false ? '#bbf7d0' : '#fca5a5') + ';background:' + (S._taskEditUnlocked === false ? '#f0fdf4' : '#fff') + ';color:' + (S._taskEditUnlocked === false ? '#15803d' : '#b91c1c') + ';font-weight:600" title="' + (S._taskEditUnlocked === false ? 'Разблокировать поля для редактирования' : 'Заблокировать поля от случайных изменений') + '">' +
-            (S._taskEditUnlocked === false ? '✏️ Разблокировать' : '🔒 Заблокировать') +
+          '<button type="button" class="btn btn-xs btn-ghost carousel-card" onclick="toggleTaskEditLock()" style="padding:2px 8px;font-size:.72rem;border:1px solid ' + (S._taskEditUnlocked === false ? '#bbf7d0' : '#fca5a5') + ';background:' + (S._taskEditUnlocked === false ? '#f0fdf4' : '#fff') + ';color:' + (S._taskEditUnlocked === false ? '#15803d' : '#b91c1c') + ';font-weight:600;display:inline-flex;align-items:center;gap:4px;flex-shrink:0" title="' + (S._taskEditUnlocked === false ? 'Разблокировать поля для редактирования' : 'Заблокировать поля от случайных изменений') + '">' +
+            (S._taskEditUnlocked === false ? (ICONS.tool + ' Разблокировать') : (ICONS.cancel + ' Заблокировать')) +
           '</button>' +
         '</div>';
       }
     } else {
       if (curStageNum === 1 || curStageNum === 2) {
-        entryActions = '<button type="button" class="btn btn-xs btn-primary" onclick="window._takeTaskToStage(\'' + eid + '\', 3)" style="background:#059669;border-color:#059669;font-weight:700;padding:3px 10px;font-size:.76rem" title="Завершить монтаж и сдать СМР">🏁 Сдать СМР куратору</button>';
+        entryActions = '<button type="button" class="btn btn-xs btn-primary carousel-card" onclick="window._takeTaskToStage(\'' + eid + '\', 3)" style="background:#059669;border-color:#059669;font-weight:700;padding:3px 10px;font-size:.76rem;display:inline-flex;align-items:center;gap:4px;flex-shrink:0" title="Завершить монтаж и сдать СМР">' + ICONS.check + ' Сдать СМР куратору</button>';
       }
     }
 
-    return '<div class="stage-guide-banner" style="margin:4px 0 6px;padding:6px 12px;background:#f8fafc;border:1.5px solid var(--border);border-radius:6px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
-      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;flex:1">' +
-        '<span style="font-size:1.1rem;line-height:1">💡</span>' +
-        '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
-          '<span style="font-weight:700;font-size:.84rem;color:var(--text)">' + escHtml(stageObj.title || curStg.name) + '</span>' +
-          '<span class="badge b-blue" style="font-size:.68rem;padding:1px 5px">' + escHtml(stageObj.role || curStg.role) + '</span>' +
+    return '<div class="stage-guide-banner" style="margin:4px 0 6px;padding:6px 10px;background:#f8fafc;border:1.5px solid var(--border);border-radius:8px;display:flex;flex-direction:column;gap:5px">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;width:100%">' +
+        '<div style="display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden">' +
+          '<span style="display:inline-flex;align-items:center;justify-content:center;color:var(--orange)">' + ICONS.spark + '</span>' +
+          '<span style="font-weight:700;font-size:.82rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(stageObj.title || curStg.name) + '</span>' +
+          '<span class="badge b-blue" style="font-size:.65rem;padding:1px 5px;flex-shrink:0">' + escHtml(stageObj.role || curStg.role) + '</span>' +
         '</div>' +
-        (stageObj.goal ? ('<div style="font-size:.76rem;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:380px" title="' + escHtml(stageObj.goal) + '">🎯 ' + escHtml(stageObj.goal) + '</div>') : '') +
+        (stageObj.goal ? ('<div style="font-size:.74rem;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px" title="' + escHtml(stageObj.goal) + '">🎯 ' + escHtml(stageObj.goal) + '</div>') : '') +
       '</div>' +
-      '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;flex-shrink:0">' +
+      '<div class="swipe-carousel-row" style="padding:2px 0 0 0;margin:0;gap:6px;width:100%">' +
         techBtn +
-        '<button type="button" class="btn btn-xs btn-ghost" onclick="showStageHelpModal(' + curStageNum + ')" style="border:1px solid var(--border);background:#fff;white-space:nowrap;padding:3px 8px;font-weight:600;font-size:.74rem;color:var(--orange-dark)" title="Подробный регламент шага">❓ Регламент</button>' +
+        '<button type="button" class="btn btn-xs btn-ghost carousel-card" onclick="showStageHelpModal(' + curStageNum + ')" style="border:1px solid var(--border);background:#fff;white-space:nowrap;padding:3px 8px;font-weight:600;font-size:.74rem;color:var(--orange-dark);display:inline-flex;align-items:center;gap:4px;flex-shrink:0" title="Подробный регламент шага">' + ICONS.help + ' Регламент</button>' +
         entryActions +
       '</div>' +
     '</div>';

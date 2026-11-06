@@ -1,8 +1,8 @@
 {
-  "version": "1.2.0",
-  "branch": "phone",
-  "commit": "0ca7b78",
-  "updatedAt": "2026-11-06T16:26:00Z",
-  "message": "Векторные строгие иконки на всех вкладках, синхронизация с dev и автообновление",
+  "version": "1.2.1",
+  "branch": "phone-master",
+  "commit": "phone-master",
+  "updatedAt": "2026-11-06T17:15:00Z",
+  "message": "Прод-версия: исправление верстки, строгие иконки, новый логотип",
   "apkUrl": "https://github.com/Dzzz339/web/releases/download/latest/app-debug.apk"
 }

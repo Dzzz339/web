@@ -1,16 +1,16 @@
-// www/js/updater.js — Автоматическое обновление приложения при пуше в Git (ветка phone)
+// www/js/updater.js — Автоматическое обновление приложения при пуше в Git (ветка phone-master)
 
 (function() {
   'use strict';
 
   var GITHUB_OWNER = 'Dzzz339';
   var GITHUB_REPO = 'web';
-  var GITHUB_BRANCH = 'phone';
+  var GITHUB_BRANCH = 'phone-master';
   var CHECK_INTERVAL_MS = 60 * 1000; // Проверка каждую минуту
 
   // Текущая базовая версия в коде
-  var EMBEDDED_VERSION = '1.2.0';
-  var EMBEDDED_COMMIT = '0ca7b78';
+  var EMBEDDED_VERSION = '1.2.1';
+  var EMBEDDED_COMMIT = 'phone-master';
 
   // Инициализация локального коммита
   var installedCommit = localStorage.getItem('app_installed_commit') || EMBEDDED_COMMIT;
@@ -27,7 +27,7 @@
     }
 
     container.innerHTML = 
-      '<button type="button" class="topbar-update-btn" onclick="showUpdateModal(true)" title="Вышло обновление в Git: ' + (info.message ? escText(info.message.slice(0, 60)) : '') + '">' +
+      '<button type="button" class="topbar-update-btn" onclick="showUpdateModal(true)" title="Вышло обновление: ' + (info.message ? escText(info.message.slice(0, 60)) : '') + '">' +
         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' +
           '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>' +
           '<polyline points="7 10 12 15 17 10"/>' +
@@ -62,7 +62,7 @@
           '</svg>' +
         '</div>' +
         '<h3 class="update-modal-title">Доступно обновление Stockeasy</h3>' +
-        '<p class="update-modal-sub">В репозиторий опубликован свежий пуш (ветка <b>' + GITHUB_BRANCH + '</b>' + (shortSha ? ', коммит <code>' + shortSha + '</code>' : '') + '). Для продолжения работы требуется обновить приложение.</p>' +
+        '<p class="update-modal-sub">Опубликована новая стабильная версия в <b>' + GITHUB_BRANCH + '</b>' + (shortSha ? ' (<code>' + shortSha + '</code>)' : '') + '.</p>' +
         '<div class="update-modal-notes">' +
           '<div style="font-size:0.72rem;color:#94a3b8;margin-bottom:4px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;">Что нового (' + dateStr + '):</div>' +
           '<div style="font-weight:600;color:#0f172a;">' + escText(commitMsg) + '</div>' +
@@ -72,11 +72,19 @@
             '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>' +
             '<span>' + (isNative ? 'Скачать обновление (APK)' : 'Обновить сейчас') + '</span>' +
           '</button>' +
-          (isNative ? '<button type="button" class="btn btn-sm btn-ghost" onclick="window.location.reload(true)" style="margin-top:4px;">Перезагрузить интерфейс</button>' : '') +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="window.dismissUpdateModal()" style="color:#64748b;margin-top:4px;">Позже</button>' +
         '</div>' +
       '</div>';
 
     document.body.appendChild(modal);
+  }
+
+  function dismissUpdateModal() {
+    if (latestUpdateData && latestUpdateData.sha) {
+      sessionStorage.setItem('app_dismissed_update_' + latestUpdateData.sha, '1');
+    }
+    var existing = document.getElementById('app_update_modal');
+    if (existing) existing.remove();
   }
 
   function applyAppUpdate() {
@@ -142,15 +150,14 @@
 
     var currentInstalled = localStorage.getItem('app_installed_commit') || EMBEDDED_COMMIT;
 
-    // Если это первый запуск и локальный коммит равен EMBEDDED_COMMIT:
-    // инициализируем локальный коммит удаленным, чтобы не спамить при установке
+    // Первый запуск: фиксируем текущий коммит, если он не был сохранен
     if (!localStorage.getItem('app_installed_commit')) {
       localStorage.setItem('app_installed_commit', remoteSha);
       return;
     }
 
     if (remoteSha !== currentInstalled) {
-      console.log('[Updater] Обнаружен новый пуш в Git!', { current: currentInstalled, remote: remoteSha });
+      console.log('[Updater] Обнаружен новый пуш в ' + GITHUB_BRANCH + '!', { current: currentInstalled, remote: remoteSha });
       isUpdatePending = true;
       latestUpdateData = {
         sha: remoteSha,
@@ -159,8 +166,14 @@
         apkUrl: apkUrl || 'https://github.com/' + GITHUB_OWNER + '/' + GITHUB_REPO + '/releases/download/latest/app-debug.apk'
       };
 
+      // Всегда показываем пульсирующую кнопку в шапке
       renderUpdateTopbarButton(latestUpdateData);
-      showUpdateModal(true);
+
+      // Модальное окно показываем только если пользователь еще не отложил («Позже») эту версию
+      var isDismissed = sessionStorage.getItem('app_dismissed_update_' + remoteSha);
+      if (!isDismissed) {
+        showUpdateModal(false);
+      }
     } else {
       isUpdatePending = false;
       latestUpdateData = null;
@@ -175,6 +188,7 @@
   // Экспорт глобальных функций
   window.checkForAppUpdate = checkForAppUpdate;
   window.showUpdateModal = showUpdateModal;
+  window.dismissUpdateModal = dismissUpdateModal;
   window.applyAppUpdate = applyAppUpdate;
 
   // Запуск фоновой проверки обновлений
