@@ -17,3 +17,8 @@ mobile/android/.gradle/
 mobile/android/app/build/
 mobile/android/build/
 mobile/www/
+.DS_Store
+*/.DS_Store
+web/
+накладные/
+*.doc
