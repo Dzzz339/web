@@ -1243,6 +1243,268 @@ function returnFromCard() {
 }
 window.returnFromCard = returnFromCard;
 
+window.closeCardSectionModal = function() {
+  var m = document.getElementById('_card_section_modal');
+  if (m) m.remove();
+  if (typeof window.restorePageScroll === 'function') window.restorePageScroll();
+};
+
+window.openCardSectionModal = function(sectionKey, taskId) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+  var eid = String(t.id).replace(/'/g, "\\'");
+
+  var oldModal = document.getElementById('_card_section_modal');
+  if (oldModal) oldModal.remove();
+
+  var secMeta = {
+    inflow: { title: 'Параметры заказа по договору (Вход)', icon: '💰', badge: 'Входные данные' },
+    object: { title: 'Объект, Договор и Стороны', icon: '🏛️', badge: 'Карточка объекта' },
+    team: { title: 'Команда, Сроки и Регламент', icon: '👥', badge: 'Управление' },
+    files: { title: 'Файлы ТЗ договора и материалы заявки', icon: '📁', badge: 'Документы' },
+    map: { title: 'Интерактивная карта объекта', icon: '🗺️', badge: 'Геолокация' },
+    lineage: { title: 'Происхождение заявки (Data Lineage)', icon: '📌', badge: 'Аудит данных' }
+  }[sectionKey] || { title: 'Секция заявки', icon: '📄', badge: 'Подокно' };
+
+  var modal = document.createElement('div');
+  modal.className = 'modal-overlay card-section-modal-overlay';
+  modal.id = '_card_section_modal';
+  modal.style.zIndex = '10005';
+
+  var contentHtml = '';
+
+  if (sectionKey === 'inflow') {
+    var curAmt = (S.cardDraft && S.cardDraft.amount !== undefined) ? S.cardDraft.amount : (t.amount || '');
+    var curPrice = (S.cardDraft && S.cardDraft.pricePerUnit !== undefined) ? S.cardDraft.pricePerUnit : (t.pricePerUnit || '');
+    var curInOrder = (S.cardDraft && S.cardDraft.inOrder !== undefined) ? S.cardDraft.inOrder : (t.inOrder || '');
+    var curEdo = (S.cardDraft && S.cardDraft.edoNumber !== undefined) ? S.cardDraft.edoNumber : (t.edoNumber || '');
+    var curRealDist = (S.cardDraft && S.cardDraft.realDistanceKm !== undefined) ? S.cardDraft.realDistanceKm : (t.realDistanceKm || '');
+    var curDistKm = (S.cardDraft && S.cardDraft.distanceKm !== undefined) ? S.cardDraft.distanceKm : (t.distanceKm || '');
+
+    contentHtml = 
+      '<div style="display:flex;flex-direction:column;gap:10px">' +
+        '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 12px;font-size:.78rem;color:#1e40af">' +
+          'Входные параметры заказа: плановые объемы, расценки по договору и доплата за удаленность.' +
+        '</div>' +
+        '<div class="field-compact">' +
+          '<label class="field-lbl">Сумма договора / заявки (₽)</label>' +
+          '<div class="field-val"><input type="number" class="modal-field-input" data-key="amount" value="' + escHtml(String(curAmt)) + '" placeholder="0" style="width:100%"></div>' +
+        '</div>' +
+        '<div class="field-compact">' +
+          '<label class="field-lbl">Стоимость за единицу (₽)</label>' +
+          '<div class="field-val"><input type="number" class="modal-field-input" data-key="pricePerUnit" value="' + escHtml(String(curPrice)) + '" placeholder="0" style="width:100%"></div>' +
+        '</div>' +
+        '<div class="field-compact">' +
+          '<label class="field-lbl">В заказе Заказчика (план, портов)</label>' +
+          '<div class="field-val"><input type="number" class="modal-field-input" data-key="inOrder" value="' + escHtml(String(curInOrder)) + '" placeholder="1" style="width:100%"></div>' +
+        '</div>' +
+        '<div class="field-compact">' +
+          '<label class="field-lbl">№ документа в ЭДО</label>' +
+          '<div class="field-val"><input type="text" class="modal-field-input" data-key="edoNumber" value="' + escHtml(String(curEdo)) + '" placeholder="Номер в ЭДО" style="width:100%"></div>' +
+        '</div>' +
+        '<div class="field-compact">' +
+          '<label class="field-lbl">Километраж дороги (км)</label>' +
+          '<div class="field-val"><input type="number" class="modal-field-input" data-key="realDistanceKm" value="' + escHtml(String(curRealDist)) + '" placeholder="0" style="width:100%"></div>' +
+        '</div>' +
+        '<div class="field-compact">' +
+          '<label class="field-lbl">Доплата за удаленность (₽)</label>' +
+          '<div class="field-val"><input type="number" class="modal-field-input" data-key="distanceKm" value="' + escHtml(String(curDistKm)) + '" placeholder="0" style="width:100%"></div>' +
+        '</div>' +
+        '<div style="margin-top:8px;padding-top:10px;border-top:1px solid var(--border)">' +
+          '<button type="button" class="btn btn-sm btn-primary" onclick="window.closeCardSectionModal();window.cardTransitionToSmr(\'' + eid + '\')" style="width:100%;font-size:.84rem;padding:7px;background:#16a34a;border-color:#16a34a;font-weight:700">🚀 Передать в монтаж (на этап СМР) →</button>' +
+        '</div>' +
+      '</div>';
+  } else if (sectionKey === 'object') {
+    var curCust = (S.cardDraft && S.cardDraft.customer !== undefined) ? S.cardDraft.customer : (t.customer || '');
+    var curReg = (S.cardDraft && S.cardDraft.region !== undefined) ? S.cardDraft.region : (t.region || '');
+    var curAddr = (S.cardDraft && S.cardDraft.address !== undefined) ? S.cardDraft.address : (t.address || '');
+    var curContact = (S.cardDraft && S.cardDraft.contact !== undefined) ? S.cardDraft.contact : (t.contact || '');
+    var curGosb = (S.cardDraft && S.cardDraft.gosb !== undefined) ? S.cardDraft.gosb : (t.gosb || '');
+    var curVsp = (S.cardDraft && S.cardDraft.vsp !== undefined) ? S.cardDraft.vsp : (t.vsp || '');
+    var curTipObj = (S.cardDraft && S.cardDraft.tipObj !== undefined) ? S.cardDraft.tipObj : (t.tipObj || '');
+    var curWorkType = (S.cardDraft && S.cardDraft.workType !== undefined) ? S.cardDraft.workType : (t.workType || '');
+
+    contentHtml =
+      '<div style="display:flex;flex-direction:column;gap:10px">' +
+        '<div class="field-compact">' +
+          '<label class="field-lbl">Заказчик</label>' +
+          '<div class="field-val"><input type="text" class="modal-field-input" data-key="customer" value="' + escHtml(String(curCust)) + '" placeholder="Заказчик" style="width:100%"></div>' +
+        '</div>' +
+        '<div class="field-compact">' +
+          '<label class="field-lbl">Регион</label>' +
+          '<div class="field-val"><input type="text" class="modal-field-input" data-key="region" value="' + escHtml(String(curReg)) + '" placeholder="Регион" style="width:100%"></div>' +
+        '</div>' +
+        '<div class="field-compact">' +
+          '<label class="field-lbl">Адрес объекта</label>' +
+          '<div class="field-val"><input type="text" class="modal-field-input" data-key="address" value="' + escHtml(String(curAddr)) + '" placeholder="Адрес" style="width:100%"></div>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+          '<div class="field-compact">' +
+            '<label class="field-lbl">№ ГОСБ</label>' +
+            '<div class="field-val"><input type="text" class="modal-field-input" data-key="gosb" value="' + escHtml(String(curGosb)) + '" placeholder="ГОСБ" style="width:100%"></div>' +
+          '</div>' +
+          '<div class="field-compact">' +
+            '<label class="field-lbl">№ ВСП</label>' +
+            '<div class="field-val"><input type="text" class="modal-field-input" data-key="vsp" value="' + escHtml(String(curVsp)) + '" placeholder="ВСП" style="width:100%"></div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+          '<div class="field-compact">' +
+            '<label class="field-lbl">Тип объекта</label>' +
+            '<div class="field-val"><input type="text" class="modal-field-input" data-key="tipObj" value="' + escHtml(String(curTipObj)) + '" placeholder="Тип" style="width:100%"></div>' +
+          '</div>' +
+          '<div class="field-compact">' +
+            '<label class="field-lbl">Тип работ</label>' +
+            '<div class="field-val"><input type="text" class="modal-field-input" data-key="workType" value="' + escHtml(String(curWorkType)) + '" placeholder="Работы" style="width:100%"></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="field-compact">' +
+          '<label class="field-lbl">Контакт на объекте</label>' +
+          '<div class="field-val"><textarea class="modal-field-input" data-key="contact" rows="3" style="width:100%">' + escHtml(String(curContact)) + '</textarea></div>' +
+        '</div>' +
+      '</div>';
+  } else if (sectionKey === 'team') {
+    var curStatus = (S.cardDraft && S.cardDraft.status !== undefined) ? S.cardDraft.status : (t.status || 'pending');
+    var curPrio = (S.cardDraft && S.cardDraft.priority !== undefined) ? S.cardDraft.priority : (t.priority || 'medium');
+    var curAssignee = (S.cardDraft && S.cardDraft.assignee !== undefined) ? S.cardDraft.assignee : (t.assignee || '');
+    var curContr = (S.cardDraft && S.cardDraft.contractor !== undefined) ? S.cardDraft.contractor : (t.contractor || '');
+    var curDl = (S.cardDraft && S.cardDraft.deadline !== undefined) ? S.cardDraft.deadline : (t.deadline || '');
+    var curVyh = (S.cardDraft && S.cardDraft.dataVyhoda !== undefined) ? S.cardDraft.dataVyhoda : (t.dataVyhoda || '');
+    var curComm = (S.cardDraft && S.cardDraft.comment !== undefined) ? S.cardDraft.comment : (t.comment || '');
+
+    contentHtml =
+      '<div style="display:flex;flex-direction:column;gap:10px">' +
+        '<div class="field-compact">' +
+          '<label class="field-lbl">Статус заявки</label>' +
+          '<div class="field-val">' +
+            '<select class="modal-field-input" data-key="status" style="width:100%">' +
+              '<option value="pending"' + (curStatus === 'pending' ? ' selected' : '') + '>Не распределено</option>' +
+              '<option value="progress"' + (curStatus === 'progress' ? ' selected' : '') + '>В работе</option>' +
+              '<option value="done"' + (curStatus === 'done' ? ' selected' : '') + '>Готово</option>' +
+              '<option value="paid"' + (curStatus === 'paid' ? ' selected' : '') + '>Оплачен</option>' +
+              '<option value="cancelled"' + (curStatus === 'cancelled' ? ' selected' : '') + '>Отменен</option>' +
+            '</select>' +
+          '</div>' +
+        '</div>' +
+        '<div class="field-compact">' +
+          '<label class="field-lbl">Приоритет</label>' +
+          '<div class="field-val">' +
+            '<select class="modal-field-input" data-key="priority" style="width:100%">' +
+              '<option value="high"' + (curPrio === 'high' ? ' selected' : '') + '>🔴 Высокий</option>' +
+              '<option value="medium"' + (curPrio === 'medium' ? ' selected' : '') + '>🟡 Средний</option>' +
+              '<option value="low"' + (curPrio === 'low' ? ' selected' : '') + '>🟢 Низкий</option>' +
+            '</select>' +
+          '</div>' +
+        '</div>' +
+        '<div class="field-compact">' +
+          '<label class="field-lbl">Проект-менеджер (ПМ)</label>' +
+          '<div class="field-val"><input type="text" class="modal-field-input" data-key="assignee" value="' + escHtml(String(curAssignee)) + '" placeholder="ПМ" style="width:100%"></div>' +
+        '</div>' +
+        '<div class="field-compact">' +
+          '<label class="field-lbl">Субподрядчик</label>' +
+          '<div class="field-val"><input type="text" class="modal-field-input" data-key="contractor" value="' + escHtml(String(curContr)) + '" placeholder="Субподрядчик" style="width:100%"></div>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+          '<div class="field-compact">' +
+            '<label class="field-lbl">Дедлайн (план)</label>' +
+            '<div class="field-val"><input type="date" class="modal-field-input" data-key="deadline" value="' + (curDl ? String(curDl).slice(0, 10) : '') + '" style="width:100%"></div>' +
+          '</div>' +
+          '<div class="field-compact">' +
+            '<label class="field-lbl">Дата выхода</label>' +
+            '<div class="field-val"><input type="date" class="modal-field-input" data-key="dataVyhoda" value="' + (curVyh ? String(curVyh).slice(0, 10) : '') + '" style="width:100%"></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="field-compact">' +
+          '<label class="field-lbl">Внутренний комментарий</label>' +
+          '<div class="field-val"><textarea class="modal-field-input" data-key="comment" rows="3" style="width:100%">' + escHtml(String(curComm)) + '</textarea></div>' +
+        '</div>' +
+      '</div>';
+  } else if (sectionKey === 'files') {
+    contentHtml =
+      '<div style="display:flex;flex-direction:column;gap:12px">' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+          '<label class="btn btn-sm btn-ghost" style="padding:4px 8px;border:1px solid var(--border);cursor:pointer">📷 Фото<input type="file" multiple accept="image/*" style="display:none" onchange="handleAttachmentUpload(\'' + eid + '\',\'photo_report\',this.files);window.closeCardSectionModal();"></label>' +
+          '<label class="btn btn-sm btn-ghost" style="padding:4px 8px;border:1px solid var(--border);cursor:pointer">🗺️ Схема<input type="file" multiple accept="image/*,.pdf,.dwg" style="display:none" onchange="handleAttachmentUpload(\'' + eid + '\',\'scheme\',this.files);window.closeCardSectionModal();"></label>' +
+          '<label class="btn btn-sm btn-ghost" style="padding:4px 8px;border:1px solid var(--border);cursor:pointer">📋 Чек-лист<input type="file" multiple accept="image/*,.pdf,.xlsx,.xls,.docx" style="display:none" onchange="handleAttachmentUpload(\'' + eid + '\',\'checklist\',this.files);window.closeCardSectionModal();"></label>' +
+          '<label class="btn btn-sm btn-primary" style="padding:4px 10px;cursor:pointer">+ Добавить файл<input type="file" multiple accept="*/*" style="display:none" onchange="handleAttachmentUpload(\'' + eid + '\',\'act\',this.files);window.closeCardSectionModal();"></label>' +
+        '</div>' +
+        '<div id="modalAttachmentsList" style="min-height:80px;font-size:.82rem;background:#f8fafc;padding:10px;border-radius:6px;border:1px solid var(--border)">' +
+          (document.getElementById('attachmentsList') ? document.getElementById('attachmentsList').innerHTML : 'Загрузка материалов...') +
+        '</div>' +
+      '</div>';
+  } else if (sectionKey === 'map') {
+    var mapAddr = t.address || t.region || 'Россия';
+    contentHtml =
+      '<div style="display:flex;flex-direction:column;gap:10px">' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+          '<a href="https://yandex.ru/maps/?rtext=~' + encodeURIComponent('Россия, ' + mapAddr) + '&rtt=auto" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="background:#fff1f2;color:#be123c;border:1px solid #fecdd3;font-weight:700">📍 Маршрут (Яндекс.Карты) ↗</a>' +
+          '<a href="https://2gis.ru/search/' + encodeURIComponent('Россия, ' + mapAddr) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="background:#f0fdfa;color:#0f766e;border:1px solid #99f6e4;font-weight:700">🗺️ 2ГИС ↗</a>' +
+        '</div>' +
+        '<div style="height:320px;border-radius:8px;overflow:hidden;border:1px solid var(--border)">' +
+          '<iframe src="https://yandex.ru/map-widget/v1/?text=' + encodeURIComponent('Россия, ' + mapAddr) + '&z=14" width="100%" height="100%" frameborder="0" allowfullscreen="true" style="position:relative;border:none;"></iframe>' +
+        '</div>' +
+      '</div>';
+  } else if (sectionKey === 'lineage') {
+    contentHtml =
+      '<div style="display:flex;flex-direction:column;gap:8px;font-size:.82rem">' +
+        '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)"><span>Поступила в систему:</span><b style="color:var(--blue)">' + (t.firstImportedAt ? new Date(t.firstImportedAt).toLocaleString('ru-RU') : (t.dateZayavki ? t.dateZayavki.slice(0,10).split('-').reverse().join('.') : '—')) + '</b></div>' +
+        '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)"><span>Исходный реестр:</span><b>' + escHtml(t.importSource || t.sheet || 'Excel-импорт') + '</b></div>' +
+        (t.dateZayavki ? '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)"><span>Дата по Заказчику:</span><b>' + t.dateZayavki.slice(0,10).split('-').reverse().join('.') + '</b></div>' : '') +
+        '<div style="display:flex;justify-content:space-between;padding:6px 0"><span>ID в базе:</span><code>' + escHtml(t.id) + '</code></div>' +
+      '</div>';
+  }
+
+  modal.innerHTML = 
+    '<div class="modal-box card-section-modal-box">' +
+      '<div class="modal-header" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding-bottom:8px;margin-bottom:12px;border-bottom:1px solid var(--border)">' +
+        '<div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1">' +
+          '<span style="font-size:1.25rem">' + secMeta.icon + '</span>' +
+          '<div style="min-width:0">' +
+            '<div style="font-weight:700;font-size:.95rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(secMeta.title) + '</div>' +
+            '<div style="font-size:.7rem;color:var(--text-3)">Заявка #' + escHtml(t.id) + ' · ' + escHtml(secMeta.badge) + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<button type="button" class="btn btn-sm btn-ghost btn-close" onclick="window.closeCardSectionModal()" style="font-size:1.15rem;padding:2px 8px;cursor:pointer">✕</button>' +
+      '</div>' +
+      '<div class="modal-body" style="margin-bottom:14px">' +
+        contentHtml +
+      '</div>' +
+      '<div class="modal-footer" style="display:flex;justify-content:flex-end;gap:8px;padding-top:10px;border-top:1px solid var(--border)">' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="window.closeCardSectionModal()">Закрыть</button>' +
+        '<button type="button" class="btn btn-sm btn-primary" onclick="if(window.saveCard)window.saveCard(false).then(function(){ window.closeCardSectionModal(); });else window.closeCardSectionModal();">✓ Сохранить и закрыть</button>' +
+      '</div>' +
+    '</div>';
+
+  modal.addEventListener('input', function(e) {
+    var el = e.target;
+    var k = el.dataset.key;
+    if (!k) return;
+    if (!S.cardDraft) S.cardDraft = {};
+    S.cardDraft[k] = el.value;
+    var target = document.querySelector('#cardForm [data-key="' + k + '"], #cardForm [name="' + k + '"]');
+    if (target && target !== el) {
+      target.value = el.value;
+    }
+    if (typeof window.updateCardSaveBar === 'function') window.updateCardSaveBar();
+  });
+
+  modal.addEventListener('change', function(e) {
+    var el = e.target;
+    var k = el.dataset.key;
+    if (!k) return;
+    if (!S.cardDraft) S.cardDraft = {};
+    S.cardDraft[k] = (el.type === 'checkbox') ? el.checked : el.value;
+    var target = document.querySelector('#cardForm [data-key="' + k + '"], #cardForm [name="' + k + '"]');
+    if (target && target !== el) {
+      if (el.type === 'checkbox') target.checked = el.checked;
+      else target.value = el.value;
+    }
+    if (typeof window.updateCardSaveBar === 'function') window.updateCardSaveBar();
+  });
+
+  document.body.appendChild(modal);
+};
+
 function pageCard() {
   var t = S.tasks.find(function(x){ return String(x.id) === String(S.cardId); });
   if (!t) return '<div class="card p"><p class="t3">Заявка не найдена.</p><button class="btn" onclick="returnFromCard()">← Назад</button></div>';
@@ -2328,7 +2590,8 @@ function pageCard() {
           '<div style="font-size:.72rem;color:var(--text-3)">Документы из Генерального контракта (ТЗ, сметы) и файлы объекта</div>' +
         '</div>' +
       '</div>' +
-      '<div style="display:flex;gap:4px;flex-wrap:wrap">' +
+      '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">' +
+        '<button type="button" class="btn-open-subwin" onclick="event.stopPropagation();window.openCardSectionModal(\'files\',\'' + eid + '\')" title="Открыть в отдельном подокне">🗗 В подокне</button>' +
         '<label class="btn btn-sm btn-ghost" style="padding:2px 7px;font-size:.74rem;border:1px solid var(--border);cursor:pointer">📷 Фото<input type="file" multiple accept="image/*" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'photo_report\',this.files)"></label>' +
         '<label class="btn btn-sm btn-ghost" style="padding:2px 7px;font-size:.74rem;border:1px solid var(--border);cursor:pointer">🗺️ Схема<input type="file" multiple accept="image/*,.pdf,.dwg" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'scheme\',this.files)"></label>' +
         '<label class="btn btn-sm btn-ghost" style="padding:2px 7px;font-size:.74rem;border:1px solid var(--border);cursor:pointer">📋 Чек-лист<input type="file" multiple accept="image/*,.pdf,.xlsx,.xls,.docx" style="display:none" onchange="handleAttachmentUpload(\''+t.id+'\',\'checklist\',this.files)"></label>' +
@@ -2339,9 +2602,12 @@ function pageCard() {
   '</div>';
 
   var customerInflowCard = '<div class="card p" style="border:1.5px solid var(--border);background:#fff">' +
-    '<div class="sec-title" style="margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center">' +
+    '<div class="sec-title" style="margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">' +
       '<span style="display:flex;align-items:center;gap:6px">💰 Параметры заказа по договору (Вход)</span>' +
-      '<span class="badge b-blue" style="font-size:.72rem">Из договора / Excel</span>' +
+      '<div style="display:flex;align-items:center;gap:6px">' +
+        '<button type="button" class="btn-open-subwin" onclick="event.stopPropagation();window.openCardSectionModal(\'inflow\',\'' + eid + '\')" title="Открыть в отдельном подокне">🗗 В подокне</button>' +
+        '<span class="badge b-blue" style="font-size:.72rem">Из договора / Excel</span>' +
+      '</div>' +
     '</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
       field('Сумма договора / заявки', 'amount', 'number', true) +
@@ -2363,9 +2629,12 @@ function pageCard() {
       '<div style="display:flex;flex-direction:column;gap:.75rem">' +
         '<!-- 1. Объект и Генеральный контракт -->' +
         '<div class="card p">' +
-          '<div class="sec-title" style="margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center">' +
+          '<div class="sec-title" style="margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">' +
             '<span>🏛️ Объект, Договор и Стороны</span>' +
-            '<span class="badge b-gray" style="font-size:.72rem">Карточка объекта</span>' +
+            '<div style="display:flex;align-items:center;gap:6px">' +
+              '<button type="button" class="btn-open-subwin" onclick="event.stopPropagation();window.openCardSectionModal(\'object\',\'' + eid + '\')" title="Открыть в отдельном подокне">🗗 В подокне</button>' +
+              '<span class="badge b-gray" style="font-size:.72rem">Карточка объекта</span>' +
+            '</div>' +
           '</div>' +
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">' +
             field('Заказчик', 'customer', null, true) +
@@ -2398,24 +2667,30 @@ function pageCard() {
             field('Контакт на объекте', 'contact', 'textarea', true) +
           '</div>' +
         '</div>' +
-
+ 
         '<!-- 2. Карта объекта -->' +
         '<div class="card p">' +
-          '<div class="sec-title" style="margin-bottom:.4rem;display:flex;justify-content:space-between;align-items:center">' +
+          '<div class="sec-title" style="margin-bottom:.4rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">' +
             '<span>🗺️ Карта объекта</span>' +
-            '<span style="font-size:.74rem;color:var(--text-3)">Геолокация по адресу</span>' +
+            '<div style="display:flex;align-items:center;gap:6px">' +
+              '<button type="button" class="btn-open-subwin" onclick="event.stopPropagation();window.openCardSectionModal(\'map\',\'' + eid + '\')" title="Открыть в отдельном подокне">🗗 В подокне</button>' +
+              '<span style="font-size:.74rem;color:var(--text-3)">Геолокация по адресу</span>' +
+            '</div>' +
           '</div>' +
           mapHtml +
         '</div>' +
       '</div>' +
-
+ 
       '<!-- ПРАВАЯ КОЛОНКА -->' +
       '<div style="display:flex;flex-direction:column;gap:.75rem">' +
         '<!-- 1. Команда, Сроки и Регламент -->' +
         '<div class="card p">' +
-          '<div class="sec-title" style="margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center">' +
+          '<div class="sec-title" style="margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">' +
             '<span>👥 Команда, Сроки и Регламент</span>' +
-            '<span class="badge b-blue" style="font-size:.72rem">Контроль процесса</span>' +
+            '<div style="display:flex;align-items:center;gap:6px">' +
+              '<button type="button" class="btn-open-subwin" onclick="event.stopPropagation();window.openCardSectionModal(\'team\',\'' + eid + '\')" title="Открыть в отдельном подокне">🗗 В подокне</button>' +
+              '<span class="badge b-blue" style="font-size:.72rem">Контроль процесса</span>' +
+            '</div>' +
           '</div>' +
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">' +
             field('Статус заявки', 'status', null, true) +
@@ -2457,16 +2732,19 @@ function pageCard() {
                   '</div>'
                 : '')) +
         '</div>' +
-
+ 
         '<!-- 2. Параметры заказа по договору (Вход) -->' +
         customerInflowCard +
-
+ 
         '<!-- 3. Файлы ТЗ договора и материалы заявки (Пункты 14, 15) -->' +
         attachmentsBlock +
-
+ 
         '<!-- 4. Data Lineage -->' +
         (isWorker ? '' : '<div class="card p" style="background:#f8fafc;border:1.5px solid var(--border)">' +
-          '<div class="sec-title" style="margin-bottom:.3rem;display:flex;align-items:center;gap:6px">📌 Происхождение заявки (Data Lineage)</div>' +
+          '<div class="sec-title" style="margin-bottom:.3rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">' +
+            '<span style="display:flex;align-items:center;gap:6px">📌 Происхождение заявки (Data Lineage)</span>' +
+            '<button type="button" class="btn-open-subwin" onclick="event.stopPropagation();window.openCardSectionModal(\'lineage\',\'' + eid + '\')" title="Открыть в отдельном подокне">🗗 В подокне</button>' +
+          '</div>' +
           '<div style="display:flex;flex-direction:column;gap:4px;font-size:.76rem">' +
             '<div style="display:flex;justify-content:space-between"><span>Поступила в систему:</span><b style="color:var(--blue)">' + (t.firstImportedAt ? new Date(t.firstImportedAt).toLocaleString('ru-RU') : (t.dateZayavki ? t.dateZayavki.slice(0,10).split('-').reverse().join('.') : '—')) + '</b></div>' +
             '<div style="display:flex;justify-content:space-between"><span>Исходный реестр:</span><b style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(t.importSource || t.sheet || '') + '">' + escHtml(t.importSource || t.sheet || 'Excel-импорт') + '</b></div>' +

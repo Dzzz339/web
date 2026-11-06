@@ -335,14 +335,20 @@ function renderNav() {
   var notifContainer = document.getElementById('notif-container');
   var logo = document.getElementById('sidebar-logo');
 
-  // Если не авторизован — скрываем сайдбар и топбар
+  var mobNav = document.getElementById('mobile-bottom-nav');
+
+  // Если не авторизован — скрываем сайдбар, топбар и нижнюю мобильную навигацию
   if (!S.token) {
+    document.body.classList.add('not-authenticated');
     if (sb) sb.style.display = 'none';
     if (topbar) topbar.style.display = 'none';
+    if (mobNav) mobNav.style.setProperty('display', 'none', 'important');
     return;
   }
 
-  // Если авторизован — показываем сайдбар и топбар
+  // Если авторизован — показываем сайдбар, топбар и навигацию
+  document.body.classList.remove('not-authenticated');
+  if (mobNav) mobNav.style.removeProperty('display');
   if (sb) sb.style.display = 'flex';
   if (topbar) topbar.style.display = 'flex';
   if (notifContainer) notifContainer.style.display = 'block';
@@ -507,6 +513,9 @@ function renderNav() {
 }
 
 function doLogout() {
+  document.body.classList.add('not-authenticated');
+  var mobNav = document.getElementById('mobile-bottom-nav');
+  if (mobNav) mobNav.style.setProperty('display', 'none', 'important');
   localStorage.clear();
   location.reload();
 }
@@ -518,6 +527,9 @@ var searchTimeout = null;
 // ─── RENDER ───────────────────────────────────────────────────────────────────
 function renderApp() {
   if (!S.token) {
+    document.body.classList.add('not-authenticated');
+    var mobNav = document.getElementById('mobile-bottom-nav');
+    if (mobNav) mobNav.style.setProperty('display', 'none', 'important');
     setApp(pageLogin());
     setTimeout(function() {
       var uEl = document.getElementById('luser');
@@ -525,6 +537,7 @@ function renderApp() {
     }, 50);
     return;
   }
+  document.body.classList.remove('not-authenticated');
   if (S.user && !isPageAllowedForRole(S.page, S.user.role)) {
     S.page = getDefaultPageForRole(S.user.role);
     renderNav();
