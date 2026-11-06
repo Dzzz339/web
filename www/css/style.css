@@ -592,6 +592,45 @@
         display: none;
       }
       .g4 { grid-template-columns: 1fr; }
+
+      /* Отступ снизу для контента, чтобы фиксированный навбар не перекрывал низ */
+      body {
+        padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
+      }
+      .app-layout main.main {
+        padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)) !important;
+      }
+      body.in-phone-frame {
+        padding-bottom: 0 !important;
+      }
+
+      /* Освобождаем экран: шапка карточки не должна блокировать пол-экрана */
+      .card-sticky-topbar {
+        position: relative !important;
+        top: 0 !important;
+        box-shadow: none !important;
+        border-bottom: 1px solid var(--border) !important;
+        padding: 4px 0 !important;
+        margin-bottom: 0.5rem !important;
+      }
+
+      /* Все поля карточки (Регион, Адрес, ГОСБ, ВСП) в 1 колонку, чтобы ничего не сжималось */
+      .card-info-dashboard {
+        grid-template-columns: 1fr !important;
+        gap: 0.5rem !important;
+      }
+      .card-info-dashboard div[style*="grid-template-columns"] {
+        grid-template-columns: 1fr !important;
+        gap: 6px !important;
+      }
+
+      .card .form-control,
+      .card input,
+      .card select,
+      .card textarea {
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+      }
     }
 
     .unsaved-bar {
@@ -1420,30 +1459,8 @@
 
     /* ─── MOBILE STICKY ACTION BAR ─── */
     .mobile-action-bar {
-      display: none;
+      display: none !important;
     }
-    @media (max-width: 768px) {
-      .mobile-action-bar {
-        display: flex;
-        position: fixed;
-        bottom: 56px;
-        left: 0;
-        right: 0;
-        background: #ffffff;
-        border-top: 1px solid var(--border);
-        padding: 8px 12px;
-        z-index: 250;
-        box-shadow: 0 -3px 12px rgba(0,0,0,0.08);
-        gap: 8px;
-        align-items: center;
-      }
-      .mobile-action-bar .mobile-action-main-btn {
-        flex: 1;
-        height: 42px;
-        font-size: 0.88rem;
-        font-weight: 700;
-        justify-content: center;
-      }
       .card-tabs-nav {
         padding-bottom: 6px;
       }
@@ -3053,19 +3070,19 @@
   font-size: 11px;
 }
 
-/* ФИКСИРОВАННЫЙ НИЖНИЙ НАВБАР: ВСЕГДА В САМОМ НИЗУ */
+/* ФИКСИРОВАННЫЙ НИЖНИЙ НАВБАР: ВСЕГДА В САМОМ НИЗУ ЭКРАНА СМАРТФОНА */
 .mobile-bottom-nav {
-  height: 58px;
-  background: #ffffff;
-  border-top: 1px solid #e4e4e7;
-  z-index: 500;
-  display: flex;
-  align-items: center;
-  justify-content: space-around;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  box-shadow: 0 -3px 12px rgba(0, 0, 0, 0.08);
-  flex-shrink: 0;
-  position: relative !important;
+  height: calc(58px + env(safe-area-inset-bottom, 0px)) !important;
+  background: #ffffff !important;
+  border-top: 1px solid #e4e4e7 !important;
+  z-index: 1000 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-around !important;
+  padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  box-shadow: 0 -3px 12px rgba(0, 0, 0, 0.08) !important;
+  flex-shrink: 0 !important;
+  position: fixed !important;
   bottom: 0 !important;
   left: 0 !important;
   right: 0 !important;
@@ -3177,11 +3194,13 @@ body.in-phone-frame .topbar {
 }
 
 body.in-phone-frame .mobile-bottom-nav {
-  position: relative !important;
+  position: absolute !important;
   flex-shrink: 0 !important;
   bottom: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
   width: 100% !important;
-  z-index: 450 !important;
+  z-index: 1000 !important;
 }
 
 body.in-phone-frame .sidebar {

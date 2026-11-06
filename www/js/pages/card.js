@@ -1973,7 +1973,7 @@ function pageCard() {
 
   var hdr = '<div class="card-hdr" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:.4rem">' +
     '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-      '<button class="btn btn-sm btn-ghost" onclick="returnFromCard()" title="Вернуться назад к списку" style="font-weight:600;padding:4px 8px">← ' + (S._cardOriginPage === 'kanban' ? 'Канбан' : 'Заявки') + '</button>' +
+      '<button class="btn btn-sm btn-ghost" onclick="returnFromCard()" title="Вернуться назад к списку" style="font-weight:600;padding:4px 8px;display:inline-flex;align-items:center;gap:4px">← ' + (S._cardOriginPage === 'kanban' ? 'Канбан' : 'Заявки') + '</button>' +
       '<h1 style="margin:0;font-size:1.2rem;display:inline-block;white-space:nowrap">' + t.id + '</h1>' +
       edoBadge +
       macroStatusHtml +
@@ -1981,11 +1981,11 @@ function pageCard() {
     '</div>' +
     '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
       datesBlock +
-      '<div style="display:flex;align-items:center;gap:4px">' +
-        '<a href="https://yandex.ru/maps/?rtext=~' + encodeURIComponent('Россия, ' + mapFullAddr) + '&rtt=auto" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" title="Построить автомобильный маршрут на Яндекс.Картах" style="font-size:.78rem;font-weight:600;padding:4px 8px;color:#fc3f1d;border-color:rgba(252,63,29,0.3)">📍 Маршрут</a>' +
-        '<button class="btn btn-sm btn-ghost" onclick="toggleTaskChatDrawer(\'' + eid + '\')" title="Открыть чат по заявке сбоку" style="font-size:.78rem;font-weight:600;padding:4px 8px">💬 Чат</button>' +
-        (isManagerOrAdmin ? '<button class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.25);font-size:.78rem;padding:4px 8px" onclick="deleteTaskPrompt(\'' + eid + '\')" title="Удалить заявку из базы">🗑️</button>' : '') +
-        '<button class="btn btn-sm btn-ghost" onclick="window.print()" title="Распечатать карточку объекта / сохранить в PDF" style="font-size:.78rem;padding:4px 8px">🖨️</button>' +
+      '<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">' +
+        '<a href="https://yandex.ru/maps/?rtext=~' + encodeURIComponent('Россия, ' + mapFullAddr) + '&rtt=auto" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" title="Построить автомобильный маршрут на Яндекс.Картах" style="font-size:.78rem;font-weight:600;padding:4px 8px;color:#fc3f1d;border-color:rgba(252,63,29,0.3);display:inline-flex;align-items:center;gap:4px">' + ICONS.marches + ' Маршрут</a>' +
+        '<button class="btn btn-sm btn-ghost" onclick="toggleTaskChatDrawer(\'' + eid + '\')" title="Открыть чат по заявке сбоку" style="font-size:.78rem;font-weight:600;padding:4px 8px;display:inline-flex;align-items:center;gap:4px">' + ICONS.chat + ' Чат</button>' +
+        (isManagerOrAdmin ? '<button class="btn btn-sm btn-ghost" style="color:var(--red);border-color:rgba(239,68,68,0.25);font-size:.78rem;padding:4px 8px;display:inline-flex;align-items:center;gap:4px" onclick="deleteTaskPrompt(\'' + eid + '\')" title="Удалить заявку из базы">' + ICONS.trash + '</button>' : '') +
+        '<button class="btn btn-sm btn-ghost" onclick="window.print()" title="Распечатать карточку объекта / сохранить в PDF" style="font-size:.78rem;padding:4px 8px;display:inline-flex;align-items:center;gap:4px">' + ICONS.printer + '</button>' +
       '</div>' +
     '</div>' +
   '</div>';
@@ -3280,13 +3280,7 @@ function pageCard() {
       '</div>'
     : '';
 
-  var mobileActionBar = '<div class="mobile-action-bar">' +
-    (hasDraft
-      ? '<button class="btn btn-sm btn-primary mobile-action-main-btn" onclick="window.saveCard(false)">💾 Сохранить</button>' +
-        '<button class="btn btn-sm btn-ghost" onclick="window._resetCardDraft()">✕</button>'
-      : ''
-    ) +
-  '</div>';
+  var mobileActionBar = '';
 
   var confirmModal = S.cardConfirmOpen
     ? '<div class="modal-overlay" id="cardConfirmOverlay">' +
