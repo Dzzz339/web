@@ -143,6 +143,13 @@
     if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
       var App = window.Capacitor.Plugins.App;
       App.addListener('backButton', function() {
+        // Закрытие открытого диалога в мессенджере
+        var openChat = document.querySelector('.chat-main-container.chat-open-mobile');
+        if (openChat && typeof window.closeMobileChat === 'function') {
+          window.closeMobileChat();
+          return;
+        }
+
         var modal = document.querySelector('.modal-overlay:not([style*="display: none"])');
         if (modal) {
           var closeBtn = modal.querySelector('.modal-close-btn, button[onclick*="closeModal"]');

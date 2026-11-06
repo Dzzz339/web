@@ -559,12 +559,12 @@ function pageKanban() {
   var isRemActive = quick === 'remarks';
   var isMineActive = quick === 'mine';
 
-  var quickFiltersHtml = '<div style="display:flex;gap:.4rem;align-items:center;margin-bottom:.45rem;flex-wrap:wrap">' +
-    '<button type="button" class="quick-filter-chip' + (isAllActive ? ' active' : '') + '" onclick="setKanbanQuick(\'all\')">Все объекты (' + S.tasks.filter(function(t){ return !t.archived; }).length + ')</button>' +
-    '<button type="button" class="quick-filter-chip' + (isTodayActive ? ' active' : '') + '" onclick="setKanbanQuick(\'today\')">📥 Новые сегодня (' + todayCount + ')</button>' +
-    '<button type="button" class="quick-filter-chip' + (isOvdActive ? ' active' : '') + '" onclick="setKanbanQuick(\'overdue\')">⏳ С просрочкой (' + S.tasks.filter(function(t){ return !t.archived && (t.overdueDays > 0 || (t.stageDue && new Date(t.stageDue) < new Date())); }).length + ')</button>' +
-    '<button type="button" class="quick-filter-chip' + (isRemActive ? ' active' : '') + '" onclick="setKanbanQuick(\'remarks\')">⚠️ С замечаниями (' + S.tasks.filter(function(t){ return !t.archived && Number(t.openRemarksCount || 0) > 0; }).length + ')</button>' +
-    '<button type="button" class="quick-filter-chip' + (isMineActive ? ' active' : '') + '" onclick="setKanbanQuick(\'mine\')">👤 Мои объекты</button>' +
+  var quickFiltersHtml = '<div class="kanban-quick-filters-row swipe-carousel-row" style="margin-bottom:.2rem;">' +
+    '<button type="button" class="quick-filter-chip carousel-card' + (isAllActive ? ' active' : '') + '" onclick="setKanbanQuick(\'all\')">Все объекты (' + S.tasks.filter(function(t){ return !t.archived; }).length + ')</button>' +
+    '<button type="button" class="quick-filter-chip carousel-card' + (isTodayActive ? ' active' : '') + '" onclick="setKanbanQuick(\'today\')">📥 Новые сегодня (' + todayCount + ')</button>' +
+    '<button type="button" class="quick-filter-chip carousel-card' + (isOvdActive ? ' active' : '') + '" onclick="setKanbanQuick(\'overdue\')">⏳ С просрочкой (' + S.tasks.filter(function(t){ return !t.archived && (t.overdueDays > 0 || (t.stageDue && new Date(t.stageDue) < new Date())); }).length + ')</button>' +
+    '<button type="button" class="quick-filter-chip carousel-card' + (isRemActive ? ' active' : '') + '" onclick="setKanbanQuick(\'remarks\')">⚠️ С замечаниями (' + S.tasks.filter(function(t){ return !t.archived && Number(t.openRemarksCount || 0) > 0; }).length + ')</button>' +
+    '<button type="button" class="quick-filter-chip carousel-card' + (isMineActive ? ' active' : '') + '" onclick="setKanbanQuick(\'mine\')">👤 Мои объекты</button>' +
   '</div>';
 
   // Сводная информационная плашка
@@ -576,11 +576,11 @@ function pageKanban() {
   '</div>';
 
   // Фазовые вкладки (10 этапов разбиты по 4 фазам)
-  var phaseTabsHtml = '<div class="kanban-phase-tabs">' +
+  var phaseTabsHtml = '<div class="kanban-phase-tabs swipe-carousel-row">' +
     KANBAN_PHASES.map(function(ph) {
       var isActive = ph.id === curPhase;
       var count = phaseCounts[ph.id] || 0;
-      return '<button type="button" class="kanban-phase-btn' + (isActive ? ' active' : '') + '" onclick="setKanbanPhase(\'' + ph.id + '\')">' +
+      return '<button type="button" class="kanban-phase-btn carousel-card' + (isActive ? ' active' : '') + '" onclick="setKanbanPhase(\'' + ph.id + '\')">' +
         '<span>' + escHtml(ph.label) + '</span>' +
         '<span class="kanban-phase-cnt">' + count.toLocaleString('ru') + '</span>' +
       '</button>';
@@ -602,17 +602,19 @@ function pageKanban() {
   var kanbanClass = 'kanban' + (curPhase !== 'all' ? ' phase-focused' : '');
 
   return '<div class="kanban-top-section">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.4rem">' +
-        '<div style="display:flex;align-items:center;gap:.65rem;flex-wrap:wrap">' +
-          '<h1 class="page-title" style="margin-bottom:0;font-size:1.15rem">Канбан</h1>' +
-          phaseTabsHtml +
-        '</div>' +
+      '<div class="kanban-header-row" style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-bottom:.2rem">' +
+        '<h1 class="page-title" style="margin-bottom:0;font-size:1.15rem">Канбан</h1>' +
         '<div style="display:flex;align-items:center;gap:6px">' +
           collapseToggleBtn +
           scrollButtonsHtml +
         '</div>' +
       '</div>' +
-      quickFiltersHtml +
+      '<div class="kanban-phase-scroll-wrap" style="width:100%;margin-bottom:.2rem">' +
+        phaseTabsHtml +
+      '</div>' +
+      '<div class="kanban-quick-filters-scroll-wrap" style="width:100%;margin-bottom:.3rem">' +
+        quickFiltersHtml +
+      '</div>' +
       '<div style="display:flex;flex-wrap:wrap;gap:.4rem;align-items:center">' +
         '<input id="kq" type="text" placeholder="Поиск по ID, адресу, исполнителю..." style="flex:2;min-width:180px" value="' + escHtml(S.kanbanQ || '') + '">' +
         '<select id="kreg"><option value="">Все регионы (' + regions.length + ')</option>' + mkOpts(regions, reg) + '</select>' +

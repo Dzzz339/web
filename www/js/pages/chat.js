@@ -39,11 +39,11 @@ function pageChat() {
   }
 
   return `
-    <h1 class="page-title">Мессенджер</h1>
-    <div class="card" style="display:grid; grid-template-columns: 280px 1fr; height:70vh; overflow:hidden">
+    <h1 class="page-title" style="margin-bottom:0.75rem;">Мессенджер</h1>
+    <div class="card chat-main-container ${S.activeRoomId ? 'chat-open-mobile' : ''}">
       
       <!-- Левая колонка: Диалоги -->
-      <div style="border-right:1px solid var(--border); display:flex; flex-direction:column; background:#fafafa">
+      <div class="chat-sidebar-col">
         <div style="padding:12px 14px; border-bottom:1px solid var(--border); font-weight:700" class="sec-title">Чаты</div>
         <div style="overflow-y:auto; flex:1">
           
@@ -77,7 +77,7 @@ function pageChat() {
       </div>
 
       <!-- Правая колонка: Окно переписки -->
-      <div style="display:flex; flex-direction:column; background:#fff; height:100%; min-height:0; overflow:hidden">
+      <div class="chat-conversation-col">
         ${S.aiActive ? `
         <!-- ШАПКА СТОКИ -->
         <div style="padding:12px 16px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:8px">
@@ -144,9 +144,10 @@ function pageChat() {
         </div>
         ` : `
         <!-- Шапка активного чата -->
-        <div style="padding:12px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between">
-          <div style="font-weight:700; font-size:1rem; display:flex; align-items:center; gap:10px;" id="chat-title">
-            <span>Выберите чат слева</span>
+        <div class="chat-conv-header" style="padding:10px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; background:#fafafa;">
+          <div style="font-weight:700; font-size:.95rem; display:flex; align-items:center; gap:8px;" id="chat-title-box">
+            <button type="button" class="btn btn-sm btn-ghost chat-back-btn" onclick="closeMobileChat()" title="Назад к списку чатов">‹ Чаты</button>
+            <span id="chat-title">${S.activeRoomId ? 'Чат' : 'Выберите чат слева'}</span>
           </div>
         </div>
 
@@ -357,6 +358,10 @@ function openChatRoom(roomId, title) {
     renderApp();
   }
   S.activeRoomId = roomId;
+
+  var container = document.querySelector('.chat-main-container');
+  if (container) container.classList.add('chat-open-mobile');
+
   var titleEl = document.getElementById('chat-title');
   if (titleEl) titleEl.textContent = title;
   var inputArea = document.getElementById('chat-input-area');
@@ -372,6 +377,20 @@ function openChatRoom(roomId, title) {
     scrollChatToBottom();
   });
 }
+
+function closeMobileChat() {
+  S.activeRoomId = null;
+  var container = document.querySelector('.chat-main-container');
+  if (container) container.classList.remove('chat-open-mobile');
+
+  var titleEl = document.getElementById('chat-title');
+  if (titleEl) titleEl.textContent = 'Выберите чат слева';
+  var inputArea = document.getElementById('chat-input-area');
+  if (inputArea) inputArea.style.display = 'none';
+  var box = document.getElementById('chat-messages');
+  if (box) box.innerHTML = '<div style="text-align:center; color:var(--text-3); margin-top:2rem">Выберите собеседника слева, чтобы начать переписку</div>';
+}
+window.closeMobileChat = closeMobileChat;
 
 function renderChatMessages() {
   var box = document.getElementById('chat-messages');
@@ -392,11 +411,11 @@ function renderChatMessages() {
     var time = new Date(m.created_at).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
 
     return `
-      <div style="align-self:${align}; max-width:70%; background:${bg}; border:${border}; border-radius:10px; padding:8px 12px; box-shadow:var(--shadow)">
+      <div style="align-self:${align}; max-width:85%; min-width:80px; background:${bg}; border:${border}; border-radius:12px; padding:8px 12px; box-shadow:var(--shadow)">
         <div style="font-size:.7rem; font-weight:700; color:${isMe ? 'var(--orange-dark)' : 'var(--blue)'}; margin-bottom:3px">
           ${isMe ? 'Вы' : escHtml(m.full_name || m.username || 'Пользователь')}
         </div>
-        <div style="font-size:.85rem; color:var(--text); word-break:break-word">${escHtml(m.message_text)}</div>
+        <div style="font-size:.88rem; color:var(--text); word-break:break-word; line-height:1.35">${escHtml(m.message_text)}</div>
         <div style="font-size:.65rem; color:var(--text-3); text-align:right; margin-top:4px">${time}</div>
       </div>
     `;

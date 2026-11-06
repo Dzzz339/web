@@ -311,12 +311,18 @@ function pageCard() {
     '</select>' +
   '</div>';
 
-  var hdr = '<div class="card-hdr" style="flex-wrap:wrap;gap:10px">' +
-    '<button class="btn btn-sm btn-ghost" onclick="go(\'tasks\')">← Заявки</button>' +
-    '<h1 style="margin:0">'+t.id+'</h1>' +
-    macroStatusHtml +
-    docBtns +
-    cancelBtn +
+  var hdr = '<div class="card-hdr" style="flex-wrap:wrap;gap:8px">' +
+    '<div style="display:flex;align-items:center;gap:8px;width:100%;justify-content:space-between">' +
+      '<div style="display:flex;align-items:center;gap:8px;">' +
+        '<button class="btn btn-sm btn-ghost" onclick="go(\'tasks\')">← Заявки</button>' +
+        '<h1 style="margin:0;font-size:1.15rem;">'+t.id+'</h1>' +
+      '</div>' +
+      macroStatusHtml +
+    '</div>' +
+    '<div class="swipe-carousel-row" style="gap:6px;padding:4px 0;width:100%;">' +
+      docBtns +
+      cancelBtn +
+    '</div>' +
   '</div>';
 
   var cancelledBanner = t.status === 'cancelled'
@@ -457,7 +463,7 @@ function pageCard() {
     '</div>' +
     '<details style="font-size:.78rem;color:var(--text-3);cursor:pointer">' +
       '<summary style="font-weight:600;color:var(--text-2);margin-bottom:6px">Показать полную цепочку этапов (10 стадий)</summary>' +
-      '<div style="display:flex;gap:.25rem;align-items:center;overflow-x:auto;padding:8px 0">' + stepperHtml + '</div>' +
+      '<div class="swipe-carousel-row" style="gap:6px;align-items:center;padding:8px 0">' + stepperHtml + '</div>' +
       '<div style="background:#fff;border-radius:6px;padding:.5rem .75rem;border-left:3px solid var(--orange);font-size:.78rem;color:var(--text-2);margin-top:4px">' +
         '<b>💡 Подсказка:</b> ' + (idStageHelp[curStageNum] || '') +
       '</div>' +
@@ -470,23 +476,23 @@ function pageCard() {
     ? ' <span class="card-tab-badge badge-red">' + openRemCount + '</span>'
     : '';
 
-  var tabsNav = '<div class="card-tabs-nav">' +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'main' ? 'active' : '') + '" data-tab="main" onclick="setCardTab(\'main\')">' +
+  var tabsNav = '<div class="card-tabs-nav swipe-carousel-row">' +
+    '<button type="button" class="card-tab-btn carousel-card ' + (curTab === 'main' ? 'active' : '') + '" data-tab="main" onclick="setCardTab(\'main\')">' +
       '📌 Главное и Объект' +
     '</button>' +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'items' ? 'active' : '') + '" data-tab="items" onclick="setCardTab(\'items\')">' +
+    '<button type="button" class="card-tab-btn carousel-card ' + (curTab === 'items' ? 'active' : '') + '" data-tab="items" onclick="setCardTab(\'items\')">' +
       '🤝 Субподряды и Спецификация <span id="cardTabItemsBadge" class="card-tab-badge badge-gray"></span>' +
     '</button>' +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'remarks' ? 'active' : '') + '" data-tab="remarks" onclick="setCardTab(\'remarks\')">' +
+    '<button type="button" class="card-tab-btn carousel-card ' + (curTab === 'remarks' ? 'active' : '') + '" data-tab="remarks" onclick="setCardTab(\'remarks\')">' +
       '⚠️ Замечания Сбера' + remarksTabBadge +
     '</button>' +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'files' ? 'active' : '') + '" data-tab="files" onclick="setCardTab(\'files\')">' +
+    '<button type="button" class="card-tab-btn carousel-card ' + (curTab === 'files' ? 'active' : '') + '" data-tab="files" onclick="setCardTab(\'files\')">' +
       '📎 Документы и Фото' +
     '</button>' +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'finance' ? 'active' : '') + '" data-tab="finance" onclick="setCardTab(\'finance\')">' +
+    '<button type="button" class="card-tab-btn carousel-card ' + (curTab === 'finance' ? 'active' : '') + '" data-tab="finance" onclick="setCardTab(\'finance\')">' +
       '💰 Финансы' +
     '</button>' +
-    '<button type="button" class="card-tab-btn ' + (curTab === 'history' ? 'active' : '') + '" data-tab="history" onclick="setCardTab(\'history\')">' +
+    '<button type="button" class="card-tab-btn carousel-card ' + (curTab === 'history' ? 'active' : '') + '" data-tab="history" onclick="setCardTab(\'history\')">' +
       '🕒 История' +
     '</button>' +
   '</div>';
@@ -805,7 +811,6 @@ function pageCard() {
       paneFinance +
       paneHistory +
     '</form>' +
-    mobileActionBar +
     unsavedBar +
     confirmModal;
 }

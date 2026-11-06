@@ -1345,32 +1345,10 @@
       border-color: #bfdbfe;
     }
 
-    /* ─── MOBILE STICKY ACTION BAR ─── */
+    /* ─── MOBILE STICKY ACTION BAR (Удален в пользу smart-action-box внутри карточки) ─── */
     .mobile-action-bar {
-      display: none;
+      display: none !important;
     }
-    @media (max-width: 768px) {
-      .mobile-action-bar {
-        display: flex;
-        position: fixed;
-        bottom: 56px;
-        left: 0;
-        right: 0;
-        background: #ffffff;
-        border-top: 1px solid var(--border);
-        padding: 8px 12px;
-        z-index: 250;
-        box-shadow: 0 -3px 12px rgba(0,0,0,0.08);
-        gap: 8px;
-        align-items: center;
-      }
-      .mobile-action-bar .mobile-action-main-btn {
-        flex: 1;
-        height: 42px;
-        font-size: 0.88rem;
-        font-weight: 700;
-        justify-content: center;
-      }
       .card-tabs-nav {
         padding-bottom: 6px;
       }
@@ -2390,6 +2368,250 @@ body.in-phone-frame .sidebar-collapse-btn {
 
 body.is-native-phone .sim-phone-header {
   display: none !important;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   ИДЕЯ А: ГОРИЗОНТАЛЬНЫЙ СВАЙП КАРТОЧЕК / ЭТАПОВ (КАК СТОРИС ИЛИ ТОВАРЫ)
+   Помещаются первые карточки нормального читаемого размера, а край
+   следующей карточки слегка выглядывает справа (~15-18%), подсказывая свайп.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.swipe-carousel-row {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  -webkit-overflow-scrolling: touch !important;
+  scroll-snap-type: x mandatory !important;
+  scroll-behavior: smooth !important;
+  gap: 8px !important;
+  padding: 4px 2px 6px 2px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  scrollbar-width: none !important;
+}
+.swipe-carousel-row::-webkit-scrollbar {
+  display: none !important;
+}
+
+.swipe-carousel-row > .carousel-card,
+.swipe-carousel-row > button,
+.swipe-carousel-row > div {
+  flex: 0 0 auto !important;
+  scroll-snap-align: start !important;
+  white-space: nowrap !important;
+}
+
+/* Фазовые вкладки канбана */
+.kanban-phase-tabs.swipe-carousel-row {
+  padding: 4px !important;
+  background: #e2e8f0 !important;
+  border-radius: 12px !important;
+  gap: 6px !important;
+}
+.kanban-phase-tabs .kanban-phase-btn {
+  font-size: 0.78rem !important;
+  padding: 5px 11px !important;
+  border-radius: 8px !important;
+}
+
+/* Быстрые фильтры канбана (chips) */
+.kanban-quick-filters-row.swipe-carousel-row {
+  padding: 2px 0 4px 0 !important;
+  gap: 6px !important;
+}
+.kanban-quick-filters-row .quick-filter-chip {
+  padding: 5px 12px !important;
+  font-size: 0.78rem !important;
+  border-radius: 18px !important;
+}
+
+/* Вкладки карточки заявки */
+.card-tabs-nav.swipe-carousel-row {
+  gap: 6px !important;
+  padding-bottom: 6px !important;
+  margin-bottom: 10px !important;
+}
+.card-tabs-nav .card-tab-btn {
+  font-size: 0.8rem !important;
+  padding: 7px 12px !important;
+  border-radius: 8px !important;
+}
+
+/* Цепочка 10 стадий в карточке */
+details .swipe-carousel-row .step {
+  flex: 0 0 135px !important;
+  min-width: 135px !important;
+  max-width: 135px !important;
+  scroll-snap-align: start !important;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   КАНБАН-ДОСКА НА МОБИЛЬНОМ: СВАЙП КОЛОНОК СО ВЗГЛЯДОМ НА СЛЕДУЮЩУЮ (~16% PEEK)
+   ────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .kanban {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    scroll-snap-type: x mandatory !important;
+    -webkit-overflow-scrolling: touch !important;
+    gap: 12px !important;
+    padding: 6px 4px 16px 4px !important;
+    scrollbar-width: thin !important;
+  }
+  .kcol:not(.kcol-collapsed) {
+    flex: 0 0 84% !important;
+    min-width: 84% !important;
+    max-width: 84% !important;
+    scroll-snap-align: start !important;
+  }
+}
+
+body.in-phone-frame .kanban {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scroll-snap-type: x mandatory !important;
+  -webkit-overflow-scrolling: touch !important;
+  gap: 12px !important;
+  padding: 6px 4px 16px 4px !important;
+  scrollbar-width: thin !important;
+}
+body.in-phone-frame .kcol:not(.kcol-collapsed) {
+  flex: 0 0 84% !important;
+  min-width: 84% !important;
+  max-width: 84% !important;
+  scroll-snap-align: start !important;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   МЕССЕНДЖЕР / ЧАТ: MASTER-DETAIL ДЛЯ МОБИЛЬНЫХ УСТРОЙСТВ (TELEGRAM / WHATSAPP)
+   ────────────────────────────────────────────────────────────────────────── */
+.chat-main-container {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  height: calc(100vh - 140px);
+  max-height: 820px;
+  overflow: hidden;
+}
+.chat-sidebar-col {
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: #fafafa;
+  min-height: 0;
+  overflow: hidden;
+}
+.chat-conversation-col {
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.chat-back-btn {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  .chat-main-container {
+    display: flex !important;
+    flex-direction: column !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    min-height: 0 !important;
+    flex: 1 !important;
+    position: relative !important;
+  }
+  .chat-sidebar-col {
+    width: 100% !important;
+    flex: 1 !important;
+    border-right: none !important;
+    display: flex !important;
+  }
+  .chat-conversation-col {
+    display: none !important;
+    width: 100% !important;
+    flex: 1 !important;
+  }
+  .chat-main-container.chat-open-mobile .chat-sidebar-col {
+    display: none !important;
+  }
+  .chat-main-container.chat-open-mobile .chat-conversation-col {
+    display: flex !important;
+    height: 100% !important;
+  }
+  .chat-back-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    padding: 3px 8px !important;
+    font-weight: 700 !important;
+    font-size: 0.85rem !important;
+    color: var(--orange-dark) !important;
+  }
+}
+
+body.in-phone-frame .chat-main-container {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  min-height: 0 !important;
+  flex: 1 !important;
+  position: relative !important;
+}
+body.in-phone-frame .chat-sidebar-col {
+  width: 100% !important;
+  flex: 1 !important;
+  border-right: none !important;
+  display: flex !important;
+}
+body.in-phone-frame .chat-conversation-col {
+  display: none !important;
+  width: 100% !important;
+  flex: 1 !important;
+}
+body.in-phone-frame .chat-main-container.chat-open-mobile .chat-sidebar-col {
+  display: none !important;
+}
+body.in-phone-frame .chat-main-container.chat-open-mobile .chat-conversation-col {
+  display: flex !important;
+  height: 100% !important;
+}
+body.in-phone-frame .chat-back-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  padding: 3px 8px !important;
+  font-weight: 700 !important;
+  font-size: 0.85rem !important;
+  color: var(--orange-dark) !important;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   ПАНЕЛЬ НЕСОХРАНЕННЫХ ИЗМЕНЕНИЙ В КАРТОЧКЕ (НЕ ВЫПАДАЕТ ЗА РАМКИ ТЕЛЕФОНА)
+   ────────────────────────────────────────────────────────────────────────── */
+body.in-phone-frame .unsaved-bar,
+@media (max-width: 768px) {
+  .unsaved-bar {
+    position: sticky !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    z-index: 400 !important;
+    border-radius: 12px 12px 0 0 !important;
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.12) !important;
+    padding: 10px 14px !important;
+  }
 }
 
 
