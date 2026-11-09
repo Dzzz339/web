@@ -7,6 +7,7 @@ import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { UPLOADS_DIR, uploadAttachment, fixUtf8Filename } from '../middleware/upload.js';
 import { generateIdPdfAlbum } from '../services/idPdfGenerator.js';
 import { generateIdExcelAlbum } from '../services/idExcelGenerator.js';
+import { generateCableJournalExcel, generateFlukeProtocolExcel } from '../services/cableJournalExcelGenerator.js';
 import {
   generateSubcontractOrder,
   generatePermitLetter,
@@ -696,6 +697,38 @@ router.get('/tasks/:taskId/id-album.xlsx', authenticateToken, async (req, res) =
   }
 });
 
+// 4.2. Скачивание Кабельного журнала (КЖ) в формате Excel (структура KZh.xlsx)
+router.get('/tasks/:taskId/cable-journal.xlsx', authenticateToken, async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const excelBuffer = await generateCableJournalExcel(taskId);
+    const safeAscii = 'KZh_' + encodeURIComponent(taskId).replace(/%/g, '_') + '.xlsx';
+    const utf8Filename = `${taskId}_Кабельный_журнал.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(utf8Filename)}`);
+    res.send(excelBuffer);
+  } catch (err) {
+    console.error('Error generating Cable Journal Excel:', err);
+    res.status(500).json({ error: 'Ошибка формирования кабельного журнала в Excel: ' + err.message });
+  }
+});
+
+// 4.3. Скачивание Протокола измерений Fluke в формате Excel
+router.get('/tasks/:taskId/fluke-protocol.xlsx', authenticateToken, async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const excelBuffer = await generateFlukeProtocolExcel(taskId);
+    const safeAscii = 'Fluke_' + encodeURIComponent(taskId).replace(/%/g, '_') + '.xlsx';
+    const utf8Filename = `${taskId}_Протокол_измерений_Fluke.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(utf8Filename)}`);
+    res.send(excelBuffer);
+  } catch (err) {
+    console.error('Error generating Fluke protocol Excel:', err);
+    res.status(500).json({ error: 'Ошибка формирования протокола Fluke в Excel: ' + err.message });
+  }
+});
+
 // 5. Отдельный POST эндпоинт для генерации альбома ИД в .PDF
 router.post('/tasks/:taskId/id-album/generate', authenticateToken, requireRole('admin', 'director', 'manager', 'to_engineer'), async (req, res) => {
   try {
@@ -805,7 +838,26 @@ router.get('/tasks/:taskId/id-moderation', authenticateToken, async (req, res) =
       comment: rawMeta.fluke?.comment || null
     };
 
-    const checkList = [actDoc, certDoc, schemeDoc, kjDoc, flukeDoc];
+    // Адаптивный чек-лист по Заказчику (по замечаниям Алексея):
+    // Для фонда СФР (Социальный фонд России) АОСР исключается ("он нам не нужен")
+    const custName = (task.customer || '').toLowerCase();
+    const isSfr = custName.includes('сфр') || custName.includes('социальн') || custName.includes('пенсион');
+    const isSber = custName.includes('сбер') || (!isSfr && !custName);
+
+    let checkList = [];
+    if (isSfr) {
+      // Комплект СФР: Исполнительная схема, Кабельный журнал, Протокол Fluke, Сертификаты (без АОСР)
+      checkList = [schemeDoc, kjDoc, flukeDoc, certDoc];
+    } else if (isSber) {
+      // Комплект Сбербанка: АОСР, Сертификаты, Исполнительная схема, Кабельный журнал, Протокол Fluke
+      checkList = [actDoc, certDoc, schemeDoc, kjDoc, flukeDoc];
+    } else {
+      // Общий комплект: Схема, КЖ, Протокол, Сертификаты (+ АОСР если он сформирован)
+      checkList = [schemeDoc, kjDoc, flukeDoc, certDoc];
+      if (docsRes.rows.some(d => d.doc_type === 'hidden_works_act' || d.title?.includes('скрытых'))) {
+        checkList.unshift(actDoc);
+      }
+    }
     const approvedCount = checkList.filter(d => d.status === 'approved').length;
     const hasRejected = checkList.some(d => d.status === 'rejected');
     const allApproved = (approvedCount === checkList.length);
@@ -1260,10 +1312,27 @@ router.post('/documents/save', authenticateToken, async (req, res) => {
 
     const userRole = req.user?.role || 'user';
 
+    // Защита от дублирования при повторной генерации документов
+    let effectiveDocId = id;
+    if (!effectiveDocId && task_id && doc_type && doc_type !== 'other' && doc_type !== 'custom') {
+      const exLookup = subcontract_id
+        ? await pool.query(
+            "SELECT id FROM task_documents WHERE task_id = $1 AND doc_type = $2 AND subcontract_id = $3 AND status IN ('created', 'draft', 'generated') ORDER BY id DESC LIMIT 1",
+            [task_id, doc_type, subcontract_id]
+          )
+        : await pool.query(
+            "SELECT id FROM task_documents WHERE task_id = $1 AND doc_type = $2 AND status IN ('created', 'draft', 'generated') ORDER BY id DESC LIMIT 1",
+            [task_id, doc_type]
+          );
+      if (exLookup.rows.length) {
+        effectiveDocId = exLookup.rows[0].id;
+      }
+    }
+
     // Защита от редактирования в статусах отправки / подписания (по замечаниям руководства)
     let exRes = null;
-    if (id) {
-      exRes = await pool.query('SELECT status, content_html, file_url FROM task_documents WHERE id = $1', [id]);
+    if (effectiveDocId) {
+      exRes = await pool.query('SELECT status, content_html, file_url FROM task_documents WHERE id = $1', [effectiveDocId]);
       if (exRes.rows.length) {
         const curStatus = exRes.rows[0].status;
         if (['agreed', 'sent', 'signed', 'terminated', 'cancelled'].includes(curStatus) && userRole !== 'admin') {
@@ -1332,7 +1401,7 @@ router.post('/documents/save', authenticateToken, async (req, res) => {
       );
     }
 
-    if (id) {
+    if (effectiveDocId) {
       // Обновление существующего документа
       const updRes = await pool.query(`
         UPDATE task_documents SET
@@ -1360,7 +1429,7 @@ router.post('/documents/save', authenticateToken, async (req, res) => {
         fileUrl,
         subcontract_contract_id || null,
         poa_id || null,
-        id
+        effectiveDocId
       ]);
       if (poa_id) {
         await pool.query('UPDATE powers_of_attorney SET document_id = $1 WHERE id = $2', [updRes.rows[0].id, poa_id]);

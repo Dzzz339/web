@@ -12,6 +12,7 @@ import { cleanAddressDaData } from '../services/dadata.js';
 import { runBackgroundGeocoding } from '../services/geoWorker.js';
 import { syncSingleTaskSubcontract } from '../scripts/sync_task_subcontracts.js';
 import { createTaskSeafileFolder, isSeafileConfigured } from '../services/seafileService.js';
+import { generateMaterialSpecExcel } from '../services/materialSpecExcelGenerator.js';
 
 const router = express.Router();
 
@@ -744,6 +745,30 @@ const updateFields = [];
     if (d.realDistanceKm !== undefined || d.real_distance_km !== undefined) {
       const rawRd = d.realDistanceKm !== undefined ? d.realDistanceKm : d.real_distance_km;
       addField('real_distance_km', (rawRd !== null && rawRd !== '') ? Math.max(0, Number(rawRd) || 0) : null, 'numeric');
+    }
+    if (d.statusSupply !== undefined || d.status_supply !== undefined) {
+      addField('status_supply', (d.statusSupply || d.status_supply) || null);
+    }
+    if (d.supplyTk !== undefined || d.supply_tk !== undefined) {
+      addField('supply_tk', (d.supplyTk !== undefined ? d.supplyTk : d.supply_tk) || null);
+    }
+    if (d.supplyTrack !== undefined || d.supply_track !== undefined) {
+      addField('supply_track', (d.supplyTrack !== undefined ? d.supplyTrack : d.supply_track) || null);
+    }
+    if (d.supplyDate !== undefined || d.supply_date !== undefined) {
+      addField('supply_date', safeDate(d.supplyDate !== undefined ? d.supplyDate : d.supply_date), 'date');
+    }
+    if (d.statusId !== undefined || d.status_id !== undefined) {
+      addField('status_id', (d.statusId || d.status_id) || null);
+    }
+    if (d.statusActs !== undefined || d.status_acts !== undefined) {
+      addField('status_acts', (d.statusActs || d.status_acts) || null);
+    }
+    if (d.statusPaymentSub !== undefined || d.status_payment_sub !== undefined) {
+      addField('status_payment_sub', (d.statusPaymentSub || d.status_payment_sub) || null);
+    }
+    if (d.statusPaymentCustomer !== undefined || d.status_payment_customer !== undefined) {
+      addField('status_payment_customer', (d.statusPaymentCustomer || d.status_payment_customer) || null);
     }
 
     // Всегда обновляем историю, версию и updated_at
@@ -1522,7 +1547,8 @@ router.post('/tasks/:id/attachments', authenticateToken, uploadAttachment.array(
       return res.status(403).json({ error: 'Нет доступа к этой заявке' })
     }
     const type = req.body.type
-    if (!['photo_report', 'scheme', 'act', 'receipt', 'pi_excel', 'order_pdf', 'checklist'].includes(type)) {
+    const allowedTypes = ['photo_report', 'scheme', 'act', 'receipt', 'pi_excel', 'order_pdf', 'checklist', 'tz', 'project', 'estimate', 'spec', 'contract_doc', 'other'];
+    if (!allowedTypes.includes(type)) {
       return res.status(400).json({ error: 'Некорректный тип вложения' })
     }
     const inserted = []
@@ -2404,7 +2430,27 @@ router.put('/invoices/:invId', authenticateToken, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }) }
 });
 
-router.get('/export/:id', authenticateToken, (req, res) => res.redirect('/api/export/app2/'+req.params.id))
+// ─── ВЫГРУЗКА СПЕЦИФИКАЦИИ МАТЕРИАЛОВ (ПРИЛОЖЕНИЕ № 2) В EXCEL ───────────────
+async function handleMaterialSpecExport(req, res) {
+  try {
+    const { id } = req.params;
+    const { buffer } = await generateMaterialSpecExcel(id);
+    const safeAscii = 'App2_Spec_' + encodeURIComponent(id).replace(/%/g, '_') + '.xlsx';
+    const utf8Filename = `${id}_Приложение_2_Спецификация_ТМЦ.xlsx`;
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(utf8Filename)}`);
+    res.send(buffer);
+  } catch (err) {
+    console.error('Error exporting material spec Excel:', err);
+    res.status(500).json({ error: 'Ошибка формирования спецификации ТМЦ в Excel: ' + err.message });
+  }
+}
+
+router.get('/tasks/:id/materials/export-excel', authenticateToken, handleMaterialSpecExport);
+router.get('/tasks/:id/specification.xlsx', authenticateToken, handleMaterialSpecExport);
+router.get('/export/app2/:id', authenticateToken, handleMaterialSpecExport);
+router.get('/export/:id', authenticateToken, (req, res) => res.redirect('/api/tasks/' + req.params.id + '/materials/export-excel'))
 
 // ─── СТАРЫЕ ЭНДПОИНТЫ (для совместимости) ───────────────────────────────────
 router.get('/files', authenticateToken, (req, res) => res.json([]))

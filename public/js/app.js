@@ -512,7 +512,16 @@ function renderApp() {
     setApp(pageLogin());
     setTimeout(function() {
       var uEl = document.getElementById('luser');
-      if (uEl) uEl.focus();
+      var savedLogin = localStorage.getItem('saved_login');
+      if (uEl) {
+        if (savedLogin) {
+          uEl.value = savedLogin;
+          var pEl = document.getElementById('lpass');
+          if (pEl) pEl.focus();
+        } else {
+          uEl.focus();
+        }
+      }
     }, 50);
     return;
   }
@@ -796,6 +805,13 @@ function pageLogin() {
             </div>
           </div>
 
+          <div style="display:flex;align-items:center;justify-content:space-between;margin:2px 0 16px 0;font-size:.82rem;">
+            <label style="display:flex;align-items:center;gap:8px;color:var(--text-2);cursor:pointer;user-select:none;">
+              <input type="checkbox" id="lremember" name="remember" checked style="accent-color:var(--orange, #f97316);width:16px;height:16px;cursor:pointer;">
+              <span>Запомнить меня на этом устройстве</span>
+            </label>
+          </div>
+
           <button id="lbtn" type="submit" class="login-submit-btn">
             <span id="lbtn-text">Войти в систему</span>
           </button>
@@ -1045,10 +1061,13 @@ function doLogin() {
     if (btnText) btnText.textContent = 'Входим в систему...';
   }
 
+  var remEl = document.getElementById('lremember');
+  var remember = remEl ? remEl.checked : true;
+
   fetch('/api/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: u, password: p })
+    body: JSON.stringify({ username: u, password: p, rememberMe: remember })
   })
   .then(function(r) { return r.json().then(function(data) { return { status: r.status, data: data }; }); })
   .then(function(res) {
@@ -1068,6 +1087,11 @@ function doLogin() {
       S.user = res.data.user;
       localStorage.setItem('token', S.token);
       localStorage.setItem('user', JSON.stringify(S.user));
+      if (remember) {
+        localStorage.setItem('saved_login', u);
+      } else {
+        localStorage.removeItem('saved_login');
+      }
       location.reload();
     }
   })

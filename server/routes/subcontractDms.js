@@ -44,7 +44,7 @@ router.get('/contractors/:id/contracts', authenticateToken, async (req, res) => 
       LEFT JOIN contracts pc ON cc.parent_contract_id = pc.id
       LEFT JOIN contractor_price_lists pl ON pl.contract_id = cc.id AND pl.is_active = true
       WHERE cc.contractor_id = $1
-      ORDER BY cc.contract_date DESC, cc.id DESC
+      ORDER BY cc.id DESC
     `, [contractorId]);
     res.json(rows);
   } catch (err) {
@@ -193,7 +193,7 @@ router.get('/subcontract-contracts', authenticateToken, async (req, res) => {
       LEFT JOIN own_companies oc ON cc.own_company_id = oc.id
       LEFT JOIN contracts pc ON cc.parent_contract_id = pc.id
       LEFT JOIN contractor_price_lists pl ON pl.contract_id = cc.id AND pl.is_active = true
-      ORDER BY cc.contract_date DESC, cc.id DESC
+      ORDER BY cc.id DESC
     `);
     res.json(rows);
   } catch (err) {

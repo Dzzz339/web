@@ -482,9 +482,12 @@ function renderSubcontractorsTable(container, list) {
       ? `<span class="badge b-blue" style="cursor:pointer; font-weight:700" onclick="viewContractorDetails(${c.id})">👷 ${specCount} монтажников</span>`
       : `<span class="badge b-gray" style="cursor:pointer" onclick="openAddInstallerModal(${c.id}, '${escHtml(c.name_short)}')">+ Привязать монтажника</span>`;
 
-    var contractInfo = c.contract_number 
-      ? `<div style="font-weight:600; font-size:.85rem">Договор № ${escHtml(c.contract_number)}</div>` 
-      : '<span style="color:var(--text-3); font-size:.8rem">Договор не привязан</span>';
+    var subcontractsForC = (S.subContracts || []).filter(function(sc) { return sc.contractor_id === c.id; });
+    var contractInfo = subcontractsForC.length > 0
+      ? `<button type="button" class="btn btn-xs" style="font-weight:700;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:3px 8px;cursor:pointer" onclick="openSubcontractsForContractor(${c.id})" title="Открыть договоры субподряда с этой организацией">📑 Договоры (${subcontractsForC.length} шт.)</button>`
+      : (c.contract_number 
+          ? `<div style="font-weight:600; font-size:.82rem">Договор № ${escHtml(c.contract_number)}</div>` 
+          : '<span style="color:var(--text-3); font-size:.78rem">Нет договоров</span>');
 
     return `
       <tr id="contractor_row_${c.id}" data-contractor-id="${c.id}" style="border-bottom: 1px solid var(--border); transition: background .2s">
@@ -524,7 +527,7 @@ function renderSubcontractorsTable(container, list) {
         <thead>
           <tr style="background:var(--bg)">
             <th>Подрядная организация СМР</th>
-            <th>Договор субподряда</th>
+            <th>Договоры</th>
             <th>Монтажники в штате</th>
             <th>Статус</th>
             <th style="width:190px"></th>
@@ -955,92 +958,241 @@ function saveNewContractor(tabType) {
   });
 }
 
+function openSubcontractsForContractor(contractorId) {
+  S.page = 'subcontracts';
+  var c = (S.contractors || []).find(function(x){ return x.id === contractorId; });
+  if (c) S.subcontractsQuery = c.name_short || c.inn || '';
+  renderApp();
+}
+window.openSubcontractsForContractor = openSubcontractsForContractor;
+
 function editContractor(id) {
-  var c = (S.contractors || []).find(x => x.id === id);
+  var c = (S.contractors || []).find(function(x){ return x.id === id; });
   if (!c) return;
   if (window.savePageScroll) window.savePageScroll('contractor_row_' + id);
 
-  var contractDateStr = c.contract_date ? c.contract_date.slice(0, 10) : '';
+  var old = document.getElementById('_edit_contractor_modal_backdrop');
+  if (old) old.remove();
 
-  showModal('✏️ Редактировать карточку организации #' + id, [
-    { key: 'nameShort', label: 'Краткое наименование', value: c.name_short, required: true },
-    { key: 'legalForm', label: 'ОПФ (форма организации)', value: c.legal_form || '' },
-    { key: 'taxSystem', label: 'Система налогообложения', type: 'select', value: c.tax_system || 'usn', options: [
-        { value: 'usn', label: 'УСН (Без НДС)' },
-        { value: 'osno', label: 'ОСНО (НДС 20%)' },
-        { value: 'npd', label: 'Самозанятый (НПД 6%)' },
-        { value: 'usn_5', label: 'УСН (НДС 5% - реформа 2025)' },
-        { value: 'usn_7', label: 'УСН (НДС 7% - реформа 2025)' },
-        { value: 'gph', label: 'Физлицо (ГПХ, НДФЛ 13%)' }
-      ]
-    },
-    { key: 'type', label: 'Тип организации', type: 'select', value: c.type || 'subcontractor', options: [
-        { value: 'subcontractor', label: '👷 Подрядчик СМР (монтажная организация)' },
-        { value: 'customer', label: '🏛️ Заказчик (кто нам платит)' },
-        { value: 'supplier', label: '📦 Поставщик материалов и оборудования' },
-        { value: 'logistics', label: '🚚 Логистика / Транспортная компания (ТК)' },
-        { value: 'other_expense', label: '🛠️ Прочие (Аренда инструмента, спецтехника, ДОПы)' },
-        { value: 'own', label: '🏛️ Собственное юрлицо («Мы»)' }
-      ]
-    },
-    { key: 'inn', label: 'ИНН', value: c.inn || '', required: false },
-    { key: 'kpp', label: 'КПП', value: c.kpp || '' },
-    { key: 'ogrn', label: 'ОГРН / ОГРНИП', value: c.ogrn || '' },
-    { key: 'nameFull', label: 'Полное наименование', type: 'textarea', value: c.name_full || '' },
-    { key: 'director', label: 'Руководитель (ФИО)', value: c.director || '' },
-    { key: 'signerPosition', label: 'Должность подписанта', value: c.signer_position || 'Директор' },
-    { key: 'actingBasis', label: 'Действует на основании', value: c.acting_basis || 'Устава' },
-    { key: 'addressLegal', label: 'Юридический адрес', type: 'textarea', value: c.address_legal || '' },
-    { key: 'addressPostal', label: 'Почтовый / фактический адрес', type: 'textarea', value: c.address_postal || '' },
-    { key: 'contractNumber', label: 'Номер договора', value: c.contract_number || '' },
-    { key: 'contractDate', label: 'Дата договора', type: 'date', value: contractDateStr },
-    { key: 'curatorName', label: 'Куратор / Контактное лицо', value: c.curator_name || '' },
-    { key: 'phone', label: 'Телефон', value: c.phone || '' },
-    { key: 'email', label: 'Email', value: c.email || '' },
-    { key: 'bankName', label: 'Банк', value: c.bank_name || '' },
-    { key: 'bik', label: 'БИК', value: c.bik || '' },
-    { key: 'accountCorr', label: 'Корр. счет', value: c.account_corr || '' },
-    { key: 'accountPay', label: 'Расчетный счет', value: c.account_pay || '' }
-  ], function(d) {
-    api('/contractors/' + id, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name_short: d.nameShort,
-        legal_form: d.legalForm,
-        tax_system: d.taxSystem || 'usn',
-        type: d.type,
-        inn: d.inn,
-        kpp: d.kpp,
-        ogrn: d.ogrn,
-        name_full: d.nameFull,
-        director: d.director,
-        signer_name: d.director,
-        signer_position: d.signerPosition,
-        acting_basis: d.actingBasis,
-        address_legal: d.addressLegal,
-        address_postal: d.addressPostal,
-        contract_number: d.contractNumber,
-        contract_date: d.contractDate || null,
-        curator_name: d.curatorName,
-        phone: d.phone,
-        email: d.email,
-        bank_name: d.bankName,
-        bik: d.bik,
-        account_corr: d.accountCorr,
-        account_pay: d.accountPay,
-        is_own: (d.type === 'own')
-      })
-    }).then(function(res) {
-      if (res && res.error) return alert(res.error);
-      api('/contractors').then(function(list) {
-        S.contractors = list;
-        renderApp();
-        if (window.restorePageScroll) window.restorePageScroll('contractor_row_' + id);
-      });
+  var modalHtml = `
+    <div class="modal-overlay modal-backdrop" id="_edit_contractor_modal_backdrop" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(2px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px">
+      <div class="modal-box card" id="_edit_contractor_modal_box" style="background:#fff;border-radius:14px;max-width:840px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 16px 40px rgba(0,0,0,0.22);overflow:hidden">
+        <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1.5px solid var(--border);background:#fafafa;cursor:move;user-select:none">
+          <h3 class="modal-title" style="margin:0;font-size:1.05rem;display:flex;align-items:center;gap:8px">
+            <span>✏️</span> <span>Редактировать карточку организации: ${escHtml(c.name_short)} (#${c.id})</span>
+          </h3>
+          <button type="button" class="btn-close btn btn-sm btn-ghost" onclick="var b=document.getElementById('_edit_contractor_modal_backdrop'); if(b) b.remove();">✕</button>
+        </div>
+
+        <div class="modal-body" style="padding:18px 24px;overflow-y:auto;flex:1">
+          <!-- Блок быстрого поиска по названию / ИНН через DaData -->
+          <div style="position:relative; margin-bottom:1.25rem; background:#fff7ed; border:1px solid #fdba74; border-radius:10px; padding:12px 14px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <label style="font-size:.78rem; font-weight:700; color:#9a3412">⚡ Быстрое обновление реквизитов из ФНС / DaData по названию или ИНН</label>
+              <span id="ec_inn_status" style="font-size:.72rem; color:#c2410c">10 или 12 цифр ИНН</span>
+            </div>
+            <div style="display:flex;gap:8px">
+              <input id="ec_search_input" type="text" placeholder="Введите название компании или ИНН..." 
+                     style="flex:1; font-weight:600; padding:8px 12px; border:1.5px solid var(--orange); border-radius:8px; font-size:.86rem; background:#fff"
+                     oninput="onContractorSearchInput(this.value, 'ec')">
+              <button type="button" class="btn btn-sm" style="background:var(--orange);color:#fff;font-weight:700;white-space:nowrap" onclick="onInnDirectInput(document.getElementById('ec_inn').value, 'ec')">🔍 Найти в ФНС</button>
+            </div>
+            <div id="ec_suggestions_box" style="display:none; position:absolute; top:100%; left:0; right:0; background:#fff; border:1.5px solid var(--orange); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.15); z-index:100; max-height:240px; overflow-y:auto; margin-top:4px"></div>
+          </div>
+
+          <form id="edit_contractor_form" onsubmit="saveEditedContractor(event, ${c.id})">
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1.25rem; margin-bottom:1.25rem">
+              <!-- Левая колонка: Основные реквизиты -->
+              <div>
+                <div class="g2 mb">
+                  <div>
+                    <label style="font-size:.75rem; font-weight:600">ОПФ (форма)</label>
+                    <input id="ec_legal_form" type="text" value="${escHtml(c.legal_form || '')}" placeholder="ООО / ИП / ПАО" style="width:100%">
+                  </div>
+                  <div>
+                    <label style="font-size:.75rem; font-weight:600">Краткое наименование *</label>
+                    <input id="ec_name_short" type="text" required value="${escHtml(c.name_short || '')}" placeholder="ООО 'Компания' / ИП Иванов" style="width:100%">
+                  </div>
+                </div>
+
+                <div class="mb">
+                  <label style="font-size:.75rem; font-weight:600">Система налогообложения</label>
+                  <select id="ec_tax_system" style="width:100%; padding:6px; border:1px solid var(--border); border-radius:6px; font-size:.82rem">
+                    <option value="usn" ${c.tax_system === 'usn' ? 'selected' : ''}>УСН (Без НДС)</option>
+                    <option value="osno" ${c.tax_system === 'osno' ? 'selected' : ''}>ОСНО (НДС 20%)</option>
+                    <option value="npd" ${c.tax_system === 'npd' ? 'selected' : ''}>Самозанятый (НПД 6%)</option>
+                    <option value="usn_5" ${c.tax_system === 'usn_5' ? 'selected' : ''}>УСН (НДС 5% - реформа 2025)</option>
+                    <option value="usn_7" ${c.tax_system === 'usn_7' ? 'selected' : ''}>УСН (НДС 7% - реформа 2025)</option>
+                    <option value="gph" ${c.tax_system === 'gph' ? 'selected' : ''}>Физлицо (ГПХ, НДФЛ 13%)</option>
+                  </select>
+                </div>
+
+                <div class="g2 mb">
+                  <div>
+                    <label style="font-size:.75rem; font-weight:600">ИНН</label>
+                    <input id="ec_inn" type="text" value="${escHtml(c.inn || '')}" placeholder="ИНН организации" oninput="onInnDirectInput(this.value, 'ec')">
+                  </div>
+                  <div>
+                    <label style="font-size:.75rem; font-weight:600">КПП</label>
+                    <input id="ec_kpp" type="text" value="${escHtml(c.kpp || '')}" placeholder="КПП (для юрлиц)">
+                  </div>
+                </div>
+
+                <div class="mb">
+                  <label style="font-size:.75rem; font-weight:600">ОГРН / ОГРНИП</label>
+                  <input id="ec_ogrn" type="text" value="${escHtml(c.ogrn || '')}" placeholder="13 или 15 цифр" style="width:100%">
+                </div>
+
+                <div class="mb">
+                  <label style="font-size:.75rem; font-weight:600">Полное наименование</label>
+                  <textarea id="ec_name_full" placeholder="Полное юр. наименование предприятия" style="width:100%; min-height:48px">${escHtml(c.name_full || '')}</textarea>
+                </div>
+
+                <div class="mb">
+                  <label style="font-size:.75rem; font-weight:600">Юридический адрес регистрации</label>
+                  <textarea id="ec_address" placeholder="Адрес регистрации по ЕГРЮЛ/ЕГРИП" style="width:100%; min-height:48px">${escHtml(c.address_legal || '')}</textarea>
+                </div>
+
+                <div class="mb">
+                  <label style="font-size:.75rem; font-weight:600">Почтовый / фактический адрес</label>
+                  <textarea id="ec_address_postal" placeholder="Почтовый адрес для писем и счетов" style="width:100%; min-height:44px">${escHtml(c.address_postal || '')}</textarea>
+                </div>
+              </div>
+
+              <!-- Правая колонка: Руководитель, банк и контакты -->
+              <div>
+                <div class="g2 mb">
+                  <div>
+                    <label style="font-size:.75rem; font-weight:600">Руководитель (ФИО)</label>
+                    <input id="ec_director" type="text" value="${escHtml(c.director || '')}" placeholder="ФИО Генерального директора" style="width:100%">
+                  </div>
+                  <div>
+                    <label style="font-size:.75rem; font-weight:600">Должность подписанта</label>
+                    <input id="ec_signer_position" type="text" value="${escHtml(c.signer_position || 'Директор')}" placeholder="Директор" style="width:100%">
+                  </div>
+                </div>
+
+                <div class="mb">
+                  <label style="font-size:.75rem; font-weight:600">Действует на основании</label>
+                  <input id="ec_acting_basis" type="text" value="${escHtml(c.acting_basis || 'Устава')}" placeholder="Устава / Доверенности" style="width:100%">
+                </div>
+
+                <div class="g2 mb">
+                  <div>
+                    <label style="font-size:.75rem; font-weight:600">Куратор / Контактное лицо</label>
+                    <input id="ec_curator_name" type="text" value="${escHtml(c.curator_name || '')}" placeholder="ФИО контактного лица" style="width:100%">
+                  </div>
+                  <div>
+                    <label style="font-size:.75rem; font-weight:600">Телефон</label>
+                    <input id="ec_phone" type="text" value="${escHtml(c.phone || '')}" placeholder="+7 (999) 000-00-00" style="width:100%">
+                  </div>
+                </div>
+
+                <div class="mb">
+                  <label style="font-size:.75rem; font-weight:600">Email</label>
+                  <input id="ec_email" type="email" value="${escHtml(c.email || '')}" placeholder="info@company.ru" style="width:100%">
+                </div>
+
+                <div class="g2 mb">
+                  <div>
+                    <label style="font-size:.75rem; font-weight:600">БИК Банка</label>
+                    <input id="ec_bik" type="text" value="${escHtml(c.bik || '')}" placeholder="9 цифр" oninput="onBikDirectInput(this.value, 'ec')">
+                  </div>
+                  <div>
+                    <label style="font-size:.75rem; font-weight:600">Банк</label>
+                    <input id="ec_bank_name" type="text" value="${escHtml(c.bank_name || '')}" placeholder="Название банка" style="width:100%">
+                  </div>
+                </div>
+
+                <div class="mb">
+                  <label style="font-size:.75rem; font-weight:600">Корреспондентский счет</label>
+                  <input id="ec_account_corr" type="text" value="${escHtml(c.account_corr || '')}" placeholder="30101810..." style="width:100%">
+                </div>
+
+                <div class="mb">
+                  <label style="font-size:.75rem; font-weight:600">Расчетный счет</label>
+                  <input id="ec_account_pay" type="text" value="${escHtml(c.account_pay || '')}" placeholder="40702810..." style="width:100%">
+                </div>
+
+                <div class="mb">
+                  <label style="font-size:.75rem; font-weight:600">Комментарий / Заметки</label>
+                  <input id="ec_comment" type="text" value="${escHtml(c.comment || '')}" placeholder="Дополнительная информация" style="width:100%">
+                </div>
+              </div>
+            </div>
+
+            <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:14px;border-top:1px solid var(--border)">
+              <button type="button" class="btn btn-ghost" onclick="var b=document.getElementById('_edit_contractor_modal_backdrop'); if(b) b.remove();">Отмена</button>
+              <button type="submit" class="btn btn-primary" style="padding:8px 24px;font-weight:700">💾 Сохранить изменения</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+  var modalBox = document.getElementById('_edit_contractor_modal_box');
+  var bEl = document.getElementById('_edit_contractor_modal_backdrop');
+
+  if (window.makeWindowDraggableAndMinimizable && modalBox) {
+    window.makeWindowDraggableAndMinimizable(modalBox, {
+      title: 'Организация: ' + (c.name_short || '#' + c.id),
+      icon: '🏢',
+      backdrop: bEl,
+      onClose: function() {
+        if (bEl) bEl.remove();
+        if (window.restorePageScroll) window.restorePageScroll();
+      }
+    });
+  }
+}
+window.editContractor = editContractor;
+
+function saveEditedContractor(event, id) {
+  event.preventDefault();
+  var payload = {
+    legal_form: document.getElementById('ec_legal_form').value.trim(),
+    name_short: document.getElementById('ec_name_short').value.trim(),
+    tax_system: document.getElementById('ec_tax_system').value,
+    inn: document.getElementById('ec_inn').value.trim(),
+    kpp: document.getElementById('ec_kpp').value.trim(),
+    ogrn: document.getElementById('ec_ogrn').value.trim(),
+    name_full: document.getElementById('ec_name_full').value.trim(),
+    address_legal: document.getElementById('ec_address').value.trim(),
+    address_postal: document.getElementById('ec_address_postal').value.trim(),
+    director: document.getElementById('ec_director').value.trim(),
+    signer_name: document.getElementById('ec_director').value.trim(),
+    signer_position: document.getElementById('ec_signer_position').value.trim(),
+    acting_basis: document.getElementById('ec_acting_basis').value.trim(),
+    curator_name: document.getElementById('ec_curator_name').value.trim(),
+    phone: document.getElementById('ec_phone').value.trim(),
+    email: document.getElementById('ec_email').value.trim(),
+    bank_name: document.getElementById('ec_bank_name').value.trim(),
+    bik: document.getElementById('ec_bik').value.trim(),
+    account_corr: document.getElementById('ec_account_corr').value.trim(),
+    account_pay: document.getElementById('ec_account_pay').value.trim(),
+    comment: document.getElementById('ec_comment').value.trim()
+  };
+
+  api('/contractors/' + id, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(function(res) {
+    if (res && res.error) return alert('Ошибка сохранения: ' + res.error);
+    var b = document.getElementById('_edit_contractor_modal_backdrop');
+    if (b) b.remove();
+    if (typeof showToast === 'function') showToast('✓ Карточка организации успешно сохранена', 'success');
+    api('/contractors').then(function(list) {
+      if (Array.isArray(list)) S.contractors = list;
+      renderApp();
+      if (window.restorePageScroll) window.restorePageScroll('contractor_row_' + id);
     });
   });
 }
+window.saveEditedContractor = saveEditedContractor;
 
 function deleteContractor(id) {
   if (!confirm('Удалить организацию? Это действие нельзя отменить.')) return;

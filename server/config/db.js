@@ -205,6 +205,9 @@ export async function initDB() {
   // Новые статусы параллельных процессов (Заказчик, СМР, Снабжение, ИД, Бухгалтерия)
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status_smr TEXT DEFAULT 'pending'`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status_supply TEXT DEFAULT 'none'`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS supply_tk TEXT`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS supply_track TEXT`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS supply_date DATE`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status_id TEXT DEFAULT 'pending'`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status_acts TEXT DEFAULT 'pending'`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status_payment_sub TEXT DEFAULT 'pending'`);

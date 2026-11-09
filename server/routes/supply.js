@@ -833,59 +833,135 @@ router.post('/tasks/:id/materials/write-off', authenticateToken, async (req, res
     const movement = movRows[0];
 
     for (const item of items) {
-      const qty = parseFloat(item.quantity);
-      if (isNaN(qty) || qty <= 0) continue;
+      const qty = parseFloat(item.quantity !== undefined ? item.quantity : item.fact_qty);
+      if (isNaN(qty) || qty < 0) continue;
 
-      await client.query(`
-        INSERT INTO stock_movement_items (movement_id, material_id, quantity)
-        VALUES ($1, $2, $3)
-      `, [movement.id, item.material_id, qty]);
-
-      // Уменьшаем остаток на складе подрядчика
-      if (warehouseId) {
+      if (item.material_id) {
         await client.query(`
-          INSERT INTO stock_balances (warehouse_id, material_id, quantity, updated_at)
-          VALUES ($1, $2, -$3, NOW())
-          ON CONFLICT (warehouse_id, material_id) DO UPDATE SET
-            quantity = stock_balances.quantity - $3,
-            updated_at = NOW()
-        `, [warehouseId, item.material_id, qty]);
+          INSERT INTO stock_movement_items (movement_id, material_id, quantity)
+          VALUES ($1, $2, $3)
+        `, [movement.id, item.material_id, qty]);
+
+        // Уменьшаем остаток на складе подрядчика
+        if (warehouseId) {
+          await client.query(`
+            INSERT INTO stock_balances (warehouse_id, material_id, quantity, updated_at)
+            VALUES ($1, $2, -$3, NOW())
+            ON CONFLICT (warehouse_id, material_id) DO UPDATE SET
+              quantity = stock_balances.quantity - $3,
+              updated_at = NOW()
+          `, [warehouseId, item.material_id, qty]);
+        }
       }
 
       // Обновляем факт в task_materials
       const supplier = (item.supplier !== undefined && item.supplier !== null) ? String(item.supplier).trim() : null;
-      if (supplier) {
+      const price = (item.price !== undefined && item.price !== null) ? parseFloat(item.price) : null;
+      const total = (item.total_price !== undefined && item.total_price !== null) ? parseFloat(item.total_price) : (price !== null ? Math.round(qty * price) : null);
+
+      if (item.id) {
         await client.query(`
-          INSERT INTO task_materials (task_id, material_id, plan_qty, fact_qty, is_written_off, written_off_at, supplier)
-          VALUES ($1, $2, $3, $3, true, NOW(), $4)
-          ON CONFLICT (task_id, material_id) DO UPDATE SET
-            fact_qty = $3,
+          UPDATE task_materials SET
+            fact_qty = $1,
             is_written_off = true,
             written_off_at = NOW(),
-            supplier = $4
-        `, [taskId, item.material_id, qty, supplier]);
-      } else {
+            supplier = COALESCE($2, supplier),
+            price = COALESCE($3, price),
+            total_price = COALESCE($4, total_price)
+          WHERE id = $5 AND task_id = $6
+        `, [qty, supplier, price, total, item.id, taskId]);
+      } else if (item.material_id) {
         await client.query(`
-          INSERT INTO task_materials (task_id, material_id, plan_qty, fact_qty, is_written_off, written_off_at)
-          VALUES ($1, $2, $3, $3, true, NOW())
-          ON CONFLICT (task_id, material_id) DO UPDATE SET
-            fact_qty = $3,
+          UPDATE task_materials SET
+            fact_qty = $1,
             is_written_off = true,
-            written_off_at = NOW()
-        `, [taskId, item.material_id, qty]);
+            written_off_at = NOW(),
+            supplier = COALESCE($2, supplier),
+            price = COALESCE($3, price),
+            total_price = COALESCE($4, total_price)
+          WHERE task_id = $5 AND material_id = $6
+        `, [qty, supplier, price, total, taskId, item.material_id]);
       }
     }
 
     // Автоматически суммируем себестоимость списанных материалов и обновляем tasks.tmc
     const { rows: sumRows } = await client.query(`
-      SELECT COALESCE(SUM(COALESCE(tm.fact_qty, tm.plan_qty, 0) * COALESCE(m.price_default, 0)), 0) AS total_tmc
+      SELECT 
+        COALESCE(SUM(COALESCE(tm.fact_qty, tm.plan_qty, 0) * COALESCE(tm.price, m.price_default, 0)), 0) AS total_tmc
       FROM task_materials tm
-      JOIN materials m ON tm.material_id = m.id
+      LEFT JOIN materials m ON tm.material_id = m.id
       WHERE tm.task_id = $1 AND tm.is_written_off = true
     `, [taskId]);
     const totalTmc = parseFloat(sumRows[0]?.total_tmc) || 0;
     if (totalTmc > 0) {
       await client.query('UPDATE tasks SET tmc = $1, updated_at = NOW() WHERE id = $2', [totalTmc, taskId]);
+    }
+
+    // Получаем перечень материалов и остатков для формирования закрывающих документов
+    const { rows: allMats } = await client.query(`
+      SELECT 
+        tm.id, tm.pos_num, COALESCE(tm.item_name, m.name) AS name, tm.article, tm.unit,
+        tm.plan_qty, tm.fact_qty, 
+        GREATEST(0, (COALESCE(tm.plan_qty, 0) - COALESCE(tm.fact_qty, 0))) AS remainder_qty,
+        COALESCE(tm.price, m.price_default, 0) AS price,
+        COALESCE(tm.total_price, ROUND(COALESCE(tm.fact_qty, 0) * COALESCE(tm.price, m.price_default, 0))) AS total_price,
+        tm.supplier
+      FROM task_materials tm
+      LEFT JOIN materials m ON tm.material_id = m.id
+      WHERE tm.task_id = $1
+      ORDER BY tm.id ASC
+    `, [taskId]);
+
+    // 1. Формируем Акт списания материалов (ТМЦ) в реестре документов заявки
+    const tmcActMeta = {
+      task_id: taskId,
+      total_tmc: totalTmc,
+      items_count: allMats.length,
+      written_off_by: req.user.username || req.user.id,
+      written_off_at: new Date().toISOString()
+    };
+    const tmcActNum = 'ТМЦ-' + taskId;
+    const { rows: existTmcAct } = await client.query(
+      `SELECT id FROM task_documents WHERE task_id = $1 AND doc_type = 'tmc_act'`,
+      [taskId]
+    );
+    if (existTmcAct.length) {
+      await client.query(`
+        UPDATE task_documents SET
+          title = $1, doc_number = $2, doc_date = CURRENT_DATE, meta = $3, status = 'approved', updated_at = NOW()
+        WHERE id = $4
+      `, [`Акт списания материалов на объект (ТМЦ) № ${taskId}`, tmcActNum, JSON.stringify(tmcActMeta), existTmcAct[0].id]);
+    } else {
+      await client.query(`
+        INSERT INTO task_documents (task_id, doc_type, doc_number, doc_date, title, meta, status, created_by)
+        VALUES ($1, 'tmc_act', $2, CURRENT_DATE, $3, $4, 'approved', $5)
+      `, [taskId, tmcActNum, `Акт списания материалов на объект (ТМЦ) № ${taskId}`, JSON.stringify(tmcActMeta), req.user.id]);
+    }
+
+    // 2. Формируем Ведомость остатков ТМЦ к возврату на склад
+    const remaindersList = allMats.filter(m => Number(m.remainder_qty) > 0);
+    const remActMeta = {
+      task_id: taskId,
+      remainders: remaindersList,
+      remainders_count: remaindersList.length,
+      created_at: new Date().toISOString()
+    };
+    const remActNum = 'ВО-' + taskId;
+    const { rows: existRemAct } = await client.query(
+      `SELECT id FROM task_documents WHERE task_id = $1 AND doc_type = 'tmc_remainder_act'`,
+      [taskId]
+    );
+    if (existRemAct.length) {
+      await client.query(`
+        UPDATE task_documents SET
+          title = $1, doc_number = $2, doc_date = CURRENT_DATE, meta = $3, status = 'approved', updated_at = NOW()
+        WHERE id = $4
+      `, [`Ведомость остатков ТМЦ (к возврату на склад) № ${taskId}`, remActNum, JSON.stringify(remActMeta), existRemAct[0].id]);
+    } else {
+      await client.query(`
+        INSERT INTO task_documents (task_id, doc_type, doc_number, doc_date, title, meta, status, created_by)
+        VALUES ($1, 'tmc_remainder_act', $2, CURRENT_DATE, $3, $4, 'approved', $5)
+      `, [taskId, remActNum, `Ведомость остатков ТМЦ (к возврату на склад) № ${taskId}`, JSON.stringify(remActMeta), req.user.id]);
     }
 
     await client.query('COMMIT');

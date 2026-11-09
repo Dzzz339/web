@@ -654,6 +654,68 @@ window.quickAcceptTask = function(taskId) {
   });
 };
 
+
+function computeTaskDynamicIdStatus(t) {
+  var isDone = (t.status === 'done' || t.stage === 'done' || t.macro_status === 'accepted' || t.status_id === 'accepted' || t.status_id === 'done');
+  if (isDone) {
+    return { code: 'done', label: '✓ Согласована в ЕИС', badgeClass: 'b-green' };
+  }
+  var isReview = (t.status_id === 'review' || t.supplier_id_uploaded || (t.rawData && (t.rawData['загружено на портал'] || '').toString().trim().toLowerCase() === 'да'));
+  if (isReview) {
+    return { code: 'review', label: 'На проверке Заказчика', badgeClass: 'b-blue' };
+  }
+  var hasCablesOrSchema = (Number(t.fact) > 0 || (t.tech_link && t.tech_link.length > 3) || t.id_link);
+  if (hasCablesOrSchema) {
+    return { code: 'ready', label: 'Готова к сборке', badgeClass: 'b-orange' };
+  }
+  var smrDone = (t.status_smr === 'done' || t.smr_actual_end_date || t.data_vyhoda);
+  if (smrDone) {
+    return { code: 'needed', label: 'СМР сданы (ждем ИД)', badgeClass: 'b-yellow' };
+  }
+  return { code: 'pending', label: 'Не начата', badgeClass: 'b-gray' };
+}
+window.computeTaskDynamicIdStatus = computeTaskDynamicIdStatus;
+
+window.toggleQuickSupplyStatus = function(taskId, nextStatus) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (t) t.status_supply = nextStatus;
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status_supply: nextStatus })
+  }).then(function() {
+    if (typeof showToast === 'function') {
+      var label = nextStatus === 'delivered' ? '🟢 Доставлено на объект' : (nextStatus === 'shipped' ? '🟡 Отправлено в пути' : '🔴 Ожидает отгрузки');
+      showToast('✓ Статус ТМЦ обновлен: ' + label, 'success');
+    }
+    renderApp();
+  }).catch(function(err) {
+    alert('Ошибка смены статуса ТМЦ: ' + err.message);
+  });
+};
+
+window.openQuickSupplyModal = function(taskId) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); }) || {};
+  var curTk = t.supply_tk || 'СДЭК';
+  var curTrack = t.supply_track || '';
+  var newTk = prompt('Укажите транспортную компанию (ТК):', curTk);
+  if (newTk === null) return;
+  var newTrack = prompt('Укажите трек-номер отправления:', curTrack);
+  if (newTrack === null) return;
+  t.supply_tk = newTk.trim();
+  t.supply_track = newTrack.trim();
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ supply_tk: t.supply_tk, supply_track: t.supply_track })
+  }).then(function() {
+    if (typeof showToast === 'function') showToast('✓ Логистика сохранена!', 'success');
+    renderApp();
+  }).catch(function(err) {
+    alert('Ошибка сохранения логистики: ' + err.message);
+  });
+};
+
 function pageTasks() {
   S.taskSort = S.taskSort || 'date_desc';
   function taskSortIndicator(field) {
@@ -671,6 +733,7 @@ function pageTasks() {
     return 'customer';
   })();
   var appMode = isWorker ? 'contractor' : (S.taskAppMode || defaultModeForRole);
+  if (!isWorker && appMode === 'contractor') appMode = 'customer';
   
   if (S.tasksStatsExpanded === undefined) {
     try {
@@ -1034,7 +1097,7 @@ function pageTasks() {
   
   var modeSwitcher = isWorker ? '' : '<div style="display:flex;align-items:center;gap:4px;background:#f1f5f9;padding:3px 4px;border-radius:8px;border:1px solid var(--border)">' +
     (canSeeCustomer ? '<button type="button" class="btn btn-sm ' + (appMode === 'customer' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'customer\')" style="font-size:.78rem;padding:4px 12px;height:auto">🏦 Сводка Заказчика</button>' : '') +
-    '<button type="button" class="btn btn-sm ' + (appMode === 'contractor' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'contractor\')" style="font-size:.78rem;padding:4px 12px;height:auto">👷 Управление Подрядом</button>' +
+    '<button type="button" class="btn btn-sm btn-ghost" disabled title="Управление подрядом оптимизируется под мобильные устройства (скоро)" style="font-size:.78rem;padding:4px 10px;height:auto;opacity:0.4;cursor:not-allowed">👷 Подряд (скоро)</button>' +
     '<button type="button" class="btn btn-sm ' + (appMode === 'supply' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'supply\')" style="font-size:.78rem;padding:4px 12px;height:auto">📦 Логистика и ТМЦ</button>' +
     '<button type="button" class="btn btn-sm ' + (appMode === 'docs' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'docs\')" style="font-size:.78rem;padding:4px 12px;height:auto">📐 Проектирование (ИД)</button>' +
     '<button type="button" class="btn btn-sm ' + (appMode === 'finance' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'finance\')" style="font-size:.78rem;padding:4px 12px;height:auto">💰 Бухгалтерия</button>' +
@@ -1498,6 +1561,87 @@ function pageTasks() {
   var tableRows = '';
   filtered.slice(0, 300).forEach(function(t) {
     var tid = (t.id || '').replace(/'/g, "\\'");
+
+    if (appMode === 'supply') {
+      var sStatus = t.status_supply === 'delivered' 
+        ? '<button type="button" class="badge b-green" style="cursor:pointer;padding:4px 8px;font-size:.76rem;border:none" onclick="window.toggleQuickSupplyStatus(\'' + tid + '\', \'pending\')" title="Нажмите для смены статуса">🟢 Доставлено ▾</button>'
+        : (t.status_supply === 'shipped'
+          ? '<button type="button" class="badge b-blue" style="cursor:pointer;padding:4px 8px;font-size:.76rem;border:none" onclick="window.toggleQuickSupplyStatus(\'' + tid + '\', \'delivered\')" title="Нажмите, чтобы отметить «Доставлено»">🟡 Отправлено ▾</button>'
+          : '<button type="button" class="badge b-yellow" style="cursor:pointer;padding:4px 8px;font-size:.76rem;border:none" onclick="window.toggleQuickSupplyStatus(\'' + tid + '\', \'shipped\')" title="Нажмите, чтобы отметить «Отправлено»">🔴 Ожидает ▾</button>');
+
+      var sTk = t.supply_tk || 'СДЭК';
+      var sTrack = t.supply_track || '— указать';
+      var sDate = t.supply_date ? safeDateRu(t.supply_date) : (t.deadline ? safeDateRu(t.deadline) : '—');
+
+      tableRows += '<tr id="task_row_' + tid + '" data-tid="' + tid + '" style="transition:background .2s">' +
+        // 1. № и адрес
+        '<td style="vertical-align:top;max-width:280px">' +
+          '<div style="font-weight:700;font-size:.85rem"><button class="btn-link" onclick="openCard(\'' + tid + '\')">⇒ ' + highlight(t.id, q) + '</button></div>' +
+          '<div style="font-size:.78rem;color:var(--text-2);margin-top:2px;line-height:1.25" title="' + escHtml(t.address || '') + '">' + highlight(t.address || 'Адрес не указан', q) + '</div>' +
+          (t.region ? '<span class="badge b-gray" style="font-size:.65rem;margin-top:3px">' + escHtml(t.region) + '</span>' : '') +
+        '</td>' +
+        // 2. Поставщик / Склад
+        '<td style="vertical-align:top;font-size:.82rem">' +
+          '<div style="font-weight:600;color:var(--text)">' + escHtml(t.supplier_name || 'Склад: Ультима') + '</div>' +
+          '<div style="font-size:.72rem;color:var(--text-3)">Склад отгрузки</div>' +
+        '</td>' +
+        // 3. Статус ТМЦ в 1 клик
+        '<td style="vertical-align:top;white-space:nowrap">' + sStatus + '</td>' +
+        // 4. ТК и трек-номер
+        '<td style="vertical-align:top;font-size:.8rem">' +
+          '<div style="cursor:pointer" onclick="window.openQuickSupplyModal(\'' + tid + '\')" title="Кликните для редактирования ТК и трек-номера">' +
+            '🚚 <b>' + escHtml(sTk) + '</b>' +
+            '<div style="font-size:.74rem;color:var(--blue);margin-top:2px">Трек: ' + escHtml(sTrack) + ' ✏️</div>' +
+          '</div>' +
+        '</td>' +
+        // 5. Срок доставки
+        '<td style="vertical-align:top;font-size:.8rem">' +
+          '<div style="font-weight:600;color:var(--text)">' + sDate + '</div>' +
+          '<div style="font-size:.7rem;color:var(--text-3)">план прибытия</div>' +
+        '</td>' +
+        // 6. Спецификация
+        '<td style="vertical-align:top;text-align:right;white-space:nowrap">' +
+          '<button type="button" class="btn btn-xs btn-primary" onclick="location.hash=\'#card/' + tid + '?tab=supply\'" style="font-size:.74rem;padding:3px 8px" title="Открыть спецификацию ТМЦ">📦 ТМЦ / Спека</button> ' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="window.downloadAuthFile(\'/api/tasks/' + encodeURIComponent(tid) + '/materials/export-excel\', \'' + tid + '_Приложение_2_ТМЦ.xlsx\')" style="font-size:.74rem;padding:3px 6px;border:1px solid #2563eb;color:#1d4ed8;font-weight:600" title="Скачать Приложение №2 в Excel">📊 Прил. 2</button>' +
+        '</td>' +
+      '</tr>';
+      return;
+    }
+
+    if (appMode === 'docs') {
+      var dStatus = computeTaskDynamicIdStatus(t);
+      var cCount = Number(t.fact) || Number(t.in_order) || 0;
+      var hasScheme = (t.tech_link && t.tech_link.length > 3) || t.id_link;
+
+      tableRows += '<tr id="task_row_' + tid + '" data-tid="' + tid + '" style="transition:background .2s">' +
+        // 1. № и адрес
+        '<td style="vertical-align:top;max-width:280px">' +
+          '<div style="font-weight:700;font-size:.85rem"><button class="btn-link" onclick="openCard(\'' + tid + '\')">⇒ ' + highlight(t.id, q) + '</button></div>' +
+          '<div style="font-size:.78rem;color:var(--text-2);margin-top:2px;line-height:1.25" title="' + escHtml(t.address || '') + '">' + highlight(t.address || 'Адрес не указан', q) + '</div>' +
+        '</td>' +
+        // 2. Заказчик
+        '<td style="vertical-align:top;font-size:.82rem">' +
+          '<div style="font-weight:600;color:var(--text)">' + escHtml(t.customer || 'ПАО Сбербанк') + '</div>' +
+          '<div style="font-size:.72rem;color:var(--text-3)">' + ((t.customer && t.customer.includes('СФР')) ? 'СФР (без АОСР)' : 'Гос. заказчик') + '</div>' +
+        '</td>' +
+        // 3. Статус ИД
+        '<td style="vertical-align:top;white-space:nowrap">' +
+          '<span class="badge ' + dStatus.badgeClass + '" style="font-size:.76rem;padding:3px 8px;font-weight:700">' + escHtml(dStatus.label) + '</span>' +
+        '</td>' +
+        // 4. КЖ и схема
+        '<td style="vertical-align:top;font-size:.8rem">' +
+          '<div>🔌 Портов: <b>' + cCount + ' шт.</b></div>' +
+          '<div>' + (hasScheme ? '<span style="color:var(--green);font-size:.72rem">📐 Схема готова</span>' : '<span style="color:var(--text-3);font-size:.72rem">Схема не нарисована</span>') + '</div>' +
+        '</td>' +
+        // 5. Действия с ИД
+        '<td style="vertical-align:top;text-align:right;white-space:nowrap">' +
+          '<button type="button" class="btn btn-xs btn-primary" onclick="window.openIdModerationModal(\'' + tid + '\')" style="background:#0f766e;font-size:.74rem;padding:3px 8px;font-weight:700" title="Интерактивная модерация комплекта ИД">👁️ Модерация</button> ' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="window.downloadAuthFile(\'/api/tasks/' + encodeURIComponent(tid) + '/id-album.pdf\', \'' + tid + '_Альбом_ИД.pdf\')" style="border:1px solid #dc2626;color:#dc2626;font-size:.74rem;padding:3px 6px;font-weight:700" title="Скачать или открыть готовый альбом ИД в PDF">📑 PDF</button> ' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="window.openSchemeEditor(\'' + tid + '\')" style="border:1px solid #2563eb;color:#1d4ed8;font-size:.74rem;padding:3px 6px" title="Редактор исполнительной схемы СКС">📐 Схема</button>' +
+        '</td>' +
+      '</tr>';
+      return;
+    }
     var fin = getTaskFinance(t);
     var cFin = getTaskContractorFinance(t);
 
@@ -1697,22 +1841,36 @@ function pageTasks() {
     totals +
     '<div class="card tbl-wrap">' +
       '<table class="tasks-table"><thead><tr>' +
-        '<th style="width:120px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'id\')" title="Сортировать по номеру заявки">Номер / ЭДО' + taskSortIndicator('id') + '</th>' +
-        '<th style="width:90px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'date\')" title="Сортировать по дате поступления">Дата / ПП' + taskSortIndicator('date') + '</th>' +
-        '<th style="width:105px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'deadline\')" title="Сортировать по дедлайну">Дедлайн / Риск' + taskSortIndicator('deadline') + '</th>' +
-        '<th style="width:190px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'address\')" title="Сортировать по адресу">Адрес / Карта' + taskSortIndicator('address') + '</th>' +
-        '<th style="width:105px">Что делать</th>' +
-        '<th style="width:85px">Сколько</th>' +
-        '<th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'contractor\')" title="Сортировать по подрядчику">Исполнитель / ПМ' + taskSortIndicator('contractor') + '</th>' +
         (function() {
-          if (appMode === 'customer') return '<th style="width:90px">Цена (Вход)</th><th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'amount\')" title="Сортировать по стоимости">Стоимость / Дорога' + taskSortIndicator('amount') + '</th>';
-          if (appMode === 'contractor') return '<th style="width:90px">Цена (Подряд)</th><th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'amount\')" title="Сортировать по стоимости">Стоимость / Дорога' + taskSortIndicator('amount') + '</th>';
-          if (appMode === 'supply') return '<th style="width:100px">Статус ТМЦ</th><th style="width:130px">Склад / Трек</th>';
-          if (appMode === 'docs') return '<th style="width:100px">Статус ИД</th><th style="width:130px">Портал</th>';
-          if (appMode === 'finance') return '<th style="width:100px">Счета / Акты</th><th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'amount\')" title="Сортировать по марже">Фин. итог (Маржа)' + taskSortIndicator('amount') + '</th>';
-          return '';
+          if (appMode === 'supply') {
+            return '<th style="width:280px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'address\')" title="Сортировать по адресу">№ Заявки / Адрес объекта' + taskSortIndicator('address') + '</th>' +
+              '<th style="width:180px">Поставщик / Склад</th>' +
+              '<th style="width:170px">Статус отгрузки (клик в 1 клик)</th>' +
+              '<th style="width:180px">ТК / Трек-номер</th>' +
+              '<th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'deadline\')" title="Сортировать по дедлайну">Срок доставки' + taskSortIndicator('deadline') + '</th>' +
+              '<th style="width:150px;text-align:right">Спецификация ТМЦ</th>';
+          }
+          if (appMode === 'docs') {
+            return '<th style="width:280px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'address\')" title="Сортировать по адресу">№ Заявки / Адрес объекта' + taskSortIndicator('address') + '</th>' +
+              '<th style="width:160px">Заказчик / Объект</th>' +
+              '<th style="width:180px">Статус ИД (динамический)</th>' +
+              '<th style="width:160px">КЖ и Схема СКС</th>' +
+              '<th style="width:190px;text-align:right">Действия с ИД</th>';
+          }
+          return '<th style="width:120px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'id\')" title="Сортировать по номеру заявки">Номер / ЭДО' + taskSortIndicator('id') + '</th>' +
+            '<th style="width:90px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'date\')" title="Сортировать по дате поступления">Дата / ПП' + taskSortIndicator('date') + '</th>' +
+            '<th style="width:105px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'deadline\')" title="Сортировать по дедлайну">Дедлайн / Риск' + taskSortIndicator('deadline') + '</th>' +
+            '<th style="width:190px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'address\')" title="Сортировать по адресу">Адрес / Карта' + taskSortIndicator('address') + '</th>' +
+            '<th style="width:105px">Что делать</th>' +
+            '<th style="width:85px">Сколько</th>' +
+            '<th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'contractor\')" title="Сортировать по подрядчику">Исполнитель / ПМ' + taskSortIndicator('contractor') + '</th>' +
+            (function() {
+              if (appMode === 'customer') return '<th style="width:90px">Цена (Вход)</th><th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'amount\')" title="Сортировать по стоимости">Стоимость / Дорога' + taskSortIndicator('amount') + '</th>';
+              if (appMode === 'finance') return '<th style="width:100px">Счета / Акты</th><th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'amount\')" title="Сортировать по марже">Фин. итог (Маржа)' + taskSortIndicator('amount') + '</th>';
+              return '';
+            })() +
+            '<th style="width:36px"></th>';
         })() +
-        '<th style="width:36px"></th>' +
       '</tr></thead><tbody>' + tableRows + more + '</tbody></table>' +
     '</div>' +
     renderContractorPicker();

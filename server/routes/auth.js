@@ -101,11 +101,16 @@ router.post('/login', async (req, res) => {
     // Успешный вход — сбрасываем счетчик ошибок для IP
     loginAttempts.delete(ip);
 
+    // Срок действия токена: при "Запомнить меня" — 30 дней, иначе 1 сутки
+    const isRemember = Boolean(req.body && req.body.rememberMe);
+    const tokenExpires = isRemember ? '30d' : '1d';
+    const cookieMaxAge = isRemember ? 30 * 24 * 3600 * 1000 : 24 * 3600 * 1000;
+
     // Создаем токен (в него упаковываем ID, роль, ФИО и закрепленные регионы)
     const token = jwt.sign(
       { id: user.id, role: user.role, fullName: user.full_name, contractorId: user.contractor_id, assignedRegions: user.assigned_regions },
       JWT_SECRET,
-      { expiresIn: '7d', algorithm: 'HS256' }
+      { expiresIn: tokenExpires, algorithm: 'HS256' }
     );
 
     let avatarUrl = getValidAvatarUrl(user.avatar_url);
@@ -113,8 +118,18 @@ router.post('/login', async (req, res) => {
       pool.query('UPDATE users SET avatar_url = NULL WHERE id = $1', [user.id]).catch(() => {});
     }
 
+    // Устанавливаем безопасную авторизационную cookie для бесшовного открытия PDF и iframe
+    res.cookie('auth_token', token, {
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: cookieMaxAge
+    });
+
     res.json({
       token,
+      rememberMe: isRemember,
       user: {
         id: user.id,
         username: user.username,
@@ -128,6 +143,12 @@ router.post('/login', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ─── ВЫХОД ИЗ СИСТЕМЫ (LOGOUT) ──────────────────────────────────────────────
+router.post(['/logout', '/auth/logout'], (req, res) => {
+  res.clearCookie('auth_token', { path: '/' });
+  res.json({ success: true, message: 'Сессия завершена' });
 });
 
 

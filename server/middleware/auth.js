@@ -8,8 +8,34 @@ if (!process.env.JWT_SECRET) {
 export const JWT_SECRET = process.env.JWT_SECRET || 'stockeasy_production_secure_jwt_secret_key_2026_q89w4e7r5t2y1u6i';
 
 export function authenticateToken(req, res, next) {
+  let token = null;
+
+  // 1. Извлекаем из заголовка Authorization (Bearer <token> или прямой токен)
   const authHeader = req.headers['authorization'];
-  const token = (authHeader && authHeader.split(' ')[1]) || req.query.token;
+  if (authHeader) {
+    if (authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7).trim();
+    } else {
+      token = authHeader.trim();
+    }
+  }
+
+  // 2. Извлекаем из Cookie 'auth_token' (для бесшовного открытия в новой вкладке или <iframe>)
+  if (!token && req.headers.cookie) {
+    const match = req.headers.cookie.match(/(?:^|;\s*)auth_token=([^;]+)/);
+    if (match) {
+      try {
+        token = decodeURIComponent(match[1]);
+      } catch (e) {
+        token = match[1];
+      }
+    }
+  }
+
+  // 3. Извлекаем из query-параметра ?token=... (для прямых ссылок скачивания)
+  if (!token && req.query && req.query.token) {
+    token = String(req.query.token).trim();
+  }
 
   if (!token) return res.status(401).json({ error: 'Требуется авторизация', code: 'NO_TOKEN' });
 

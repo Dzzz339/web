@@ -1038,6 +1038,51 @@
     });
   };
 
+  
+  window.setSubContractValidTo = function(mode) {
+    var vToInput = document.getElementById('sc_valid_to');
+    var vFromInput = document.getElementById('sc_valid_from');
+    if (!vToInput) return;
+    var baseDate = (vFromInput && vFromInput.value) ? new Date(vFromInput.value) : new Date();
+    if (isNaN(baseDate.getTime())) baseDate = new Date();
+
+    if (mode === 'year_end') {
+      var yr = baseDate.getFullYear();
+      vToInput.value = yr + '-12-31';
+      if (typeof showToast === 'function') showToast('Срок установлен: до конца ' + yr + ' года (31.12.' + yr + ')', 'info');
+    } else if (mode === 'plus_12m') {
+      var target = new Date(baseDate);
+      target.setFullYear(target.getFullYear() + 1);
+      var m = String(target.getMonth() + 1).padStart(2, '0');
+      var d = String(target.getDate()).padStart(2, '0');
+      vToInput.value = target.getFullYear() + '-' + m + '-' + d;
+      if (typeof showToast === 'function') showToast('Срок установлен: +12 месяцев (с автопролонгацией)', 'info');
+    } else if (mode === 'full_execution') {
+      vToInput.value = '';
+      if (typeof showToast === 'function') showToast('Срок: до момента полного исполнения всех обязательств', 'info');
+    }
+  };
+
+  window.openNewContractInEditor = function() {
+    var contractorId = document.getElementById('sc_contractor_id') ? parseInt(document.getElementById('sc_contractor_id').value, 10) : null;
+    var num = document.getElementById('sc_number') ? document.getElementById('sc_number').value.trim() : '';
+    var date = document.getElementById('sc_date') ? document.getElementById('sc_date').value : '';
+    var subj = document.getElementById('sc_subject') ? document.getElementById('sc_subject').value : 'Монтаж СКС и слаботочных систем';
+
+    if (typeof window.openDocumentEditor === 'function') {
+      window.openDocumentEditor(null, 'subcontract_agreement', {
+        contractorId: contractorId,
+        number: num,
+        date: date,
+        subject: subj
+      });
+      var b = document.getElementById('_sub_contract_modal_backdrop');
+      if (b) b.remove();
+    } else {
+      alert('Редактор документов загружается...');
+    }
+  };
+
   window.openSubContractModal = function(contractId) {
     var c = contractId ? (S.subContracts || []).find(function(x){ return x.id === contractId; }) : null;
     var isEdit = Boolean(c);
@@ -1195,40 +1240,50 @@
                 '<input type="date" id="sc_valid_from" value="' + vFrom + '" ' + (isLocked ? 'disabled' : '') + ' style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:' + (isLocked ? '#f8fafc' : '#fff') + '">' +
               '</div>' +
 
-              // Действует по
+              // Действует по (с быстрыми кнопками выбора срока по Алексею)
               '<div>' +
                 '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Действует по</label>' +
                 '<input type="date" id="sc_valid_to" value="' + vTo + '" ' + (isLocked ? 'disabled' : '') + ' style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:' + (isLocked ? '#f8fafc' : '#fff') + '">' +
+                (!isLocked ? (
+                  '<div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">' +
+                    '<button type="button" class="btn btn-xs btn-ghost" style="font-size:.7rem;padding:2px 7px;border:1px solid #cbd5e1;background:#fff;border-radius:6px;cursor:pointer" onclick="setSubContractValidTo(\'plus_12m\')" title="Прибавить 12 месяцев (с автопролонгацией)">🔄 +12 мес</button>' +
+                    '<button type="button" class="btn btn-xs btn-ghost" style="font-size:.7rem;padding:2px 7px;border:1px solid #cbd5e1;background:#fff;border-radius:6px;cursor:pointer" onclick="setSubContractValidTo(\'year_end\')" title="Установить 31 декабря текущего года">📅 До конца года</button>' +
+                    '<button type="button" class="btn btn-xs btn-ghost" style="font-size:.7rem;padding:2px 7px;border:1px solid #cbd5e1;background:#fff;border-radius:6px;cursor:pointer" onclick="setSubContractValidTo(\'full_execution\')" title="Бессрочно до полного исполнения всех обязательств">♾️ До исполнения</button>' +
+                  '</div>'
+                ) : '') +
               '</div>' +
 
-              // Статус договора (конвейер из 5 статусов)
-              '<div style="grid-column:1/-1">' +
-                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Статус договора (Конвейер согласования)</label>' +
-                '<select id="sc_status" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff;font-weight:600">' +
-                  '<option value="created" ' + (curStatus === 'created' ? 'selected' : '') + '>🟡 Создан (Черновик — доступно редактирование данных)</option>' +
-                  '<option value="agreed" ' + (curStatus === 'agreed' ? 'selected' : '') + '>🔵 Согласован (Согласовано юристами/сторонами — редактирование закрывается)</option>' +
-                  '<option value="sent" ' + (curStatus === 'sent' ? 'selected' : '') + '>🟣 Передан на подпись (Отправлен на подпись — редактирование запрещено)</option>' +
-                  '<option value="signed" ' + (curStatus === 'signed' || curStatus === 'active' ? 'selected' : '') + '>🟢 Подписан (Получен скан подписи сторон — редактирование запрещено)</option>' +
-                  '<option value="terminated" ' + (curStatus === 'terminated' ? 'selected' : '') + '>🔴 Расторгнут (Действие прекращено — редактирование запрещено)</option>' +
-                '</select>' +
-                '<div style="font-size:.72rem;color:var(--text-3);margin-top:4px">После отправки на согласование или подписание реквизиты блокируются от случайных правок</div>' +
-              '</div>' +
+              // Статус договора (скрыт при СОЗДАНИИ по замечанию Алексея)
+              (isEdit ? (
+                '<div style="grid-column:1/-1">' +
+                  '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Статус договора (Конвейер согласования)</label>' +
+                  '<select id="sc_status" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff;font-weight:600">' +
+                    '<option value="created" ' + (curStatus === 'created' ? 'selected' : '') + '>🟡 Создан (Черновик — доступно редактирование данных)</option>' +
+                    '<option value="agreed" ' + (curStatus === 'agreed' ? 'selected' : '') + '>🔵 Согласован (Согласовано юристами/сторонами — редактирование закрывается)</option>' +
+                    '<option value="sent" ' + (curStatus === 'sent' ? 'selected' : '') + '>🟣 Передан на подпись (Отправлен на подпись — редактирование запрещено)</option>' +
+                    '<option value="signed" ' + (curStatus === 'signed' || curStatus === 'active' ? 'selected' : '') + '>🟢 Подписан (Получен скан подписи сторон — редактирование запрещено)</option>' +
+                    '<option value="terminated" ' + (curStatus === 'terminated' ? 'selected' : '') + '>🔴 Расторгнут (Действие прекращено — редактирование запрещено)</option>' +
+                  '</select>' +
+                  '<div style="font-size:.72rem;color:var(--text-3);margin-top:4px">После отправки на согласование или подписание реквизиты блокируются от случайных правок</div>' +
+                '</div>'
+              ) : (
+                '<input type="hidden" id="sc_status" value="created">'
+              )) +
 
-              // Скан подписанного договора (показываем ТОЛЬКО при редактировании, как отметил Алексей)
-              (isEdit ?
-                '<div style="grid-column:1/-1;border:1.5px dashed #cbd5e1;background:#f8fafc;padding:12px 14px;border-radius:8px">' +
-                  '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text);margin-bottom:6px">📎 Скан / Файл подписанного договора (.pdf, .docx, .jpg, .png)</label>' +
-                  (c && c.scan_url ? (
-                    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:6px 10px;background:#f0fdf4;border:1px solid #86efac;border-radius:6px">' +
-                      '<span style="font-size:1.1rem">✅</span>' +
-                      '<div style="flex:1;font-size:.82rem;color:#166534">' +
-                        'Прикреплен скан: <a href="' + escHtml(c.scan_url) + '" target="_blank" rel="noopener noreferrer" style="font-weight:700;color:#15803d;text-decoration:underline">Открыть файл скана</a>' +
-                      '</div>' +
-                    '</div>'
-                  ) : '') +
-                  '<input type="file" id="sc_file_upload" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.zip,.rar" style="font-size:.82rem;width:100%">' +
-                  '<div style="font-size:.72rem;color:var(--text-3);margin-top:4px">При загрузке скана статус договора автоматически переводится в «🟢 Подписан»</div>' +
-                '</div>' : '') +
+              // Скан подписанного договора (доступен и при создании, и при редактировании)
+              '<div style="grid-column:1/-1;border:1.5px dashed #cbd5e1;background:#f8fafc;padding:12px 14px;border-radius:8px">' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text);margin-bottom:6px">📎 Скан / Файл подписанного договора (.pdf, .docx, .jpg, .png)</label>' +
+                (c && c.scan_url ? (
+                  '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:6px 10px;background:#f0fdf4;border:1px solid #86efac;border-radius:6px">' +
+                    '<span style="font-size:1.1rem">✅</span>' +
+                    '<div style="flex:1;font-size:.82rem;color:#166534">' +
+                      'Прикреплен скан: <a href="' + escHtml(c.scan_url) + '" target="_blank" rel="noopener noreferrer" style="font-weight:700;color:#15803d;text-decoration:underline">Открыть файл скана</a>' +
+                    '</div>' +
+                  '</div>'
+                ) : '') +
+                '<input type="file" id="sc_file_upload" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.zip,.rar" style="font-size:.82rem;width:100%">' +
+                '<div style="font-size:.72rem;color:var(--text-3);margin-top:4px">При загрузке скана статус договора будет автоматически установлен в «🟢 Подписан»</div>' +
+              '</div>' +
 
               // Опция создания привязанного прайс-листа (только для нового)
               (!isEdit ?
@@ -1243,10 +1298,15 @@
             // Подвал модалки
             '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1.5px solid var(--border);padding-top:14px;margin-top:14px;flex-wrap:wrap">' +
               '<div>' +
-                (isEdit ?
+                (isEdit ? (
                   '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid #93c5fd;color:#1d4ed8;font-weight:700;padding:8px 14px;border-radius:8px;display:inline-flex;align-items:center;gap:5px" onclick="window.openDocumentEditor({ templateCode: \'subcontract_agreement\', subcontractContractId: ' + c.id + ' }); var b=document.getElementById(\'_sub_contract_modal_backdrop\'); if(b) b.remove();">' +
                     '<span>📄</span> Открыть в редакторе DOCX' +
-                  '</button>' : '') +
+                  '</button>'
+                ) : (
+                  '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid #93c5fd;color:#1d4ed8;font-weight:700;padding:8px 14px;border-radius:8px;display:inline-flex;align-items:center;gap:5px" onclick="window.openNewContractInEditor()" title="Сформировать текст договора в онлайн-редакторе по шаблону">' +
+                    '<span>📄</span> Вставить в шаблон и открыть' +
+                  '</button>'
+                )) +
               '</div>' +
               '<div style="display:flex;gap:10px;align-items:center">' +
                 '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid var(--border);padding:8px 16px;border-radius:8px" onclick="var b=document.getElementById(\'_sub_contract_modal_backdrop\'); if(b) b.remove();">Отмена</button>' +
