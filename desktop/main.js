@@ -21,10 +21,26 @@ function createWindow() {
     }
   });
 
-  // Загружаем сайт с твоего сервера на лету:
+  // Обработка горячих клавиш: F12 (Консоль ошибок) и F5 / Ctrl+R / Ctrl+Shift+R (Перезагрузка без кэша)
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown') {
+      // F12 — вызов DevTools для диагностики ошибок
+      if (input.key === 'F12') {
+        win.webContents.toggleDevTools();
+        event.preventDefault();
+      }
+      // F5, Ctrl+R, Ctrl+Shift+R — принудительная перезагрузка без кэша
+      if (input.key === 'F5' || (input.control && input.key.toLowerCase() === 'r')) {
+        win.webContents.reloadIgnoringCache();
+        event.preventDefault();
+      }
+    }
+  });
+
+  // Загружаем сайт с боевого сервера на лету:
   win.loadURL('https://app.stockeasy.ru');
 
-  // Если связь оборвалась — аккуратная перезагрузка по Ctrl+R или F5
+  // Если связь оборвалась — аккуратная перезагрузка
   win.webContents.on('did-fail-load', () => {
     setTimeout(() => {
       win.loadURL('https://app.stockeasy.ru');
