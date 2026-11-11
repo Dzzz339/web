@@ -19,6 +19,16 @@
 
   function renderUpdateTopbarButton(info) {
     var container = document.getElementById('update-btn-container');
+    var badge = document.getElementById('profile-update-badge');
+    var profileContainer = document.getElementById('profile-update-container');
+    var mobile = window.matchMedia('(max-width: 768px)').matches || document.body.classList.contains('is-native-phone') || document.body.classList.contains('in-phone-frame');
+
+    if (badge) badge.style.display = info && mobile ? 'flex' : 'none';
+    if (profileContainer) {
+      profileContainer.innerHTML = info
+        ? '<button type="button" class="btn profile-update-action" onclick="showUpdateModal(true)">Доступно обновление Stockeasy</button>'
+        : '';
+    }
     if (!container) return;
 
     if (!info) {
@@ -26,7 +36,7 @@
       return;
     }
 
-    container.innerHTML = 
+    container.innerHTML =
       '<button type="button" class="topbar-update-btn" onclick="showUpdateModal(true)" title="Вышло обновление: ' + (info.message ? escText(info.message.slice(0, 60)) : '') + '">' +
         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' +
           '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>' +
@@ -190,6 +200,7 @@
   window.showUpdateModal = showUpdateModal;
   window.dismissUpdateModal = dismissUpdateModal;
   window.applyAppUpdate = applyAppUpdate;
+  window.refreshUpdateUI = function() { renderUpdateTopbarButton(latestUpdateData); };
 
   // Запуск фоновой проверки обновлений
   setTimeout(function() { checkForAppUpdate(true); }, 2500);

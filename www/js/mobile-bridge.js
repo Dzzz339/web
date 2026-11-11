@@ -73,19 +73,28 @@
         --safe-bottom: env(safe-area-inset-bottom, 0px);
       }
       body {
-        padding-top: var(--safe-top);
+        padding-top: 0;
         padding-bottom: var(--safe-bottom);
-        user-select: none;
-        -webkit-touch-callout: none;
+        user-select: text;
+        -webkit-touch-callout: default;
       }
       .topbar {
-        padding-top: max(8px, var(--safe-top)) !important;
+        padding-top: var(--safe-top) !important;
       }
       .mobile-action-bar, .unsaved-bar {
         padding-bottom: max(12px, var(--safe-bottom)) !important;
       }
       button, a, input, select {
         touch-action: manipulation;
+      }
+      button, a, nav, .badge {
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      input, textarea, [contenteditable="true"] {
+        user-select: text;
+        -webkit-user-select: text;
+        -webkit-touch-callout: default;
       }
     `;
     document.head.appendChild(style);

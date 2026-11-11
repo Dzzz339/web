@@ -42,6 +42,8 @@ function pageProfile() {
         </div>
       </div>
 
+      <div id="profile-update-container" class="mobile-profile-update"></div>
+
       <div class="g2" style="align-items:start;">
         <!-- КАРТОЧКА 1: ЛИЧНЫЕ ДАННЫЕ И АВАТАР -->
         <div class="card p" style="display:flex; flex-direction:column; gap:1.25rem;">

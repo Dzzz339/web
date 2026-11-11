@@ -659,6 +659,7 @@ function renderApp() {
       try { elToFocus.setSelectionRange(start, end); } catch(e) {}
     }
   }
+  if (typeof window.refreshUpdateUI === 'function') window.refreshUpdateUI();
 }
 
 

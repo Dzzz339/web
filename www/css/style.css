@@ -3913,3 +3913,190 @@ body.debug-mobile-overflow .mobile-overflow-source {
   outline: 3px solid #ef4444 !important;
   outline-offset: -3px !important;
 }
+
+.offline-banner {
+  padding: 10px 16px;
+  background: #fffbeb;
+  border-bottom: 1px solid #fef3c7;
+  color: #b45309;
+  font-size: .82rem;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.offline-banner-main,
+.offline-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.offline-banner-icon {
+  font-size: 1.1rem;
+}
+
+.outbox-badge {
+  background: #f59e0b;
+  color: #fff;
+  font-size: .72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.offline-sync-btn {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  font-size: .75rem;
+  cursor: pointer;
+}
+
+.profile-update-badge {
+  position: absolute;
+  top: -4px;
+  right: -8px;
+  width: 17px;
+  height: 17px;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--orange);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.mob-nav-icon {
+  position: relative;
+}
+
+.mobile-profile-update {
+  display: none;
+}
+
+body.mobile-layout-active .topbar {
+  height: calc(46px + var(--safe-top, 0px)) !important;
+  min-height: calc(46px + var(--safe-top, 0px)) !important;
+  padding: var(--safe-top, 0px) 12px 0 !important;
+  box-sizing: border-box;
+}
+
+body.mobile-layout-active .topbar-left {
+  gap: 4px !important;
+}
+
+body.mobile-layout-active .topbar-title {
+  font-size: .95rem !important;
+  line-height: 1.2;
+}
+
+body.mobile-layout-active .topbar-title-icon,
+body.mobile-layout-active #update-btn-container,
+body.mobile-layout-active #network-status-pill {
+  display: none !important;
+}
+
+body.mobile-layout-active .topbar-right {
+  flex: 0 0 auto;
+  gap: 0;
+}
+
+body.mobile-layout-active .topbar-menu-btn,
+body.mobile-layout-active .topbar-icon-btn {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+body.mobile-layout-active .notif-dropdown {
+  position: fixed;
+  top: calc(46px + var(--safe-top, 0px));
+  right: 12px;
+  left: 12px;
+  width: auto;
+  max-height: 60vh;
+}
+
+body.mobile-layout-active .offline-banner {
+  min-height: 48px;
+  padding: 2px 8px 2px 12px;
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+body.mobile-layout-active .offline-banner-main {
+  flex: 1;
+  min-width: 0;
+  gap: 5px;
+}
+
+body.mobile-layout-active .offline-banner-icon {
+  display: none;
+}
+
+body.mobile-layout-active #offline-banner-text {
+  min-width: 0;
+  overflow: hidden;
+  font-size: .73rem;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.mobile-layout-active .offline-banner-actions {
+  flex: 0 0 auto;
+}
+
+body.mobile-layout-active .offline-banner-actions .outbox-badge {
+  display: none !important;
+}
+
+body.mobile-layout-active .offline-sync-btn {
+  min-height: 44px;
+  padding: 4px 8px;
+  font-size: .7rem;
+}
+
+body.mobile-layout-active .mobile-profile-update {
+  display: block;
+  margin-bottom: 12px;
+}
+
+body.mobile-layout-active .profile-update-action {
+  width: 100%;
+  min-height: 44px;
+  justify-content: center;
+}
+
+body.mobile-layout-active.page-kanban-active .main {
+  height: calc(100dvh - 46px - var(--safe-top, 0px));
+}
+
+body.mobile-layout-active #toast-container {
+  right: 12px !important;
+  bottom: calc(70px + var(--safe-bottom, 0px)) !important;
+  left: 12px !important;
+  align-items: stretch;
+}
+
+body.mobile-layout-active #toast-container > * {
+  width: 100%;
+  min-width: 0 !important;
+  max-width: none !important;
+  box-sizing: border-box;
+}
+
+@media (min-width: 769px) {
+  body:not(.in-phone-frame) .profile-update-badge {
+    display: none !important;
+  }
+}

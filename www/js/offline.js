@@ -133,6 +133,7 @@ function updateNetworkStatusUI() {
   var banner = document.getElementById('offline-banner');
   var bannerText = document.getElementById('offline-banner-text');
   var outboxBadge = document.getElementById('outbox-badge');
+  var compact = window.matchMedia('(max-width: 768px)').matches || document.body.classList.contains('is-native-phone') || document.body.classList.contains('in-phone-frame');
 
   if (pill && dot && txt) {
     if (S.token) {
@@ -168,12 +169,16 @@ function updateNetworkStatusUI() {
     if (!S.isOnline && S.token) {
       banner.style.display = 'flex';
       if (bannerText) {
-        bannerText.innerHTML = '<strong>⚡ Автономный режим:</strong> Связь с сервером прервана. Вы можете продолжать работу — все действия сохраняются на устройстве и отправятся автоматически.';
+        bannerText.innerHTML = compact
+          ? '<strong>Оффлайн</strong> — изменения сохранятся на устройстве'
+          : '<strong>Автономный режим:</strong> Связь с сервером прервана. Вы можете продолжать работу — все действия сохраняются на устройстве и отправятся автоматически.';
       }
     } else if (S.outboxCount > 0 && S.token) {
       banner.style.display = 'flex';
       if (bannerText) {
-        bannerText.innerHTML = '<strong>⏳ В очереди отправки:</strong> Найдено ' + S.outboxCount + ' локальных изменений, ожидающих синхронизации с сервером.';
+        bannerText.innerHTML = compact
+          ? '<strong>Очередь:</strong> ' + S.outboxCount + ' изменений ожидают синхронизации'
+          : '<strong>В очереди отправки:</strong> Найдено ' + S.outboxCount + ' локальных изменений, ожидающих синхронизации с сервером.';
       }
     } else {
       banner.style.display = 'none';
