@@ -310,9 +310,9 @@ window.submitDeclineTaskEntry = function(taskId) {
 window.acceptTask = function(taskId) { window.approveTaskEntry(taskId); };
 window.declineTask = function(taskId) { window.openDeclineTaskModal(taskId); };
 
-window._takeTaskToStage = function(taskId, stageNum) {
+window._takeTaskToStage = async function(taskId, stageNum) {
   var stgName = (ID_STAGES[stageNum] ? ID_STAGES[stageNum].name : ('Этап ' + stageNum));
-  if (!confirm('Перевести заявку на этап ' + stageNum + ' (' + stgName + ')?')) return;
+  if (!await confirmAction('Перевести заявку на этап ' + stageNum + ' (' + stgName + ')?')) return;
   api('/tasks/' + encodeURIComponent(taskId), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -330,11 +330,11 @@ window._takeTaskToStage = function(taskId, stageNum) {
   });
 };
 
-window.cardTransitionToSmr = function(taskId) {
+window.cardTransitionToSmr = async function(taskId) {
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
   var curStage = t ? (t.stageNum != null ? t.stageNum : (t.stage_num != null ? t.stage_num : 0)) : 0;
   if (curStage === 0) {
-    if (!confirm('Перевести заявку на Этап 1 «В монтаже» и перейти во вкладку «Исполнение / СМР»?')) {
+    if (!await confirmAction('Перевести заявку на Этап 1 «В монтаже» и перейти во вкладку «Исполнение / СМР»?')) {
       setCardTab('items');
       return;
     }
@@ -768,8 +768,8 @@ window._executeKjGeneration = function(taskId) {
 
 window.generateSequentialPorts = window.openCableJournalGeneratorModal;
 
-window.syncFactFromKj = function(taskId, count) {
-  if (!confirm('Установить смонтированный объем в заявке: ' + count + ' шт. (по данным Кабельного журнала)?')) return;
+window.syncFactFromKj = async function(taskId, count) {
+  if (!await confirmAction('Установить смонтированный объем в заявке: ' + count + ' шт. (по данным Кабельного журнала)?')) return;
   api('/tasks/' + encodeURIComponent(taskId), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -1210,14 +1210,14 @@ function openCard(id) {
   });
 }
 
-function returnFromCard() {
+async function returnFromCard() {
   var hasDraft = S.cardDraft && (
     Object.keys(S.cardDraft).filter(function(k){ return !k.startsWith('_'); }).length > 0 ||
     !!S.cardDraft._smrDirty ||
     !!S.cardDraft._tmcDirty
   );
   if (hasDraft) {
-    if (confirm('В заявке есть несохранённые изменения!\n\nНажмите «ОК», чтобы сохранить их в базу данных перед выходом,\nили «Отмена», чтобы сбросить несохранённые правки.')) {
+    if (await confirmAction('В заявке есть несохранённые изменения!\n\nНажмите «ОК», чтобы сохранить их в базу данных перед выходом,\nили «Отмена», чтобы сбросить несохранённые правки.')) {
       if (typeof window.saveCard === 'function') {
         window.saveCard(false).then(function() {
           _doReturn();
@@ -4442,7 +4442,7 @@ function uploadMaterialsExcel(file, taskId) {
   }
 
   var reader = new FileReader();
-  reader.onload = function(e) {
+  reader.onload = async function(e) {
     try {
       var data = new Uint8Array(e.target.result);
       var wb = XLSX.read(data, { type: 'array' });
@@ -4521,7 +4521,7 @@ function uploadMaterialsExcel(file, taskId) {
         return alert('Не удалось распознать позиции материалов в файле. Проверьте колонки (Наименование, Ед. изм., Кол-во, Артикул).');
       }
 
-      var replaceExisting = confirm('Найдено позиций материалов: ' + parsedItems.length + '.\nЗаменить текущую спецификацию? Нажмите «OK» для полной замены или «Отмена» для добавления в конец.');
+      var replaceExisting = await confirmAction('Найдено позиций материалов: ' + parsedItems.length + '.\nЗаменить текущую спецификацию? Нажмите «OK» для полной замены или «Отмена» для добавления в конец.');
 
       if (listEl) {
         listEl.innerHTML = '<div style="text-align:center;padding:26px 16px;background:#f8fafc;border:1.5px dashed #93c5fd;border-radius:8px">' +
@@ -4565,8 +4565,8 @@ window.openEditItemModal = openEditItemModal;
 window.uploadMaterialsExcel = uploadMaterialsExcel;
 window.submitTaskItemForm = submitTaskItemForm;
 
-function deleteItemModal(taskId, itemId) {
-  if (!confirm('Удалить эту позицию из спецификации?')) return;
+async function deleteItemModal(taskId, itemId) {
+  if (!await confirmAction('Удалить эту позицию из спецификации?')) return;
   api('/tasks/' + encodeURIComponent(taskId) + '/items/' + itemId, {
     method: 'DELETE'
   })
@@ -4690,8 +4690,8 @@ function openAttachment(id, fromContract, contractId, fileName) {
   window.openFilePreviewModal(source, id, null, fileName || 'Документ');
 }
 
-window.approveTaskPhotoReport = function(taskId) {
-  if (!confirm('Подтвердить приемку фотоотчета с объекта?')) return;
+window.approveTaskPhotoReport = async function(taskId) {
+  if (!await confirmAction('Подтвердить приемку фотоотчета с объекта?')) return;
   api('/tasks/' + encodeURIComponent(taskId), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -4725,8 +4725,8 @@ function handleAttachmentUpload(taskId, type, files) {
 }
 window.handleAttachmentUpload = handleAttachmentUpload;
 
-function handleAttachmentDelete(attId, taskId) {
-  if (!confirm('Удалить этот файл из материалов заявки?')) return;
+async function handleAttachmentDelete(attId, taskId) {
+  if (!await confirmAction('Удалить этот файл из материалов заявки?')) return;
   deleteAttachment(attId).then(function() {
     showToast('Файл удален', 'info');
     refreshAttachmentsList(taskId);
@@ -5146,8 +5146,8 @@ function addPortRow(taskId) {
   });
 }
 
-function deletePortRow(rowId, taskId) {
-  if (!confirm('Удалить эту строку кабельного журнала?')) return;
+async function deletePortRow(rowId, taskId) {
+  if (!await confirmAction('Удалить эту строку кабельного журнала?')) return;
   api('/ports/' + rowId, { method: 'DELETE' }).then(function() {
     refreshPortsList(taskId);
   });
@@ -5160,7 +5160,7 @@ function uploadCableJournalExcel(file, taskId) {
   }
 
   var reader = new FileReader();
-  reader.onload = function(e) {
+  reader.onload = async function(e) {
     try {
       var data = new Uint8Array(e.target.result);
       var wb = XLSX.read(data, { type: 'array' });
@@ -5290,7 +5290,7 @@ function uploadCableJournalExcel(file, taskId) {
         return;
       }
 
-      var replaceExisting = confirm(
+      var replaceExisting = await confirmAction(
         'Найдено ' + parsedPorts.length + ' записей портов.\n\n' +
         'Нажмите «ОК», чтобы заменить текущий кабельный журнал новыми данными из файла.\n' +
         'Нажмите «Отмена», чтобы добавить найденные строки к уже существующим.'
@@ -5583,8 +5583,8 @@ function saveCard(silent) {
 }
 window.saveCard = saveCard;
 
-function cancelTaskPrompt(taskId) {
-  if (!confirm('Вы уверены, что хотите отменить заявку ' + taskId + '?\nДействие переведёт заявку в архив с фиксацией официальной причины.')) return;
+async function cancelTaskPrompt(taskId) {
+  if (!await confirmAction('Вы уверены, что хотите отменить заявку ' + taskId + '?\nДействие переведёт заявку в архив с фиксацией официальной причины.')) return;
   var reason = prompt('Укажите официальную причину отмены заявки:');
   if (reason === null) return;
   if (!reason.trim()) return alert('Причина отмены обязательна!');
@@ -5608,8 +5608,8 @@ function cancelTaskPrompt(taskId) {
   });
 }
 
-function deleteTaskPrompt(taskId) {
-  if (!confirm('Вы действительно хотите БЕЗВОЗВРАТНО УДАЛИТЬ заявку ' + taskId + ' из базы?\nЭто действие удалит саму заявку и все прикрепленные к ней данные.')) return;
+async function deleteTaskPrompt(taskId) {
+  if (!await confirmAction('Вы действительно хотите БЕЗВОЗВРАТНО УДАЛИТЬ заявку ' + taskId + ' из базы?\nЭто действие удалит саму заявку и все прикрепленные к ней данные.')) return;
   api('/tasks/' + encodeURIComponent(taskId), {
     method: 'DELETE'
   })
@@ -6285,8 +6285,8 @@ window.addManualMaterialPrompt = function(taskId) {
   });
 };
 
-window.deleteTaskMaterial = function(taskId, itemId) {
-  if (!confirm('Удалить эту позицию из спецификации объекта?')) return;
+window.deleteTaskMaterial = async function(taskId, itemId) {
+  if (!await confirmAction('Удалить эту позицию из спецификации объекта?')) return;
   fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials/' + encodeURIComponent(itemId), {
     method: 'DELETE',
     headers: { 'Authorization': 'Bearer ' + S.token }
@@ -6323,7 +6323,7 @@ window.updateMaterialSupplier = function(taskId, materialId, supplier) {
 function writeOffTaskMaterials(taskId) {
   fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials', { headers: { 'Authorization': 'Bearer ' + S.token } })
     .then(function(r){ return r.json(); })
-    .then(function(materials) {
+    .then(async function(materials) {
       if (!materials || !materials.length) return;
       var items = [];
       materials.forEach(function(m) {
@@ -6334,7 +6334,7 @@ function writeOffTaskMaterials(taskId) {
         items.push({ material_id: m.material_id, quantity: isNaN(qty) ? m.plan_qty : qty, supplier: supp });
       });
 
-      if (!confirm('Подтвердить фактический расход и списать материалы с виртуального склада подрядчика с фиксацией в себестоимости объекта?')) return;
+      if (!await confirmAction('Подтвердить фактический расход и списать материалы с виртуального склада подрядчика с фиксацией в себестоимости объекта?')) return;
 
       fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials/write-off', {
         method: 'POST',
@@ -6368,8 +6368,8 @@ function writeOffTaskMaterials(taskId) {
 }
 window.writeOffTaskMaterials = writeOffTaskMaterials;
 
-function acceptTmcCustody(taskId) {
-  if (!confirm('Подтвердить принятие ТМЦ по спецификации в подотчет монтажнику под личную материальную ответственность согласно Договору подряда (без необходимости оформления бумажной накладной М-15)?')) {
+async function acceptTmcCustody(taskId) {
+  if (!await confirmAction('Подтвердить принятие ТМЦ по спецификации в подотчет монтажнику под личную материальную ответственность согласно Договору подряда (без необходимости оформления бумажной накладной М-15)?')) {
     return;
   }
   fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials/accept-custody', {
@@ -7462,8 +7462,8 @@ function changeSubcontractStatus(taskId, subId, newStatus) {
   });
 }
 
-function deleteSubcontract(taskId, subId) {
-  if (!confirm('Удалить данный субподряд?')) return;
+async function deleteSubcontract(taskId, subId) {
+  if (!await confirmAction('Удалить данный субподряд?')) return;
   api('/subcontracts/' + subId, { method: 'DELETE' })
     .then(function() {
       loadCardSubcontracts(taskId);
@@ -7963,8 +7963,8 @@ function saveEditTaskDoc(taskId, docId) {
   });
 }
 
-function deleteCardDocument(taskId, docId) {
-  if (!confirm('Удалить документ из реестра?')) return;
+async function deleteCardDocument(taskId, docId) {
+  if (!await confirmAction('Удалить документ из реестра?')) return;
   api('/documents/' + docId, { method: 'DELETE' })
     .then(function() {
       loadCardDocuments(taskId);
@@ -8056,7 +8056,7 @@ window.deleteCardDocument = deleteCardDocument;
 // ─── PAGE: МАРШИ ─────────────────────────────────────────────────────────────
 
 // --- NEW WORKFLOW ACTIONS ---
-window.submitSmr = function(taskId) {
+window.submitSmr = async function(taskId) {
   var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
   var portsCount = (window._curTaskPorts && window._curTaskPorts[taskId] !== undefined) ? window._curTaskPorts[taskId] : (window._curPortsCount || 0);
   var photosCount = (window._curTaskPhotos && window._curTaskPhotos[taskId] !== undefined) ? window._curTaskPhotos[taskId] : (window._curPhotoReportsCount || 0);
@@ -8072,7 +8072,7 @@ window.submitSmr = function(taskId) {
   if (warnings.length > 0) {
     confirmMsg += '\n\n⚠️ Внимание! По чек-листу готовности СМР есть замечания:\n' + warnings.join('\n') + '\n\nВсе равно передать СМР на проверку?';
   }
-  if (!confirm(confirmMsg)) return;
+  if (!await confirmAction(confirmMsg)) return;
 
   api('/tasks/' + encodeURIComponent(taskId) + '/smr/submit', { method: 'POST' })
     .then(function(res) {
@@ -8082,7 +8082,7 @@ window.submitSmr = function(taskId) {
     .catch(function(err) { alert(err.message || err); });
 };
 
-window.acceptSmr = function(taskId) {
+window.acceptSmr = async function(taskId) {
   var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
   var portsCount = (window._curTaskPorts && window._curTaskPorts[taskId] !== undefined) ? window._curTaskPorts[taskId] : (window._curPortsCount || 0);
   var photosCount = (window._curTaskPhotos && window._curTaskPhotos[taskId] !== undefined) ? window._curTaskPhotos[taskId] : (window._curPhotoReportsCount || 0);
@@ -8098,7 +8098,7 @@ window.acceptSmr = function(taskId) {
   if (warnings.length > 0) {
     confirmMsg += '\n\n⚠️ Обратите внимание: по чек-листу монтажника не все пункты закрыты:\n' + warnings.join('\n') + '\n\nПродолжить приёмку?';
   }
-  if (!confirm(confirmMsg)) return;
+  if (!await confirmAction(confirmMsg)) return;
 
   api('/tasks/' + encodeURIComponent(taskId) + '/smr/accept', { method: 'POST' })
     .then(function(res) {
@@ -8124,14 +8124,14 @@ window.rejectSmr = function(taskId) {
 };
 
 window.completeSmr = window.acceptSmr;
-window.submitIdReview = function(taskId) {
-  if (!confirm('Отправить исполнительную документацию на проверку Заказчику?')) return;
+window.submitIdReview = async function(taskId) {
+  if (!await confirmAction('Отправить исполнительную документацию на проверку Заказчику?')) return;
   api('/tasks/' + encodeURIComponent(taskId) + '/id/review', { method: 'POST' })
     .then(res => { if (res.error) alert(res.error); renderApp(); })
     .catch(err => alert(err));
 };
-window.markPaid = function(taskId) {
-  if (!confirm('Отметить заявку как полностью оплаченную?')) return;
+window.markPaid = async function(taskId) {
+  if (!await confirmAction('Отметить заявку как полностью оплаченную?')) return;
   api('/tasks/' + encodeURIComponent(taskId) + '/finance/paid', { method: 'POST' })
     .then(res => { if (res.error) alert(res.error); renderApp(); })
     .catch(err => alert(err));
@@ -8191,10 +8191,10 @@ window._openAddSubPayment = function(taskId) {
   renderApp();
 };
 
-window.removeSubPayment = function(taskId, idx) {
+window.removeSubPayment = async function(taskId, idx) {
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
   if (!t || !t._payments) return;
-  if (!confirm('Удалить эту запись о выплате?')) return;
+  if (!await confirmAction('Удалить эту запись о выплате?')) return;
   t._payments.splice(idx, 1);
   if (!t.rawData) t.rawData = {};
   t.rawData.subPayments = t._payments;
@@ -8402,13 +8402,13 @@ window._saveExtraExpense = function(taskId) {
   renderApp();
 };
 
-window._removeExtraExpense = function(taskId, idx) {
+window._removeExtraExpense = async function(taskId, idx) {
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
   if (!t || !t.rawData || !Array.isArray(t.rawData.extraExpensesList)) return;
 
   var exp = t.rawData.extraExpensesList[idx];
   var name = exp ? exp.title : 'расход';
-  if (!confirm('Удалить запись «' + name + '»?')) return;
+  if (!await confirmAction('Удалить запись «' + name + '»?')) return;
 
   t.rawData.extraExpensesList.splice(idx, 1);
 

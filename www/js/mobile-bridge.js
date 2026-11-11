@@ -152,18 +152,39 @@
     if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
       var App = window.Capacitor.Plugins.App;
       App.addListener('backButton', function() {
-        // Закрытие открытого диалога в мессенджере
-        var openChat = document.querySelector('.chat-main-container.chat-open-mobile');
-        if (openChat && typeof window.closeMobileChat === 'function') {
-          window.closeMobileChat();
+        var nativeDialogs = Array.from(document.querySelectorAll('.mobile-native-dialog, .app-confirm-overlay'));
+        if (nativeDialogs.length) {
+          var nativeDialog = nativeDialogs[nativeDialogs.length - 1];
+          var dialogClose = nativeDialog.querySelector('.mobile-dialog-close, .app-confirm-cancel');
+          if (dialogClose) dialogClose.click();
           return;
         }
 
-        var modal = document.querySelector('.modal-overlay:not([style*="display: none"])');
+        var sheets = Array.from(document.querySelectorAll('.mobile-bottom-sheet-overlay')).filter(function(overlay) {
+          return getComputedStyle(overlay).display !== 'none';
+        });
+        if (sheets.length) {
+          var sheet = sheets[sheets.length - 1];
+          var sheetClose = sheet.querySelector('.mobile-sheet-close');
+          if (sheetClose) sheetClose.click();
+          return;
+        }
+
+        var modals = Array.from(document.querySelectorAll('.modal-overlay')).filter(function(overlay) {
+          return getComputedStyle(overlay).display !== 'none';
+        });
+        var modal = modals[modals.length - 1];
         if (modal) {
           var closeBtn = modal.querySelector('.modal-close-btn, button[onclick*="closeModal"]');
           if (closeBtn) closeBtn.click();
           else modal.style.display = 'none';
+          return;
+        }
+
+        // Закрытие открытого диалога в мессенджере
+        var openChat = document.querySelector('.chat-main-container.chat-open-mobile');
+        if (openChat && typeof window.closeMobileChat === 'function') {
+          window.closeMobileChat();
           return;
         }
 

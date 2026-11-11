@@ -287,12 +287,12 @@ function runCpSatSupplyOptimization() {
   });
 }
 
-function executeTransfer(srcWh, tgtWh, matId, qty, matName) {
+async function executeTransfer(srcWh, tgtWh, matId, qty, matName) {
   if (!tgtWh) {
     alert('У подрядчика не назначен виртуальный склад!');
     return;
   }
-  if (!confirm('Подтвердить отгрузку ' + qty + ' ед. (' + matName + ')?')) return;
+  if (!await confirmAction('Подтвердить отгрузку ' + qty + ' ед. (' + matName + ')?')) return;
 
   fetch('/api/stock/transfer', {
     method: 'POST',
@@ -588,8 +588,8 @@ function openCreatePurchaseOrderModal(prefillMatId, prefillQty) {
     });
 }
 
-function receivePurchaseOrder(poId, orderNum) {
-  if (!confirm('Оприходовать поставку #' + orderNum + ' на Центральный склад?\nМатериалы будут зачислены на баланс, а статус "В пути" закрыт.')) return;
+async function receivePurchaseOrder(poId, orderNum) {
+  if (!await confirmAction('Оприходовать поставку #' + orderNum + ' на Центральный склад?\nМатериалы будут зачислены на баланс, а статус "В пути" закрыт.')) return;
 
   fetch('/api/purchase-orders/' + poId + '/receive', {
     method: 'POST',

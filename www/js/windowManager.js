@@ -162,6 +162,82 @@
       if (typeof window.restorePageScroll === 'function') window.restorePageScroll();
     };
 
+    var isMobile = window.matchMedia('(max-width: 768px)').matches ||
+      document.body.classList.contains('is-native-phone') ||
+      document.body.classList.contains('in-phone-frame');
+
+    if (isMobile) {
+      if (modalBox.querySelector('.mobile-sheet-bar')) return;
+      if (backdrop) backdrop.classList.add('mobile-bottom-sheet-overlay');
+      modalBox.classList.add('mobile-bottom-sheet');
+
+      var sheetBar = document.createElement('div');
+      sheetBar.className = 'mobile-sheet-bar';
+      sheetBar.innerHTML = '<div class="mobile-sheet-grip"></div>' +
+        '<div class="mobile-sheet-heading"><span class="mobile-sheet-title">' + safeEsc(title) + '</span>' +
+        '<button type="button" class="mobile-sheet-close">Закрыть</button></div>';
+      modalBox.insertBefore(sheetBar, modalBox.firstChild);
+
+      var swipeStartY = null;
+      var swipeDistance = 0;
+
+      function resetSheetSwipe() {
+        swipeStartY = null;
+        swipeDistance = 0;
+        modalBox.style.transform = '';
+        modalBox.classList.remove('is-sheet-swiping');
+        document.removeEventListener('pointermove', onSheetPointerMove);
+        document.removeEventListener('pointerup', onSheetPointerUp);
+        document.removeEventListener('pointercancel', onSheetPointerUp);
+      }
+
+      function closeMobileSheet() {
+        resetSheetSwipe();
+        try {
+          onClose();
+        } catch (err) {
+          console.warn('[windowManager] Error closing mobile sheet:', err);
+        }
+        setTimeout(function() {
+          if (backdrop && document.body.contains(backdrop) && backdrop.style.display !== 'none') {
+            if (backdrop.id && backdrop.id.startsWith('_')) backdrop.remove();
+            else backdrop.style.display = 'none';
+          } else if (!backdrop && document.body.contains(modalBox)) {
+            if (modalBox.id && modalBox.id.startsWith('_')) modalBox.remove();
+            else modalBox.style.display = 'none';
+          }
+          if (typeof window.restorePageScroll === 'function') window.restorePageScroll();
+        }, 20);
+      }
+
+      function onSheetPointerMove(e) {
+        if (swipeStartY === null) return;
+        swipeDistance = Math.max(0, e.clientY - swipeStartY);
+        if (!swipeDistance) return;
+        e.preventDefault();
+        modalBox.classList.add('is-sheet-swiping');
+        modalBox.style.transform = 'translateY(' + swipeDistance + 'px)';
+      }
+
+      function onSheetPointerUp() {
+        var shouldClose = swipeDistance > 90;
+        resetSheetSwipe();
+        if (shouldClose) closeMobileSheet();
+      }
+
+      sheetBar.addEventListener('pointerdown', function(e) {
+        if (e.target.closest('button') || (e.pointerType === 'mouse' && e.button !== 0)) return;
+        swipeStartY = e.clientY;
+        swipeDistance = 0;
+        document.addEventListener('pointermove', onSheetPointerMove, { passive: false });
+        document.addEventListener('pointerup', onSheetPointerUp);
+        document.addEventListener('pointercancel', onSheetPointerUp);
+      });
+      sheetBar.querySelector('.mobile-sheet-close').addEventListener('click', closeMobileSheet);
+      modalBox._closeWindow = closeMobileSheet;
+      return;
+    }
+
     var dockId = 'dock_win_' + Math.random().toString(36).substr(2, 9);
 
     // 4.1. Находим шапку окна для захвата перетаскивания (Drag Handle)
@@ -757,6 +833,17 @@
   // ─── 6. ГЛОБАЛЬНОЕ ЗАКРЫТИЕ ВЕРХНЕГО ОКНА ПО ESC ─────────────────────────────
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape' || e.keyCode === 27) {
+      if (document.querySelector('.app-confirm-overlay, .mobile-native-dialog')) return;
+
+      var mobileSheets = Array.from(document.querySelectorAll('.mobile-bottom-sheet-overlay')).filter(function(overlay) {
+        return getComputedStyle(overlay).display !== 'none';
+      });
+      if (mobileSheets.length) {
+        var sheetClose = mobileSheets[mobileSheets.length - 1].querySelector('.mobile-sheet-close');
+        if (sheetClose) sheetClose.click();
+        return;
+      }
+
       // Игнорируем если открыт выпадающий автокомплит
       var openDrop = document.querySelector('.modal-suggest-dropdown:not([style*="display: none"]):not([style*="display:none"])');
       if (openDrop) return;

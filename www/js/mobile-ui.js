@@ -101,6 +101,72 @@
     return scanOverflow();
   };
 
+  function closeMobileDialog(overlay) {
+    if (!overlay) return;
+    if (overlay._onKeyDown) document.removeEventListener('keydown', overlay._onKeyDown);
+    overlay.remove();
+  }
+
+  function showMobileAlert(message) {
+    var overlay = document.createElement('div');
+    overlay.className = 'mobile-native-dialog mobile-alert-overlay';
+    overlay.setAttribute('role', 'alertdialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Сообщение');
+
+    var card = document.createElement('div');
+    card.className = 'mobile-dialog-card';
+    var text = document.createElement('div');
+    text.className = 'mobile-dialog-message';
+    text.textContent = String(message == null ? '' : message);
+    var actions = document.createElement('div');
+    actions.className = 'mobile-dialog-actions';
+    var closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'btn mobile-dialog-close';
+    closeButton.textContent = 'Понятно';
+    actions.appendChild(closeButton);
+    card.appendChild(text);
+    card.appendChild(actions);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    closeButton.addEventListener('click', function() { closeMobileDialog(overlay); });
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) closeMobileDialog(overlay);
+    });
+    overlay._onKeyDown = function(e) {
+      if (e.key === 'Escape') closeMobileDialog(overlay);
+    };
+    document.addEventListener('keydown', overlay._onKeyDown);
+    setTimeout(function() { closeButton.focus(); }, 30);
+  }
+
+  var originalAlert = window.alert.bind(window);
+  window.alert = function(message) {
+    if (!isMobileLayout()) return originalAlert(message);
+    showMobileAlert(message);
+  };
+
+  document.addEventListener('click', function(e) {
+    if (!isMobileLayout()) return;
+    var hintButton = e.target.closest('.field-hint-btn');
+    if (hintButton) {
+      e.preventDefault();
+      e.stopPropagation();
+      var wrap = hintButton.closest('.field-hint-wrap');
+      if (wrap) wrap.classList.toggle('mobile-hint-open');
+      return;
+    }
+    document.querySelectorAll('.field-hint-wrap.mobile-hint-open').forEach(function(wrap) {
+      wrap.classList.remove('mobile-hint-open');
+    });
+    var titled = e.target.closest('[title]');
+    if (!titled || e.target.closest('button, a, input, select, textarea, label, [onclick]')) return;
+    var hint = titled.getAttribute('title');
+    if (hint) showMobileAlert(hint);
+  });
+
   document.addEventListener('DOMContentLoaded', function() {
     scan();
     var observer = new MutationObserver(scheduleScan);

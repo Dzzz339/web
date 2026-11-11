@@ -319,11 +319,11 @@
   };
 
   // Финализация модерации (возврат на доработку или отправка на Портал)
-  window.finalizeIdModeration = function(taskId, action) {
+  window.finalizeIdModeration = async function(taskId, action) {
     if (action === 'return_rework') {
       var rejectedDocs = (_curModerationData?.documents || []).filter(function(d){ return d.status === 'rejected'; });
       var summary = rejectedDocs.map(function(d){ return '• ' + d.title + ': ' + (d.rejection_reason || 'Замечания') + (d.comment ? ' (' + d.comment + ')' : ''); }).join('\n');
-      if (!confirm('Вернуть комплект ИД подрядчику на доработку со следующими замечаниями:\n\n' + summary)) return;
+      if (!await confirmAction('Вернуть комплект ИД подрядчику на доработку со следующими замечаниями:\n\n' + summary)) return;
 
       api('/tasks/' + encodeURIComponent(taskId) + '/id-moderation/finalize', {
         method: 'POST',
@@ -338,7 +338,7 @@
     }
 
     if (action === 'send_portal') {
-      if (!confirm('Все 5 обязательных документов ИД успешно проверены и одобрены.\n\nОтправить комплект ИД на Портал поставщиков?')) return;
+      if (!await confirmAction('Все 5 обязательных документов ИД успешно проверены и одобрены.\n\nОтправить комплект ИД на Портал поставщиков?')) return;
 
       api('/tasks/' + encodeURIComponent(taskId) + '/id-moderation/finalize', {
         method: 'POST',

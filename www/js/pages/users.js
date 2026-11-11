@@ -441,8 +441,8 @@ function editSpecialist(id) {
   });
 }
 
-function deleteSpecialist(id) {
-  if (!confirm('Удалить специалиста из базы?')) return;
+async function deleteSpecialist(id) {
+  if (!await confirmAction('Удалить специалиста из базы?')) return;
   api('/specialists/' + id, { method: 'DELETE' }).then(function(res) {
     if (res && res.error) return alert(res.error);
     api('/specialists').then(function(specs) {
@@ -790,8 +790,8 @@ function editPoa(id) {
   });
 }
 
-function deletePoa(id) {
-  if (!confirm('Удалить доверенность из реестра?')) return;
+async function deletePoa(id) {
+  if (!await confirmAction('Удалить доверенность из реестра?')) return;
   api('/powers-of-attorney/' + id, { method: 'DELETE' }).then(function(res) {
     if (res && res.error) return alert(res.error);
     api('/powers-of-attorney').then(function(poas) {
@@ -957,8 +957,8 @@ function addUser() {
   });
 }
 
-function deleteUser(id) {
-  if(!confirm('Удалить пользователя?')) return;
+async function deleteUser(id) {
+  if(!await confirmAction('Удалить пользователя?')) return;
   api('/users/' + id, { method: 'DELETE' }).then(() => renderApp());
 }
 

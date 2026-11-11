@@ -4100,3 +4100,203 @@ body.mobile-layout-active #toast-container > * {
     display: none !important;
   }
 }
+
+.app-confirm-overlay,
+.mobile-native-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 100200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, .55);
+  backdrop-filter: blur(2px);
+  box-sizing: border-box;
+}
+
+.app-confirm-card,
+.mobile-dialog-card {
+  width: 100%;
+  max-width: 380px;
+  padding: 22px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 12px 48px rgba(15, 23, 42, .24);
+  box-sizing: border-box;
+}
+
+.app-confirm-message,
+.mobile-dialog-message {
+  margin-bottom: 20px;
+  font-size: .95rem;
+  line-height: 1.5;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.app-confirm-actions,
+.mobile-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.app-confirm-yes {
+  border-color: var(--red);
+  background: var(--red);
+}
+
+.mobile-bottom-sheet-overlay {
+  align-items: flex-end !important;
+  justify-content: center !important;
+  padding: 0 !important;
+}
+
+.mobile-bottom-sheet {
+  position: relative !important;
+  inset: auto !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  margin: 0 !important;
+  transform: none;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  border-radius: 18px 18px 0 0 !important;
+  box-sizing: border-box !important;
+  scroll-padding-bottom: calc(20px + var(--safe-bottom, 0px));
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-bottom-sheet.is-sheet-swiping {
+  transition: none !important;
+}
+
+.mobile-sheet-bar {
+  position: sticky;
+  top: 0;
+  z-index: 100060;
+  padding: var(--safe-top, 0px) 12px 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 18px 18px 0 0;
+  background: var(--surface);
+  touch-action: none;
+}
+
+.mobile-sheet-grip {
+  width: 40px;
+  height: 4px;
+  margin: 7px auto 3px;
+  border-radius: 4px;
+  background: var(--border);
+}
+
+.mobile-sheet-heading {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 12px;
+}
+
+.mobile-sheet-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: .95rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-sheet-close {
+  min-width: 88px;
+  min-height: 44px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--orange-dark);
+  font: inherit;
+  font-size: .85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+body.mobile-layout-active #app_window_dock {
+  display: none !important;
+}
+
+body.mobile-layout-active .field-hint-wrap {
+  width: 44px;
+  height: 44px;
+  margin: -14px 0 -14px 2px;
+  justify-content: center;
+}
+
+body.mobile-layout-active .field-hint-btn,
+body.mobile-layout-active .btn-icon,
+body.mobile-layout-active .icon-btn,
+body.mobile-layout-active .modal-close-btn,
+body.mobile-layout-active button[aria-label] {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+body.mobile-layout-active .field-hint-wrap:focus-within .field-hint-popup,
+body.mobile-layout-active .field-hint-wrap.mobile-hint-open .field-hint-popup {
+  opacity: 1;
+  visibility: visible;
+}
+
+body.mobile-layout-active .field-hint-popup {
+  position: fixed;
+  right: 16px;
+  bottom: calc(76px + var(--safe-bottom, 0px));
+  left: 16px;
+  width: auto;
+  max-width: none;
+  transform: none;
+  padding: 12px 14px;
+  pointer-events: auto;
+  user-select: text;
+}
+
+body.mobile-layout-active .app-confirm-overlay,
+body.mobile-layout-active .mobile-native-dialog {
+  align-items: flex-end;
+  padding: 0;
+}
+
+body.mobile-layout-active .app-confirm-card,
+body.mobile-layout-active .mobile-dialog-card {
+  max-width: none;
+  padding: 20px 16px calc(16px + var(--safe-bottom, 0px));
+  border-radius: 18px 18px 0 0;
+}
+
+body.mobile-layout-active .app-confirm-actions,
+body.mobile-layout-active .mobile-dialog-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+body.mobile-layout-active .mobile-dialog-actions {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+body.mobile-layout-active .app-confirm-actions .btn,
+body.mobile-layout-active .mobile-dialog-actions .btn {
+  min-height: 44px;
+  justify-content: center;
+  white-space: normal;
+}
+
+@supports not (height: 100dvh) {
+  .mobile-bottom-sheet {
+    height: 100vh !important;
+    max-height: 100vh !important;
+  }
+}

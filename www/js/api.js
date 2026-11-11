@@ -141,14 +141,14 @@ window._submitReauth = function() {
   });
 };
 
-window._cancelReauthAndLogout = function() {
+window._cancelReauthAndLogout = async function() {
   var hasDraft = S.cardDraft && (
     Object.keys(S.cardDraft).filter(function(k){ return !k.startsWith('_'); }).length > 0 ||
     !!S.cardDraft._smrDirty ||
     !!S.cardDraft._tmcDirty
   );
   if (hasDraft) {
-    if (!confirm('Внимание: у вас есть несохранённые данные в карточке! При выходе они будут потеряны. Вы действительно хотите выйти?')) {
+    if (!await confirmAction('Внимание: у вас есть несохранённые данные в карточке! При выходе они будут потеряны. Вы действительно хотите выйти?')) {
       return;
     }
   }

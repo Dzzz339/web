@@ -1029,8 +1029,8 @@ function addChatMember(roomId, taskId) {
 }
 window.addChatMember = addChatMember;
 
-function removeChatMember(roomId, userId, taskId) {
-  if (!confirm('Исключить этого пользователя из обсуждения заявки?')) return;
+async function removeChatMember(roomId, userId, taskId) {
+  if (!await confirmAction('Исключить этого пользователя из обсуждения заявки?')) return;
   api('/chats/' + roomId + '/members/' + userId, {
     method: 'DELETE'
   }).then(function(res) {
@@ -1933,8 +1933,8 @@ function fallbackCopyText(text) {
   document.body.removeChild(ta);
 }
 
-function clearAiChatHistory() {
-  if (!confirm('Вы уверены, что хотите очистить переписку со Стоки?')) return;
+async function clearAiChatHistory() {
+  if (!await confirmAction('Вы уверены, что хотите очистить переписку со Стоки?')) return;
   api('/ai/history', { method: 'DELETE' }).then(function() {
     S.aiMessages = [];
     renderAiMessages();
@@ -2783,7 +2783,7 @@ function executeStepNotifySystem(params, tasks) {
 // ⚡ ГЛАВНЫЙ ОРКЕСТРАТОР СЦЕНАРИЯ
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function runWorkflow() {
+async function runWorkflow() {
   initWorkflowState();
 
   if (!S.workflowSteps.length) {
@@ -2794,7 +2794,7 @@ function runWorkflow() {
   // Проверяем, что есть хотя бы шаг «Найти» или уже есть контекст заявок
   var hasFindStep = S.workflowSteps.some(function(s){ return s.type === 'find'; });
   if (!hasFindStep && !(S.workflowContext.tasks && S.workflowContext.tasks.length)) {
-    if (!confirm('Нет шага «Найти заявки». Другие шаги будут применены ко всем ' + (S.tasks || []).length + ' заявкам из базы. Продолжить?')) return;
+    if (!await confirmAction('Нет шага «Найти заявки». Другие шаги будут применены ко всем ' + (S.tasks || []).length + ' заявкам из базы. Продолжить?')) return;
     S.workflowContext.tasks = S.tasks || [];
   }
 
@@ -3187,8 +3187,8 @@ function loadCustomWorkflow(idx) {
 }
 
 // Удалить пользовательский сценарий
-function deleteCustomWorkflow(idx) {
-  if (!confirm('Удалить этот сохранённый сценарий?')) return;
+async function deleteCustomWorkflow(idx) {
+  if (!await confirmAction('Удалить этот сохранённый сценарий?')) return;
   var saved = [];
   try { saved = JSON.parse(localStorage.getItem('stockeasy_custom_scenarios') || '[]'); } catch(e) {}
   saved.splice(idx, 1);
@@ -3383,7 +3383,7 @@ function updateAiToolChipsUI() {
 
 
 // ─── РЕШЕНИЯ ПРОВЕРЯЮЩЕГО ВНУТРИ ЧАТА СО СТОКИ ──────────────────────────
-window.submitTaskQcDecision = function(taskId, decision) {
+window.submitTaskQcDecision = async function(taskId, decision) {
   if (!taskId) return;
   var r = String((S.user && S.user.role) || '').toLowerCase();
   var canReview = ['admin', 'director', 'manager', 'to_engineer', 'controller'].includes(r);
@@ -3441,7 +3441,7 @@ window.submitTaskQcDecision = function(taskId, decision) {
   }
 
   if (decision === 'accepted') {
-    if (!confirm('Утвердить приемку монтажа по объекту #' + taskId + ' без замечаний?')) return;
+    if (!await confirmAction('Утвердить приемку монтажа по объекту #' + taskId + ' без замечаний?')) return;
     executeSave('');
   } else if (decision === 'accepted_notes') {
     var inputNotes = prompt('Укажите замечания / гарантийные недочеты для устранения:');

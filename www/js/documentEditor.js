@@ -516,12 +516,12 @@
   };
 
   // Переформировать документ из актуальных данных шаблона
-  window._refreshDocFromTemplate = function() {
+  window._refreshDocFromTemplate = async function() {
     if (_editorState.isLocked) {
       alert('Документ заблокирован от изменений в текущем статусе.');
       return;
     }
-    if (!confirm('Переформировать документ из актуальных данных и шаблона? Все ручные правки в тексте будут заменены исходным шаблоном.')) {
+    if (!await confirmAction('Переформировать документ из актуальных данных и шаблона? Все ручные правки в тексте будут заменены исходным шаблоном.')) {
       return;
     }
     renderNewDocument({
@@ -609,9 +609,9 @@
   };
 
   // Смена шаблона документа «на лету» с сохранением данных
-  window._onSwitchDocTemplate = function(newTemplateCode) {
+  window._onSwitchDocTemplate = async function(newTemplateCode) {
     if (!newTemplateCode) return;
-    if (!confirm('Переключить шаблон? Внесенные ручные правки в текст будут заменены версткой нового шаблона.')) {
+    if (!await confirmAction('Переключить шаблон? Внесенные ручные правки в текст будут заменены версткой нового шаблона.')) {
       var sel = document.getElementById('_doc_edit_template_sel');
       if (sel) sel.value = _editorState.templateCode || '';
       return;
@@ -693,7 +693,7 @@
   };
 
   // Удалить активную строку таблицы
-  window._deleteDocTableRow = function() {
+  window._deleteDocTableRow = async function() {
     var sel = window.getSelection();
     if (!sel || !sel.rangeCount) return;
     var node = sel.anchorNode;
@@ -702,7 +702,7 @@
       alert('Поставьте курсор в строку таблицы, которую хотите удалить.');
       return;
     }
-    if (confirm('Удалить эту строку таблицы?')) {
+    if (await confirmAction('Удалить эту строку таблицы?')) {
       tr.remove();
     }
   };

@@ -1394,8 +1394,8 @@
     });
   };
 
-  window.deleteSubContract = function(contractId) {
-    if (!confirm('Вы уверены, что хотите удалить этот договор субподряда?')) return;
+  window.deleteSubContract = async function(contractId) {
+    if (!await confirmAction('Вы уверены, что хотите удалить этот договор субподряда?')) return;
     api('/subcontract-contracts/' + contractId, { method: 'DELETE' }).then(function(res) {
       if (res && res.error) {
         alert('Ошибка: ' + res.error);
@@ -1603,8 +1603,8 @@
     });
   };
 
-  window.deleteSubPriceList = function(priceListId) {
-    if (!confirm('Вы уверены, что хотите удалить этот прайс-лист?')) return;
+  window.deleteSubPriceList = async function(priceListId) {
+    if (!await confirmAction('Вы уверены, что хотите удалить этот прайс-лист?')) return;
     api('/subcontract-pricelists/' + priceListId, { method: 'DELETE' }).then(function(res) {
       if (res && res.error) {
         alert('Ошибка: ' + res.error);
@@ -1810,8 +1810,8 @@
     });
   };
 
-  window.deleteSubPriceListItem = function(priceListId, itemId) {
-    if (!confirm('Удалить эту позицию из прайса?')) return;
+  window.deleteSubPriceListItem = async function(priceListId, itemId) {
+    if (!await confirmAction('Удалить эту позицию из прайса?')) return;
     api('/subcontract-pricelists/' + priceListId + '/items/' + itemId, {
       method: 'DELETE'
     }).then(function(res) {

@@ -1896,8 +1896,8 @@ function assignContractorToTask(taskId, nameShort) {
     .catch(function(e){ alert('Ошибка: ' + e.message); });
 }
 
-function removeContractorFromTask(taskId) {
-  if (!confirm('Снять подрядчика с заявки? Статус заявки вернется в «Не распределено».')) return;
+async function removeContractorFromTask(taskId) {
+  if (!await confirmAction('Снять подрядчика с заявки? Статус заявки вернется в «Не распределено».')) return;
   var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
   if (!t) return;
   var targetId = (typeof S !== 'undefined' && S.page === 'kanban') ? ('kcard_' + taskId) : ('task_row_' + taskId);
@@ -1940,8 +1940,8 @@ function acceptTask(taskId) {
   });
 }
 
-function declineTask(taskId) {
-  if (!confirm('Отказаться от заявки? Она станет неназначенной.')) return;
+async function declineTask(taskId) {
+  if (!await confirmAction('Отказаться от заявки? Она станет неназначенной.')) return;
   api('/tasks/' + taskId + '/decline', { method: 'POST' }).then(function(res) {
     if (res.error) return alert(res.error);
     var t = S.tasks.find(function(x){ return String(x.id) === String(taskId); });
@@ -2495,8 +2495,8 @@ window.saveSubcontractRateModal = function(taskId) {
   });
 };
 
-window.clearSubcontractRateModal = function(taskId) {
-  if (!confirm('Сбросить индивидуальные условия подряда? Заявка станет «Не оценена».')) return;
+window.clearSubcontractRateModal = async function(taskId) {
+  if (!await confirmAction('Сбросить индивидуальные условия подряда? Заявка станет «Не оценена».')) return;
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
   if (!t) return;
   if (!t.rawData) t.rawData = {};

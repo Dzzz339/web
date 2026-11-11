@@ -1071,26 +1071,77 @@ function showModal(title, fields, onSave) {
 }
 
 // Диалог подтверждения вместо confirm()
-function showConfirm(msg, onYes) {
-  var existing = document.getElementById('_mmodal');
-  if (existing) existing.remove();
-
+function showConfirm(msg, onYes, onNo, options) {
+  options = options || {};
   var modal = document.createElement('div');
-  modal.id = '_mmodal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(2px)';
-  modal.innerHTML =
-    '<div style="background:#fff;border-radius:14px;padding:1.5rem;width:100%;max-width:360px;box-shadow:0 12px 48px rgba(0,0,0,.22)">' +
-      '<div style="font-size:1rem;margin-bottom:1.25rem;line-height:1.5">' + msg + '</div>' +
-      '<div style="display:flex;gap:.6rem;justify-content:flex-end">' +
-        '<button onclick="document.getElementById(\'_mmodal\').remove()" class="btn btn-ghost btn-sm">Отмена</button>' +
-        '<button id="_myes" class="btn btn-sm" style="background:var(--red);border-color:var(--red)">Удалить</button>' +
-      '</div>' +
-    '</div>';
+  modal.className = 'app-confirm-overlay';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-label', 'Подтверждение действия');
+
+  var card = document.createElement('div');
+  card.className = 'app-confirm-card';
+  var text = document.createElement('div');
+  text.className = 'app-confirm-message';
+  text.textContent = String(msg || '');
+  var actions = document.createElement('div');
+  actions.className = 'app-confirm-actions';
+  var noButton = document.createElement('button');
+  noButton.type = 'button';
+  noButton.className = 'btn btn-ghost btn-sm app-confirm-cancel';
+  noButton.textContent = options.noText || 'Отмена';
+  var yesButton = document.createElement('button');
+  yesButton.type = 'button';
+  yesButton.className = 'btn btn-sm app-confirm-yes';
+  yesButton.textContent = options.yesText || 'Удалить';
+  actions.appendChild(noButton);
+  actions.appendChild(yesButton);
+  card.appendChild(text);
+  card.appendChild(actions);
+  modal.appendChild(card);
   document.body.appendChild(modal);
-  modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
-  modal.addEventListener('keydown', function(e){ if (e.key === 'Escape') modal.remove(); });
-  document.getElementById('_myes').onclick = function() { modal.remove(); onYes(); };
-  setTimeout(function(){ var b = document.getElementById('_myes'); if(b) b.focus(); }, 60);
+
+  var settled = false;
+  function close() {
+    modal.remove();
+    document.removeEventListener('keydown', onKeyDown);
+  }
+  function cancel() {
+    if (settled) return;
+    settled = true;
+    close();
+    if (typeof onNo === 'function') onNo();
+  }
+  function accept() {
+    if (settled) return;
+    settled = true;
+    close();
+    if (typeof onYes === 'function') onYes();
+  }
+  function onKeyDown(e) {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    cancel();
+  }
+
+  noButton.addEventListener('click', cancel);
+  yesButton.addEventListener('click', accept);
+  modal.addEventListener('click', function(e) { if (e.target === modal) cancel(); });
+  document.addEventListener('keydown', onKeyDown);
+  setTimeout(function() { yesButton.focus(); }, 60);
+}
+
+function confirmAction(msg) {
+  var isMobile = window.matchMedia('(max-width: 768px)').matches ||
+    document.body.classList.contains('is-native-phone') ||
+    document.body.classList.contains('in-phone-frame');
+  if (!isMobile) return Promise.resolve(window.confirm(msg));
+  return new Promise(function(resolve) {
+    showConfirm(msg, function() { resolve(true); }, function() { resolve(false); }, {
+      yesText: 'Подтвердить',
+      noText: 'Отмена'
+    });
+  });
 }
 
 // Исправление кракозябр (Latin-1 mojibake -> UTF-8 русский текст)

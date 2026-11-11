@@ -150,8 +150,8 @@
   };
 
   // Удаление пользовательского шаблона
-  window._deleteTemplate = function(id) {
-    if (!confirm('Вы уверены, что хотите удалить этот шаблон?')) return;
+  window._deleteTemplate = async function(id) {
+    if (!await confirmAction('Вы уверены, что хотите удалить этот шаблон?')) return;
     api('/document-templates/' + id, { method: 'DELETE' })
       .then(function() {
         if (typeof showToast === 'function') showToast('Шаблон удален', 'success');

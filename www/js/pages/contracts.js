@@ -2242,8 +2242,8 @@ function submitAddAgreement(contractId) {
   });
 }
 
-function deleteAgreement(contractId, agreementId) {
-  if (!confirm('Вы уверены, что хотите удалить это дополнительное соглашение? Связанные заявки будут отвязаны от ДС.')) return;
+async function deleteAgreement(contractId, agreementId) {
+  if (!await confirmAction('Вы уверены, что хотите удалить это дополнительное соглашение? Связанные заявки будут отвязаны от ДС.')) return;
 
   api('/contracts/agreements/' + agreementId, {
     method: 'DELETE'
@@ -2669,8 +2669,8 @@ function saveContractCloudUrlModal(id) {
   });
 }
 
-function clearContractCloudUrlModal(id) {
-  if (!confirm('Удалить сохраненную ссылку на облако?')) return;
+async function clearContractCloudUrlModal(id) {
+  if (!await confirmAction('Удалить сохраненную ссылку на облако?')) return;
   var inp = document.getElementById('modal_contract_cloud_url_input_' + id);
   if (inp) inp.value = '';
   saveContractCloudUrlModal(id);
@@ -3079,8 +3079,8 @@ function handleContractFormSubmit(e, id) {
   });
 }
 
-function deleteContract(id) {
-  if (!confirm('Вы уверены, что хотите удалить этот договор?')) return;
+async function deleteContract(id) {
+  if (!await confirmAction('Вы уверены, что хотите удалить этот договор?')) return;
   api('/contracts/' + id, { method: 'DELETE' }).then(function(res) {
     if (res && res.error) {
       showToast('Ошибка: ' + res.error, 'error');
@@ -3794,8 +3794,8 @@ function handleContractDrop(e, contractId) {
   }
 }
 
-function deleteContractAttachment(contractId, attachmentId) {
-  if (!confirm('Удалить это приложение к договору?')) return;
+async function deleteContractAttachment(contractId, attachmentId) {
+  if (!await confirmAction('Удалить это приложение к договору?')) return;
 
   api('/contracts/' + contractId + '/attachments/' + attachmentId, {
     method: 'DELETE'
@@ -4358,8 +4358,8 @@ function handleChecklistAttachmentUpload(contractId, key, input) {
     });
 }
 
-function removeChecklistAttachment(contractId, key) {
-  if (!confirm('Открепить этот файл от требования?')) return;
+async function removeChecklistAttachment(contractId, key) {
+  if (!await confirmAction('Открепить этот файл от требования?')) return;
 
   var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
   var cl = {};
@@ -4503,8 +4503,8 @@ function promptAddContractChecklistItem(contractId) {
   openAddContractCustomReqModal(contractId);
 }
 
-function removeContractChecklistItem(contractId, key) {
-  if (!confirm('Удалить это требование?')) return;
+async function removeContractChecklistItem(contractId, key) {
+  if (!await confirmAction('Удалить это требование?')) return;
 
   var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
   var cl = {};
@@ -4809,8 +4809,8 @@ function toggleContractPaymentStatus(contractId, paymentId) {
   });
 }
 
-function deleteContractPayment(contractId, paymentId) {
-  if (!confirm('Удалить эту запись о платеже?')) return;
+async function deleteContractPayment(contractId, paymentId) {
+  if (!await confirmAction('Удалить эту запись о платеже?')) return;
 
   var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
   var payments = [];
@@ -5815,10 +5815,10 @@ function renderLinkTaskModalList(c, tasks, filterQuery) {
   listEl.innerHTML = html;
 }
 
-function linkTaskToContract(taskId, contractId, isRebind, oldContractNum) {
+async function linkTaskToContract(taskId, contractId, isRebind, oldContractNum) {
   if (isRebind) {
     var msg = 'Заявка ' + taskId + ' сейчас привязана к договору ' + (oldContractNum ? ('№ ' + oldContractNum) : '') + '.\nПерепривязать её к текущему договору?';
-    if (!confirm(msg)) return;
+    if (!await confirmAction(msg)) return;
   }
 
   api('/contracts/' + contractId + '/link-task', {
@@ -5851,9 +5851,9 @@ function linkTaskToContract(taskId, contractId, isRebind, oldContractNum) {
   });
 }
 
-function unlinkTaskFromContractPrompt(taskId, contractId) {
+async function unlinkTaskFromContractPrompt(taskId, contractId) {
   var msg = 'Вы уверены, что хотите отвязать заявку ' + taskId + ' от этого договора?\nЗаявка останется в общем списке заявок, но больше не будет отображаться в этом контракте.';
-  if (!confirm(msg)) return;
+  if (!await confirmAction(msg)) return;
 
   api('/contracts/' + contractId + '/unlink-task', {
     method: 'POST',

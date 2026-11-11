@@ -293,8 +293,8 @@ function handleAvatarSelected(input) {
     });
 }
 
-function deleteAvatar() {
-  if (!confirm('Вы уверены, что хотите удалить фото профиля?')) return;
+async function deleteAvatar() {
+  if (!await confirmAction('Вы уверены, что хотите удалить фото профиля?')) return;
   var statusEl = document.getElementById('avatar_upload_status');
   if (statusEl) statusEl.innerHTML = '<span style="color:var(--text-2);">Удаление…</span>';
 

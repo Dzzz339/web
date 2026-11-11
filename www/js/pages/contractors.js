@@ -1042,8 +1042,8 @@ function editContractor(id) {
   });
 }
 
-function deleteContractor(id) {
-  if (!confirm('Удалить организацию? Это действие нельзя отменить.')) return;
+async function deleteContractor(id) {
+  if (!await confirmAction('Удалить организацию? Это действие нельзя отменить.')) return;
   api('/contractors/' + id, { method: 'DELETE' }).then(function(res) {
     if (res && res.error) return alert(res.error);
     S.contractors = S.contractors.filter(c => c.id !== id);
