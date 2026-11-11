@@ -279,11 +279,26 @@
   }
 
   function _updateEditorLockState(isLocked, reasonText, statusVal) {
+    _editorState.contentIsLocked = Boolean(isLocked);
+    _editorState.lockReason = reasonText || '';
+    if (statusVal) _editorState.status = statusVal;
+
+    var mobileView = window.matchMedia('(max-width: 768px)').matches ||
+      document.body.classList.contains('is-native-phone') ||
+      document.body.classList.contains('in-phone-frame');
+    var modalEl = document.getElementById('_doc_editor_modal');
+    if (modalEl) modalEl.classList.toggle('mobile-document-viewer', mobileView);
+    if (mobileView) {
+      isLocked = true;
+      reasonText = 'Полное редактирование доступно в веб-версии';
+    }
+
     var sheetEl = document.getElementById('_doc_sheet');
     var bannerEl = document.getElementById('_doc_locked_banner');
     var reasonEl = document.getElementById('_doc_locked_status_text');
     var titleEl = document.getElementById('_doc_edit_title');
     var selEl = document.getElementById('_doc_edit_template_sel');
+    var statusEl = document.getElementById('_doc_edit_status');
     var saveBtn = document.getElementById('_doc_save_btn');
     var refreshBtn = document.getElementById('_doc_btn_refresh');
     var toolbarEl = document.getElementById('_doc_toolbar');
@@ -305,6 +320,7 @@
 
     if (titleEl) titleEl.readOnly = Boolean(isLocked);
     if (selEl) selEl.disabled = Boolean(isLocked);
+    if (statusEl) statusEl.disabled = mobileView;
     if (saveBtn) {
       saveBtn.disabled = Boolean(isLocked);
       saveBtn.style.opacity = isLocked ? '0.5' : '1';
@@ -324,6 +340,7 @@
     // Состояние кнопки прикрепления скана
     var isSigned = (statusVal === 'signed');
     if (scanBtn) {
+      scanBtn.disabled = mobileView;
       if (isSigned) {
         scanBtn.innerHTML = '<span>✅</span> Подписан';
         scanBtn.style.background = '#dcfce7';
@@ -337,9 +354,14 @@
       }
     }
     if (bannerScanBtn) {
-      bannerScanBtn.style.display = isSigned ? 'none' : 'inline-flex';
+      bannerScanBtn.style.display = (isSigned || mobileView) ? 'none' : 'inline-flex';
     }
   }
+
+  window.addEventListener('resize', function() {
+    if (!document.getElementById('_doc_editor_modal') || typeof _editorState.contentIsLocked !== 'boolean') return;
+    _updateEditorLockState(_editorState.contentIsLocked, _editorState.lockReason, _editorState.status);
+  });
 
   function renderNewDocument(opts) {
     _editorState.lastOpts = opts;

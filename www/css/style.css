@@ -4300,3 +4300,51 @@ body.mobile-layout-active .mobile-dialog-actions .btn {
     max-height: 100vh !important;
   }
 }
+
+.mobile-readonly-note {
+  margin: 10px 12px;
+  padding: 10px 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: .78rem;
+  line-height: 1.4;
+}
+
+body.mobile-layout-active [data-mobile-readonly-field] {
+  max-width: 100%;
+  opacity: 1;
+  background: #f8fafc;
+  color: var(--text-2);
+  -webkit-text-fill-color: var(--text-2);
+}
+
+body.mobile-layout-active #_doc_editor_modal .doc-editor-container {
+  height: 100dvh !important;
+  padding-top: var(--safe-top, 0px);
+  box-sizing: border-box;
+}
+
+body.mobile-layout-active #_doc_editor_modal header {
+  padding: 6px 8px !important;
+}
+
+body.mobile-layout-active #_doc_editor_modal #_doc_canvas {
+  padding: 10px 8px 40px !important;
+}
+
+body.mobile-layout-active #_doc_editor_modal #_doc_sheet {
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: 100% !important;
+  padding: 24px 18px !important;
+  overflow-x: auto;
+  user-select: text;
+}
+
+body.mobile-layout-active #_doc_editor_modal #_doc_locked_banner {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+}

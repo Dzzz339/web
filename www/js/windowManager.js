@@ -471,6 +471,14 @@
   function checkAndEnhanceModal(node) {
     if (!node || node.nodeType !== 1) return;
 
+    var isMobile = window.matchMedia('(max-width: 768px)').matches ||
+      document.body.classList.contains('is-native-phone') ||
+      document.body.classList.contains('in-phone-frame');
+    if (isMobile) {
+      var desktopControls = (node.classList && node.classList.contains('win-ctrls-wrap')) ? node : node.querySelector?.('.win-ctrls-wrap');
+      if (desktopControls) desktopControls.remove();
+    }
+
     // 1. Договор: карточка просмотра деталей
     var cdmEl = (node.id === 'contract_detail_modal') ? node : (node.querySelector?.('#contract_detail_modal') || node.closest?.('#contract_detail_modal'));
     if (cdmEl) {
