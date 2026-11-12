@@ -4301,6 +4301,16 @@ body.mobile-layout-active .mobile-dialog-actions .btn {
   }
 }
 
+body.mobile-layout-active #contract_detail_modal .modal-header {
+  padding: 16px !important;
+}
+
+body.mobile-layout-active #contract_detail_modal .modal-header > div[style*="position:absolute"] {
+  position: static !important;
+  margin-top: 10px;
+  justify-content: flex-start;
+}
+
 .mobile-readonly-note {
   margin: 10px 12px;
   padding: 10px 12px;
