@@ -80,6 +80,26 @@ function idbAddOutbox(item) {
   });
 }
 
+function idbUpdateOutbox(item) {
+  return getOfflineDB().then(function(db) {
+    if (!db) return false;
+    return new Promise(function(resolve) {
+      try {
+        var tx = db.transaction('outbox', 'readwrite');
+        var store = tx.objectStore('outbox');
+        store.put(item);
+        tx.oncomplete = function() {
+          refreshOutboxCount();
+          resolve(true);
+        };
+        tx.onerror = function() { resolve(false); };
+      } catch (e) {
+        resolve(false);
+      }
+    });
+  });
+}
+
 function idbGetOutbox() {
   return getOfflineDB().then(function(db) {
     if (!db) return [];
@@ -353,9 +373,10 @@ function handleOfflineMutation(url, method, opts) {
   });
 }
 
-function syncOutbox() {
+function syncOutbox(options) {
+  options = options || {};
   if (S.syncing) return Promise.resolve();
-  
+
   return idbGetOutbox().then(function(items) {
     if (!items || items.length === 0) {
       S.outboxCount = 0;
@@ -365,17 +386,38 @@ function syncOutbox() {
 
     S.syncing = true;
     updateNetworkStatusUI();
+    var rejectedCount = 0;
 
-    function processNext(idx) {
-      if (idx >= items.length) {
+    function finishSync() {
+      return idbGetOutbox().then(function(remaining) {
         S.syncing = false;
         S.isOnline = true;
-        refreshOutboxCount();
-        showToast('✅ Все данные синхронизированы с сервером!', 'success');
-        return fetchFreshServerData();
-      }
+        S.outboxCount = remaining.length;
+        updateNetworkStatusUI();
+        if (remaining.length === 0) {
+          showToast('✅ Все данные синхронизированы с сервером!', 'success');
+          return fetchFreshServerData();
+        }
+        if (rejectedCount > 0) {
+          showToast('Изменение сохранено локально, но сервер его отклонил', 'error');
+        }
+      });
+    }
+
+    function saveSyncError(item, status, message) {
+      item.status = status;
+      item.lastError = message;
+      return idbUpdateOutbox(item);
+    }
+
+    function processNext(idx) {
+      if (idx >= items.length) return finishSync();
 
       var item = items[idx];
+      if (item.status === 'rejected' && !options.manual) {
+        return processNext(idx + 1);
+      }
+
       var headers = {
         'Authorization': 'Bearer ' + S.token,
         'Content-Type': 'application/json'
@@ -386,20 +428,30 @@ function syncOutbox() {
         headers: headers,
         body: item.body
       }).then(function(res) {
-        if (res.ok || (res.status >= 400 && res.status < 500)) {
+        if (res.ok) {
           return idbRemoveOutbox(item.id).then(function() {
             return processNext(idx + 1);
           });
-        } else {
-          console.warn('[Sync] Server responded with status:', res.status);
+        }
+        if (res.status >= 400 && res.status < 500) {
+          rejectedCount++;
+          return saveSyncError(item, 'rejected', 'HTTP ' + res.status + ': сервер отклонил изменение').then(function() {
+            return processNext(idx + 1);
+          });
+        }
+
+        console.warn('[Sync] Server responded with status:', res.status);
+        return saveSyncError(item, 'pending', 'HTTP ' + res.status + ': временная ошибка сервера').then(function() {
           S.syncing = false;
           refreshOutboxCount();
-        }
-      }).catch(function(err) {
+        });
+      }, function(err) {
         console.warn('[Sync] Network error during sync:', err);
-        S.syncing = false;
-        S.isOnline = false;
-        refreshOutboxCount();
+        return saveSyncError(item, 'pending', 'Ошибка сети: ' + err.message).then(function() {
+          S.syncing = false;
+          S.isOnline = false;
+          refreshOutboxCount();
+        });
       });
     }
 
@@ -410,14 +462,12 @@ function syncOutbox() {
 function manualSync() {
   if (S.syncing) return;
   showToast('🔄 Проверка связи с сервером...', 'info');
-  fetch('/api/stats', { headers: { 'Authorization': 'Bearer ' + S.token } })
+  return fetch('/api/stats', { headers: { 'Authorization': 'Bearer ' + S.token } })
     .then(function(r) {
       if (r.ok) {
         S.isOnline = true;
         updateNetworkStatusUI();
-        syncOutbox().then(function() {
-          fetchFreshServerData();
-        });
+        return syncOutbox({ manual: true });
       } else if (r.status === 401 || r.status === 403) {
         // Сервер отвечает! Срок токена истёк
         S.isOnline = true;
