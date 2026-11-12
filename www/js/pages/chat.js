@@ -28,7 +28,7 @@ function pageChat() {
           </div>
           <div style="overflow:hidden;">
             <div style="font-weight:600; font-size:.85rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escHtml(displayName)}</div>
-            <div style="font-size:.7rem; color:var(--text-3)">${roleInfo.icon} ${roleInfo.name}</div>
+            <div style="font-size:.7rem; color:var(--text-3)"><span class="chat-role-icon">${roleInfo.icon}</span> ${roleInfo.name}</div>
           </div>
         </div>
       `;
@@ -967,7 +967,7 @@ function renderChatMembersModalDOM(roomId, taskId, members) {
         avatarHtml +
         '<div>' +
           '<div style="font-weight:600;font-size:.85rem;color:var(--text)">' + escHtml(m.full_name || m.username) + (m.id === currentUserId ? ' <span style="font-size:.7rem;color:var(--text-3)">(Вы)</span>' : '') + '</div>' +
-          '<div style="font-size:.7rem;color:var(--text-3)">' + roleInfo.icon + ' ' + roleInfo.name + '</div>' +
+          '<div style="font-size:.7rem;color:var(--text-3)"><span class="chat-role-icon">' + roleInfo.icon + '</span> ' + roleInfo.name + '</div>' +
         '</div>' +
       '</div>' +
       removeBtn +
