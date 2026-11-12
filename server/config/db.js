@@ -1050,14 +1050,19 @@ export async function initDB() {
 
   const userCount = await pool.query('SELECT COUNT(*) FROM users');
   if (parseInt(userCount.rows[0].count) === 0) {
-    const salt = await bcrypt.genSalt(10);
-    const hash = await bcrypt.hash('chaykaxxx228', salt); 
-    
-    await pool.query(
-      'INSERT INTO users (username, password_hash, role, full_name) VALUES ($1, $2, $3, $4)',
-      ['nikita', hash, 'admin', 'Администратор']
-    );
-    console.log('Default admin user created');
+    const initialAdminUsername = String(process.env.INITIAL_ADMIN_USERNAME || '').trim();
+    const initialAdminPassword = String(process.env.INITIAL_ADMIN_PASSWORD || '');
+    if (!initialAdminUsername || !initialAdminPassword) {
+      console.warn('Initial admin not created: set INITIAL_ADMIN_USERNAME and INITIAL_ADMIN_PASSWORD for cold initialization');
+    } else {
+      const salt = await bcrypt.genSalt(10);
+      const hash = await bcrypt.hash(initialAdminPassword, salt);
+      await pool.query(
+        'INSERT INTO users (username, password_hash, role, full_name) VALUES ($1, $2, $3, $4)',
+        [initialAdminUsername, hash, 'admin', String(process.env.INITIAL_ADMIN_FULL_NAME || 'Администратор').trim()]
+      );
+      console.log('Initial admin user created from environment configuration');
+    }
   }
 
   try {

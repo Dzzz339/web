@@ -1,8 +1,8 @@
 import { pool } from '../config/db.js';
 
-const SEAFILE_URL = (process.env.SEAFILE_URL || 'https://cloud.stockeasy.ru').replace(/\/+$/, '');
-const SEAFILE_API_TOKEN = process.env.SEAFILE_API_TOKEN || '70485687f98b2d02a37343111d82d4b53d5cdf85';
-const SEAFILE_REPO_ID = process.env.SEAFILE_REPO_ID || '3f5c3fab-79a1-476e-8dbc-ba3202d005cc';
+const SEAFILE_URL = String(process.env.SEAFILE_URL || '').replace(/\/+$/, '');
+const SEAFILE_API_TOKEN = String(process.env.SEAFILE_API_TOKEN || '').trim();
+const SEAFILE_REPO_ID = String(process.env.SEAFILE_REPO_ID || '').trim();
 
 export function isSeafileConfigured() {
   return Boolean(SEAFILE_URL && SEAFILE_API_TOKEN && SEAFILE_REPO_ID);
@@ -23,7 +23,7 @@ function sanitizePathPart(str) {
  */
 export async function createTaskSeafileFolder(task) {
   if (!isSeafileConfigured()) {
-    throw new Error('Seafile не настроен на сервере (отсутствует SEAFILE_API_TOKEN или SEAFILE_REPO_ID)');
+    throw new Error('Seafile не настроен: задайте SEAFILE_URL, SEAFILE_API_TOKEN и SEAFILE_REPO_ID в переменных окружениях');
   }
 
   const taskId = sanitizePathPart(task.id || 'unknown');

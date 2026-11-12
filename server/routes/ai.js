@@ -12,7 +12,7 @@ const router = express.Router();
 // ─── ИИ-АССИСТЕНТ: провайдер DeepSeek Cloud API / OpenAI-совместимый шлюз ────
 function getAiConfig() {
   const url = (process.env.AI_BASE_URL || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
-  const key = (process.env.AI_API_KEY || process.env.OPENAI_API_KEY || 'sk-3b7f1dde7d36424885e7ffbf3bc78511').trim();
+  const key = String(process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '').trim();
   const model = process.env.AI_MODEL || 'deepseek-flash';
   return { url, key, model };
 }
@@ -25,14 +25,11 @@ let _cachedUrl = null;
 
 function getAiClient() {
   const { url, key } = getAiConfig();
-  if (!url) return null;
+  if (!url || !key) return null;
   if (!_aiClient || _cachedKey !== key || _cachedUrl !== url) {
     _cachedKey = key;
     _cachedUrl = url;
-    _aiClient = new OpenAI({
-      baseURL: url,
-      apiKey: key || 'sk-placeholder'
-    });
+    _aiClient = new OpenAI({ baseURL: url, apiKey: key });
   }
   return _aiClient;
 }
@@ -41,15 +38,26 @@ function getAiClient() {
 router.get('/health', authenticateToken, async (req, res) => {
   const { url: targetUrl, key, model } = getAiConfig();
   const isDeepSeek = targetUrl.includes('deepseek.com');
-  const hasKey = Boolean(key && key !== 'ollama' && key !== 'sk-placeholder');
+  const hasKey = Boolean(key);
+
+  if (!hasKey) {
+    return res.status(503).json({
+      status: 'unconfigured',
+      provider: isDeepSeek ? 'DeepSeek Cloud' : 'OpenAI-compatible',
+      baseUrl: targetUrl,
+      currentModel: model,
+      hasKey: false,
+      availableModels: [],
+      cpuOnly: false,
+      error: 'AI не настроен: задайте AI_API_KEY или OPENAI_API_KEY в переменных окружениях'
+    });
+  }
 
   try {
     const client = getAiClient();
     let models = [];
-    if (hasKey && client) {
-      const list = await client.models.list().catch(() => null);
-      if (list && list.data) models = list.data.map(m => m.id);
-    }
+    const list = await client.models.list().catch(() => null);
+    if (list && list.data) models = list.data.map(m => m.id);
     return res.json({
       status: 'ok',
       provider: isDeepSeek ? 'DeepSeek Cloud' : 'OpenAI-compatible',
@@ -61,7 +69,7 @@ router.get('/health', authenticateToken, async (req, res) => {
     });
   } catch (e) {
     return res.json({
-      status: hasKey ? 'error' : 'ok',
+      status: 'error',
       provider: isDeepSeek ? 'DeepSeek Cloud' : 'OpenAI Gateway',
       baseUrl: targetUrl,
       currentModel: model,
@@ -302,15 +310,15 @@ router.post('/chat', authenticateToken, async (req, res) => {
   }
 
   // Проверка настройки API ключа
-  if (!key || key === 'sk-placeholder') {
-    return res.status(400).json({
-      error: 'API-ключ DeepSeek не задан. Укажите ваш ключ в файле .env (параметр AI_API_KEY=sk-...) и перезапустите сервер.'
+  if (!key) {
+    return res.status(503).json({
+      error: 'AI не настроен: задайте AI_API_KEY или OPENAI_API_KEY в переменных окружениях'
     });
   }
 
   const aiClient = getAiClient();
   if (!aiClient) {
-    return res.status(500).json({ error: 'AI-клиент не инициализирован. Проверьте AI_BASE_URL в файле .env' });
+    return res.status(503).json({ error: 'AI не настроен: проверьте AI_BASE_URL и AI_API_KEY' });
   }
 
   // ─── parse_devices: LLM парсит текст → JSON с устройствами/материалами ─────

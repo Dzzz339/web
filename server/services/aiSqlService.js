@@ -4,7 +4,7 @@ import { pool } from '../config/db.js';
 
 function getSqlAiConfig() {
   const url = (process.env.AI_BASE_URL || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
-  const key = (process.env.AI_API_KEY || process.env.OPENAI_API_KEY || 'sk-3b7f1dde7d36424885e7ffbf3bc78511').trim();
+  const key = String(process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '').trim();
   const model = process.env.AI_MODEL || 'deepseek-chat';
   return { url, key, model };
 }
@@ -15,11 +15,11 @@ let _cachedUrl = null;
 
 function getAiClient() {
   const { url, key } = getSqlAiConfig();
-  if (!url) return null;
+  if (!url || !key) return null;
   if (!_aiClient || _cachedKey !== key || _cachedUrl !== url) {
     _cachedKey = key;
     _cachedUrl = url;
-    _aiClient = new OpenAI({ baseURL: url, apiKey: key || 'sk-placeholder' });
+    _aiClient = new OpenAI({ baseURL: url, apiKey: key });
   }
   return _aiClient;
 }
