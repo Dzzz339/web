@@ -4309,8 +4309,8 @@ window.openFilePreviewModal = function(source, id, filePath, fileName) {
   modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
 
   var query = '';
-  if (filePath) query = 'file_path=' + encodeURIComponent(filePath);
-  else if (source && id) query = 'source=' + encodeURIComponent(source) + '&id=' + encodeURIComponent(id);
+  if (source && id) query = 'source=' + encodeURIComponent(source) + '&id=' + encodeURIComponent(id);
+  else if (filePath) query = 'file_path=' + encodeURIComponent(filePath);
 
   api('/preview/attachment?' + query)
     .then(function(res) {

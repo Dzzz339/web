@@ -47,7 +47,7 @@ function parseParagraph(pXml) {
   else if (pXml.includes('<w:jc w:val="right"/>')) align = 'text-align:right; ';
 
   // Извлекаем прогоны текста <w:r>
-  const rRegex = /<w:r[\s>][\s\S]*?<\/w:\1>|<w:r\/>/g;
+  const rRegex = /<w:r[\s>][\s\S]*?<\/w:r>|<w:r\/>/g;
   let res = '';
   let rMatch;
 
