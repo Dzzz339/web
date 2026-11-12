@@ -425,6 +425,7 @@ export async function initDB() {
   await pool.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS contract_law_type TEXT DEFAULT '223-ФЗ'`);
   await pool.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS payments JSONB DEFAULT '[]'`);
   await pool.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS penalties JSONB DEFAULT '{"amount": 0, "status": "none", "comment": ""}'`);
+  await pool.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS purchase_id TEXT`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_closing_priority ON contracts(closing_priority)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_contract_law_type ON contracts(contract_law_type)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_manager_id ON contracts(manager_id)`);
@@ -582,12 +583,7 @@ export async function initDB() {
   await pool.query(`ALTER TABLE task_documents ADD COLUMN IF NOT EXISTS content_html TEXT`);
   await pool.query(`ALTER TABLE task_documents ADD COLUMN IF NOT EXISTS content_json JSONB`);
   await pool.query(`ALTER TABLE task_documents ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`);
-  await pool.query(`ALTER TABLE task_documents ADD COLUMN IF NOT EXISTS poa_id INTEGER REFERENCES powers_of_attorney(id) ON DELETE SET NULL`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_docs_poa_id ON task_documents(poa_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_docs_contract_id ON task_documents(contract_id)`);
-
-  await pool.query(`ALTER TABLE powers_of_attorney ADD COLUMN IF NOT EXISTS scan_url TEXT`);
-  await pool.query(`ALTER TABLE powers_of_attorney ADD COLUMN IF NOT EXISTS document_id INTEGER`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS document_templates (
@@ -731,6 +727,10 @@ export async function initDB() {
       created_at      TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE task_documents ADD COLUMN IF NOT EXISTS poa_id INTEGER REFERENCES powers_of_attorney(id) ON DELETE SET NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_docs_poa_id ON task_documents(poa_id)`);
+  await pool.query(`ALTER TABLE powers_of_attorney ADD COLUMN IF NOT EXISTS scan_url TEXT`);
+  await pool.query(`ALTER TABLE powers_of_attorney ADD COLUMN IF NOT EXISTS document_id INTEGER`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_poa_specialist ON powers_of_attorney(specialist_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_poa_person ON powers_of_attorney(person_name)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_poa_valid_until ON powers_of_attorney(valid_until)`);

@@ -1,9 +1,9 @@
 // server/services/documentContext.js
 // Единый движок контекста данных и шаблонизации документов Stockeasy
-import { formatSumWordsRu, parseCalculationItems } from './docxGenerator.js';
+import { formatSumWordsRu } from './docxGenerator.js';
 
 export function formatDateRu(dateVal) {
-  if (!dateVal) return '—';
+  if (!dateVal) return '';
   const d = new Date(dateVal);
   if (isNaN(d.getTime())) return String(dateVal);
   const day = String(d.getDate()).padStart(2, '0');
@@ -13,20 +13,86 @@ export function formatDateRu(dateVal) {
 }
 
 export function formatDateRuWords(dateVal) {
+  if (!dateVal) return '';
   const months = [
     'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
     'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
   ];
-  const d = dateVal ? new Date(dateVal) : new Date();
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return String(dateVal);
   const day = String(d.getDate()).padStart(2, '0');
-  const month = months[d.getMonth()] || 'января';
+  const month = months[d.getMonth()];
   const year = d.getFullYear();
   return `«${day}» ${month} ${year} г.`;
 }
 
 export function formatMoney(val) {
-  const num = Number(val || 0);
+  if (val === null || val === undefined || val === '') return '';
+  const num = Number(val);
+  if (!Number.isFinite(num)) return '';
   return num.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽';
+}
+
+function numberOrNull(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function explicitCalculationLines(subcontract = {}, task = {}) {
+  let details = subcontract.calculation_details;
+  if (typeof details === 'string') {
+    try { details = JSON.parse(details); } catch { details = {}; }
+  }
+  if (!details || typeof details !== 'object') details = {};
+
+  const normalizeLine = (line) => {
+    const qty = numberOrNull(line.qty ?? line.count);
+    const price = numberOrNull(line.price);
+    const explicitTotal = numberOrNull(line.total);
+    return {
+      title: line.title || line.name || '',
+      unit: line.unit || '',
+      qty,
+      price,
+      total: explicitTotal !== null ? explicitTotal : (qty !== null && price !== null ? qty * price : null)
+    };
+  };
+
+  if (Array.isArray(details.lines) && details.lines.length > 0) {
+    return details.lines.map(normalizeLine);
+  }
+
+  const lines = [];
+  let rawData = task.raw_data || task.rawData || {};
+  if (typeof rawData === 'string') {
+    try { rawData = JSON.parse(rawData); } catch { rawData = {}; }
+  }
+  const extraExpenses = Array.isArray(rawData.extraExpensesList)
+    ? rawData.extraExpensesList.filter((item) => item.payer_mode === 'through_contractor')
+    : [];
+  if (extraExpenses.length > 0) {
+    extraExpenses.forEach((item) => {
+      const amount = numberOrNull(item.amount);
+      lines.push({
+        title: item.title || '',
+        unit: item.unit || '',
+        qty: numberOrNull(item.qty ?? item.count),
+        price: amount,
+        total: amount
+      });
+    });
+  } else if (numberOrNull(details.extraExpenses) !== null) {
+    const amount = numberOrNull(details.extraExpenses);
+    lines.push({
+      title: details.extraExpensesComment || '',
+      unit: details.extraExpensesUnit || '',
+      qty: numberOrNull(details.extraExpensesQty),
+      price: amount,
+      total: amount
+    });
+  }
+  return lines;
 }
 
 export function formatFioShort(fullName) {
@@ -166,10 +232,6 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
       if (oc.rows.length) ownId = oc.rows[0].id;
     }
   }
-  if (!ownId) {
-    const oc = await pool.query("SELECT id FROM own_companies WHERE is_default = true OR code = 'KS' ORDER BY id ASC LIMIT 1");
-    if (oc.rows.length) ownId = oc.rows[0].id;
-  }
   if (ownId) {
     const ocRes = await pool.query('SELECT * FROM own_companies WHERE id = $1', [ownId]);
     if (ocRes.rows.length > 0) {
@@ -191,7 +253,7 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
     if (cRes.rows.length > 0) {
       contractor = cRes.rows[0];
     } else {
-      contractor = { name_short: task.contractor, name_full: task.contractor, director: task.contractor };
+      contractor = { name_short: task.contractor, name_full: task.contractor };
     }
   }
 
@@ -209,7 +271,12 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
   // 6. Материалы и порты (если есть задача)
   if (taskId) {
     const mRes = await pool.query(`
-      SELECT tm.*, m.name, m.code, m.unit, m.price_default
+      SELECT tm.*,
+             COALESCE(tm.item_name, m.name) AS name,
+             COALESCE(tm.article, m.code) AS code,
+             COALESCE(tm.unit, m.unit) AS unit,
+             COALESCE(tm.price, m.price_default) AS price,
+             m.price_default
       FROM task_materials tm
       LEFT JOIN materials m ON tm.material_id = m.id
       WHERE tm.task_id = $1
@@ -221,19 +288,23 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
     ports = pRes.rows;
   }
 
-  // 7. Расчетные строки работ (смета)
-  calculationLines = parseCalculationItems(subcontract || {}, task || {});
+  // 7. Только явно сохранённые расчетные строки и фактические дополнительные расходы
+  calculationLines = explicitCalculationLines(subcontract || {}, task || {});
 
   // 8. Финансовые итоги
-  let totalAmount = 0;
-  if (subcontract && subcontract.price_agreed !== null && subcontract.price_agreed !== undefined && Number(subcontract.price_agreed) > 0) {
-    totalAmount = Number(subcontract.price_agreed);
-  } else if (calculationLines.length > 0) {
-    totalAmount = calculationLines.reduce((acc, it) => acc + (Number(it.total) || 0), 0);
-  } else if (task && task.price_per_unit) {
-    totalAmount = Number(task.price_per_unit);
-  } else if (task && task.amount) {
-    totalAmount = Number(task.amount);
+  let totalAmount = null;
+  const agreedAmount = numberOrNull(subcontract?.price_agreed);
+  const unitPrice = numberOrNull(task?.price_per_unit);
+  const taskAmount = numberOrNull(task?.amount);
+  const lineTotals = calculationLines.map((item) => numberOrNull(item.total)).filter((value) => value !== null);
+  if (agreedAmount !== null) {
+    totalAmount = agreedAmount;
+  } else if (lineTotals.length > 0) {
+    totalAmount = lineTotals.reduce((acc, value) => acc + value, 0);
+  } else if (unitPrice !== null && unitPrice !== 0) {
+    totalAmount = unitPrice;
+  } else if (taskAmount !== null && taskAmount !== 0) {
+    totalAmount = taskAmount;
   }
 
   // 9. Специалисты
@@ -244,19 +315,16 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
     specialists.push({
       num: 1,
       full_name: subcontract.installer_fio,
-      passport: subcontract.installer_passport || '—',
-      phone: subcontract.installer_phone || '—',
-      auto: subcontract.auto_number || '—',
-      role: 'Старший монтажник'
+      passport: subcontract.installer_passport || '',
+      phone: subcontract.installer_phone || '',
+      auto: subcontract.auto_number || '',
+      role: subcontract.installer_role || ''
     });
   }
 
   const now = new Date();
-  const docNumber = customData.doc_number || 
-    (poa ? poa.number : 
-      (subcontractContract ? subcontractContract.contract_number : 
-        (subcontract ? `ЗН-${task ? task.id : '1'}-${subcontract.id}` : `ДГ-${Date.now().toString().slice(-6)}`)));
-  const docDate = customData.doc_date || (poa?.issue_date ? poa.issue_date : (subcontractContract?.contract_date ? subcontractContract.contract_date : now));
+  const docNumber = customData.doc_number || poa?.number || subcontractContract?.contract_number || subcontract?.subcontract_number || '';
+  const docDate = customData.doc_date || poa?.issue_date || subcontractContract?.contract_date || '';
 
   // Паспортные данные для доверенностей и пропусков
   const specObj = poaSpecialist || poa;
@@ -313,25 +381,23 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
     sales: 'купли-продажи'
   };
 
-  const currentEssence = subcontractContract?.contract_essence || 'subcontract';
-  const essenceText = essenceMap[currentEssence] || essenceMap.subcontract;
-  const essenceTitle = essenceTitleMap[currentEssence] || essenceTitleMap.subcontract;
+  const currentEssence = subcontractContract?.contract_essence || '';
+  const essenceText = essenceMap[currentEssence] || '';
+  const essenceTitle = essenceTitleMap[currentEssence] || '';
 
   let subjectParagraph = '';
-  if (currentEssence === 'mirror') {
-    const parentNum = subcontractContract?.parent_contract_number || 'б/н';
-    const parentDate = subcontractContract?.parent_contract_date ? formatDateRu(subcontractContract.parent_contract_date) : '—';
-    const parentCust = subcontractContract?.parent_customer || subcontractContract?.customer_tag || 'Заказчик';
-    const mirrorPct = subcontractContract?.mirror_percent !== null && subcontractContract?.mirror_percent !== undefined ? Number(subcontractContract.mirror_percent) : 0;
-    subjectParagraph = `1.1. Субподрядчик обязуется по заданию Генподрядчика выполнить комплекс работ в рамках исполнения обязательств по Генеральному контракту № ${parentNum} от ${parentDate} (Конечный заказчик: ${parentCust}), а Генподрядчик обязуется принять результат надлежаще выполненных работ и оплатить их. Вознаграждение Субподрядчика составляет ${mirrorPct}% от утвержденного объема финансирования соответствующих работ по Генеральному контракту.`;
-  } else {
+  if (subcontractContract && currentEssence === 'mirror') {
+    const parentNum = subcontractContract.parent_contract_number || '';
+    const parentDate = subcontractContract.parent_contract_date ? formatDateRu(subcontractContract.parent_contract_date) : '';
+    const parentCust = subcontractContract.parent_customer || subcontractContract.customer_tag || '';
+    const mirrorPct = numberOrNull(subcontractContract.mirror_percent);
+    subjectParagraph = `1.1. Субподрядчик обязуется по заданию Генподрядчика выполнить комплекс работ в рамках исполнения обязательств по Генеральному контракту № ${parentNum} от ${parentDate} (Конечный заказчик: ${parentCust}), а Генподрядчик обязуется принять результат надлежаще выполненных работ и оплатить их. Вознаграждение Субподрядчика составляет ${mirrorPct === null ? '' : mirrorPct + '%'} от утвержденного объема финансирования соответствующих работ по Генеральному контракту.`;
+  } else if (subcontractContract && essenceText) {
     subjectParagraph = `1.1. Субподрядчик обязуется по заданию Генподрядчика выполнить ${essenceText}, а Генподрядчик обязуется принять результат надлежаще выполненных работ и оплатить их в соответствии с условиями настоящего Договора и Приложений к нему.`;
   }
 
   const territoryText = (subcontractContract?.territory) || (task?.region ? (task.city ? `${task.city}, ${task.region}` : task.region) : '');
-  const territoryParagraph = territoryText ? 
-    `1.2. Место выполнения работ (территория действия Договора): ${territoryText}.` : 
-    `1.2. Место выполнения работ и адресные ориентиры конкретных объектов определяются Сторонами в Заявках (Приложениях к настоящему Договору).`;
+  const territoryParagraph = territoryText ? `1.2. Место выполнения работ (территория действия Договора): ${territoryText}.` : '';
 
   const statusMapRu = {
     created: 'Создан',
@@ -353,126 +419,131 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
     current_date: formatDateRu(now),
     current_date_words: formatDateRuWords(now),
     current_year: String(now.getFullYear()),
-    city: task?.city || ourCompany?.city || 'г. Москва',
+    city: task?.city || ourCompany?.city || '',
 
     // Наша компания (Генподрядчик / Исполнитель)
     our_company: {
-      name: ourCompany.name_short || 'ООО «Кабельные Сети»',
-      name_full: ourCompany.name_full || 'Общество с ограниченной ответственностью «Кабельные Сети»',
-      inn: ourCompany.inn || '7728491024',
-      kpp: ourCompany.kpp || '772801001',
-      ogrn: ourCompany.ogrn || '1197746682010',
-      address_legal: ourCompany.address_legal || '117246, г. Москва, Научный проезд, д. 10',
-      director: ourCompany.director || 'Иванов А.А.',
-      director_title: ourCompany.director_title || 'Генеральный директор',
-      phone: ourCompany.phone || '+7 (495) 000-00-00',
-      bank_name: ourCompany.bank_name || 'ПАО Сбербанк',
-      bik: ourCompany.bik || '044525225',
-      account_pay: ourCompany.account_pay || '40702810000000000000',
-      account_corr: ourCompany.account_corr || '30101810400000000225'
+      name: ourCompany.name_short || '',
+      name_full: ourCompany.name_full || '',
+      inn: ourCompany.inn || '',
+      kpp: ourCompany.kpp || '',
+      ogrn: ourCompany.ogrn || '',
+      address_legal: ourCompany.address_legal || '',
+      director: ourCompany.director || '',
+      director_title: ourCompany.director_title || '',
+      phone: ourCompany.phone || '',
+      bank_name: ourCompany.bank_name || '',
+      bik: ourCompany.bik || '',
+      account_pay: ourCompany.account_pay || '',
+      account_corr: ourCompany.account_corr || ''
     },
 
     // Подрядчик / Исполнитель
     contractor: {
-      name: contractor.name_short || (subcontract?.contractor_name) || (task?.contractor) || 'ИП Иванов И.И.',
-      name_full: contractor.name_full || contractor.name_short || 'Индивидуальный предприниматель',
-      inn: contractor.inn || (subcontract?.contractor_inn) || '—',
-      kpp: contractor.kpp || '—',
-      ogrn: contractor.ogrn || contractor.ogrnip || '—',
-      address_legal: contractor.address_legal || 'Адрес подрядчика не указан',
-      director: contractor.director || contractor.name_short || 'Руководитель',
-      phone: contractor.phone || subcontract?.installer_phone || '—',
-      bank_name: contractor.bank_name || '—',
-      bik: contractor.bik || '—',
-      account_pay: contractor.account_pay || '—',
-      account_corr: contractor.account_corr || '—',
-      contract_number: linkedContractorContract.contract_number || contractor.contract_number || 'б/н',
-      contract_date: linkedContractorContract.contract_date ? formatDateRu(linkedContractorContract.contract_date) : formatDateRu(now)
+      name: contractor.name_short || subcontract?.contractor_name || task?.contractor || '',
+      name_full: contractor.name_full || contractor.name_short || task?.contractor || '',
+      inn: contractor.inn || subcontract?.contractor_inn || '',
+      kpp: contractor.kpp || '',
+      ogrn: contractor.ogrn || contractor.ogrnip || '',
+      address_legal: contractor.address_legal || '',
+      director: contractor.director || '',
+      phone: contractor.phone || subcontract?.installer_phone || '',
+      bank_name: contractor.bank_name || '',
+      bik: contractor.bik || '',
+      account_pay: contractor.account_pay || '',
+      account_corr: contractor.account_corr || '',
+      contract_number: linkedContractorContract.contract_number || contractor.contract_number || '',
+      contract_date: linkedContractorContract.contract_date ? formatDateRu(linkedContractorContract.contract_date) : ''
     },
 
     // Заказчик (Сторона 1 по контракту)
     customer: {
-      name: (contract?.customer) || (task?.customer) || 'ПАО Сбербанк',
-      inn: contract?.customer_inn || '7707083893',
-      address: contract?.customer_address || 'г. Москва, ул. Вавилова, д. 19',
-      contact: task?.contact || contract?.contact_person || '—'
+      name: contract?.customer || (['—', '–', '-'].includes(String(task?.customer || '').trim()) ? '' : task?.customer) || '',
+      inn: contract?.customer_inn || '',
+      address: contract?.customer_address || '',
+      contact: task?.contact || contract?.contact_person || ''
     },
 
     // Объект и заявка
     task: {
-      id: task?.id || '—',
-      vsp: task?.vsp || '—',
-      address: task?.address || '—',
-      city: task?.city || '—',
-      region: task?.region || '—',
-      work_type: task?.work_type || 'СКС',
-      tip_obj: task?.tip_obj || 'Отделение банка',
-      deadline: task?.deadline ? formatDateRu(task.deadline) : '—',
-      deadline_words: task?.deadline ? formatDateRuWords(task.deadline) : '—',
-      order_date: task?.date_zayavki ? formatDateRu(task.date_zayavki) : formatDateRu(now),
-      purchase_id: task?.purchase_id || contract?.purchase_id || '—'
+      id: task?.id || '',
+      vsp: task?.vsp || '',
+      address: task?.address || '',
+      city: task?.city || '',
+      region: task?.region || '',
+      work_type: task?.work_type || '',
+      tip_obj: task?.tip_obj || '',
+      deadline: task?.deadline ? formatDateRu(task.deadline) : '',
+      deadline_words: task?.deadline ? formatDateRuWords(task.deadline) : '',
+      order_date: task?.date_zayavki ? formatDateRu(task.date_zayavki) : '',
+      purchase_id: task?.purchase_id || contract?.purchase_id || ''
     },
 
     // Контракт
     contract: {
-      id: contract?.id || '—',
-      number: contract?.contract_number || '—',
-      date: contract?.contract_date ? formatDateRu(contract.contract_date) : '—',
-      title: contract?.title || 'Договор подряда',
-      purchase_id: contract?.purchase_id || task?.purchase_id || '—',
-      law_type: contract?.contract_law_type || '223-ФЗ'
+      id: contract?.id || '',
+      number: contract?.contract_number || '',
+      date: contract?.contract_date ? formatDateRu(contract.contract_date) : '',
+      title: contract?.title || '',
+      purchase_id: contract?.purchase_id || task?.purchase_id || '',
+      law_type: contract?.contract_law_type || ''
     },
 
     // Субподряд
     subcontract: {
-      id: subcontract?.id || '—',
+      id: subcontract?.id || '',
       number: subcontract?.subcontract_number || docNumber,
-      status: subcontract?.status || 'active',
-      ports_count: String(subcontract?.ports_count || task?.fact || task?.in_order || 0),
-      distance_km: String(subcontract?.distance_km || task?.distance_km || 0)
+      status: subcontract?.status || '',
+      ports_count: String(subcontract?.ports_count ?? task?.fact ?? task?.in_order ?? ''),
+      distance_km: String(subcontract?.distance_km ?? task?.distance_km ?? '')
     },
 
     // Финансы
     finance: {
       total_amount: totalAmount,
       total_amount_formatted: formatMoney(totalAmount),
-      total_amount_words: formatSumWordsRu(totalAmount),
-      vat_text: 'НДС не облагается в связи с применением УСН',
-      margin: task?.margin ? formatMoney(task.margin) : '—'
+      total_amount_words: totalAmount === null ? '' : formatSumWordsRu(totalAmount),
+      vat_text: customData.vat_text || subcontractContract?.vat_text || '',
+      margin: numberOrNull(task?.margin) === null ? '' : formatMoney(task.margin)
     },
 
     // Массивы данных для итераций
     works: calculationLines.map((w, idx) => ({
       num: idx + 1,
-      title: w.title,
-      unit: w.unit,
-      qty: w.qty,
-      price: w.price,
+      title: w.title || '',
+      unit: w.unit || '',
+      qty: numberOrNull(w.qty),
+      price: numberOrNull(w.price),
       price_formatted: formatMoney(w.price),
-      total: w.total,
+      total: numberOrNull(w.total),
       total_formatted: formatMoney(w.total)
     })),
 
     specialists: specialists.map((s, idx) => ({
       num: idx + 1,
-      full_name: s.full_name || 'Специалист СМР',
-      passport: s.passport || s.passport_series_number || '—',
-      phone: s.phone || '—',
-      role: s.role || 'Монтажник',
-      auto: s.auto || s.auto_number || '—'
+      full_name: s.full_name || '',
+      passport: s.passport || s.passport_series_number || '',
+      phone: s.phone || '',
+      role: s.role || '',
+      auto: s.auto || s.auto_number || ''
     })),
 
-    materials: materials.map((m, idx) => ({
-      num: idx + 1,
-      name: m.name || 'Материал СКС',
-      code: m.code || '—',
-      unit: m.unit || 'шт.',
-      qty: m.quantity || 1,
-      price: m.price_default || 0,
-      price_formatted: formatMoney(m.price_default || 0),
-      total: Number(m.quantity || 1) * Number(m.price_default || 0),
-      total_formatted: formatMoney(Number(m.quantity || 1) * Number(m.price_default || 0))
-    }))
+    materials: materials.map((m, idx) => {
+      const qty = numberOrNull(m.fact_qty ?? m.quantity);
+      const price = numberOrNull(m.price ?? m.price_default);
+      const total = qty !== null && price !== null ? qty * price : null;
+      return {
+        num: idx + 1,
+        name: m.item_name || m.name || '',
+        code: m.article || m.code || '',
+        unit: m.unit || '',
+        qty,
+        price,
+        price_formatted: formatMoney(price),
+        total,
+        total_formatted: formatMoney(total)
+      };
+    })
   };
 
   // Создаем плоские русскоязычные псевдонимы (для удобства составления шаблонов в UI)
@@ -519,13 +590,13 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
     суть_договора: essenceText,
     суть_договора_название: essenceTitle,
     предмет_договора: subjectParagraph,
-    территория_действия: territoryText || 'Определяется в заявках',
+    территория_действия: territoryText,
     территория_абзац: territoryParagraph,
     конечный_заказчик: subcontractContract?.customer_tag || subcontractContract?.parent_customer || ctx.customer.name,
-    зеркальный_процент: subcontractContract?.mirror_percent ? `${subcontractContract.mirror_percent}%` : '—',
-    родительский_договор_номер: subcontractContract?.parent_contract_number || '—',
-    родительский_договор_дата: subcontractContract?.parent_contract_date ? formatDateRu(subcontractContract.parent_contract_date) : '—',
-    статус_договора: statusMapRu[subcontractContract?.status] || 'Создан',
+    зеркальный_процент: numberOrNull(subcontractContract?.mirror_percent) === null ? '' : `${subcontractContract.mirror_percent}%`,
+    родительский_договор_номер: subcontractContract?.parent_contract_number || '',
+    родительский_договор_дата: subcontractContract?.parent_contract_date ? formatDateRu(subcontractContract.parent_contract_date) : '',
+    статус_договора: statusMapRu[subcontractContract?.status] || '',
 
     номер_заявки: ctx.task.id,
     номер_всп: ctx.task.vsp,
@@ -542,34 +613,34 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
     идентификатор_закупки: ctx.task.purchase_id,
 
     сумма: ctx.finance.total_amount_formatted,
-    сумма_числом: String(ctx.finance.total_amount),
+    сумма_числом: ctx.finance.total_amount === null ? '' : String(ctx.finance.total_amount),
     сумма_прописью: ctx.finance.total_amount_words,
     ндс_инфо: ctx.finance.vat_text,
 
-    фио_монтажника: ctx.specialists[0]?.full_name || '—',
-    паспорт_монтажника: ctx.specialists[0]?.passport || '—',
-    телефон_монтажника: ctx.specialists[0]?.phone || '—',
-    госномер_авто: ctx.specialists[0]?.auto || '—',
+    фио_монтажника: ctx.specialists[0]?.full_name || '',
+    паспорт_монтажника: ctx.specialists[0]?.passport || '',
+    телефон_монтажника: ctx.specialists[0]?.phone || '',
+    госномер_авто: ctx.specialists[0]?.auto || '',
 
     // Переменные для доверенностей (форма М-2 и стандартные)
     номер_доверенности: poa?.number || ctx.doc_number,
     дата_выдачи: poa?.issue_date ? formatDateRu(poa.issue_date) : ctx.doc_date,
     дата_выдачи_прописью: poa?.issue_date ? formatDateRuWords(poa.issue_date) : ctx.doc_date_words,
-    срок_действия: poa?.valid_until ? formatDateRu(poa.valid_until) : ('31.12.' + ctx.current_year),
-    срок_действия_прописью: poa?.valid_until ? formatDateRuWords(poa.valid_until) : ('31 декабря ' + ctx.current_year + ' г.'),
-    подотчетное_лицо_фио: poa?.person_name || poaSpecialist?.full_name || ctx.specialists[0]?.full_name || '—',
-    подотчетное_лицо_должность: poaSpecialist?.position || 'Сотрудник',
-    паспорт_серия: passSeries || '50 14',
-    паспорт_номер: passNumber || '252604',
-    паспорт_кем_выдан: passIssuedBy || 'Отделом УФМС России',
-    паспорт_дата_выдачи: passIssueDate || '—',
-    поставщик_наименование: poa?.contractor_name || customData?.contractor_name || 'ООО "Поставщик"',
-    наш_окпо: ourCompany.okpo || (ourCompany.inn === '5406774300' ? '32173475' : (ourCompany.inn === '5406792155' || ourCompany.code === 'ULTIMA' ? '16917456' : '32173475')),
+    срок_действия: poa?.valid_until ? formatDateRu(poa.valid_until) : '',
+    срок_действия_прописью: poa?.valid_until ? formatDateRuWords(poa.valid_until) : '',
+    подотчетное_лицо_фио: poa?.person_name || poaSpecialist?.full_name || ctx.specialists[0]?.full_name || '',
+    подотчетное_лицо_должность: poaSpecialist?.position || '',
+    паспорт_серия: passSeries,
+    паспорт_номер: passNumber,
+    паспорт_кем_выдан: passIssuedBy,
+    паспорт_дата_выдачи: passIssueDate ? formatDateRu(passIssueDate) : '',
+    поставщик_наименование: poa?.contractor_name || customData?.contractor_name || '',
+    наш_окпо: ourCompany.okpo || '',
     руководитель_иоф: formatFioShort(ourCompany.director),
-    главбух_иоф: formatFioShort(ourCompany.director),
-    номер_наряда: '—',
-    номер_акта: '—',
-    основание_получения: customData?.document_base || 'счету / товарной накладной',
+    главбух_иоф: formatFioShort(ourCompany.chief_accountant),
+    номер_наряда: customData?.work_order_number || '',
+    номер_акта: customData?.act_number || '',
+    основание_получения: customData?.document_base || '',
 
     // Готовые HTML-блоки таблиц на случай, если в шаблоне не используют циклы:
     таблица_работ: renderWorksTableHtml(ctx.works, ctx.finance),
@@ -581,20 +652,19 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
     штамп_гост: renderGostStampHtml(ctx),
     блок_подписей: renderSignaturesBlockHtml(ctx.our_company, ctx.contractor),
 
-    // Закрывающие документы и ИД (по формам Алексея Чайки)
-    порты_факт: String(task?.fact || task?.in_order || 374),
-    номер_и_дата_контракта: contract?.contract_number ? 
-      (`Государственный контракт № ${contract.contract_number}${contract.contract_date ? (' от ' + formatDateRu(contract.contract_date)) : ''}`) : 
-      (`Контракт / Договор № ${ctx.doc_number} от ${ctx.doc_date}`),
-    ответственный_фио: task?.contractor || ctx.specialists[0]?.full_name || 'Малыш',
-    дата_начала_работ: task?.data_vyhoda ? formatDateRu(task.data_vyhoda) : (task?.date_zayavki ? formatDateRu(task.date_zayavki) : ctx.doc_date),
-    дата_окончания_работ: task?.deadline ? formatDateRu(task.deadline) : ctx.doc_date,
-    материалы_текст_аоср: renderAosrMaterialsText(materials, task, Number(task?.fact || task?.in_order || 374)),
-    таблица_приемки_оборудования: renderEquipmentAcceptanceTableHtml(materials, task, Number(task?.fact || task?.in_order || 374)),
-    таблица_технической_готовности: renderTechnicalReadinessTableHtml(materials, task, Number(task?.fact || task?.in_order || 374)),
-    таблица_входного_контроля: renderInputControlJournalTableHtml(materials, task, Number(task?.fact || task?.in_order || 374), task?.contractor || ctx.specialists[0]?.full_name || 'Малыш'),
-    таблица_линий_пси: renderProtocolPsiTableHtml(Number(task?.fact || task?.in_order || 374)),
-    таблица_ip_адресации: renderIpAddressingTableHtml(materials, task, task?.contractor || ctx.specialists[0]?.full_name || 'Малыш')
+    // Закрывающие документы и ИД
+    порты_факт: String(task?.fact ?? task?.in_order ?? ''),
+    номер_и_дата_контракта: contract?.contract_number ?
+      `Государственный контракт № ${contract.contract_number}${contract.contract_date ? ' от ' + formatDateRu(contract.contract_date) : ''}` : '',
+    ответственный_фио: ctx.specialists[0]?.full_name || '',
+    дата_начала_работ: task?.data_vyhoda ? formatDateRu(task.data_vyhoda) : '',
+    дата_окончания_работ: task?.smr_actual_end_date ? formatDateRu(task.smr_actual_end_date) : '',
+    материалы_текст_аоср: renderAosrMaterialsText(materials),
+    таблица_приемки_оборудования: renderEquipmentAcceptanceTableHtml(materials),
+    таблица_технической_готовности: renderTechnicalReadinessTableHtml(materials),
+    таблица_входного_контроля: renderInputControlJournalTableHtml(materials, task, ctx.specialists[0]?.full_name || ''),
+    таблица_линий_пси: renderProtocolPsiTableHtml(ports),
+    таблица_ip_адресации: renderIpAddressingTableHtml(materials)
   };
 
   return ctx;
@@ -663,22 +733,18 @@ function replaceItemTokens(templateStr, itemObj) {
 // Вспомогательные генераторы аккуратных таблиц для вставки в документы
 function renderWorksTableHtml(works = [], finance = {}) {
   let rowsHtml = '';
-  if (!works.length) {
-    rowsHtml = '<tr><td colspan="6" style="border:1px solid #000;text-align:center;padding:8px">Монтажные работы СКС по объекту (1 компл.)</td></tr>';
-  } else {
-    works.forEach(w => {
-      rowsHtml += `
-        <tr>
-          <td style="border:1px solid #000;padding:5px 6px;text-align:center">${w.num}</td>
-          <td style="border:1px solid #000;padding:5px 8px;text-align:left">${w.title}</td>
-          <td style="border:1px solid #000;padding:5px 6px;text-align:center;white-space:nowrap">${w.unit}</td>
-          <td style="border:1px solid #000;padding:5px 6px;text-align:right">${w.qty}</td>
-          <td style="border:1px solid #000;padding:5px 6px;text-align:right;white-space:nowrap">${w.price_formatted}</td>
-          <td style="border:1px solid #000;padding:5px 6px;text-align:right;font-weight:600;white-space:nowrap">${w.total_formatted}</td>
-        </tr>
-      `;
-    });
-  }
+  works.forEach(w => {
+    rowsHtml += `
+      <tr>
+        <td style="border:1px solid #000;padding:5px 6px;text-align:center">${w.num}</td>
+        <td style="border:1px solid #000;padding:5px 8px;text-align:left">${w.title}</td>
+        <td style="border:1px solid #000;padding:5px 6px;text-align:center;white-space:nowrap">${w.unit}</td>
+        <td style="border:1px solid #000;padding:5px 6px;text-align:right">${w.qty ?? ''}</td>
+        <td style="border:1px solid #000;padding:5px 6px;text-align:right;white-space:nowrap">${w.price_formatted}</td>
+        <td style="border:1px solid #000;padding:5px 6px;text-align:right;font-weight:600;white-space:nowrap">${w.total_formatted}</td>
+      </tr>
+    `;
+  });
 
   return `
     <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:12px;margin:12px 0;border:1px solid #000;box-sizing:border-box">
@@ -696,7 +762,7 @@ function renderWorksTableHtml(works = [], finance = {}) {
         ${rowsHtml}
         <tr style="font-weight:700;background:#fafafa">
           <td colspan="5" style="border:1px solid #000;padding:6px 8px;text-align:right">ИТОГО:</td>
-          <td style="border:1px solid #000;padding:6px;text-align:right;font-size:13px;white-space:nowrap">${finance.total_amount_formatted || '0 ₽'}</td>
+          <td style="border:1px solid #000;padding:6px;text-align:right;font-size:13px;white-space:nowrap">${finance.total_amount_formatted || ''}</td>
         </tr>
       </tbody>
     </table>
@@ -704,9 +770,6 @@ function renderWorksTableHtml(works = [], finance = {}) {
 }
 
 function renderSpecialistsTableHtml(specialists = []) {
-  if (!specialists.length) {
-    return '<p style="font-style:italic;color:#666">Список специалистов уточняется</p>';
-  }
   let rowsHtml = '';
   specialists.forEach(s => {
     rowsHtml += `
@@ -741,20 +804,17 @@ function renderSpecialistsTableHtml(specialists = []) {
 }
 
 function renderMaterialsTableHtml(materials = []) {
-  if (!materials.length) {
-    return '<p style="font-style:italic;color:#666">Материалы предоставляются заказчиком / подрядчиком по месту выполнения работ</p>';
-  }
   let rowsHtml = '';
-  let totalSum = 0;
+  let totalSum = null;
   materials.forEach(m => {
-    totalSum += Number(m.total || 0);
+    if (m.total !== null && m.total !== undefined) totalSum = (totalSum ?? 0) + Number(m.total);
     rowsHtml += `
       <tr>
         <td style="border:1px solid #000;padding:5px 6px;text-align:center">${m.num}</td>
         <td style="border:1px solid #000;padding:5px 8px">${m.name}</td>
         <td style="border:1px solid #000;padding:5px 6px;text-align:center">${m.code}</td>
         <td style="border:1px solid #000;padding:5px 6px;text-align:center;white-space:nowrap">${m.unit}</td>
-        <td style="border:1px solid #000;padding:5px 6px;text-align:right">${m.qty}</td>
+        <td style="border:1px solid #000;padding:5px 6px;text-align:right">${m.qty ?? ''}</td>
         <td style="border:1px solid #000;padding:5px 6px;text-align:right;white-space:nowrap">${m.price_formatted}</td>
         <td style="border:1px solid #000;padding:5px 6px;text-align:right;font-weight:600;white-space:nowrap">${m.total_formatted}</td>
       </tr>
@@ -794,7 +854,7 @@ function renderSignaturesBlockHtml(our, contractor) {
         <p style="margin:0 0 2px 0">ИНН: ${our.inn} / КПП: ${our.kpp}</p>
         <p style="margin:0 0 12px 0">Адрес: ${our.address_legal}</p>
         <div style="margin-top:20px">
-          ${our.director_title || 'Директор'}: _________________ / ${our.director} /
+          ${our.director_title || ''}: _________________ / ${our.director || ''} /
         </div>
         <div style="margin-top:6px;font-size:11px;color:#666">М.П.</div>
       </div>
@@ -805,7 +865,7 @@ function renderSignaturesBlockHtml(our, contractor) {
         <p style="margin:0 0 2px 0">ИНН: ${contractor.inn}</p>
         <p style="margin:0 0 12px 0">Адрес: ${contractor.address_legal}</p>
         <div style="margin-top:20px">
-          Подпись: _________________ / ${contractor.director || contractor.name} /
+          Подпись: _________________ / ${contractor.director || ''} /
         </div>
         <div style="margin-top:6px;font-size:11px;color:#666">М.П.</div>
       </div>
@@ -814,26 +874,20 @@ function renderSignaturesBlockHtml(our, contractor) {
 }
 
 function renderKjTableHtml(ports = []) {
-  if (!ports || ports.length === 0) {
-    return '<p style="color:#666;font-style:italic">Линии кабельного журнала не внесены</p>';
-  }
   let rowsHtml = '';
   ports.forEach((p, idx) => {
-    const portNum = p.port_number || String(idx + 1);
-    const room = p.room || 'Помещение';
-    const marking = p.marking || `ПП-1 / Порт ${portNum}`;
-    const len = p.cable_length || 25;
+    const cableLength = numberOrNull(p.cable_length);
     rowsHtml += `
       <tr>
         <td style="border:1px solid #000;padding:4px;text-align:center">${idx + 1}</td>
-        <td style="border:1px solid #000;padding:4px">${room}</td>
-        <td style="border:1px solid #000;padding:4px;text-align:center">${marking}</td>
-        <td style="border:1px solid #000;padding:4px;text-align:center">${portNum}</td>
-        <td style="border:1px solid #000;padding:4px">Серверная, ШТК-1</td>
-        <td style="border:1px solid #000;padding:4px;text-align:center">ПП-1 / ${portNum}</td>
-        <td style="border:1px solid #000;padding:4px;text-align:center">UTP Cat.5e</td>
-        <td style="border:1px solid #000;padding:4px;text-align:right">${len}</td>
-        <td style="border:1px solid #000;padding:4px;text-align:center">${p.testing_status || 'Готов'}</td>
+        <td style="border:1px solid #000;padding:4px">${p.room ?? ''}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${p.marking ?? ''}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${p.port_number ?? ''}</td>
+        <td style="border:1px solid #000;padding:4px">${p.cabinet ?? ''}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${p.patch_panel ?? ''}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${p.cable_mark ?? ''}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:right">${cableLength ?? ''}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${p.testing_status ?? ''}</td>
       </tr>
     `;
   });
@@ -863,27 +917,18 @@ function renderKjTableHtml(ports = []) {
 }
 
 function renderIdSpecTableHtml(materials = []) {
-  if (!materials || materials.length === 0) {
-    return '<p style="color:#666;font-style:italic">Позиции спецификации не внесены</p>';
-  }
   let rowsHtml = '';
-  materials.forEach((m, idx) => {
-    const pos = m.pos_num || (idx + 1);
-    const name = m.name || m.item_name || 'Материал СКС';
-    const model = m.model || '—';
-    const code = m.code || m.article || '—';
-    const supp = m.supplier || 'Склад';
-    const unit = m.unit || 'шт.';
-    const qty = m.qty || m.plan_qty || 1;
+  materials.forEach(m => {
+    const qty = numberOrNull(m.fact_qty ?? m.quantity ?? m.qty);
     rowsHtml += `
       <tr>
-        <td style="border:1px solid #000;padding:4px;text-align:center">${pos}</td>
-        <td style="border:1px solid #000;padding:4px">${name}</td>
-        <td style="border:1px solid #000;padding:4px">${model}</td>
-        <td style="border:1px solid #000;padding:4px;text-align:center">${code}</td>
-        <td style="border:1px solid #000;padding:4px">${supp}</td>
-        <td style="border:1px solid #000;padding:4px;text-align:center">${unit}</td>
-        <td style="border:1px solid #000;padding:4px;text-align:right">${qty}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${m.pos_num ?? ''}</td>
+        <td style="border:1px solid #000;padding:4px">${m.item_name || m.name || ''}</td>
+        <td style="border:1px solid #000;padding:4px">${m.model || ''}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${m.article || m.code || ''}</td>
+        <td style="border:1px solid #000;padding:4px">${m.supplier || ''}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${m.unit || ''}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:right">${qty ?? ''}</td>
         <td style="border:1px solid #000;padding:4px;text-align:center">${m.note || ''}</td>
       </tr>
     `;
@@ -909,32 +954,25 @@ function renderIdSpecTableHtml(materials = []) {
 }
 
 function renderFlukeProtocolTableHtml(ports = [], ctx = {}) {
-  if (!ports || ports.length === 0) {
-    return '<p style="color:#666;font-style:italic">Измерения портов Fluke не проводились</p>';
-  }
   let rowsHtml = '';
   ports.forEach((p, idx) => {
-    const portNum = p.port_number || String(idx + 1);
-    const room = p.room || 'Помещение';
-    const marking = p.marking || `Розетка ${portNum}`;
-    const len = p.cable_length || 25;
+    const cableLength = numberOrNull(p.cable_length);
+    const pointA = [p.patch_panel, p.port_number].filter(value => value !== null && value !== undefined && value !== '').join(' / ');
+    const pointB = [p.room, p.outlet_marking || p.marking].filter(value => value !== null && value !== undefined && value !== '').join(', ');
     rowsHtml += `
       <tr>
         <td style="border:1px solid #000;padding:4px;text-align:center">${idx + 1}</td>
-        <td style="border:1px solid #000;padding:4px">Патч-панель (ПП-1), порт ${portNum}</td>
-        <td style="border:1px solid #000;padding:4px">${room}, ${marking}</td>
-        <td style="border:1px solid #000;padding:4px;text-align:center">UTP Cat.5e 4х2х0.51</td>
-        <td style="border:1px solid #000;padding:4px;text-align:right">${len}</td>
-        <td style="border:1px solid #000;padding:4px;text-align:center">TIA/EIA-568B</td>
-        <td style="border:1px solid #000;padding:4px;text-align:center;font-weight:700;color:#166534">Pass</td>
+        <td style="border:1px solid #000;padding:4px">${pointA}</td>
+        <td style="border:1px solid #000;padding:4px">${pointB}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${p.cable_mark ?? ''}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:right">${cableLength ?? ''}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${p.wiremap ?? p.wire_map ?? p.crimping ?? ''}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${p.testing_status ?? ''}</td>
       </tr>
     `;
   });
 
   return `
-    <div style="font-size:11.5px;margin-bottom:8px">
-      <b>Прибор:</b> Fluke Networks MicroScanner (MS2-100) зав. № 2780829 &nbsp;|&nbsp; <b>Дата поверки:</b> Действительна
-    </div>
     <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:11px;margin:10px 0;border:1px solid #000;box-sizing:border-box">
       <thead>
         <tr style="background:#f3f4f6;font-weight:700">
@@ -953,8 +991,8 @@ function renderFlukeProtocolTableHtml(ports = [], ctx = {}) {
 }
 
 function renderGostStampHtml(ctx = {}) {
-  const objName = ctx.task?.address || 'Объект заказчика';
-  const orgName = ctx.our_company?.name || 'ООО "Ультима"';
+  const objName = ctx.task?.address || '';
+  const orgName = ctx.our_company?.name || '';
   return `
     <table style="width:100%;border-collapse:collapse;font-size:10px;margin-top:20px;border:2px solid #000">
       <tr>
@@ -966,80 +1004,56 @@ function renderGostStampHtml(ctx = {}) {
         <td style="border:1px solid #000;padding:3px;width:55px">Дата</td>
         <td rowspan="3" colspan="2" style="border:1px solid #000;padding:6px;text-align:center;font-weight:700;font-size:11px">
           ${objName}<br/>
-          <span style="font-size:9.5px;font-weight:normal">Создание структурированных кабельных систем (СКС)</span>
+          <span style="font-size:9.5px;font-weight:normal">${ctx.task?.work_type || ''}</span>
         </td>
       </tr>
       <tr>
         <td colspan="2" style="border:1px solid #000;padding:3px">Разработал</td>
-        <td colspan="2" style="border:1px solid #000;padding:3px;font-weight:700">Чайка А.Н.</td>
+        <td colspan="2" style="border:1px solid #000;padding:3px;font-weight:700"></td>
         <td style="border:1px solid #000;padding:3px"></td>
-        <td style="border:1px solid #000;padding:3px">${ctx.current_date || ''}</td>
+        <td style="border:1px solid #000;padding:3px">${ctx.doc_date || ''}</td>
       </tr>
       <tr>
         <td colspan="2" style="border:1px solid #000;padding:3px">Проверил</td>
-        <td colspan="2" style="border:1px solid #000;padding:3px;font-weight:700">Ашихмин В.А.</td>
+        <td colspan="2" style="border:1px solid #000;padding:3px;font-weight:700"></td>
         <td style="border:1px solid #000;padding:3px"></td>
-        <td style="border:1px solid #000;padding:3px">${ctx.current_date || ''}</td>
+        <td style="border:1px solid #000;padding:3px">${ctx.doc_date || ''}</td>
       </tr>
       <tr>
         <td colspan="4" style="border:1px solid #000;padding:4px;font-weight:700;text-align:center">Исполнительная документация (ИД)</td>
         <td style="border:1px solid #000;padding:4px;text-align:center"><b>Стадия</b><br/>И</td>
         <td style="border:1px solid #000;padding:4px;text-align:center"><b>Лист</b><br/>1</td>
-        <td style="border:1px solid #000;padding:4px;text-align:center"><b>Листов</b><br/>20</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center"><b>Листов</b><br/></td>
         <td style="border:1px solid #000;padding:4px;text-align:center;font-weight:700;font-size:11px">${orgName}</td>
       </tr>
     </table>
   `;
 }
 
-function renderAosrMaterialsText(materials = [], task = {}, portsCount = 374) {
-  const cableLen = Math.max(500, portsCount * 12);
-  const boxesCount = Math.max(10, Math.ceil(portsCount / 4));
-  return `Кабель витая пара ITK Cat 5e UTP (зеленый) — ${cableLen} м, коробка для открытой проводки на 2 поста Ecoplast SM45/4 72944 — ${boxesCount} шт., блок розеток PH12-7D3 — 2 шт., розетки Mosaic с модулями Keystone — ${portsCount} шт.`;
+function renderAosrMaterialsText(materials = []) {
+  return materials.map(m => {
+    const name = m.item_name || m.name || '';
+    if (!name) return '';
+    const qty = numberOrNull(m.fact_qty ?? m.quantity);
+    const amount = qty === null ? '' : ` — ${qty}${m.unit ? ' ' + m.unit : ''}`;
+    return name + amount;
+  }).filter(Boolean).join(', ');
 }
 
-function renderEquipmentAcceptanceTableHtml(materials = [], task = {}, portsCount = 374) {
-  const switchesCount = Math.max(1, Math.min(10, Math.ceil(portsCount / 48)));
-  let rowsHtml = `
-    <tr>
-      <td style="border:1px solid #000;padding:5px;text-align:center">1</td>
-      <td style="border:1px solid #000;padding:5px">Шкаф телекоммуникационный 19" напольный</td>
-      <td style="border:1px solid #000;padding:5px;text-align:center">Б/Н</td>
-      <td style="border:1px solid #000;padding:5px;text-align:center">1</td>
-      <td style="border:1px solid #000;padding:5px">Серверная</td>
-    </tr>
-  `;
-
-  for (let i = 1; i <= switchesCount; i++) {
-    const sNum = `DL-2026-${String(i).padStart(3, '0')}`;
+function renderEquipmentAcceptanceTableHtml(materials = []) {
+  let rowsHtml = '';
+  materials.forEach((m, idx) => {
+    const qty = numberOrNull(m.fact_qty ?? m.quantity);
     rowsHtml += `
       <tr>
-        <td style="border:1px solid #000;padding:5px;text-align:center">${i + 1}</td>
-        <td style="border:1px solid #000;padding:5px">Коммутатор D-Link DGS-1052 (1056 series)</td>
-        <td style="border:1px solid #000;padding:5px;text-align:center">${sNum}</td>
-        <td style="border:1px solid #000;padding:5px;text-align:center">1</td>
-        <td style="border:1px solid #000;padding:5px">Шкаф телекоммуникационный</td>
+        <td style="border:1px solid #000;padding:5px;text-align:center">${idx + 1}</td>
+        <td style="border:1px solid #000;padding:5px">${[m.item_name || m.name, m.model].filter(Boolean).join(', ')}</td>
+        <td style="border:1px solid #000;padding:5px;text-align:center">${m.serial_number || m.serial || ''}</td>
+        <td style="border:1px solid #000;padding:5px;text-align:center">${qty ?? ''}</td>
+        <td style="border:1px solid #000;padding:5px">${m.installation_location || m.location || ''}</td>
       </tr>
     `;
-  }
-
-  const nextIdx = switchesCount + 2;
-  rowsHtml += `
-    <tr>
-      <td style="border:1px solid #000;padding:5px;text-align:center">${nextIdx}</td>
-      <td style="border:1px solid #000;padding:5px">Блок розеток PH12-7D3 19" горизонтальный</td>
-      <td style="border:1px solid #000;padding:5px;text-align:center">Б/Н</td>
-      <td style="border:1px solid #000;padding:5px;text-align:center">2</td>
-      <td style="border:1px solid #000;padding:5px">Шкаф телекоммуникационный</td>
-    </tr>
-    <tr>
-      <td style="border:1px solid #000;padding:5px;text-align:center">${nextIdx + 1}</td>
-      <td style="border:1px solid #000;padding:5px">Розетки Mosaic с модулями ITK Keystone (на ${portsCount} портов)</td>
-      <td style="border:1px solid #000;padding:5px;text-align:center">Б/Н</td>
-      <td style="border:1px solid #000;padding:5px;text-align:center">${Math.ceil(portsCount / 2)}</td>
-      <td style="border:1px solid #000;padding:5px">Рабочие места (помещения)</td>
-    </tr>
-  `;
+  });
 
   return `
     <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:11px;margin:12px 0;border:1px solid #000;box-sizing:border-box">
@@ -1057,9 +1071,20 @@ function renderEquipmentAcceptanceTableHtml(materials = [], task = {}, portsCoun
   `;
 }
 
-function renderTechnicalReadinessTableHtml(materials = [], task = {}, portsCount = 374) {
-  const cableLen = Math.max(500, portsCount * 12);
-  const boxesCount = Math.max(10, Math.ceil(portsCount / 4));
+function renderTechnicalReadinessTableHtml(materials = []) {
+  const rowsHtml = materials.map(m => {
+    const plan = numberOrNull(m.plan_qty);
+    const fact = numberOrNull(m.fact_qty ?? m.quantity);
+    return `
+      <tr>
+        <td style="border:1px solid #000;padding:5px">${m.item_name || m.name || ''}</td>
+        <td style="border:1px solid #000;padding:5px;text-align:center">${m.unit || ''}</td>
+        <td style="border:1px solid #000;padding:5px;text-align:right">${plan ?? ''}</td>
+        <td style="border:1px solid #000;padding:5px;text-align:right">${fact ?? ''}</td>
+        <td style="border:1px solid #000;padding:5px;text-align:center">${m.note || ''}</td>
+      </tr>
+    `;
+  }).join('');
   return `
     <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:11px;margin:12px 0;border:1px solid #000;box-sizing:border-box">
       <thead>
@@ -1071,52 +1096,27 @@ function renderTechnicalReadinessTableHtml(materials = [], task = {}, portsCount
           <th style="border:1px solid #000;padding:6px;width:130px;text-align:center">Примечание</th>
         </tr>
       </thead>
-      <tbody>
-        <tr>
-          <td style="border:1px solid #000;padding:5px">Установка телекоммуникационного шкафа 19"</td>
-          <td style="border:1px solid #000;padding:5px;text-align:center">шт.</td>
-          <td style="border:1px solid #000;padding:5px;text-align:right">1</td>
-          <td style="border:1px solid #000;padding:5px;text-align:right">1</td>
-          <td style="border:1px solid #000;padding:5px;text-align:center">Выполнено</td>
-        </tr>
-        <tr>
-          <td style="border:1px solid #000;padding:5px">Прокладка кабеля ITK витая пара (зеленый)</td>
-          <td style="border:1px solid #000;padding:5px;text-align:center">м</td>
-          <td style="border:1px solid #000;padding:5px;text-align:right">${cableLen}</td>
-          <td style="border:1px solid #000;padding:5px;text-align:right">${cableLen}</td>
-          <td style="border:1px solid #000;padding:5px;text-align:center">Целостность проверена</td>
-        </tr>
-        <tr>
-          <td style="border:1px solid #000;padding:5px">Монтаж розеток Mosaic с модулями ITK Keystone</td>
-          <td style="border:1px solid #000;padding:5px;text-align:center">порт</td>
-          <td style="border:1px solid #000;padding:5px;text-align:right">${portsCount}</td>
-          <td style="border:1px solid #000;padding:5px;text-align:right">${portsCount}</td>
-          <td style="border:1px solid #000;padding:5px;text-align:center">Соответствие T568B</td>
-        </tr>
-        <tr>
-          <td style="border:1px solid #000;padding:5px">Монтаж коробок для открытой проводки Ecoplast SM45/4</td>
-          <td style="border:1px solid #000;padding:5px;text-align:center">шт.</td>
-          <td style="border:1px solid #000;padding:5px;text-align:right">${boxesCount}</td>
-          <td style="border:1px solid #000;padding:5px;text-align:right">${boxesCount}</td>
-          <td style="border:1px solid #000;padding:5px;text-align:center">Выполнено</td>
-        </tr>
-        <tr>
-          <td style="border:1px solid #000;padding:5px">Установка блоков розеток PH12-7D3 в шкаф</td>
-          <td style="border:1px solid #000;padding:5px;text-align:center">шт.</td>
-          <td style="border:1px solid #000;padding:5px;text-align:right">2</td>
-          <td style="border:1px solid #000;padding:5px;text-align:right">2</td>
-          <td style="border:1px solid #000;padding:5px;text-align:center">Выполнено</td>
-        </tr>
-      </tbody>
+      <tbody>${rowsHtml}</tbody>
     </table>
   `;
 }
 
-function renderInputControlJournalTableHtml(materials = [], task = {}, portsCount = 374, installer = 'Малыш') {
-  const cableLen = Math.max(500, portsCount * 12);
-  const boxesCount = Math.max(10, Math.ceil(portsCount / 4));
-  const switchesCount = Math.max(1, Math.min(10, Math.ceil(portsCount / 48)));
-  const dateStr = task?.data_vyhoda ? formatDateRu(task.data_vyhoda) : (task?.date_zayavki ? formatDateRu(task.date_zayavki) : '28.08.2026');
+function renderInputControlJournalTableHtml(materials = [], task = {}, installer = '') {
+  const rowsHtml = materials.map((m, idx) => {
+    const qty = numberOrNull(m.fact_qty ?? m.quantity);
+    const controlDate = m.control_date || m.input_control_date;
+    return `
+      <tr>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${idx + 1}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${controlDate ? formatDateRu(controlDate) : ''}</td>
+        <td style="border:1px solid #000;padding:4px">${m.item_name || m.name || ''}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:right">${qty === null ? '' : `${qty}${m.unit ? ' ' + m.unit : ''}`}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${m.quality_document || m.certificate || ''}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${m.control_result || ''}</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${m.control_responsible || installer || ''}</td>
+      </tr>
+    `;
+  }).join('');
 
   return `
     <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:11px;margin:12px 0;border:1px solid #000;box-sizing:border-box">
@@ -1131,81 +1131,24 @@ function renderInputControlJournalTableHtml(materials = [], task = {}, portsCoun
           <th style="border:1px solid #000;padding:5px;width:95px;text-align:center">Ответственный</th>
         </tr>
       </thead>
-      <tbody>
-        <tr>
-          <td style="border:1px solid #000;padding:4px;text-align:center">1</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center">${dateStr}</td>
-          <td style="border:1px solid #000;padding:4px">Зеленый кабель ITK витая пара Cat 5e UTP</td>
-          <td style="border:1px solid #000;padding:4px;text-align:right">${cableLen} м</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center">Сертификат № ITK-VP-2026</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center;color:#15803d;font-weight:700">Годен</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center">${installer}</td>
-        </tr>
-        <tr>
-          <td style="border:1px solid #000;padding:4px;text-align:center">2</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center">${dateStr}</td>
-          <td style="border:1px solid #000;padding:4px">Модули ITK Keystone и розетки Mosaic</td>
-          <td style="border:1px solid #000;padding:4px;text-align:right">${portsCount} шт.</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center">Паспорт № ITK-KS-903</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center;color:#15803d;font-weight:700">Годен</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center">${installer}</td>
-        </tr>
-        <tr>
-          <td style="border:1px solid #000;padding:4px;text-align:center">3</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center">${dateStr}</td>
-          <td style="border:1px solid #000;padding:4px">Коробка для открытой проводки Ecoplast SM45/4 72944</td>
-          <td style="border:1px solid #000;padding:4px;text-align:right">${boxesCount} шт.</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center">Паспорт № EP-72944</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center;color:#15803d;font-weight:700">Годен</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center">${installer}</td>
-        </tr>
-        <tr>
-          <td style="border:1px solid #000;padding:4px;text-align:center">4</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center">${dateStr}</td>
-          <td style="border:1px solid #000;padding:4px">Блок розеток PH12-7D3</td>
-          <td style="border:1px solid #000;padding:4px;text-align:right">2 шт.</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center">Сертификат соответствия</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center;color:#15803d;font-weight:700">Годен</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center">${installer}</td>
-        </tr>
-        <tr>
-          <td style="border:1px solid #000;padding:4px;text-align:center">5</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center">${dateStr}</td>
-          <td style="border:1px solid #000;padding:4px">Коммутаторы D-Link DGS-1052 (1056 series)</td>
-          <td style="border:1px solid #000;padding:4px;text-align:right">${switchesCount} шт.</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center">Техпаспорт производителя</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center;color:#15803d;font-weight:700">Годен</td>
-          <td style="border:1px solid #000;padding:4px;text-align:center">${installer}</td>
-        </tr>
-      </tbody>
+      <tbody>${rowsHtml}</tbody>
     </table>
   `;
 }
 
-function renderProtocolPsiTableHtml(portsCount = 374) {
-  const displayLimit = Math.min(portsCount, 30);
+function renderProtocolPsiTableHtml(ports = []) {
   let rowsHtml = '';
-  for (let i = 1; i <= displayLimit; i++) {
-    const portCode = i <= 12 ? `0.${String(i).padStart(2, '0')}` : String(100 + i - 12);
+  ports.forEach((p, idx) => {
     rowsHtml += `
       <tr>
-        <td style="border:1px solid #000;padding:3px;text-align:center">${i}</td>
-        <td style="border:1px solid #000;padding:3px;text-align:center">ШТК</td>
-        <td style="border:1px solid #000;padding:3px;text-align:center">${portCode}</td>
-        <td style="border:1px solid #000;padding:3px;text-align:center">Соответствует</td>
-        <td style="border:1px solid #000;padding:3px;text-align:center;font-weight:700;color:#15803d">PASS</td>
+        <td style="border:1px solid #000;padding:3px;text-align:center">${idx + 1}</td>
+        <td style="border:1px solid #000;padding:3px;text-align:center">${p.cabinet || p.patch_panel || ''}</td>
+        <td style="border:1px solid #000;padding:3px;text-align:center">${p.outlet_marking || p.marking || p.port_number || ''}</td>
+        <td style="border:1px solid #000;padding:3px;text-align:center">${p.wiremap || p.wire_map || p.crimping || ''}</td>
+        <td style="border:1px solid #000;padding:3px;text-align:center">${p.testing_status || ''}</td>
       </tr>
     `;
-  }
-  if (portsCount > displayLimit) {
-    rowsHtml += `
-      <tr>
-        <td colspan="5" style="border:1px solid #000;padding:6px;text-align:center;font-style:italic;color:#555">
-          ... и далее все порты с 31 по ${portsCount} (100% PASS, схема разводки T568B соответствует)
-        </td>
-      </tr>
-    `;
-  }
+  });
 
   return `
     <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:11px;margin:10px 0;border:1px solid #000;box-sizing:border-box">
@@ -1226,24 +1169,20 @@ function renderProtocolPsiTableHtml(portsCount = 374) {
   `;
 }
 
-function renderIpAddressingTableHtml(materials = [], task = {}, installer = 'Малыш') {
-  const portsCount = Number(task?.fact || task?.in_order || 374);
-  const switchesCount = Math.max(1, Math.min(10, Math.ceil(portsCount / 48)));
+function renderIpAddressingTableHtml(materials = []) {
   let rowsHtml = '';
-  for (let i = 1; i <= switchesCount; i++) {
-    const host = `sw-access-${String(i).padStart(2, '0')}`;
-    const ip = `192.168.100.${10 + i}`;
+  materials.filter(m => m.hostname || m.ip_address || m.ip || m.mask || m.gateway).forEach((m, idx) => {
     rowsHtml += `
       <tr>
-        <td style="border:1px solid #000;padding:4px;text-align:center">${i}</td>
-        <td style="border:1px solid #000;padding:4px;font-family:monospace;font-weight:700" contenteditable="true">${host}</td>
-        <td style="border:1px solid #000;padding:4px" contenteditable="true">D-Link DGS-1052 (1056 series)</td>
-        <td style="border:1px solid #000;padding:4px;font-family:monospace;text-align:center" contenteditable="true">${ip}</td>
-        <td style="border:1px solid #000;padding:4px;font-family:monospace;text-align:center" contenteditable="true">255.255.255.0</td>
-        <td style="border:1px solid #000;padding:4px;font-family:monospace;text-align:center" contenteditable="true">192.168.100.1</td>
+        <td style="border:1px solid #000;padding:4px;text-align:center">${idx + 1}</td>
+        <td style="border:1px solid #000;padding:4px;font-family:monospace;font-weight:700" contenteditable="true">${m.hostname || ''}</td>
+        <td style="border:1px solid #000;padding:4px" contenteditable="true">${m.model || m.item_name || m.name || ''}</td>
+        <td style="border:1px solid #000;padding:4px;font-family:monospace;text-align:center" contenteditable="true">${m.ip_address || m.ip || ''}</td>
+        <td style="border:1px solid #000;padding:4px;font-family:monospace;text-align:center" contenteditable="true">${m.mask || ''}</td>
+        <td style="border:1px solid #000;padding:4px;font-family:monospace;text-align:center" contenteditable="true">${m.gateway || ''}</td>
       </tr>
     `;
-  }
+  });
 
   return `
     <table class="grid-table" style="width:100%;border-collapse:collapse;font-size:11px;margin:12px 0;border:1px solid #000;box-sizing:border-box">

@@ -40,51 +40,26 @@ export async function generateCableJournalExcel(taskId) {
     'Примечание'
   ]);
 
-  if (ports.length > 0) {
-    ports.forEach((p, idx) => {
-      const isReserve = String(p.testing_status || '').toLowerCase() === 'reserve' || (p.marking || '').toUpperCase().includes('РЕЗЕРВ');
-      const testLabel = isReserve ? 'Резерв' : (p.testing_status === 'pass' ? 'PASS' : (p.testing_status === 'fail' ? 'FAIL' : 'Не измер.'));
-
-      wsData.push([
-        idx + 1,
-        p.cabinet || 'ТКШ-1 (серверная)',
-        p.unit || '',
-        p.floor || '2',
-        p.patch_panel || 'ПП-1',
-        Number(p.port_number) || (idx % 24 + 1),
-        p.marking || '',
-        p.cable_mark || 'UTP 4x2x0.52 Cat.5e LSZH',
-        p.cable_length != null ? Number(p.cable_length) : '',
-        p.building || p.floor || '2 этаж',
-        p.room || (isReserve ? 'Резерв' : 'Рабочее место'),
-        p.outlet_marking || p.marking || '',
-        (p.notes && p.notes.includes('confirmed')) ? 'Да' : '',
-        testLabel,
-        p.notes || ''
-      ]);
-    });
-  } else {
-    // Если порты еще не сформированы в БД — выводим эталонный пример из KZh.xlsx Алексея
-    for (let i = 1; i <= 24; i++) {
-      wsData.push([
-        i,
-        'серверная, шкаф №1 (ТКШ-1)',
-        (24 - i + 1) + 'U',
-        2,
-        1,
-        i,
-        '2.' + i + 'К',
-        'UTP 4x2x0.52 Cat.5e LSZH',
-        '',
-        '2 этаж',
-        'рабочее место',
-        '2.' + i + 'К',
-        '',
-        'Не измер.',
-        ''
-      ]);
-    }
-  }
+  ports.forEach((p, idx) => {
+    const cableLength = p.cable_length === null || p.cable_length === undefined || p.cable_length === '' ? '' : Number(p.cable_length);
+    wsData.push([
+      idx + 1,
+      p.cabinet ?? '',
+      p.unit ?? '',
+      p.floor ?? '',
+      p.patch_panel ?? '',
+      p.port_number ?? '',
+      p.marking ?? '',
+      p.cable_mark ?? '',
+      Number.isFinite(cableLength) ? cableLength : '',
+      p.building ?? '',
+      p.room ?? '',
+      p.outlet_marking ?? '',
+      '',
+      p.testing_status ?? '',
+      p.notes ?? ''
+    ]);
+  });
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(wsData);
@@ -126,11 +101,8 @@ export async function generateFlukeProtocolExcel(taskId) {
 
   // Шапка протокола
   wsData.push(['ПРОТОКОЛ ПРИЕМО-СДАТОЧНЫХ ИСПЫТАНИЙ СТРУКТУРИРОВАННОЙ КАБЕЛЬНОЙ СИСТЕМЫ (СКС)']);
-  wsData.push([`Объект: ${task.title || task.address || '—'}`]);
-  wsData.push([`Заказчик: ${task.customer || '—'} | Договор / Заказ-наряд №: ${task.id}`]);
-  wsData.push([`Измерительный прибор: Fluke Networks MicroScanner MS2-100 (S/N: 2198042, Действителен)`]);
-  wsData.push([`Стандарт тестирования: TIA/EIA-568-C.2 Cat.5e / ISO/IEC 11801 Class D | Схема: T568B`]);
-  wsData.push([`Дата проведения испытаний: ${new Date().toLocaleDateString('ru-RU')}`]);
+  wsData.push([`Объект: ${task.title || task.address || ''}`]);
+  wsData.push([`Заказчик: ${task.customer || ''} | Договор / Заказ-наряд №: ${task.id}`]);
   wsData.push([]);
 
   // Заголовки таблицы
@@ -149,52 +121,23 @@ export async function generateFlukeProtocolExcel(taskId) {
     'Оператор'
   ]);
 
-  if (ports.length > 0) {
-    ports.forEach((p, idx) => {
-      const isReserve = String(p.testing_status || '').toLowerCase() === 'reserve' || (p.marking || '').toUpperCase().includes('РЕЗЕРВ');
-      const testResult = isReserve ? 'РЕЗЕРВ' : (p.testing_status === 'pass' ? 'PASS' : (p.testing_status === 'fail' ? 'FAIL' : 'НЕ ИЗМЕРЕН'));
-      const statusLine = isReserve ? 'Резервная емкость' : (p.testing_status === 'pass' ? 'Соответствует ГОСТ' : 'Требует проверки');
-      const wiremap = isReserve ? '—' : '12345678 (T568B Straight-Through)';
-
-      // Определение типа (К или Т) из маркировки
-      let lineType = 'СКС (Данные)';
-      if ((p.marking || '').toUpperCase().includes('Т')) lineType = 'Телефон (Т)';
-      else if ((p.marking || '').toUpperCase().includes('К')) lineType = 'Компьютерная (К)';
-
-      wsData.push([
-        idx + 1,
-        p.marking || `Порт ${idx + 1}`,
-        p.cabinet || 'ТКШ-1',
-        p.patch_panel || 'ПП-1',
-        p.port_number || String(idx % 24 + 1),
-        p.outlet_marking || p.marking || '—',
-        isReserve ? 'Резерв' : lineType,
-        p.cable_length != null ? Number(p.cable_length) : '',
-        wiremap,
-        testResult,
-        statusLine,
-        task.contractor || 'Инженер СКС'
-      ]);
-    });
-  } else {
-    // Пример для типового протокола
-    for (let i = 1; i <= 24; i++) {
-      wsData.push([
-        i,
-        '2.' + i + 'К',
-        'ТКШ-1',
-        'ПП-1',
-        i,
-        '2.' + i + 'К',
-        'Компьютерная (К)',
-        Math.round(20 + Math.random() * 20),
-        '12345678 (T568B Straight-Through)',
-        'PASS',
-        'Соответствует ГОСТ',
-        task.contractor || 'Инженер СКС'
-      ]);
-    }
-  }
+  ports.forEach((p, idx) => {
+    const cableLength = p.cable_length === null || p.cable_length === undefined || p.cable_length === '' ? '' : Number(p.cable_length);
+    wsData.push([
+      idx + 1,
+      p.marking ?? '',
+      p.cabinet ?? '',
+      p.patch_panel ?? '',
+      p.port_number ?? '',
+      p.outlet_marking ?? '',
+      p.line_type ?? '',
+      Number.isFinite(cableLength) ? cableLength : '',
+      p.wiremap ?? p.wire_map ?? p.crimping ?? '',
+      p.testing_status ?? '',
+      p.line_status ?? '',
+      p.operator ?? ''
+    ]);
+  });
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(wsData);

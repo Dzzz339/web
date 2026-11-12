@@ -5,6 +5,7 @@
 
   var _curModerationData = null;
   var _curActiveDocKey = 'act';
+  var _previewAvailabilityRefreshed = false;
 
   function esc(s) {
     return String(s || '')
@@ -24,6 +25,7 @@
   // Открытие окна сплит-скрин модерации
   window.openIdModerationModal = function(taskId) {
     if (!taskId) return;
+    _previewAvailabilityRefreshed = false;
 
     // Создаем контейнер модалки
     var old = document.getElementById('modal_id_moderation');
@@ -159,7 +161,7 @@
           '</div>'
         ) : '') +
         '<div style="display:flex;justify-content:flex-end;gap:6px;margin-top:8px" onclick="event.stopPropagation()">' +
-          '<button type="button" class="btn btn-xs ' + (st === 'approved' ? 'btn-primary' : 'btn-ghost') + '" onclick="window.setModerationDocStatus(\'' + esc(taskId) + '\',\'' + esc(d.key) + '\',\'approved\')" style="font-size:.72rem;padding:2px 8px;font-weight:700" title="Одобрить документ">✓ Одобрить</button>' +
+          '<button type="button" class="btn btn-xs ' + (st === 'approved' ? 'btn-primary' : 'btn-ghost') + '" ' + (d.available === false ? 'disabled aria-disabled="true" style="opacity:.5;cursor:not-allowed;font-size:.72rem;padding:2px 8px;font-weight:700" title="Документ не сформирован или недоступен"' : 'onclick="window.setModerationDocStatus(\'' + esc(taskId) + '\',\'' + esc(d.key) + '\',\'approved\')" style="font-size:.72rem;padding:2px 8px;font-weight:700" title="Одобрить документ"') + '>✓ Одобрить</button>' +
           '<button type="button" class="btn btn-xs ' + (st === 'rejected' ? 'btn-danger' : 'btn-ghost') + '" onclick="window.openRejectDocModal(\'' + esc(taskId) + '\',\'' + esc(d.key) + '\',\'' + esc(d.title) + '\')" style="font-size:.72rem;padding:2px 8px;font-weight:700;color:' + (st === 'rejected' ? '#fff' : 'var(--red)') + '" title="Отклонить документ с указанием причины">✗ Отклонить</button>' +
         '</div>' +
       '</div>';
@@ -214,6 +216,14 @@
     '</div>';
 
     cont.innerHTML = leftHtml + rightHtml;
+
+    var previewFrame = cont.querySelector('iframe');
+    if (previewFrame && docs.some(function(d){ return d.available === false; }) && !_previewAvailabilityRefreshed) {
+      _previewAvailabilityRefreshed = true;
+      previewFrame.addEventListener('load', function() {
+        if (document.getElementById('modal_id_moderation')) loadModerationData(taskId);
+      }, { once: true });
+    }
   }
 
   // Выбор активного документа в дереве
@@ -231,6 +241,10 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ docKey: docKey, status: status })
     }).then(function(res) {
+      if (!res || res.success !== true) {
+        alert('Ошибка обновления статуса: ' + ((res && res.error) || 'Сервер отклонил запрос'));
+        return;
+      }
       if (_curModerationData && _curModerationData.documents) {
         var d = _curModerationData.documents.find(function(x){ return x.key === docKey; });
         if (d) {

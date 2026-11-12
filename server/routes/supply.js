@@ -655,6 +655,25 @@ router.post('/tasks/:id/materials/save-fact', authenticateToken, async (req, res
     const taskId = req.params.id;
     const { items } = req.body;
 
+    const hasFactUpdate = Array.isArray(items) && items.some(item =>
+      Object.prototype.hasOwnProperty.call(item, 'fact_qty') || Object.prototype.hasOwnProperty.call(item, 'quantity')
+    );
+    if (hasFactUpdate) {
+      const { rows: taskRows } = await client.query('SELECT raw_data FROM tasks WHERE id = $1', [taskId]);
+      if (taskRows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Заявка не найдена' });
+      }
+      let rawData = taskRows[0].raw_data || {};
+      if (typeof rawData === 'string') {
+        try { rawData = JSON.parse(rawData); } catch { rawData = {}; }
+      }
+      if (!rawData.tmcAccepted) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'Фактический расход доступен после акцепта ТМЦ подрядчиком' });
+      }
+    }
+
     if (Array.isArray(items)) {
       for (const item of items) {
         const qty = parseFloat(item.fact_qty !== undefined ? item.fact_qty : item.quantity);
@@ -712,10 +731,12 @@ router.post('/tasks/:id/materials/save-fact', authenticateToken, async (req, res
       }
     }
 
-    // Автоматически пересчитываем общую сумму ТМЦ по заявке (tasks.tmc)
+    // Автоматически пересчитываем общую сумму только по строкам с введённым фактом
     const { rows: tmcSum } = await client.query(`
       SELECT COALESCE(SUM(
-        COALESCE(tm.total_price, ROUND(COALESCE(tm.fact_qty, tm.plan_qty, 0) * COALESCE(tm.price, m.price_default, 0)))
+        CASE WHEN tm.fact_qty IS NULL THEN 0
+             ELSE COALESCE(tm.total_price, ROUND(tm.fact_qty * COALESCE(tm.price, m.price_default, 0)))
+        END
       ), 0) AS total_tmc
       FROM task_materials tm
       LEFT JOIN materials m ON tm.material_id = m.id

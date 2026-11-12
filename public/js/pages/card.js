@@ -5733,7 +5733,7 @@ function loadCardMaterials(taskId) {
 
     // Таблица материалов (план vs факт с ценами и суммами списания для накладной)
     var allWrittenOff = materials.every(function(m){ return m.is_written_off; });
-    var totalTmcSum = 0;
+    var totalTmcSum = null;
     var SUPPLIER_LIST = [
       'Склад компании',
       'ЭТМ',
@@ -5761,10 +5761,12 @@ function loadCardMaterials(taskId) {
 
     materials.forEach(function(m, idx) {
       var isDone = m.is_written_off;
-      var curQty = (m.fact_qty != null ? parseFloat(m.fact_qty) : parseFloat(m.plan_qty)) || 0;
+      var hasFactQty = m.fact_qty !== null && m.fact_qty !== undefined && m.fact_qty !== '';
+      var parsedFactQty = hasFactQty ? Number(m.fact_qty) : null;
+      var curQty = parsedFactQty !== null && Number.isFinite(parsedFactQty) ? parsedFactQty : null;
       var price = (m.price != null && !isNaN(parseFloat(m.price))) ? parseFloat(m.price) : (parseFloat(m.price_default) || (m.code && m.code.includes('CABLE') ? 45 : (m.code && m.code.includes('KEYSTONE') ? 120 : (m.code && m.code.includes('PATCH') ? 150 : 80))));
-      var itemSum = (m.total_price != null && !isNaN(parseFloat(m.total_price))) ? parseFloat(m.total_price) : Math.round(curQty * price);
-      totalTmcSum += itemSum;
+      var itemSum = curQty === null ? null : Math.round(curQty * price);
+      if (itemSum !== null) totalTmcSum = (totalTmcSum === null ? 0 : totalTmcSum) + itemSum;
 
       var rowKey = m.id || m.material_id || ('row_' + idx);
       var curSupplier = (m.supplier || '').trim();
@@ -5783,9 +5785,11 @@ function loadCardMaterials(taskId) {
         ? '<span class="badge b-blue" style="font-size:.74rem;white-space:nowrap">' + escHtml(curSupplier || 'Склад компании') + '</span>'
         : '<select id="supp_mat_' + rowKey + '" onchange="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" style="padding:3px 6px;font-size:.78rem;border:1px solid var(--border);border-radius:4px;background:#fff;max-width:145px;cursor:pointer">' + suppOptionsHtml + '</select>';
 
+      var factValue = curQty === null ? '' : String(curQty);
+      var factDisabled = !isCustodyAccepted ? ' disabled title="Доступно после акцепта ТМЦ подрядчиком"' : '';
       var factInput = isDone
-        ? '<span style="font-weight:700;color:var(--green)">' + curQty + ' ' + (m.unit || 'шт') + '</span>'
-        : '<input type="number" step="any" min="0" value="' + curQty + '" id="fact_mat_' + rowKey + '" oninput="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" onchange="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" style="width:70px;padding:3px 6px;text-align:right;font-size:.82rem;font-weight:600">';
+        ? '<span style="font-weight:700;color:var(--green)">' + (curQty === null ? 'Не заполнено' : curQty + ' ' + (m.unit || 'шт')) + '</span>'
+        : '<input type="number" step="any" min="0" value="' + factValue + '" id="fact_mat_' + rowKey + '" oninput="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" onchange="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" style="width:70px;padding:3px 6px;text-align:right;font-size:.82rem;font-weight:600"' + factDisabled + '>';
 
       var priceInput = isDone
         ? '<span style="color:var(--text-2);font-size:.8rem">' + price.toLocaleString('ru-RU') + ' ₽</span>'
@@ -5795,10 +5799,12 @@ function loadCardMaterials(taskId) {
           '</div>';
 
       var planQty = parseFloat(m.plan_qty) || 0;
-      var remainder = planQty - curQty;
-      var remainderHtml = remainder >= 0
-        ? '<span style="color:var(--green);font-weight:600">' + (remainder % 1 === 0 ? remainder : remainder.toFixed(1)) + ' ' + (m.unit || 'шт') + '</span>'
-        : '<span style="color:var(--red);font-weight:600">Перерасход (+' + Math.abs(remainder % 1 === 0 ? remainder : remainder.toFixed(1)) + ' ' + (m.unit || 'шт') + ')</span>';
+      var remainder = curQty === null ? null : planQty - curQty;
+      var remainderHtml = remainder === null
+        ? '<span style="color:var(--text-3)">Не заполнено</span>'
+        : (remainder >= 0
+          ? '<span style="color:var(--green);font-weight:600">' + (remainder % 1 === 0 ? remainder : remainder.toFixed(1)) + ' ' + (m.unit || 'шт') + '</span>'
+          : '<span style="color:var(--red);font-weight:600">Перерасход (+' + Math.abs(remainder % 1 === 0 ? remainder : remainder.toFixed(1)) + ' ' + (m.unit || 'шт') + ')</span>');
 
       var isCable = (m.name && m.name.toLowerCase().includes('кабель')) || (m.code && m.code.includes('CABLE')) || (m.unit === 'м' && m.name && m.name.toLowerCase().includes('витая'));
       var kjTotalCableLen = (window._curTaskTotalCableLen && window._curTaskTotalCableLen[taskId] !== undefined)
@@ -5806,7 +5812,7 @@ function loadCardMaterials(taskId) {
         : (window._curTotalCableLen || 0);
 
       var cableMatchHtml = '';
-      if (isCable) {
+      if (isCable && curQty !== null) {
         if (kjTotalCableLen > 0) {
           var diffPct = Math.round(((curQty - kjTotalCableLen) / kjTotalCableLen) * 100);
           var badgeText = (diffPct > 0 ? ('+' + diffPct + '%') : (diffPct === 0 ? '0% чистый' : (diffPct + '%')));
@@ -5855,14 +5861,14 @@ function loadCardMaterials(taskId) {
         '<td style="padding:6px 4px;text-align:right;white-space:nowrap">' + factInput + cableMatchHtml + '</td>' +
         '<td style="padding:6px 4px;text-align:right;white-space:nowrap">' + remainderHtml + '</td>' +
         '<td style="padding:6px 4px;text-align:right;white-space:nowrap">' + priceInput + '</td>' +
-        '<td style="padding:6px 4px;text-align:right;white-space:nowrap;font-weight:700;color:var(--text)" id="sum_mat_' + rowKey + '">' + itemSum.toLocaleString('ru-RU') + ' ₽</td>' +
+        '<td style="padding:6px 4px;text-align:right;white-space:nowrap;font-weight:700;color:var(--text)" id="sum_mat_' + rowKey + '">' + (itemSum === null ? 'Не заполнено' : itemSum.toLocaleString('ru-RU') + ' ₽') + '</td>' +
         (!allWrittenOff ? ('<td style="padding:6px 4px;text-align:center"><button type="button" class="btn btn-xs btn-ghost" style="color:var(--red);padding:1px 5px" onclick="window.deleteTaskMaterial(\'' + encodeURIComponent(taskId) + '\', ' + m.id + ')" title="Удалить позицию">✕</button></td>') : '') +
       '</tr>';
     });
 
     html += '<tr style="background:var(--bg);font-weight:700;border-top:2px solid var(--border)">' +
       '<td colspan="' + (!allWrittenOff ? 7 : 7) + '" style="padding:8px 6px;text-align:right">ИТОГО себестоимость ТМЦ по объекту:</td>' +
-      '<td style="padding:8px 6px;text-align:right;font-size:.92rem;color:var(--blue)" id="tmcTotalSummarySum">' + totalTmcSum.toLocaleString('ru-RU') + ' ₽</td>' +
+      '<td style="padding:8px 6px;text-align:right;font-size:.92rem;color:var(--blue)" id="tmcTotalSummarySum">' + (totalTmcSum === null ? 'Не заполнено' : totalTmcSum.toLocaleString('ru-RU') + ' ₽') + '</td>' +
       (!allWrittenOff ? '<td></td>' : '') +
     '</tr>';
       (!allWrittenOff ? '<td></td>' : '') +
@@ -5872,13 +5878,13 @@ function loadCardMaterials(taskId) {
 
     if (allWrittenOff) {
       html += '<div style="background:#ecfdf5;color:#065f46;padding:10px 14px;border-radius:6px;font-size:.8rem;font-weight:600;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;border:1px solid #86efac">' +
-        '<div style="display:flex;align-items:center;gap:6px"><span>✅</span> ТМЦ списаны со склада в подотчет объекта на сумму <b>' + totalTmcSum.toLocaleString('ru-RU') + ' ₽</b></div>' +
+        '<div style="display:flex;align-items:center;gap:6px"><span>✅</span> ТМЦ списаны со склада в подотчет объекта на сумму <b>' + (totalTmcSum === null ? 'Не заполнено' : totalTmcSum.toLocaleString('ru-RU') + ' ₽') + '</b></div>' +
       '</div>';
     } else {
       html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">' +
         '<div style="display:flex;gap:6px">' +
           '<button class="btn btn-sm btn-primary" onclick="writeOffTaskMaterials(\'' + encodeURIComponent(taskId) + '\')" title="Списать фактически израсходованные ТМЦ с фиксацией в себестоимости">✅ Списать ТМЦ по факту</button>' +
-          '<button class="btn btn-sm" onclick="saveTaskMaterialsFact(\'' + encodeURIComponent(taskId) + '\')" title="Сохранить введенные количества факта без списания со склада">💾 Сохранить факт</button>' +
+          '<button class="btn btn-sm" onclick="saveTaskMaterialsFact(\'' + encodeURIComponent(taskId) + '\')" title="Сохранить введенные количества факта без списания со склада"' + (!isCustodyAccepted ? ' disabled' : '') + '>💾 Сохранить факт</button>' +
         '</div>' +
         '<div style="display:flex;gap:6px">' +
           '<button class="btn btn-sm btn-outline" onclick="window.addManualMaterialPrompt(\'' + encodeURIComponent(taskId) + '\')">+ Позиция вручную</button>' +
@@ -5925,26 +5931,28 @@ window._onTmcFactRowChange = function(taskId, rowKey) {
   var priceInp = document.getElementById('price_mat_' + rowKey);
   var sumEl = document.getElementById('sum_mat_' + rowKey);
 
-  var qty = factInp ? parseFloat(factInp.value) : 0;
-  if (isNaN(qty) || qty < 0) qty = 0;
-  var pr = priceInp ? parseFloat(priceInp.value) : 0;
-  if (isNaN(pr) || pr < 0) pr = 0;
+  var qty = factInp && factInp.value.trim() !== '' ? Number(factInp.value) : null;
+  if (qty !== null && (!Number.isFinite(qty) || qty < 0)) qty = null;
+  var pr = priceInp && priceInp.value.trim() !== '' ? Number(priceInp.value) : null;
+  if (pr !== null && (!Number.isFinite(pr) || pr < 0)) pr = null;
 
-  var rowSum = Math.round(qty * pr);
-  if (sumEl) sumEl.textContent = rowSum.toLocaleString('ru-RU') + ' ₽';
+  var rowSum = qty === null || pr === null ? null : Math.round(qty * pr);
+  if (sumEl) sumEl.textContent = rowSum === null ? 'Не заполнено' : rowSum.toLocaleString('ru-RU') + ' ₽';
 
-  var totalAll = 0;
+  var totalAll = null;
   var allFactInputs = document.querySelectorAll('[id^="fact_mat_"]');
   allFactInputs.forEach(function(fInp) {
+    if (fInp.value.trim() === '') return;
     var k = fInp.id.replace('fact_mat_', '');
     var pInp = document.getElementById('price_mat_' + k);
-    var q = parseFloat(fInp.value) || 0;
-    var p = pInp ? (parseFloat(pInp.value) || 0) : 0;
-    totalAll += Math.round(q * p);
+    var q = Number(fInp.value);
+    var p = pInp && pInp.value.trim() !== '' ? Number(pInp.value) : null;
+    if (!Number.isFinite(q) || q < 0 || p === null || !Number.isFinite(p) || p < 0) return;
+    totalAll = (totalAll === null ? 0 : totalAll) + Math.round(q * p);
   });
 
   var totalEl = document.getElementById('tmcTotalSummarySum');
-  if (totalEl) totalEl.textContent = totalAll.toLocaleString('ru-RU') + ' ₽';
+  if (totalEl) totalEl.textContent = totalAll === null ? 'Не заполнено' : totalAll.toLocaleString('ru-RU') + ' ₽';
 
   window._onTmcFactChange(taskId);
 };
@@ -6072,16 +6080,22 @@ function saveTaskMaterialsFact(taskId, options) {
         var priceInp = document.getElementById('price_mat_' + rowKey);
         var suppInp = document.getElementById('supp_mat_' + rowKey);
 
-        var qty = inp ? parseFloat(inp.value) : (m.fact_qty != null ? m.fact_qty : m.plan_qty);
-        var price = priceInp ? parseFloat(priceInp.value) : (m.price != null ? m.price : m.price_default);
+        var qty = inp
+          ? (inp.value.trim() !== '' ? Number(inp.value) : null)
+          : (m.fact_qty !== null && m.fact_qty !== undefined && m.fact_qty !== '' ? Number(m.fact_qty) : null);
+        if (qty !== null && !Number.isFinite(qty)) qty = null;
+        var price = priceInp
+          ? (priceInp.value.trim() !== '' ? Number(priceInp.value) : null)
+          : (m.price !== null && m.price !== undefined && m.price !== '' ? Number(m.price) : null);
+        if (price !== null && !Number.isFinite(price)) price = null;
         var supp = suppInp ? suppInp.value : (m.supplier || null);
-        var total = (!isNaN(qty) && !isNaN(price)) ? Math.round(qty * price) : null;
+        var total = qty !== null && price !== null ? Math.round(qty * price) : null;
 
         items.push({
           id: m.id,
           material_id: m.material_id,
-          fact_qty: isNaN(qty) ? 0 : qty,
-          price: isNaN(price) ? 0 : price,
+          fact_qty: qty,
+          price: price,
           total_price: total,
           supplier: supp
         });

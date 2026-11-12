@@ -192,8 +192,8 @@ export function parseMaterialSpecExcel(filePath) {
       const qtyNum = parseFloat(cleanQtyStr);
       const planQty = !isNaN(qtyNum) && qtyNum >= 0 ? qtyNum : 0;
 
-      // Если нет количества и нет позиции — пропускаем
-      if (planQty === 0 && !rawPos && !rawModel) continue;
+      // Пропускаем строку без количества, позиции и модели; явный ноль сохраняем
+      if (rawQty === '' && !rawPos && !rawModel) continue;
 
       // Парсинг цены и массы
       const cleanPriceStr = rawPrice.replace(/\s+/g, '').replace(',', '.');
@@ -314,7 +314,7 @@ export async function saveImportedMaterials(taskId, items, { replace = false } =
             model = COALESCE($2, model),
             supplier = COALESCE($3, supplier),
             unit = COALESCE($4, unit),
-            plan_qty = CASE WHEN $5 > 0 THEN $5 ELSE plan_qty END,
+            plan_qty = COALESCE($5, plan_qty),
             price = COALESCE($6, price),
             total_price = COALESCE($7, total_price),
             material_id = COALESCE($8, material_id)
@@ -331,13 +331,14 @@ export async function saveImportedMaterials(taskId, items, { replace = false } =
           existingRows[0].id
         ]);
       } else {
+        const factQty = it.fact_qty === null || it.fact_qty === undefined || it.fact_qty === '' ? null : it.fact_qty;
         await client.query(`
           INSERT INTO task_materials (
             task_id, material_id, pos_num, item_name, model, article, supplier, unit,
             plan_qty, fact_qty, price, total_price, mass_kg, note, source
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8,
-            $9, $9, $10, $11, $12, $13, 'excel_spec'
+            $9, $10, $11, $12, $13, $14, 'excel_spec'
           )
         `, [
           taskId,
@@ -349,6 +350,7 @@ export async function saveImportedMaterials(taskId, items, { replace = false } =
           it.supplier,
           it.unit,
           it.plan_qty,
+          factQty,
           it.price,
           it.total_price,
           it.mass_kg,

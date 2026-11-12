@@ -8,6 +8,35 @@ const XLSX = xlsxPkg.default || xlsxPkg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_PATH = path.resolve(__dirname, '../templates/id_shablon_ultima.xlsx');
 
+function clearCells(ws, range) {
+  const decoded = XLSX.utils.decode_range(range);
+  for (let row = decoded.s.r; row <= decoded.e.r; row += 1) {
+    for (let col = decoded.s.c; col <= decoded.e.c; col += 1) {
+      const cell = ws[XLSX.utils.encode_cell({ r: row, c: col })];
+      if (!cell) continue;
+      delete cell.v;
+      delete cell.w;
+      delete cell.t;
+      delete cell.f;
+    }
+  }
+}
+
+function setCell(ws, address, value) {
+  if (value === null || value === undefined || value === '') {
+    clearCells(ws, address);
+    return;
+  }
+  const previous = ws[address] || {};
+  ws[address] = {
+    ...previous,
+    t: typeof value === 'number' ? 'n' : 's',
+    v: value
+  };
+  delete ws[address].w;
+  delete ws[address].f;
+}
+
 /**
  * Сервис генерации альбома ИД в формате Excel по стандарту ГОСТ (на базе эталона Ультима)
  */
@@ -39,9 +68,9 @@ export async function generateIdExcelAlbum(taskId) {
       tm.model,
       COALESCE(tm.article, m.code) AS code,
       tm.supplier,
-      COALESCE(tm.unit, m.unit, 'шт') AS unit,
-      COALESCE(tm.fact_qty, tm.plan_qty, 0) AS qty,
-      COALESCE(tm.price, m.price_default, 0) AS price,
+      COALESCE(tm.unit, m.unit) AS unit,
+      tm.fact_qty AS qty,
+      COALESCE(tm.price, m.price_default) AS price,
       tm.mass_kg,
       tm.note,
       m.category
@@ -54,154 +83,163 @@ export async function generateIdExcelAlbum(taskId) {
   // 4. Открываем эталонную книгу
   const wb = XLSX.readFile(TEMPLATE_PATH, { cellStyles: true });
 
-  const rawAddress = task.address || 'Адрес объекта не указан';
-  const customerName = task.customer || 'ПАО Сбербанк';
-  const contractorName = task.contractor || 'ООО «Ультима»';
-  const contractNumber = task.edo_number || task.subcontract_number || '0851200000625006115';
-  const contractDate = task.contract_date || '2026';
-  const curDateStr = new Date().toLocaleDateString('ru-RU');
+  const rawAddress = task.address || '';
+  const customerName = ['—', '–', '-'].includes(String(task.customer || '').trim()) ? '' : (task.customer || '');
+  const contractorName = task.contractor || '';
+  const contractNumber = task.edo_number || task.subcontract_number || '';
+  const contractDate = task.contract_date || '';
+  const objectName = [customerName, rawAddress].filter(Boolean).join('\r\n');
 
   // ─── 1. ЛИСТ: ТИТУЛ ──────────────────────────────────────────────────────────
   if (wb.Sheets['Титул']) {
     const ws = wb.Sheets['Титул'];
-    if (ws['A2']) {
-      ws['A2'].v = `Представитель Функционального заказчика:\r\n${customerName}\r\nпо адресу: ${rawAddress}\r\n(подпись, ФИО)\r\nм.п.`;
-    }
-    if (ws['B2']) {
-      ws['B2'].v = `Представитель исполнителя:\r\n${contractorName}\r\n(подпись, ФИО)\r\nм.п.`;
-    }
-    if (ws['A3']) {
-      ws['A3'].v = `Контракт / Заявка № ${contractNumber} от ${contractDate} на выполнение работ.`;
-    }
-    if (ws['A6']) {
-      ws['A6'].v = `${customerName}\r\nпо адресу: ${rawAddress}`;
-    }
+    clearCells(ws, 'A2:C4');
+    clearCells(ws, 'A6:C6');
+    clearCells(ws, 'A19:C19');
+    setCell(ws, 'A2', `Представитель Функционального заказчика:\r\n${customerName}\r\nпо адресу: ${rawAddress}\r\n(подпись, ФИО)\r\nм.п.`);
+    setCell(ws, 'B2', `Представитель исполнителя:\r\n${contractorName}\r\n(подпись, ФИО)\r\nм.п.`);
+    setCell(ws, 'A3', contractNumber || contractDate ? `Контракт / Заявка № ${contractNumber} от ${contractDate} на выполнение работ.` : '');
+    setCell(ws, 'A4', task.work_type);
+    setCell(ws, 'A6', objectName);
   }
 
   // ─── 2. ЛИСТ: КЖ (КАБЕЛЬНЫЙ ЖУРНАЛ) ──────────────────────────────────────────
-  if (wb.Sheets['КЖ'] && ports.length > 0) {
+  if (wb.Sheets['КЖ']) {
     const ws = wb.Sheets['КЖ'];
     const startRow = 6; // нулевой индекс (7-я строка в Excel)
+    clearCells(ws, 'E6:AA31');
+    for (const address of ['Q39', 'Q40', 'V36', 'V39', 'Y42']) clearCells(ws, address);
 
     ports.forEach((p, idx) => {
-      const r = startRow + idx;
-      const portNum = p.port_number || String(idx + 1);
-      const room = p.room || 'Помещение';
-      const cabinet = p.cabinet || 'ШТК-1';
-      const marking = p.marking || `ПП-1 / Порт ${portNum}`;
-      const cableLen = parseFloat(p.cable_length) || 25;
-
-      // E: №
-      ws[`E${r + 1}`] = { t: 'n', v: idx + 1 };
-      // F: Помещение (начало)
-      ws[`F${r + 1}`] = { t: 's', v: room };
-      // G: № стойки
-      ws[`G${r + 1}`] = { t: 's', v: '-' };
-      // H: Оборудование (начало)
-      ws[`H${r + 1}`] = { t: 's', v: marking };
-      // I: № порта
-      ws[`I${r + 1}`] = { t: 's', v: portNum };
-      // J: Помещение (конец)
-      ws[`J${r + 1}`] = { t: 's', v: 'Серверная' };
-      // K: № стойки (конец)
-      ws[`K${r + 1}`] = { t: 's', v: cabinet };
-      // L: Оборудование (конец)
-      ws[`L${r + 1}`] = { t: 's', v: 'Патч-панель (ПП-1)' };
-      // M: № порта на патч-панели
-      ws[`M${r + 1}`] = { t: 's', v: portNum };
-      // N: Марка кабеля
-      ws[`N${r + 1}`] = { t: 's', v: 'UTP Cat.5e 4х2хAWG24' };
-      // O: Длина (м)
-      ws[`O${r + 1}`] = { t: 'n', v: cableLen };
-      // P: Примечание
-      ws[`P${r + 1}`] = { t: 's', v: p.testing_status || 'Готов к эксплуатации' };
+      const row = startRow + idx + 1;
+      const cableLength = p.cable_length === null || p.cable_length === undefined || p.cable_length === '' ? null : Number(p.cable_length);
+      setCell(ws, `E${row}`, idx + 1);
+      setCell(ws, `F${row}`, p.room);
+      setCell(ws, `G${row}`, '');
+      setCell(ws, `H${row}`, p.marking);
+      setCell(ws, `I${row}`, p.port_number);
+      setCell(ws, `J${row}`, p.building);
+      setCell(ws, `K${row}`, p.cabinet);
+      setCell(ws, `L${row}`, p.patch_panel);
+      setCell(ws, `M${row}`, p.port_number);
+      setCell(ws, `N${row}`, p.cable_mark);
+      setCell(ws, `O${row}`, Number.isFinite(cableLength) ? cableLength : null);
+      setCell(ws, `P${row}`, p.testing_status);
     });
-
-    // Обновляем диапазон листа КЖ
-    const maxR = Math.max(30, startRow + ports.length + 5);
-    ws['!ref'] = `A1:P${maxR}`;
   }
 
   // ─── 3. ЛИСТ: СПЕКА1 (ОБОРУДОВАНИЕ) И СПЕКА2 (МАТЕРИАЛЫ) ───────────────────
-  if (materials.length > 0) {
-    const equipItems = materials.filter(m => {
-      const cat = (m.category || '').toLowerCase();
-      const n = (m.name || '').toLowerCase();
-      return cat.includes('оборудован') || n.includes('шкаф') || n.includes('коммутатор') || n.includes('маршрутизатор') || n.includes('камера') || n.includes('видеорегистратор') || n.includes('ибп') || n.includes('точка доступа') || n.includes('панель');
+  const equipItems = materials.filter(m => {
+    const cat = (m.category || '').toLowerCase();
+    const n = (m.name || '').toLowerCase();
+    return cat.includes('оборудован') || n.includes('шкаф') || n.includes('коммутатор') || n.includes('маршрутизатор') || n.includes('камера') || n.includes('видеорегистратор') || n.includes('ибп') || n.includes('точка доступа') || n.includes('панель');
+  });
+  const cableItems = materials.filter(m => !equipItems.includes(m));
+
+  if (wb.Sheets['Спека1']) {
+    const ws = wb.Sheets['Спека1'];
+    clearCells(ws, 'E6:T19');
+    for (const address of ['J27', 'J28', 'O24', 'O27', 'S30']) clearCells(ws, address);
+    equipItems.forEach((it, idx) => {
+      const row = idx + 6;
+      const qty = it.qty === null || it.qty === undefined || it.qty === '' ? null : Number(it.qty);
+      const mass = it.mass_kg === null || it.mass_kg === undefined || it.mass_kg === '' ? null : Number(it.mass_kg);
+      setCell(ws, `E${row}`, it.pos_num);
+      setCell(ws, `F${row}`, it.name);
+      setCell(ws, `G${row}`, it.model);
+      setCell(ws, `H${row}`, it.code);
+      setCell(ws, `L${row}`, it.supplier);
+      setCell(ws, `P${row}`, it.unit);
+      setCell(ws, `Q${row}`, Number.isFinite(qty) ? qty : null);
+      setCell(ws, `R${row}`, Number.isFinite(mass) ? mass : null);
+      setCell(ws, `T${row}`, it.note);
     });
-    const cableItems = materials.filter(m => !equipItems.includes(m));
+  }
 
-    // Заполняем Спека1 (Оборудование)
-    if (wb.Sheets['Спека1'] && equipItems.length > 0) {
-      const ws = wb.Sheets['Спека1'];
-      equipItems.forEach((it, idx) => {
-        const r = 5 + idx; // Строка 6+
-        ws[`E${r + 1}`] = { t: 's', v: it.pos_num || `1.${idx + 1}` };
-        ws[`F${r + 1}`] = { t: 's', v: it.name || '' };
-        ws[`G${r + 1}`] = { t: 's', v: it.model || '' };
-        ws[`H${r + 1}`] = { t: 's', v: it.code || '' };
-        ws[`L${r + 1}`] = { t: 's', v: it.supplier || 'ООО "Электрон"' };
-        ws[`P${r + 1}`] = { t: 's', v: it.unit || 'шт.' };
-        ws[`Q${r + 1}`] = { t: 'n', v: Number(it.qty) || 1 };
-        if (it.mass_kg) ws[`R${r + 1}`] = { t: 'n', v: Number(it.mass_kg) };
-        if (it.note) ws[`T${r + 1}`] = { t: 's', v: it.note };
-      });
-    }
-
-    // Заполняем Спека2 (Кабельные изделия и материалы)
-    if (wb.Sheets['Спека2'] && cableItems.length > 0) {
-      const ws = wb.Sheets['Спека2'];
-      cableItems.forEach((it, idx) => {
-        const r = 5 + idx;
-        ws[`E${r + 1}`] = { t: 's', v: it.pos_num || `2.${idx + 1}` };
-        ws[`F${r + 1}`] = { t: 's', v: it.name || '' };
-        ws[`G${r + 1}`] = { t: 's', v: it.model || '' };
-        ws[`H${r + 1}`] = { t: 's', v: it.code || '' };
-        ws[`L${r + 1}`] = { t: 's', v: it.supplier || 'Склад компании' };
-        ws[`P${r + 1}`] = { t: 's', v: it.unit || 'м.' };
-        ws[`Q${r + 1}`] = { t: 'n', v: Number(it.qty) || 1 };
-        if (it.mass_kg) ws[`R${r + 1}`] = { t: 'n', v: Number(it.mass_kg) };
-        if (it.note) ws[`T${r + 1}`] = { t: 's', v: it.note };
-      });
-    }
+  if (wb.Sheets['Спека2']) {
+    const ws = wb.Sheets['Спека2'];
+    clearCells(ws, 'E6:T29');
+    for (const address of ['J37', 'J38', 'O34', 'O37', 'S40']) clearCells(ws, address);
+    cableItems.forEach((it, idx) => {
+      const row = idx + 6;
+      const qty = it.qty === null || it.qty === undefined || it.qty === '' ? null : Number(it.qty);
+      const mass = it.mass_kg === null || it.mass_kg === undefined || it.mass_kg === '' ? null : Number(it.mass_kg);
+      setCell(ws, `E${row}`, it.pos_num);
+      setCell(ws, `F${row}`, it.name);
+      setCell(ws, `G${row}`, it.model);
+      setCell(ws, `H${row}`, it.code);
+      setCell(ws, `L${row}`, it.supplier);
+      setCell(ws, `P${row}`, it.unit);
+      setCell(ws, `Q${row}`, Number.isFinite(qty) ? qty : null);
+      setCell(ws, `R${row}`, Number.isFinite(mass) ? mass : null);
+      setCell(ws, `T${row}`, it.note);
+    });
   }
 
   // ─── 4. ЛИСТ: ПИ1 (ПРОТОКОЛ ИЗМЕРЕНИЙ FLUKE) ─────────────────────────────────
   if (wb.Sheets['ПИ1']) {
     const ws = wb.Sheets['ПИ1'];
-    if (ws['D2']) {
-      ws['D2'].v = `Объект: ${customerName}, ${rawAddress}\r\nПрибор: Fluke Networks MS2-100 зав.№2780829 Дата измерения: ${curDateStr}`;
-    }
+    clearCells(ws, 'E4:L28');
+    clearCells(ws, 'D30');
+    setCell(ws, 'D2', `Объект: ${customerName}${rawAddress ? `, ${rawAddress}` : ''}`);
 
-    if (ports.length > 0) {
-      const startRow = 3; // 4-я строка
-      ports.forEach((p, idx) => {
-        const r = startRow + idx;
-        const portNum = p.port_number || String(idx + 1);
-        const room = p.room || 'Помещение';
-        const marking = p.marking || `Р-${portNum}`;
-        const cableLen = parseFloat(p.cable_length) || 25;
+    ports.forEach((p, idx) => {
+      const row = idx + 4;
+      const cableLength = p.cable_length === null || p.cable_length === undefined || p.cable_length === '' ? null : Number(p.cable_length);
+      setCell(ws, `E${row}`, idx + 1);
+      setCell(ws, `F${row}`, [p.patch_panel, p.port_number].filter(value => value !== null && value !== undefined && value !== '').join(' / '));
+      setCell(ws, `G${row}`, [p.room, p.outlet_marking || p.marking].filter(value => value !== null && value !== undefined && value !== '').join(', '));
+      setCell(ws, `H${row}`, p.cable_mark);
+      setCell(ws, `I${row}`, p.conductor_diameter);
+      setCell(ws, `J${row}`, Number.isFinite(cableLength) ? cableLength : null);
+      setCell(ws, `K${row}`, p.crimping);
+      setCell(ws, `L${row}`, p.testing_status);
+    });
+  }
 
-        // E: №
-        ws[`E${r + 1}`] = { t: 'n', v: idx + 1 };
-        // F: Точка А
-        ws[`F${r + 1}`] = { t: 's', v: `Патч-панель (ПП-1), порт ${portNum}` };
-        // G: Точка Б
-        ws[`G${r + 1}`] = { t: 's', v: `${room}, ${marking}` };
-        // H: Марка кабеля
-        ws[`H${r + 1}`] = { t: 's', v: 'UTP Cat.5e 4х2хAWG24 Cu нг(А)-LSLTx' };
-        // I: Диаметр жил, мм
-        ws[`I${r + 1}`] = { t: 'n', v: 0.52 };
-        // J: Длина, м
-        ws[`J${r + 1}`] = { t: 'n', v: cableLen };
-        // K: Схема разводки
-        ws[`K${r + 1}`] = { t: 's', v: 'TIA/EIA-568B' };
-        // L: Результат
-        ws[`L${r + 1}`] = { t: 's', v: 'Pass (Соответствует)' };
-      });
-      const maxR = Math.max(30, startRow + ports.length + 5);
-      ws['!ref'] = `A1:L${maxR}`;
-    }
+  // Остальные листы эталона содержат данные конкретного чужого объекта.
+  for (const sheetName of ['Общие данные', 'ТехРешения', 'ЛВС']) {
+    if (wb.Sheets[sheetName]) clearCells(wb.Sheets[sheetName], 'E2');
+  }
+  if (wb.Sheets['Расчет ИБП']) {
+    const ws = wb.Sheets['Расчет ИБП'];
+    clearCells(ws, 'E4:I6');
+    clearCells(ws, 'E11:M15');
+    clearCells(ws, 'M16:M17');
+    clearCells(ws, 'E18');
+  }
+  if (wb.Sheets['КЖ-сумм']) clearCells(wb.Sheets['КЖ-сумм'], 'E7:Z19');
+  if (wb.Sheets['ППСИ']) {
+    const ws = wb.Sheets['ППСИ'];
+    setCell(ws, 'A1', 'Протокол приёмо-сдаточных испытаний\r\nСформированной ИТ-инфраструктуры.');
+    clearCells(ws, 'A30');
+    clearCells(ws, 'A32:A33');
+    clearCells(ws, 'C33');
+  }
+  if (wb.Sheets['ВСО']) clearCells(wb.Sheets['ВСО'], 'A4:D55');
+
+  const stampCells = [
+    ['Содержание', 'K31', 'K34', 'G34:G35', 'L37'],
+    ['Общие данные', 'K11', 'K14', 'G14:G15', 'L17'],
+    ['ТехРешения', 'K11', 'K14', 'G14:G15', 'L17'],
+    ['ЛВС', 'K11', 'K14', 'G14:G15', 'L18'],
+    ['СтруктСхема', 'L10', 'L13', 'H13:H14', 'M16'],
+    ['Планировки', 'L10', 'L13', 'H13:H14', 'M16'],
+    ['Схема ВТШ', 'L10', 'L13', 'H13:H14', 'M16'],
+    ['Таблица соединений', 'L10', 'L13', 'H13:H14', 'M16'],
+    ['Схема соединений', 'L10', 'L13', 'H13:H14', 'M16'],
+    ['ПринцСхемаЭП', 'L10', 'L13', 'H13:H14', 'M16'],
+    ['Схема ВЭС', 'K11', 'K14', 'G14:G15', 'L17'],
+    ['Расчет ИБП', 'L23', 'L26', 'G26:G27', 'N29'],
+    ['КЖ-сумм', 'U27', 'U30', 'P30:P31', 'X33']
+  ];
+  for (const [sheetName, projectCell, objectCell, authorRange, companyCell] of stampCells) {
+    const ws = wb.Sheets[sheetName];
+    if (!ws) continue;
+    setCell(ws, projectCell, task.work_type);
+    setCell(ws, objectCell, objectName);
+    clearCells(ws, authorRange);
+    setCell(ws, companyCell, contractorName);
   }
 
   // Генерируем буфер книги Excel
