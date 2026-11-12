@@ -1660,7 +1660,17 @@ function pageTasks() {
     }
 
     // 10. Действия
-    var colActions = '<td style="vertical-align:top;text-align:right"><button class="btn btn-sm btn-ghost btn-icon" onclick="exportTask(\'' + tid + '\')" title="Экспорт заявки / печать">&#x2B07;</button></td>';
+    var colActions = '<td style="vertical-align:top;text-align:right" class="task-actions-col">' +
+      '<div style="display:inline-flex;align-items:center;justify-content:flex-end;gap:4px;flex-wrap:nowrap">' +
+        '<button type="button" class="btn btn-xs btn-ghost" onclick="openCard(\'' + tid + '\')" title="Открыть карточку заявки" style="white-space:nowrap;font-size:.75rem;padding:3px 7px">' +
+          'Открыть' +
+        '</button>' +
+        '<button type="button" class="btn btn-xs btn-ghost" onclick="exportTask(\'' + tid + '\')" title="Экспорт заявки / скачать XLSX" style="white-space:nowrap;font-size:.75rem;padding:3px 7px;display:inline-flex;align-items:center;gap:3px">' +
+          '<span class="btn-svg-icon" style="margin-right:0;width:12px;height:12px">' + ICONS.download + '</span>' +
+          '<span>Скачать</span>' +
+        '</button>' +
+      '</div>' +
+    '</td>';
 
     tableRows += '<tr id="task_row_' + tid + '" data-tid="' + tid + '" style="transition:background .2s">' +
       colNumber +
@@ -1702,7 +1712,7 @@ function pageTasks() {
           if (appMode === 'finance') return '<th style="width:100px">Счета / Акты</th><th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'amount\')" title="Сортировать по марже">Фин. итог (Маржа)' + taskSortIndicator('amount') + '</th>';
           return '';
         })() +
-        '<th style="width:36px"></th>' +
+        '<th style="width:140px;text-align:right">Действия</th>' +
       '</tr></thead><tbody>' + tableRows + more + '</tbody></table>' +
     '</div>' +
     renderContractorPicker();
