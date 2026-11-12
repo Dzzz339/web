@@ -531,6 +531,7 @@
     /* GRID & ADAPTIVE */
     .g4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 1rem; margin-bottom: 1rem; }
     .g2 { display: grid; grid-template-columns: repeat(2,1fr); gap: 1rem; }
+    .g2 > *, .g3 > *, .g4 > * { min-width: 0; }
     .row { display: flex; align-items: center; gap: .75rem; }
     .mb { margin-bottom: 1rem; }
 
@@ -1266,11 +1267,60 @@
       /* Зона загрузки */
       .upload-zone { padding: 1.5rem 1rem; }
 
-      /* Строки региона */
-      .rrow { flex-wrap: wrap; gap: .4rem; }
-      .rname { min-width: auto; font-size: .8rem; }
-      .ramt { font-size: .72rem; }
-      .rprog { min-width: 100%; }
+      /* Строки региона на мобильных экранах */
+      .rrow {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: .35rem .5rem;
+        padding: 8px 10px;
+        min-width: 0;
+      }
+      .rname {
+        min-width: 0;
+        font-size: .82rem;
+        word-break: break-word;
+        flex: 1 1 auto;
+      }
+      .rstats {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: .35rem .6rem;
+        font-size: .74rem;
+        min-width: 0;
+      }
+      .ramt {
+        font-size: .74rem;
+        white-space: normal;
+        text-align: right;
+        word-break: break-word;
+      }
+      .rprog {
+        width: 100%;
+        min-width: 100%;
+        order: 4;
+        margin-top: 2px;
+      }
+
+      /* Цепи и снабжение: естественный вертикальный скролл страницы */
+      .supply-regions-list,
+      #app .g2 > .card[style*="max-height"],
+      #supply-warehouses-list > div[style*="max-height"] {
+        max-height: none !important;
+        overflow-y: visible !important;
+      }
+      .chain-steps {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        max-width: 100%;
+        width: 100%;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+        box-sizing: border-box;
+      }
 
       /* Фильтры заявок — колонка */
       #app .row.mb { flex-wrap: wrap; }
@@ -4369,4 +4419,66 @@ body.mobile-layout-active #_doc_editor_modal #_doc_sheet {
 body.mobile-layout-active #_doc_editor_modal #_doc_locked_banner {
   margin-bottom: 8px;
   padding: 10px 12px;
+}
+
+/* АДАПТАЦИЯ РАЗДЕЛА SUPPLY («ЦЕПИ И СНАБЖЕНИЕ») ДЛЯ МОБИЛЬНЫХ */
+body.mobile-layout-active .g2 > *,
+body.mobile-layout-active .g3 > *,
+body.mobile-layout-active .g4 > * {
+  min-width: 0;
+}
+
+body.mobile-layout-active .supply-regions-list,
+body.mobile-layout-active #app .g2 > .card[style*="max-height"],
+body.mobile-layout-active #supply-warehouses-list > div[style*="max-height"] {
+  max-height: none !important;
+  overflow-y: visible !important;
+}
+
+body.mobile-layout-active .chain-steps {
+  max-width: 100%;
+  width: 100%;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+}
+
+body.mobile-layout-active .rrow {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: .35rem .5rem !important;
+  padding: 8px 10px !important;
+  min-width: 0 !important;
+}
+
+body.mobile-layout-active .rname {
+  min-width: 0 !important;
+  font-size: .82rem !important;
+  word-break: break-word !important;
+  flex: 1 1 auto !important;
+}
+
+body.mobile-layout-active .rstats {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: .35rem .6rem !important;
+  font-size: .74rem !important;
+  min-width: 0 !important;
+}
+
+body.mobile-layout-active .ramt {
+  font-size: .74rem !important;
+  white-space: normal !important;
+  text-align: right !important;
+  word-break: break-word !important;
+}
+
+body.mobile-layout-active .rprog {
+  width: 100% !important;
+  min-width: 100% !important;
+  order: 4 !important;
+  margin-top: 2px !important;
 }

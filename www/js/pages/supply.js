@@ -123,9 +123,9 @@ function pageSupply() {
   return tabSwitcher +
     '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.75rem; flex-wrap:wrap; gap:.5rem">' +
       '<h1 class="page-title" style="margin:0">Цепи по регионам</h1>' +
-      '<div style="display:flex; gap:.5rem; align-items:center">' +
+      '<div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; max-width:100%">' +
         '<label style="font-size:.8rem; font-weight:600; color:var(--text-2)">Ведущий менеджер:</label>' +
-        '<select id="chain_mgr_filter" style="min-width:180px">' +
+        '<select id="chain_mgr_filter" style="min-width:140px; max-width:100%">' +
           '<option value="">Все менеджеры</option>' +
           mgrList.map(function(m){ return '<option value="' + escHtml(m) + '"' + (curMgr === m ? ' selected' : '') + '>' + escHtml(m) + '</option>'; }).join('') +
         '</select>' +
@@ -134,9 +134,9 @@ function pageSupply() {
     '</div>' +
     '<div class="g2">' +
       '<div>' +
-        '<div class="card p mb">' +
-          '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.75rem">' +
-            '<div class="fw7" style="font-size:1.1rem">' + escHtml(selRegionId) + ' (' + totalRegTasks + ' заявок)</div>' +
+        '<div class="card p mb supply-selected-region-card">' +
+          '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.75rem; flex-wrap:wrap; gap:.5rem">' +
+            '<div class="fw7" style="font-size:1.1rem; word-break:break-word">' + escHtml(selRegionId) + ' (' + totalRegTasks + ' заявок)</div>' +
             '<button class="btn btn-sm btn-ghost" onclick="filterAndGoTasks({reg:\'' + escHtml(selRegionId) + '\', mgr:\'' + escHtml(curMgr) + '\'})" title="Перейти ко всем заявкам этого региона">Открыть в Заявках ➔</button>' +
           '</div>' +
           '<div class="row" style="flex-wrap:wrap;gap:.75rem;margin-bottom:.9rem;font-size:.82rem">' +
@@ -169,7 +169,7 @@ function pageSupply() {
             rows + more + '</div>';
         })() : '') +
       '</div>' +
-      '<div class="card p" style="max-height:70vh;overflow-y:auto">' +
+      '<div class="card p supply-regions-list" style="max-height:70vh;overflow-y:auto">' +
         '<div class="sec-title">Все регионы (' + S.chains.length + ')</div>' +
         listHtml +
       '</div>' +
@@ -188,7 +188,7 @@ function loadSupplyWarehousesView() {
         el.innerHTML = '<div class="t3">Склады не найдены</div>';
         return;
       }
-      var html = '<div style="display:flex;flex-direction:column;gap:.6rem;max-height:60vh;overflow-y:auto">';
+      var html = '<div class="supply-warehouses-scroll" style="display:flex;flex-direction:column;gap:.6rem;max-height:60vh;overflow-y:auto">';
       whs.forEach(function(w) {
         var typeBadge = w.type === 'central' ? '<span class="badge b-blue">Центральный</span>' : (w.type === 'regional' ? '<span class="badge b-green">Региональный</span>' : '<span class="badge b-gray">Подрядчик</span>');
         html += '<div style="padding:8px 10px;background:var(--bg);border-radius:6px;border:1px solid var(--border)">' +

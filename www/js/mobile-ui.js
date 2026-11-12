@@ -66,7 +66,7 @@
     if (!isMobileLayout()) return [];
     var overflowing = [];
     document.querySelectorAll('body *').forEach(function(element) {
-      if (element.closest('.kanban, .table-scroll, .swipe-carousel-row, #desktop-preview-toolbar')) return;
+      if (element.closest('.kanban, .table-scroll, .swipe-carousel-row, .chain-steps, #desktop-preview-toolbar')) return;
       var style = getComputedStyle(element);
       if (style.display === 'none' || style.visibility === 'hidden' || style.position === 'fixed') return;
       var rect = element.getBoundingClientRect();
