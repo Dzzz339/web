@@ -285,7 +285,7 @@
                 '</div>' +
               '</div>' +
               '<div>' +
-                '<button type="button" class="btn btn-sm ' + (isCurrent ? 'btn-ghost' : 'btn-primary') + '" onclick="window._applyContractorContract(\'' + escHtml(taskId) + '\', ' + c.id + ', ' + c.own_company_id + ', ' + (c.price_list_id || 'null') + ', \'' + escHtml(c.contract_number).replace(/'/g, "\\'") + '\', \'' + escHtml(c.contract_date || '').replace(/'/g, "\\'") + '\', \'' + escHtml(c.own_company_name || '').replace(/'/g, "\\'") + '\')" style="font-size:.78rem;white-space:nowrap">' +
+                '<button type="button" class="btn btn-sm ' + (isCurrent ? 'btn-ghost' : 'btn-primary') + '" onclick="window._applyContractorContract(\'' + escHtml(taskId) + '\', ' + c.id + ', ' + c.own_company_id + ', ' + (c.price_list_id || 'null') + ', \'' + escHtml(c.contract_number).replace(/'/g, "\\'") + '\', \'' + escHtml(c.contract_date || '').replace(/'/g, "\\'") + '\', \'' + escHtml(c.own_company_name || '').replace(/'/g, "\\'") + '\', ' + Number(c.price_items_count || 0) + ')" style="font-size:.78rem;white-space:nowrap">' +
                   (isCurrent ? '✓ Выбран' : 'Выбрать этот договор') +
                 '</button>' +
               '</div>' +
@@ -299,7 +299,11 @@
       });
   };
 
-  window._applyContractorContract = function(taskId, contractId, ownCompanyId, priceListId, contractNumber, contractDate, ownCompanyName) {
+  window._applyContractorContract = function(taskId, contractId, ownCompanyId, priceListId, contractNumber, contractDate, ownCompanyName, priceItemsCount) {
+    if (priceListId && Number(priceItemsCount) === 0) {
+      if (typeof showToast === 'function') showToast('Выбранный прайс не содержит позиций. Выберите другой договор или заполните прайс.', 'error');
+      return;
+    }
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); });
     if (t) {
       t.own_company_id = Number(ownCompanyId);

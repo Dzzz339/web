@@ -83,7 +83,10 @@ router.post('/tasks/:taskId/subcontracts', authenticateToken, requireRole('admin
       installer_phone,
       installer_passport,
       auto_number,
-      comment
+      comment,
+      own_company_id,
+      contractor_contract_id,
+      price_list_id
     } = req.body;
 
     price_agreed = price_agreed !== undefined && price_agreed !== null ? Math.max(0, Number(price_agreed) || 0) : null;
@@ -139,9 +142,9 @@ router.post('/tasks/:taskId/subcontracts', authenticateToken, requireRole('admin
       INSERT INTO task_subcontracts (
         task_id, contractor_id, contractor_name, work_type, price_agreed, deadline,
         specialist_id, installer_fio, installer_phone, installer_passport,
-        auto_number, comment, status
+        auto_number, comment, own_company_id, contractor_contract_id, price_list_id, status
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'assigned')
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'assigned')
       RETURNING *
     `, [
       taskId,
@@ -155,7 +158,10 @@ router.post('/tasks/:taskId/subcontracts', authenticateToken, requireRole('admin
       installer_phone || null,
       installer_passport || null,
       auto_number || null,
-      comment || null
+      comment || null,
+      own_company_id || null,
+      contractor_contract_id || null,
+      price_list_id || null
     ]);
 
     // Синхронизируем поле contractor в самой задаче
@@ -170,7 +176,7 @@ router.post('/tasks/:taskId/subcontracts', authenticateToken, requireRole('admin
       WHERE id = $1 AND macro_status IN ('new', 'review', 'in_progress')
     `, [taskId]);
 
-    res.status(201).json(fullCreated.rows[0]);
+    res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Error creating subcontract:', err);
     res.status(500).json({ error: 'Ошибка назначения субподрядчика' });
@@ -200,6 +206,7 @@ router.put('/subcontracts/:id', authenticateToken, requireRole('admin', 'directo
       calculation_details,
       own_company_id,
       contractor_contract_id,
+      price_list_id,
       ports_count,
       distance_km
     } = req.body;
@@ -258,6 +265,7 @@ router.put('/subcontracts/:id', authenticateToken, requireRole('admin', 'directo
         contractor_contract_id = COALESCE($20::integer, contractor_contract_id),
         ports_count = COALESCE($21::integer, ports_count),
         distance_km = COALESCE($22::numeric, distance_km),
+        price_list_id = COALESCE($23::integer, price_list_id),
         updated_at = NOW()
       WHERE id = $16
       RETURNING *
@@ -283,7 +291,8 @@ router.put('/subcontracts/:id', authenticateToken, requireRole('admin', 'directo
       own_company_id ? Number(own_company_id) : null,
       contractor_contract_id ? Number(contractor_contract_id) : null,
       ports_count !== undefined && ports_count !== null ? Number(ports_count) : null,
-      distance_km !== undefined && distance_km !== null ? Number(distance_km) : null
+      distance_km !== undefined && distance_km !== null ? Number(distance_km) : null,
+      price_list_id ? Number(price_list_id) : null
     ]);
 
     if (result.rows.length === 0) {

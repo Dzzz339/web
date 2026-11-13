@@ -242,6 +242,29 @@
     };
   };
 
+  function replaceSubcontractSearchResults(kind) {
+    var isContracts = kind === 'contracts';
+    var html = isContracts ? window.pageSubContracts() : window.pageSubPricelists();
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    var resultId = isContracts ? 'sub_contract_results' : 'sub_price_results';
+    var current = document.getElementById(resultId);
+    var next = temp.querySelector('#' + resultId);
+    if (current && next) current.replaceWith(next);
+  }
+
+  window.onSubContractSearchInput = function(value) {
+    S.subContractSearch = value;
+    clearTimeout(window._subContractSearchTimeout);
+    window._subContractSearchTimeout = setTimeout(function() { replaceSubcontractSearchResults('contracts'); }, 250);
+  };
+
+  window.onSubPriceSearchInput = function(value) {
+    S.subPriceSearch = value;
+    clearTimeout(window._subPriceSearchTimeout);
+    window._subPriceSearchTimeout = setTimeout(function() { replaceSubcontractSearchResults('prices'); }, 250);
+  };
+
   // ─── 2. СТРАНИЦА: «ДОГОВОРЫ СУБПОДРЯДА» ─────────────────────────────────────
 
   window.pageSubContracts = function() {
@@ -349,7 +372,7 @@
           '<div style="flex:1;min-width:240px;position:relative">' +
             '<input type="text" id="sub_contract_q" value="' + escHtml(S.subContractSearch || '') + '" ' +
               'placeholder="🔍 Поиск по номеру, исполнителю, ИНН, территории, заказчику..." ' +
-              'oninput="S.subContractSearch=this.value; renderApp()" ' +
+              'oninput="onSubContractSearchInput(this.value)" ' +
               'style="width:100%;padding:8px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
           '</div>' +
           '<div style="min-width:190px">' +
@@ -380,7 +403,7 @@
       '</div>' +
 
       // Таблица договоров
-      '<div class="card tbl-wrap" style="background:#fff;border-radius:12px;border:1.5px solid var(--border);overflow:hidden;overflow-x:auto;box-shadow:0 2px 8px rgba(0,0,0,0.03)">' +
+      '<div id="sub_contract_results" class="card tbl-wrap" style="background:#fff;border-radius:12px;border:1.5px solid var(--border);overflow:hidden;overflow-x:auto;box-shadow:0 2px 8px rgba(0,0,0,0.03)">' +
         '<div style="padding:12px 18px;border-bottom:1px solid var(--border);background:#fafafa;display:flex;justify-content:space-between;align-items:center">' +
           '<div style="font-weight:700;font-size:.88rem;color:var(--text)">' +
             'Список договоров субподряда (' + filtered.length + ')' +
@@ -639,7 +662,7 @@
             '<div style="flex:1;min-width:240px">' +
               '<input type="text" id="sub_price_q" value="' + escHtml(S.subPriceSearch || '') + '" ' +
                 'placeholder="🔍 Поиск по названию прайса, исполнителю, региону..." ' +
-                'oninput="S.subPriceSearch=this.value; renderApp()" ' +
+                'oninput="onSubPriceSearchInput(this.value)" ' +
                 'style="width:100%;padding:8px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
             '</div>' +
             '<div style="min-width:180px">' +
@@ -675,7 +698,7 @@
 
       // ─── РЕЖИМ 1: ТАБЛИЧНЫЙ РЕЕСТР (УДОБНО ДЛЯ БОЛЬШОГО КОЛИЧЕСТВА) ─────────
       (viewMode === 'table' ?
-        '<div class="card tbl-wrap" style="background:#fff;border-radius:12px;border:1.5px solid var(--border);overflow:hidden;overflow-x:auto;box-shadow:0 2px 8px rgba(0,0,0,0.03)">' +
+        '<div id="sub_price_results" class="card tbl-wrap" style="background:#fff;border-radius:12px;border:1.5px solid var(--border);overflow:hidden;overflow-x:auto;box-shadow:0 2px 8px rgba(0,0,0,0.03)">' +
           '<div style="padding:12px 18px;border-bottom:1px solid var(--border);background:#fafafa;display:flex;justify-content:space-between;align-items:center">' +
             '<div style="font-weight:700;font-size:.88rem;color:var(--text)">' +
               'Реестр прайс-листов субподряда (' + filtered.length + ')' +
@@ -762,7 +785,7 @@
         '</div>' :
 
         // ─── РЕЖИМ 2: ПЛИТОЧНЫЙ ВИД ───────────────────────────────────────────
-        '<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(360px, 1fr));gap:18px">' +
+        '<div id="sub_price_results" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(360px, 1fr));gap:18px">' +
           (filtered.length ? filtered.map(function(pl) {
             var items = pl.items || [];
             var p5e = items.find(function(it){ return it.work_code === 'port_5e'; }) || { price_tier_1: 3000, price_tier_2: 2500 };
@@ -862,8 +885,8 @@
     }).join('');
 
     // Список прайсов для выбора источника позиций
-    var sourceOpts = (S.subPricelists || []).map(function(p) {
-      var sel = (copyFromId && copyFromId === p.id) || (!copyFromId && p.is_default) ? 'selected' : '';
+    var sourceOpts = '<option value="">— Не копировать позиции (пустой прайс) —</option>' + (S.subPricelists || []).map(function(p) {
+      var sel = copyFromId === p.id ? 'selected' : '';
       return '<option value="' + p.id + '" ' + sel + '>' + escHtml(p.name) + (p.region ? ' (' + escHtml(p.region) + ')' : '') + '</option>';
     }).join('');
 
@@ -1539,121 +1562,6 @@
     });
   };
 
-  // ─── 5. МОДАЛКА: СОЗДАНИЕ / РЕДАКТИРОВАНИЕ ПРАЙС-ЛИСТА ───────────────────────
-
-  window.openSubPriceListModal = function(priceListId) {
-    var pl = priceListId ? (S.subPricelists || []).find(function(x){ return x.id === priceListId; }) : null;
-    var isEdit = Boolean(pl);
-
-    var subContractors = (S.contractors || []).filter(function(x) {
-      return x && x.type !== 'customer' && !String(x.inn || '').startsWith('CUST-');
-    });
-
-    var contractorOpts = subContractors.map(function(ct) {
-      var sel = (pl && pl.contractor_id === ct.id) ? 'selected' : '';
-      return '<option value="' + ct.id + '" ' + sel + '>' + escHtml(ct.name_short) + '</option>';
-    }).join('');
-
-    var modalHtml = '<div class="modal-overlay modal-backdrop" id="_sub_price_modal_backdrop" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(2px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px">' +
-      '<div class="modal-box card" style="background:#fff;border-radius:14px;max-width:560px;width:100%;box-shadow:0 16px 40px rgba(0,0,0,0.22);overflow:hidden;display:flex;flex-direction:column">' +
-        '<div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1.5px solid var(--border);background:#fafafa;cursor:move;user-select:none">' +
-          '<h3 class="modal-title" style="margin:0;font-size:1.1rem;display:flex;align-items:center;gap:8px">' +
-            '<span>📊</span> <span>' + (isEdit ? 'Параметры прайс-листа' : 'Новый прайс-лист субподряда') + '</span>' +
-          '</h3>' +
-          '<button type="button" class="btn-close btn btn-sm btn-ghost" onclick="var b=document.getElementById(\'_sub_price_modal_backdrop\'); if(b) b.remove();">✕</button>' +
-        '</div>' +
-
-        '<div class="modal-body" style="padding:20px 24px;overflow-y:auto;flex:1">' +
-          '<form id="sub_price_form" onsubmit="saveSubPriceList(event, ' + (isEdit ? pl.id : 'null') + ')">' +
-            '<div style="display:flex;flex-direction:column;gap:14px;margin-bottom:16px">' +
-              '<div>' +
-                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Название прайс-листа *</label>' +
-                '<input type="text" id="spl_name" required value="' + escHtml(pl ? pl.name : '') + '" placeholder="Например: Индивидуальный тарифный прайс" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
-              '</div>' +
-              '<div>' +
-                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Привязка к исполнителю (необязательно)</label>' +
-                '<select id="spl_contractor_id" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
-                  '<option value="">-- Без привязки (общесистемный шаблон) --</option>' +
-                  contractorOpts +
-                '</select>' +
-              '</div>' +
-              '<div>' +
-                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Тэг / Направление работ</label>' +
-                '<input type="text" id="spl_customer_tag" value="' + escHtml(pl ? (pl.customer_tag || '') : '') + '" placeholder="Корпоративный заказчик, ОСФР, Разовые объекты..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
-              '</div>' +
-
-              '<div>' +
-                '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text-2);margin-bottom:5px">Регион действия</label>' +
-                '<input type="text" id="spl_region" value="' + escHtml(pl ? (pl.region || '') : '') + '" placeholder="Все регионы, либо Тюменская обл., Забайкальский край..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.86rem;background:#fff">' +
-              '</div>' +
-
-              '<div style="background:#f8fafc;padding:12px 14px;border-radius:8px;border:1.5px solid #e2e8f0">' +
-                '<label style="display:flex;align-items:center;gap:10px;font-size:.84rem;font-weight:600;color:var(--text);cursor:pointer">' +
-                  '<input type="checkbox" id="spl_is_default" ' + (pl && pl.is_default ? 'checked' : '') + ' style="accent-color:#2563eb;width:18px;height:18px"> ' +
-                  'Сделать базовым прайсом по умолчанию (для всех без личного прайса)' +
-                '</label>' +
-              '</div>' +
-            '</div>' +
-
-            '<div style="display:flex;justify-content:flex-end;gap:10px;border-top:1.5px solid var(--border);padding-top:14px">' +
-              '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid var(--border);padding:8px 16px;border-radius:8px" onclick="var b=document.getElementById(\'_sub_price_modal_backdrop\'); if(b) b.remove();">Отмена</button>' +
-              '<button type="submit" class="btn btn-sm btn-primary" style="padding:8px 18px;font-weight:700;border-radius:8px">Сохранить</button>' +
-            '</div>' +
-          '</form>' +
-        '</div>' +
-      '</div>' +
-    '</div>';
-
-    var oldB = document.getElementById('_sub_price_modal_backdrop');
-    if (oldB) oldB.remove();
-
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-
-    var bEl = document.getElementById('_sub_price_modal_backdrop');
-    var box = bEl ? bEl.querySelector('.modal-box') : null;
-    if (box && window.makeWindowDraggableAndMinimizable) {
-      window.makeWindowDraggableAndMinimizable(box, {
-        title: isEdit ? 'Параметры прайс-листа' : 'Новый прайс-лист субподряда',
-        icon: '📊',
-        backdrop: bEl,
-        onClose: function() { bEl.remove(); }
-      });
-    }
-  };
-
-  window.saveSubPriceList = function(e, priceListId) {
-    e.preventDefault();
-    var payload = {
-      name: document.getElementById('spl_name').value.trim(),
-      contractor_id: parseInt(document.getElementById('spl_contractor_id').value, 10) || null,
-      customer_tag: document.getElementById('spl_customer_tag').value.trim(),
-      region: document.getElementById('spl_region').value.trim(),
-      is_default: document.getElementById('spl_is_default').checked
-    };
-
-    var url = priceListId ? '/subcontract-pricelists/' + priceListId : '/subcontract-pricelists';
-    var method = priceListId ? 'PUT' : 'POST';
-
-    api(url, {
-      method: method,
-      body: JSON.stringify(payload)
-    }).then(function(res) {
-      if (res && res.error) {
-        alert('Ошибка: ' + res.error);
-        return;
-      }
-      var backdrop = document.getElementById('_sub_price_modal_backdrop') || document.getElementById('sub_price_modal_backdrop');
-      if (backdrop) backdrop.remove();
-
-      api('/subcontract-pricelists').then(function(list) {
-        if (Array.isArray(list)) S.subPricelists = list;
-        renderApp();
-      });
-    }).catch(function(err) {
-      alert('Ошибка соединения: ' + (err.message || err));
-    });
-  };
-
   window.setSubPriceListDefault = function(priceListId) {
     api('/subcontract-pricelists/' + priceListId, {
       method: 'PUT',
@@ -1908,7 +1816,7 @@
       '</button>';
     });
 
-    html += '<button type="button" class="btn btn-sm btn-ghost" style="font-weight:600;border-radius:10px;padding:8px 14px;border:1.5px solid var(--border);display:flex;align-items:center;gap:6px;margin-left:auto" onclick="openOwnCompaniesModal()">' +
+    html += '<button type="button" class="btn btn-sm btn-ghost" style="font-weight:600;border-radius:10px;padding:8px 14px;border:1.5px solid var(--border);display:flex;align-items:center;gap:6px;margin-left:auto" onclick="S.contractorActiveTab=\'own\';go(\'contractors\')">' +
       '<span>🏢</span> Собственные юрлица группы' +
     '</button>';
     html += '</div>';

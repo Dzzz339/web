@@ -72,12 +72,20 @@ router.post('/contractors/:id/contracts', authenticateToken, async (req, res) =>
       valid_to,
       status,
       scan_url,
-      copy_from_contract_id
+      copy_from_contract_id,
+      appendix_type,
+      appendix_details
     } = req.body;
 
     if (!contract_number) {
       return res.status(400).json({ error: 'Номер договора обязателен' });
     }
+    if (appendix_type && !['tariff', 'order_fixed', 'order_custom', 'invoice_only'].includes(appendix_type)) {
+      return res.status(400).json({ error: 'Недопустимый тип приложения' });
+    }
+    const serializedAppendixDetails = appendix_details == null || typeof appendix_details === 'string'
+      ? appendix_details
+      : JSON.stringify(appendix_details);
 
     const { rows } = await pool.query(`
       INSERT INTO contractor_contracts (
@@ -105,7 +113,7 @@ router.post('/contractors/:id/contracts', authenticateToken, async (req, res) =>
       status || 'created',
       scan_url || '',
       appendix_type || 'tariff',
-      appendix_details || null
+      serializedAppendixDetails || null
     ]);
 
     const newContract = rows[0];
@@ -635,8 +643,8 @@ router.post('/subcontract-pricelists', authenticateToken, async (req, res) => {
 
     const newPl = rows[0];
 
-    // Копируем позиции из источника или из дефолтного прайса
-    const srcId = copy_from_id || (await pool.query(`SELECT id FROM contractor_price_lists WHERE is_default = true LIMIT 1`)).rows[0]?.id;
+    // Копируем позиции только из явно выбранного источника
+    const srcId = copy_from_id || null;
     if (srcId) {
       await pool.query(`
         INSERT INTO price_list_items (
