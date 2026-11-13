@@ -64,12 +64,17 @@ async function canAccessTask(user, taskId) {
   if (assignee && (assignee === userName || assignee === userLogin)) return true;
   if (contractor && userName && (contractor === userName || contractor.includes(userName) || userName.includes(contractor))) return true;
   if (user.contractorId && task.contractor_id === user.contractorId) return true;
+  const fullName = typeof user.fullName === 'string' ? user.fullName.trim() : '';
+  const username = typeof user.username === 'string' ? user.username.trim() : '';
+  const namePattern = fullName ? `%${fullName}%` : null;
+  const loginPattern = username ? `%${username}%` : null;
   const { rows: subRows } = await pool.query(
     `SELECT 1 FROM task_subcontracts WHERE task_id = $1 AND (
-      installer_fio ILIKE $2 OR installer_fio ILIKE $3 OR
+      ($2::text IS NOT NULL AND installer_fio ILIKE $2) OR
+      ($3::text IS NOT NULL AND installer_fio ILIKE $3) OR
       (contractor_id IS NOT NULL AND $4::integer IS NOT NULL AND contractor_id = $4::integer)
     ) LIMIT 1`,
-    [taskId, `%${user.fullName || ''}%`, `%${user.username || ''}%`, user.contractorId || null]
+    [taskId, namePattern, loginPattern, user.contractorId || null]
   );
   return subRows.length > 0;
 }
