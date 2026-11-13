@@ -209,6 +209,11 @@ function api(url, opts) {
         return cached;
       }
       return { error: 'Offline', cached: false };
+    }).catch(function(cacheCause) {
+      var cacheError = new Error('Ошибка чтения локального кэша в offline-режиме');
+      cacheError.isCacheError = true;
+      cacheError.cause = cacheCause;
+      throw cacheError;
     });
   }
 
@@ -264,8 +269,21 @@ function api(url, opts) {
       updateNetworkStatusUI();
     }
 
-    return r.json().then(function(data) {
-      if (method === 'GET' && r.ok) {
+    return r.json().catch(function(parseCause) {
+      var parseError = new Error('Не удалось разобрать JSON-ответ сервера (HTTP ' + r.status + ')');
+      parseError.status = r.status;
+      parseError.isParseError = true;
+      parseError.cause = parseCause;
+      throw parseError;
+    }).then(function(data) {
+      if (!r.ok) {
+        var httpError = new Error((data && data.error) || ('HTTP ' + r.status));
+        httpError.status = r.status;
+        httpError.data = data;
+        httpError.isHttpError = true;
+        throw httpError;
+      }
+      if (method === 'GET') {
         var cleanKey = url.replace(/^\//, '').split('?')[0];
         if (['tasks', 'stats', 'chains', 'import-info', 'marches', 'users', 'contractors', 'contracts', 'subcontract-contracts', 'subcontract-pricelists'].indexOf(cleanKey) !== -1) {
           var toStore = cleanKey === 'contracts' && data && data.contracts ? data.contracts : data;
@@ -275,8 +293,8 @@ function api(url, opts) {
       return data;
     });
   }).catch(function(err) {
-    // ВАЖНО: ошибки авторизации (401/403) приходят с живого сервера и НЕ должны уводить сайт в оффлайн!
-    if (err && (err.status === 401 || err.status === 403 || err.isAuthError)) {
+    // HTTP, JSON и ошибки кэша не являются потерей сети и не должны попадать в outbox.
+    if (err && (err.status !== undefined || err.isHttpError || err.isParseError || err.isCacheError || err.isAuthError)) {
       throw err;
     }
 
@@ -293,6 +311,11 @@ function api(url, opts) {
           return cached;
         }
         return { error: 'Network error' };
+      }).catch(function(cacheCause) {
+        var cacheError = new Error('Ошибка чтения локального кэша после сетевого сбоя');
+        cacheError.isCacheError = true;
+        cacheError.cause = cacheCause;
+        throw cacheError;
       });
     }
   });

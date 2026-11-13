@@ -910,14 +910,6 @@ function bindEvents() {
     }
   }
   // add task
-  var tarch = document.getElementById('tarch');
-  if (tarch) tarch.addEventListener('change', function(){ S.taskArch = this.value; renderApp(); });
-  var tstage = document.getElementById('tstage');
-  if (tstage) tstage.addEventListener('change', function(){ S.taskStage = this.value; renderApp(); });
-  var tsort = document.getElementById('tsort');
-  if (tsort) tsort.addEventListener('change', function(){ S.taskSort = this.value; renderApp(); });
-  var tcontr = document.getElementById('tcontr');
-  if (tcontr) tcontr.addEventListener('change', function(){ S.taskContractor = this.value; renderApp(); });
   var addBtn = document.getElementById('addBtn');
   if (addBtn) addBtn.addEventListener('click', addTask);
   var ntask = document.getElementById('ntask');

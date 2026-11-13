@@ -6107,9 +6107,9 @@ window._bindCatalogItemToRow = function(taskId, tmId, rowKey, matId) {
 
 function saveTaskMaterialsFact(taskId, options) {
   options = options || {};
-  return fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials', { headers: { 'Authorization': 'Bearer ' + S.token } })
-    .then(function(r){ return r.json(); })
+  return api('/tasks/' + encodeURIComponent(taskId) + '/materials')
     .then(function(materials) {
+      if (materials && materials.error) throw new Error(materials.error);
       if (!materials || !materials.length) return Promise.resolve({ success: true });
       var items = [];
       materials.forEach(function(m, idx) {
@@ -6139,12 +6139,10 @@ function saveTaskMaterialsFact(taskId, options) {
         });
       });
 
-      return fetch('/api/tasks/' + encodeURIComponent(taskId) + '/materials/save-fact', {
+      return api('/tasks/' + encodeURIComponent(taskId) + '/materials/save-fact', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.token },
         body: JSON.stringify({ items: items })
       })
-      .then(function(r){ return r.json(); })
       .then(function(res) {
         if (res && res.success) {
           if (!options.silent) {

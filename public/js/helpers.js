@@ -1,4 +1,4 @@
-function showToast(msg, type) {
+function renderToast(content, type, allowHtml) {
   var container = document.getElementById('toast-container');
   if (!container) {
     container = document.createElement('div');
@@ -10,13 +10,24 @@ function showToast(msg, type) {
   var bg = type === 'error' ? '#ef4444' : type === 'warning' ? '#f59e0b' : '#10b981';
   if (type === 'info') bg = '#3b82f6';
   toast.style.cssText = 'pointer-events:auto;min-width:240px;max-width:380px;padding:12px 18px;border-radius:10px;background:' + bg + ';color:#fff;font-size:.85rem;font-weight:500;box-shadow:0 8px 24px rgba(0,0,0,0.2);display:flex;align-items:center;gap:10px;transition:all .3s ease;';
-  toast.innerHTML = '<span>' + msg + '</span>';
+  var text = document.createElement('span');
+  if (allowHtml) text.innerHTML = String(content);
+  else text.textContent = String(content);
+  toast.appendChild(text);
   container.appendChild(toast);
   setTimeout(function() {
     toast.style.opacity = '0';
     toast.style.transform = 'translateY(10px)';
     setTimeout(function() { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 320);
   }, 3500);
+}
+
+function showToast(msg, type) {
+  renderToast(msg, type, false);
+}
+
+function showToastHtml(html, type) {
+  renderToast(html, type, true);
 }
 
 function openMaxMessenger(phone, directUrl) {

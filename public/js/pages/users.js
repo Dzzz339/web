@@ -743,8 +743,8 @@ function openAddPoaModal() {
         S.powersOfAttorney = poas;
         renderTeamActiveTabContent();
         if (res && res.id) {
-          if (typeof showToast === 'function') {
-            showToast('✓ Доверенность № ' + (res.number || '') + ' создана! <a href="javascript:void(0)" onclick="openPoaInEditor(' + res.id + ')" style="color:#fff;text-decoration:underline;font-weight:700;margin-left:8px">Открыть в Редакторе М-2 →</a>', 'success', 8000);
+          if (typeof showToastHtml === 'function') {
+            showToastHtml('✓ Доверенность № ' + escHtml(res.number || '') + ' создана! <a href="javascript:void(0)" onclick="openPoaInEditor(' + (Number(res.id) || 0) + ')" style="color:#fff;text-decoration:underline;font-weight:700;margin-left:8px">Открыть в Редакторе М-2 →</a>', 'success');
           }
         }
       });
