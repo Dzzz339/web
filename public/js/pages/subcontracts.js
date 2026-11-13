@@ -1093,11 +1093,14 @@
     var subj = document.getElementById('sc_subject') ? document.getElementById('sc_subject').value : 'Монтаж СКС и слаботочных систем';
 
     if (typeof window.openDocumentEditor === 'function') {
-      window.openDocumentEditor(null, 'subcontract_agreement', {
-        contractorId: contractorId,
-        number: num,
-        date: date,
-        subject: subj
+      window.openDocumentEditor({
+        templateCode: 'subcontract_agreement',
+        customData: {
+          contractorId: contractorId,
+          number: num,
+          date: date,
+          subject: subj
+        }
       });
       var b = document.getElementById('_sub_contract_modal_backdrop');
       if (b) b.remove();

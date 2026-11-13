@@ -4179,6 +4179,11 @@ function toggleContractChecklistItem(contractId, key, isChecked) {
   toggleContractDocRequired(contractId, key, isChecked);
 }
 
+function closeChecklistAttachmentModal() {
+  var backdrop = document.getElementById('contract_checklist_attach_modal_backdrop');
+  if (backdrop) backdrop.style.display = 'none';
+}
+
 function openChecklistAttachmentModal(contractId, key) {
   var c = window._activeContract && window._activeContract.id === contractId ? window._activeContract : null;
   var cl = {};
@@ -4198,7 +4203,7 @@ function openChecklistAttachmentModal(contractId, key) {
     backdrop = document.createElement('div');
     backdrop.id = 'contract_checklist_attach_modal_backdrop';
     backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10005;display:flex;align-items:center;justify-content:center;padding:16px';
-    backdrop.onclick = function(e) { if (e.target === backdrop) backdrop.style.display = 'none'; };
+    backdrop.onclick = function(e) { if (e.target === backdrop) closeChecklistAttachmentModal(); };
     document.body.appendChild(backdrop);
   }
 
@@ -4207,7 +4212,7 @@ function openChecklistAttachmentModal(contractId, key) {
     <div class="card p" style="max-width:500px; width:100%; border-radius:12px; background:#fff; box-shadow:0 20px 40px rgba(0,0,0,0.25)">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
         <div style="font-weight:700; font-size:1.05rem">📎 Прикрепление документа</div>
-        <button class="btn btn-xs btn-ghost" onclick="document.getElementById('contract_checklist_attach_modal_backdrop').style.display='none'" style="font-size:1.2rem; line-height:1">&times;</button>
+        <button class="btn btn-xs btn-ghost" onclick="closeChecklistAttachmentModal()" style="font-size:1.2rem; line-height:1">&times;</button>
       </div>
       <div style="font-size:.85rem; color:var(--text); font-weight:600; margin-bottom:14px; background:#f8fafc; padding:8px 12px; border-radius:6px; border:1px solid #e2e8f0">
         ${escHtml(itemDef.label)}
@@ -4220,7 +4225,7 @@ function openChecklistAttachmentModal(contractId, key) {
             <div style="font-size:.82rem; font-weight:700; color:#1e40af">⚡ Сформировать в редакторе Stockeasy</div>
             <div style="font-size:.72rem; color:#3b82f6; margin-top:2px">Автозаполнение реквизитов, объемов и материалов из договора и заявки</div>
           </div>
-          <button type="button" class="btn btn-sm btn-primary" onclick="document.getElementById('contract_checklist_attach_modal_backdrop').style.display='none'; openClosingDocEditor(${contractId}, '${key}', '${escHtml(itemDef.label)}')" style="font-weight:700">
+          <button type="button" class="btn btn-sm btn-primary" onclick="closeChecklistAttachmentModal(); openClosingDocEditor(${contractId}, '${key}', '${escHtml(itemDef.label)}')" style="font-weight:700">
             Открыть в редакторе
           </button>
         </div>
@@ -4241,7 +4246,7 @@ function openChecklistAttachmentModal(contractId, key) {
       </div>
 
       <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px">
-        <button class="btn btn-sm btn-ghost" onclick="document.getElementById('contract_checklist_attach_modal_backdrop').style.display='none'">Отмена</button>
+        <button class="btn btn-sm btn-ghost" onclick="closeChecklistAttachmentModal()">Отмена</button>
         <button class="btn btn-sm" onclick="saveChecklistAttachmentLink(${contractId}, '${key}')">Сохранить ссылку</button>
       </div>
     </div>

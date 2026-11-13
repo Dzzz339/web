@@ -984,12 +984,6 @@ function bindEvents() {
       updateCardSaveBar();
     });
   }
-  var cardSaveBtn = document.getElementById('cardSaveBtn');
-  if (cardSaveBtn) cardSaveBtn.addEventListener('click', function(){ 
-    if (typeof window.saveCard === 'function') window.saveCard(false); 
-  });
-  var cardResetBtn = document.getElementById('cardResetBtn');
-  if (cardResetBtn) cardResetBtn.addEventListener('click', function(){ if (typeof window._resetCardDraft === 'function') window._resetCardDraft(); else { S.cardDraft = {}; S.cardConfirmOpen = false; renderApp(); } });
   var cardConfirmCancelBtn = document.getElementById('cardConfirmCancelBtn');
   if (cardConfirmCancelBtn) cardConfirmCancelBtn.addEventListener('click', function(){ S.cardConfirmOpen = false; renderApp(); });
   var cardConfirmOkBtn = document.getElementById('cardConfirmOkBtn');

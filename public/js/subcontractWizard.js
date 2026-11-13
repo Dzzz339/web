@@ -1157,7 +1157,7 @@
             'Назначение подрядчика и утверждение сметы СМР станут активны после подтверждения заявки на вкладке «Информация» (Шаг 1: проверка технической информации).' +
           '</div>' +
         '</div>' +
-        '<button type="button" class="btn btn-sm btn-primary" onclick="if(window.switchCardTab)window.switchCardTab(\'info\');else if(window.setCardTab)window.setCardTab(\'info\')" style="font-size:.78rem;white-space:nowrap">📋 Перейти к подтверждению →</button>' +
+        '<button type="button" class="btn btn-sm btn-primary" onclick="if(window.switchCardTab)window.switchCardTab(\'main\');else if(window.setCardTab)window.setCardTab(\'main\')" style="font-size:.78rem;white-space:nowrap">📋 Перейти к подтверждению →</button>' +
       '</div>'
     ) : '';
 

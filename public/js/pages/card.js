@@ -1051,6 +1051,10 @@ function exportTask(id) {
 
 
 function setCardTab(tabName) {
+  if (!document.getElementById('cardTabPane-' + tabName)) {
+    console.error('Не найдена вкладка карточки: ' + tabName);
+    return;
+  }
   S.cardTab = tabName;
   var btns = document.querySelectorAll('.card-tab-btn');
   for (var i = 0; i < btns.length; i++) {
@@ -4709,6 +4713,40 @@ function refreshPortsList(taskId) {
           '<tbody id="portsTableBody">' + rowsHtml + '</tbody>' +
         '</table>' +
       '</div>';
+
+    var portsBody = document.getElementById('portsTableBody');
+    if (portsBody) {
+      portsBody.addEventListener('keydown', function(event) {
+        if (event.key !== 'Enter' && event.key !== 'Tab') return;
+        var target = event.target;
+        if (!target || !target.matches('input, select, textarea') || target.disabled || target.readOnly) return;
+        var fields = Array.prototype.slice.call(portsBody.querySelectorAll('input, select, textarea')).filter(function(field) {
+          return !field.disabled && !field.readOnly && field.type !== 'hidden';
+        });
+        var currentIndex = fields.indexOf(target);
+        if (currentIndex < 0) return;
+
+        var nextField = null;
+        if (event.key === 'Enter') {
+          var row = target.closest('tr');
+          var columnIndex = target.closest('td') ? target.closest('td').cellIndex : -1;
+          var nextRow = row && row.nextElementSibling;
+          if (nextRow && columnIndex >= 0) {
+            nextField = nextRow.children[columnIndex] ? nextRow.children[columnIndex].querySelector('input, select, textarea') : null;
+          }
+        } else {
+          nextField = fields[currentIndex + (event.shiftKey ? -1 : 1)] || null;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        target.blur();
+        if (nextField && !nextField.disabled && !nextField.readOnly) {
+          nextField.focus();
+          if (typeof nextField.select === 'function' && nextField.type !== 'checkbox') nextField.select();
+        }
+      });
+    }
   }).catch(function(err) {
     console.error('Ошибка загрузки портов КЖ:', err);
     if (!window._curTaskPorts) window._curTaskPorts = {};
