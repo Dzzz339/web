@@ -953,6 +953,9 @@ function saveNewContractor(tabType) {
     S.contractorFormOpen = false;
     api('/contractors').then(function(list) {
       S.contractors = list;
+      if (tabType === 'supplier' && window._supplierReturn && typeof window.returnToMaterialSupplier === 'function') {
+        if (window.returnToMaterialSupplier(res)) return;
+      }
       renderApp();
     });
   });

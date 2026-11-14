@@ -984,6 +984,8 @@ export async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_materials_task ON task_materials(task_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_materials_mat ON task_materials(material_id)`);
   await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS supplier TEXT`);
+  await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS supplier_contractor_id INTEGER REFERENCES contractors(id) ON DELETE SET NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_materials_supplier_contractor ON task_materials(supplier_contractor_id)`);
   await pool.query(`ALTER TABLE task_materials ALTER COLUMN material_id DROP NOT NULL`);
   await pool.query(`ALTER TABLE task_materials DROP CONSTRAINT IF EXISTS task_materials_task_id_material_id_key`);
   await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS pos_num TEXT`);

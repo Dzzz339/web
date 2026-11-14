@@ -2754,6 +2754,18 @@ function openContractForm(id) {
     return `<option value="${escHtml(name)}">`;
   }).join('');
 
+  var ownCompanies = Array.isArray(S.ownCompanies) ? S.ownCompanies : [];
+  var selectedOwnCompanyId = c && c.own_company_id ? Number(c.own_company_id) : null;
+  if (!selectedOwnCompanyId && c && c.our_entity_name) {
+    var matchedOwnCompany = ownCompanies.find(function(oc) {
+      return oc.name_short === c.our_entity_name || oc.name_full === c.our_entity_name;
+    });
+    if (matchedOwnCompany) selectedOwnCompanyId = Number(matchedOwnCompany.id);
+  }
+  var ownCompanyOptions = '<option value="">' + (ownCompanies.length ? 'Выберите собственное юрлицо' : 'Настройте собственные юрлица в справочнике') + '</option>' + ownCompanies.map(function(oc) {
+    return '<option value="' + Number(oc.id) + '"' + (Number(oc.id) === selectedOwnCompanyId ? ' selected' : '') + '>' + escHtml(oc.name_short || oc.name_full || '') + '</option>';
+  }).join('');
+
   modalEl.innerHTML = `
     <div class="modal-header" style="padding:20px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center">
       <h2 style="margin:0; font-size:1.15rem">${isEdit ? 'Редактировать договор' : 'Новый договор'}</h2>
@@ -2815,10 +2827,8 @@ function openContractForm(id) {
         </div>
         <div>
           <label style="font-size:.78rem; font-weight:700">Наша компания / Филиал (Сторона 2)</label>
-          <select id="cf_own_company_id" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem; font-weight:600">
-            <option value="1" ${(c && (c.own_company_id === 1 || (c.our_entity_name && c.our_entity_name.includes('Кабельн')))) || (!c) ? 'selected' : ''}>ООО «Кабельные Системы»</option>
-            <option value="2" ${(c && (c.own_company_id === 2 || (c.our_entity_name && c.our_entity_name.includes('К10')))) ? 'selected' : ''}>ООО «К10»</option>
-            <option value="3" ${(c && (c.own_company_id === 3 || (c.our_entity_name && c.our_entity_name.includes('Ультима')))) ? 'selected' : ''}>ООО «Ультима»</option>
+          <select class="select" id="cf_own_company_id" aria-label="Собственное юрлицо договора">
+            ${ownCompanyOptions}
           </select>
         </div>
       </div>
@@ -2999,6 +3009,10 @@ function handleContractFormSubmit(e, id) {
   var selMgr = document.getElementById('cf_manager_id');
   var mgrId = (selMgr && selMgr.value) ? parseInt(selMgr.value, 10) : null;
   var mgrName = (mgrId && selMgr && selMgr.selectedIndex >= 0) ? selMgr.options[selMgr.selectedIndex].getAttribute('data-name') : null;
+  var ownCompanySelect = document.getElementById('cf_own_company_id');
+  var selectedOwnCompany = ownCompanySelect && ownCompanySelect.value
+    ? (S.ownCompanies || []).find(function(oc){ return String(oc.id) === String(ownCompanySelect.value); })
+    : null;
 
   var payload = {
     internal_number: document.getElementById('cf_internal_number').value.trim(),
@@ -3007,8 +3021,8 @@ function handleContractFormSubmit(e, id) {
     contract_type_summary: document.getElementById('cf_type').value,
     status: document.getElementById('cf_status') ? document.getElementById('cf_status').value : 'играется',
     customer_name: document.getElementById('cf_customer_name').value.trim(),
-    own_company_id: document.getElementById('cf_own_company_id') ? parseInt(document.getElementById('cf_own_company_id').value, 10) : 1,
-    our_entity_name: (document.getElementById('cf_own_company_id') && document.getElementById('cf_own_company_id').options[document.getElementById('cf_own_company_id').selectedIndex]) ? document.getElementById('cf_own_company_id').options[document.getElementById('cf_own_company_id').selectedIndex].text.trim() : 'ООО «Кабельные Системы»',
+    own_company_id: selectedOwnCompany ? Number(selectedOwnCompany.id) : null,
+    our_entity_name: selectedOwnCompany ? selectedOwnCompany.name_short : null,
     purchase_id: document.getElementById('cf_purchase_id') ? document.getElementById('cf_purchase_id').value.trim() : '',
     contacts_raw: document.getElementById('cf_contacts_raw') ? document.getElementById('cf_contacts_raw').value.trim() : '',
     manager_id: mgrId,
@@ -5498,7 +5512,13 @@ function submitCreateTaskForContract(contractId) {
   var agId = (agIdEl && agIdEl.value) ? parseInt(agIdEl.value, 10) : null;
 
   var c = (window._activeContract && window._activeContract.id === contractId) ? window._activeContract : {};
-  var ownCoId = c.own_company_id || (c.our_entity_name && c.our_entity_name.includes('К10') ? 2 : (c.our_entity_name && c.our_entity_name.includes('Кабельн') ? 1 : 3));
+  var ownCoId = c.own_company_id || null;
+  if (!ownCoId && c.our_entity_name) {
+    var ownCompany = (S.ownCompanies || []).find(function(oc) {
+      return oc.name_short === c.our_entity_name || oc.name_full === c.our_entity_name;
+    });
+    ownCoId = ownCompany ? ownCompany.id : null;
+  }
 
   var data = {
     id:                   idEl.value.trim(),

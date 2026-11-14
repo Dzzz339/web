@@ -33,7 +33,10 @@ window.setCardContractFilterMode = function(mode) {
 };
 
 window.onCardOwnCompanyChange = function(val) {
-  var numVal = Number(val);
+  var numVal = val === '' ? null : Number(val);
+  var ownCompanies = Array.isArray(S.ownCompanies) ? S.ownCompanies : [];
+  if (numVal !== null && (!Number.isInteger(numVal) || !ownCompanies.some(function(oc){ return Number(oc.id) === numVal; }))) return;
+  if (!S.cardDraft) S.cardDraft = {};
   S.cardDraft.own_company_id = numVal;
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(S.cardId); });
   if (t) {
@@ -81,10 +84,8 @@ window.approveTaskEntry = function(taskId) {
     assignmentStatus: 'accepted'
   };
 
-  if (S.cardDraft && S.cardDraft.own_company_id) {
+  if (S.cardDraft && S.cardDraft.own_company_id !== undefined) {
     payload.own_company_id = S.cardDraft.own_company_id;
-  } else if (!t.own_company_id) {
-    payload.own_company_id = isSber ? 2 : 1;
   }
 
   api('/tasks/' + encodeURIComponent(taskId), {
@@ -2205,19 +2206,23 @@ function pageCard() {
     var cid = (t.contract_id != null ? t.contract_id : t.contractId) || curContractId;
     return String(x.id) === String(cid); 
   });
-  var defaultOurEntity = (curContract && curContract.our_entity_name) 
-    ? curContract.our_entity_name 
-    : (isSber ? 'ООО «К10»' : 'ООО "Кабельные Системы"');
-  var curOwnCompanyId = t.own_company_id || (defaultOurEntity.includes('К10') ? 2 : (defaultOurEntity.includes('Ультима') ? 3 : 1));
+  var ownCompanies = Array.isArray(S.ownCompanies) ? S.ownCompanies : [];
+  var curOwnCompanyId = t.own_company_id || (curContract && curContract.own_company_id) || null;
+  if (!curOwnCompanyId && curContract && curContract.our_entity_name) {
+    var contractOwnCompany = ownCompanies.find(function(oc) {
+      return oc.name_short === curContract.our_entity_name || oc.name_full === curContract.our_entity_name;
+    });
+    if (contractOwnCompany) curOwnCompanyId = contractOwnCompany.id;
+  }
+  var selectedOwnCompany = ownCompanies.find(function(oc){ return Number(oc.id) === Number(curOwnCompanyId); }) || null;
+  var defaultOurEntity = selectedOwnCompany
+    ? selectedOwnCompany.name_short
+    : ((curContract && curContract.our_entity_name) || 'Не выбрано — настройте собственные юрлица');
 
-  var ownOpts = (S.ownCompanies || [
-    { id: 2, name_short: 'ООО «К10»', director: 'Городович И.О.', tax_system: 'УСН (без НДС)', vat_rate: 0 },
-    { id: 1, name_short: 'ООО "Кабельные Системы"', director: 'Городович М.В.', tax_system: 'УСН с НДС 5%', vat_rate: 5 },
-    { id: 3, name_short: 'ООО "Ультима"', director: 'Бондаренко Ф.А.', tax_system: 'ОСНО (НДС 22%)', vat_rate: 22 }
-  ]).map(function(oc) {
-    var isSel = (Number(curOwnCompanyId) === Number(oc.id) || oc.name_short === defaultOurEntity) ? ' selected' : '';
+  var ownOpts = '<option value="">' + (ownCompanies.length ? 'Выберите собственное юрлицо' : 'Настройте собственные юрлица в справочнике') + '</option>' + ownCompanies.map(function(oc) {
+    var isSel = Number(curOwnCompanyId) === Number(oc.id) ? ' selected' : '';
     var taxInfo = oc.tax_system ? (' · ' + oc.tax_system) : (Number(oc.vat_rate) > 0 ? (' · НДС ' + oc.vat_rate + '%') : ' · без НДС');
-    return '<option value="' + oc.id + '"' + isSel + '>' + escHtml(oc.name_short) + taxInfo + '</option>';
+    return '<option value="' + oc.id + '"' + isSel + '>' + escHtml(oc.name_short) + escHtml(taxInfo) + '</option>';
   }).join('');
 
   var isViewLocked = (t.assignmentStatus === 'accepted' && !S._taskEditUnlocked);
@@ -2226,7 +2231,7 @@ function pageCard() {
     if (isWorker) return '';
     var content = isViewLocked
       ? ('<div class="field-val-locked" title="Поле защищено"><span>🏢 ' + escHtml(defaultOurEntity) + '</span><span class="t3" style="font-size:.7rem;opacity:.55">🔒</span></div>')
-      : ('<select name="own_company_id" data-key="own_company_id" id="card_own_company_select" onchange="onCardOwnCompanyChange(this.value)" style="width:100%;padding:4px 8px;font-size:.82rem;font-weight:600;border:1.5px solid var(--border);border-radius:6px;height:32px">' + ownOpts + '</select>');
+      : ('<select class="select" aria-label="Собственное юрлицо заявки" name="own_company_id" data-key="own_company_id" id="card_own_company_select" onchange="onCardOwnCompanyChange(this.value)">' + ownOpts + '</select>');
     if (compact) {
       return '<div class="field-compact">' +
         '<div class="field-lbl">Генподрядчик («Мы»)</div>' +
@@ -2238,7 +2243,7 @@ function pageCard() {
       '<div class="field-val" style="display:flex;align-items:center;padding:3px 0">' +
         (isViewLocked
           ? ('<span style="font-weight:700;color:var(--text);font-size:.88rem">🏢 ' + escHtml(defaultOurEntity) + '</span>')
-          : ('<select name="own_company_id" data-key="own_company_id" id="card_own_company_select" onchange="onCardOwnCompanyChange(this.value)" style="width:100%;padding:5px 8px;font-size:.82rem;font-weight:600;border:1.5px solid var(--border);border-radius:6px">' + ownOpts + '</select>')) +
+          : ('<select class="select" aria-label="Собственное юрлицо заявки" name="own_company_id" data-key="own_company_id" id="card_own_company_select" onchange="onCardOwnCompanyChange(this.value)">' + ownOpts + '</select>')) +
       '</div>' +
     '</div>';
   }
@@ -2848,13 +2853,9 @@ function pageCard() {
       ? Number(curSub.price_agreed)
       : (subWorkCost + subDist + subExtras);
 
-    // Налоговый режим собственного юрлица (К10: 0% УСН, КС: 5% УСН с НДС, Ультима: 22% ОСНО)
-    var curOwnId = Number(t.own_company_id || (S.cardDraft && S.cardDraft.own_company_id)) || (isSber ? 2 : 1);
-    var ownComp = (S.ownCompanies || []).find(function(c){ return Number(c.id) === curOwnId; }) || 
-      (S.ownCompanies || []).find(function(c){ return c.code === (isSber ? 'K10' : 'KS'); }) || 
-      { id: 2, code: 'K10', name_short: 'ООО «К10»', tax_system: 'УСН (без НДС)', vat_rate: 0 };
-
-    var vatRate = Number(ownComp.vat_rate) || 0;
+    // Налоговый режим только фактически выбранного собственного юрлица
+    var ownComp = ownCompanies.find(function(c){ return Number(c.id) === Number(curOwnCompanyId); }) || null;
+    var vatRate = ownComp ? (Number(ownComp.vat_rate) || 0) : 0;
     var vatAmount = vatRate > 0 ? Math.round(totalCustomerAmount * (vatRate / (100 + vatRate))) : 0;
 
     // 5 статей затрат + налог НДС
@@ -3121,20 +3122,10 @@ function pageCard() {
             '<div style="background:#ffffff;padding:8px 10px;border-radius:6px;border:1px solid rgba(0,0,0,0.06);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">' +
               '<div style="display:flex;align-items:center;gap:6px">' +
                 '<span style="font-size:.82rem;font-weight:700;color:var(--text)">🏛️ Юрлицо и режим:</span>' +
-                '<select onchange="onCardOwnCompanyChange(this.value)" style="font-size:.76rem;font-weight:600;padding:2px 6px;border:1.5px solid var(--border);border-radius:4px;background:var(--bg)">' +
-                  (S.ownCompanies || [
-                    { id: 2, name_short: 'ООО «К10»', tax_system: 'УСН (без НДС)', vat_rate: 0 },
-                    { id: 1, name_short: 'ООО "Кабельные Системы"', tax_system: 'УСН с НДС 5%', vat_rate: 5 },
-                    { id: 3, name_short: 'ООО "Ультима"', tax_system: 'ОСНО (НДС 22%)', vat_rate: 22 }
-                  ]).map(function(oc) {
-                    var isSel = Number(oc.id) === Number(ownComp.id) ? ' selected' : '';
-                    var taxLbl = oc.tax_system || (Number(oc.vat_rate) > 0 ? ('НДС ' + oc.vat_rate + '%') : 'без НДС');
-                    return '<option value="' + oc.id + '"' + isSel + '>' + escHtml(oc.name_short) + ' · ' + escHtml(taxLbl) + '</option>';
-                  }).join('') +
-                '</select>' +
+                '<select class="select" aria-label="Собственное юрлицо для налогового режима" onchange="onCardOwnCompanyChange(this.value)">' + ownOpts + '</select>' +
               '</div>' +
               '<div style="font-size:.73rem;color:var(--text-3)">' +
-                (vatRate > 0 ? ('НДС ' + vatRate + '% к уплате: <b>' + fmtMoney(vatAmount) + '</b>') : '<span style="color:var(--green);font-weight:600">✓ УСН без НДС (0 ₽)</span>') +
+                (!ownComp ? 'Собственное юрлицо не выбрано' : (vatRate > 0 ? ('НДС ' + vatRate + '% к уплате: <b>' + fmtMoney(vatAmount) + '</b>') : '<span style="color:var(--green);font-weight:600">✓ Без НДС (0 ₽)</span>')) +
               '</div>' +
             '</div>' +
 
@@ -3177,7 +3168,7 @@ function pageCard() {
                 '</span>' +
               '</div>' +
               '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--border)">' +
-                '<span class="t3">6. 🏛️ Налог НДС (' + escHtml(ownComp.code) + ' · ' + vatRate + '%):</span>' +
+                '<span class="t3">6. 🏛️ Налог НДС (' + (ownComp ? escHtml(ownComp.code || ownComp.name_short) + ' · ' + vatRate + '%' : 'юрлицо не выбрано') + '):</span>' +
                 '<b style="color:' + (vatAmount > 0 ? '#9a3412' : 'var(--text-3)') + '">− ' + fmtMoney(vatAmount) + '</b>' +
               '</div>' +
               '<div style="display:flex;justify-content:space-between;padding:6px 0 2px;font-weight:700">' +
@@ -5681,6 +5672,41 @@ function uploadChecklistPdf(file, optTaskId) {
   });
 }
 
+window.openNewSupplierForMaterial = function(taskId, rowKey) {
+  var rows = {};
+  document.querySelectorAll('#cardMaterialsContainer [id^="fact_mat_"]').forEach(function(input) {
+    var key = input.id.replace('fact_mat_', '');
+    var price = document.getElementById('price_mat_' + key);
+    var supplier = document.getElementById('supp_mat_' + key);
+    rows[key] = {
+      fact: input.value,
+      price: price ? price.value : '',
+      supplier: supplier ? supplier.value : ''
+    };
+  });
+  window._supplierReturn = {
+    taskId: taskId,
+    rowKey: String(rowKey),
+    rows: rows,
+    cardDraft: Object.assign({}, S.cardDraft || {}),
+    cardTab: S.cardTab || 'items',
+    createdSupplierId: null
+  };
+  S.contractorActiveTab = 'supplier';
+  S.contractorFormOpen = true;
+  S.page = 'contractors';
+  renderApp();
+};
+
+window.returnToMaterialSupplier = function(createdSupplier) {
+  var context = window._supplierReturn;
+  if (!context || !createdSupplier || !createdSupplier.id) return false;
+  context.createdSupplierId = Number(createdSupplier.id);
+  S.cardTab = context.cardTab;
+  openCard(context.taskId);
+  return true;
+};
+
 function loadCardMaterials(taskId) {
   var cont = document.getElementById('cardMaterialsContainer');
   if (!cont) return;
@@ -5772,17 +5798,9 @@ function loadCardMaterials(taskId) {
     // Таблица материалов (план vs факт с ценами и суммами списания для накладной)
     var allWrittenOff = materials.every(function(m){ return m.is_written_off; });
     var totalTmcSum = null;
-    var SUPPLIER_LIST = [
-      'Склад компании',
-      'ЭТМ',
-      'Русский Свет',
-      'Анлан',
-      'Линдекс',
-      'Инсистем',
-      'ДНС / Ситилинк',
-      'Леруа Мерлен',
-      'Прочий поставщик'
-    ];
+    var supplierOrganizations = (S.contractors || []).filter(function(c) {
+      return c.type === 'supplier' && c.is_own !== true && String(c.status || 'active') === 'active';
+    });
 
     html += '<table style="width:100%;border-collapse:collapse;font-size:.82rem;margin-bottom:10px">' +
       '<thead><tr style="border-bottom:1px solid var(--border);color:var(--text-3);text-align:left">' +
@@ -5808,20 +5826,26 @@ function loadCardMaterials(taskId) {
 
       var rowKey = m.id || m.material_id || ('row_' + idx);
       var curSupplier = (m.supplier || '').trim();
+      var linkedSupplierId = m.supplier_contractor_id ? Number(m.supplier_contractor_id) : null;
       var suppOptionsHtml = '<option value="">(Не выбран)</option>';
       var matchedSupp = false;
-      SUPPLIER_LIST.forEach(function(sp) {
-        var isSel = (curSupplier.toLowerCase() === sp.toLowerCase());
+      supplierOrganizations.forEach(function(org) {
+        var isSel = linkedSupplierId === Number(org.id);
         if (isSel) matchedSupp = true;
-        suppOptionsHtml += '<option value="' + escHtml(sp) + '"' + (isSel ? ' selected' : '') + '>' + escHtml(sp) + '</option>';
+        suppOptionsHtml += '<option value="org:' + Number(org.id) + '"' + (isSel ? ' selected' : '') + '>' + escHtml(org.name_short) + '</option>';
       });
-      if (curSupplier && !matchedSupp) {
-        suppOptionsHtml += '<option value="' + escHtml(curSupplier) + '" selected>' + escHtml(curSupplier) + '</option>';
+      if (linkedSupplierId && !matchedSupp) {
+        suppOptionsHtml += '<option value="keep" selected>' + escHtml(curSupplier || 'Связанный поставщик') + ' (неактивен)</option>';
+      } else if (!linkedSupplierId && curSupplier) {
+        suppOptionsHtml += '<option value="legacy" selected>' + escHtml(curSupplier) + ' (историческое значение)</option>';
       }
 
       var supplierCell = isDone
-        ? '<span class="badge b-blue" style="font-size:.74rem;white-space:nowrap">' + escHtml(curSupplier || 'Склад компании') + '</span>'
-        : '<select id="supp_mat_' + rowKey + '" onchange="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" style="padding:3px 6px;font-size:.78rem;border:1px solid var(--border);border-radius:4px;background:#fff;max-width:145px;cursor:pointer">' + suppOptionsHtml + '</select>';
+        ? '<span class="badge b-blue" style="font-size:.74rem;white-space:nowrap">' + escHtml(curSupplier || 'Не выбран') + '</span>'
+        : '<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">' +
+            '<select class="select" aria-label="Поставщик позиции" id="supp_mat_' + rowKey + '" data-task-id="' + escHtml(taskId) + '" data-row-key="' + rowKey + '">' + suppOptionsHtml + '</select>' +
+            '<button type="button" class="btn btn-sm btn-ghost" data-new-supplier-task="' + escHtml(taskId) + '" data-new-supplier-row="' + rowKey + '">+ Новый поставщик</button>' +
+          '</div>';
 
       var factValue = curQty === null ? '' : String(curQty);
       var factDisabled = !isCustodyAccepted ? ' disabled title="Доступно после акцепта ТМЦ подрядчиком"' : '';
@@ -5931,6 +5955,34 @@ function loadCardMaterials(taskId) {
     }
 
     cont.innerHTML = html;
+    cont.querySelectorAll('select[id^="supp_mat_"]').forEach(function(select) {
+      select.addEventListener('change', function() {
+        window._onTmcFactRowChange(select.dataset.taskId, select.dataset.rowKey);
+      });
+    });
+    cont.querySelectorAll('[data-new-supplier-task]').forEach(function(button) {
+      button.addEventListener('click', function() {
+        window.openNewSupplierForMaterial(button.dataset.newSupplierTask, button.dataset.newSupplierRow);
+      });
+    });
+
+    var supplierReturn = window._supplierReturn;
+    if (supplierReturn && String(supplierReturn.taskId) === String(taskId) && supplierReturn.createdSupplierId) {
+      S.cardDraft = Object.assign({}, supplierReturn.cardDraft || {});
+      Object.keys(supplierReturn.rows || {}).forEach(function(key) {
+        var draft = supplierReturn.rows[key];
+        var fact = document.getElementById('fact_mat_' + key);
+        var price = document.getElementById('price_mat_' + key);
+        var supplier = document.getElementById('supp_mat_' + key);
+        if (fact) fact.value = draft.fact;
+        if (price) price.value = draft.price;
+        if (supplier) supplier.value = draft.supplier;
+      });
+      var createdSelect = document.getElementById('supp_mat_' + supplierReturn.rowKey);
+      if (createdSelect) createdSelect.value = 'org:' + supplierReturn.createdSupplierId;
+      window._onTmcFactChange(taskId);
+      window._supplierReturn = null;
+    }
   })
   .catch(function(err) {
     cont.innerHTML = '<div style="color:var(--red)">Ошибка загрузки материалов: ' + err.message + '</div>';
@@ -6126,17 +6178,26 @@ function saveTaskMaterialsFact(taskId, options) {
           ? (priceInp.value.trim() !== '' ? Number(priceInp.value) : null)
           : (m.price !== null && m.price !== undefined && m.price !== '' ? Number(m.price) : null);
         if (price !== null && !Number.isFinite(price)) price = null;
-        var supp = suppInp ? suppInp.value : (m.supplier || null);
         var total = qty !== null && price !== null ? Math.round(qty * price) : null;
-
-        items.push({
+        var item = {
           id: m.id,
           material_id: m.material_id,
           fact_qty: qty,
           price: price,
-          total_price: total,
-          supplier: supp
-        });
+          total_price: total
+        };
+        if (suppInp && suppInp.value !== 'keep') {
+          var selection = suppInp.value;
+          var selectedOrg = selection.startsWith('org:')
+            ? (S.contractors || []).find(function(org) {
+                return selection === 'org:' + Number(org.id) && org.type === 'supplier' &&
+                  org.is_own !== true && String(org.status || 'active') === 'active';
+              })
+            : null;
+          item.supplier = selectedOrg ? selectedOrg.name_short : (selection === 'legacy' ? (m.supplier || null) : null);
+          item.supplier_contractor_id = selectedOrg ? Number(selectedOrg.id) : null;
+        }
+        items.push(item);
       });
 
       return api('/tasks/' + encodeURIComponent(taskId) + '/materials/save-fact', {

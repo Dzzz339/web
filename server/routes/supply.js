@@ -471,7 +471,8 @@ router.get('/tasks/:id/materials', authenticateToken, async (req, res) => {
         COALESCE(tm.item_name, m.name) AS name,
         tm.model,
         COALESCE(tm.article, m.code) AS code,
-        tm.supplier,
+        tm.supplier_contractor_id,
+        COALESCE(sc.name_short, tm.supplier) AS supplier,
         COALESCE(tm.unit, m.unit, 'шт') AS unit,
         tm.plan_qty,
         tm.fact_qty,
@@ -487,6 +488,7 @@ router.get('/tasks/:id/materials', authenticateToken, async (req, res) => {
         m.category
       FROM task_materials tm
       LEFT JOIN materials m ON tm.material_id = m.id
+      LEFT JOIN contractors sc ON tm.supplier_contractor_id = sc.id
       WHERE tm.task_id = $1
       ORDER BY 
         COALESCE(NULLIF(regexp_replace(tm.pos_num, '[^0-9.]', '', 'g'), ''), '9999')::numeric ASC NULLS LAST,
@@ -677,7 +679,26 @@ router.post('/tasks/:id/materials/save-fact', authenticateToken, async (req, res
     if (Array.isArray(items)) {
       for (const item of items) {
         const qty = parseFloat(item.fact_qty !== undefined ? item.fact_qty : item.quantity);
-        const supplier = (item.supplier !== undefined && item.supplier !== null) ? String(item.supplier).trim() : null;
+        let supplier = (item.supplier !== undefined && item.supplier !== null) ? String(item.supplier).trim() : null;
+        const hasSupplierText = Object.prototype.hasOwnProperty.call(item, 'supplier');
+        const hasSupplierContractorId = Object.prototype.hasOwnProperty.call(item, 'supplier_contractor_id') || Object.prototype.hasOwnProperty.call(item, 'supplier_id');
+        const rawSupplierContractorId = item.supplier_contractor_id !== undefined ? item.supplier_contractor_id : item.supplier_id;
+        const supplierContractorId = hasSupplierContractorId && rawSupplierContractorId !== null && rawSupplierContractorId !== '' ? Number(rawSupplierContractorId) : null;
+        if (hasSupplierContractorId && supplierContractorId !== null) {
+          if (!Number.isInteger(supplierContractorId) || supplierContractorId <= 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'Некорректный ID поставщика' });
+          }
+          const { rows: supplierRows } = await client.query(
+            "SELECT id, name_short FROM contractors WHERE id = $1 AND type = 'supplier' AND is_own IS NOT TRUE AND status = 'active'",
+            [supplierContractorId]
+          );
+          if (!supplierRows.length) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'Поставщик не найден или неактивен' });
+          }
+          supplier = supplierRows[0].name_short;
+        }
         const price = (item.price !== undefined && item.price !== null && item.price !== '') ? parseFloat(item.price) : null;
         const totalPrice = (item.total_price !== undefined && item.total_price !== null && item.total_price !== '')
           ? parseFloat(item.total_price)
@@ -692,7 +713,8 @@ router.post('/tasks/:id/materials/save-fact', authenticateToken, async (req, res
           let idx = 1;
 
           if (!isNaN(qty)) { sets.push(`fact_qty = $${idx++}`); vals.push(qty); }
-          if (supplier !== null) { sets.push(`supplier = $${idx++}`); vals.push(supplier); }
+          if (hasSupplierText) { sets.push(`supplier = $${idx++}`); vals.push(supplier); }
+          if (hasSupplierContractorId) { sets.push(`supplier_contractor_id = $${idx++}`); vals.push(supplierContractorId); }
           if (price !== null && !isNaN(price)) { sets.push(`price = $${idx++}`); vals.push(price); }
           if (totalPrice !== null && !isNaN(totalPrice)) { sets.push(`total_price = $${idx++}`); vals.push(totalPrice); }
           if (materialId) { sets.push(`material_id = $${idx++}`); vals.push(materialId); }
@@ -713,7 +735,8 @@ router.post('/tasks/:id/materials/save-fact', authenticateToken, async (req, res
           let idx = 1;
 
           if (!isNaN(qty)) { sets.push(`fact_qty = $${idx++}`); vals.push(qty); }
-          if (supplier !== null) { sets.push(`supplier = $${idx++}`); vals.push(supplier); }
+          if (hasSupplierText) { sets.push(`supplier = $${idx++}`); vals.push(supplier); }
+          if (hasSupplierContractorId) { sets.push(`supplier_contractor_id = $${idx++}`); vals.push(supplierContractorId); }
           if (price !== null && !isNaN(price)) { sets.push(`price = $${idx++}`); vals.push(price); }
           if (totalPrice !== null && !isNaN(totalPrice)) { sets.push(`total_price = $${idx++}`); vals.push(totalPrice); }
           if (itemName) { sets.push(`item_name = $${idx++}`); vals.push(itemName); }

@@ -554,7 +554,7 @@ router.post('/contracts', authenticateToken, async (req, res) => {
       RETURNING *
     `, [
       internal_number || '', contract_number || '', contract_date || null, contract_type_summary || 'СМР / СКС и ЛВС',
-      customer_name || 'Не указан', customer_id || null, our_entity_region || '', our_entity_name || 'ООО «Ультима»',
+      customer_name || 'Не указан', customer_id || null, our_entity_region || '', our_entity_name || null,
       delivery_place || '', subject || '', terms_text || '', zakupki_url || '',
       deadline_raw || '', finalDeadlineDate || null, payment_terms || '',
       security_amount || 0, security_condition || '', discount_percent || 0, amount || 0,
