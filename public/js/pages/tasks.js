@@ -1711,10 +1711,10 @@ function pageTasks() {
     '</td>';
 
     // 6. Сколько (порты: факт / в заказе)
-    var factPorts = Number(t.fact || 0);
+    var factPorts = t.fact !== null && t.fact !== undefined && t.fact !== '' ? Number(t.fact) : null;
     var inOrderPorts = Number(t.inOrder || 0);
     var colQty = '<td style="vertical-align:top;white-space:nowrap;font-weight:700;font-size:.82rem">' +
-      factPorts + ' / ' + inOrderPorts + ' <span class="t3" style="font-size:.68rem;font-weight:normal">п.</span>' +
+      (factPorts === null ? '—' : factPorts) + ' / ' + inOrderPorts + ' <span class="t3" style="font-size:.68rem;font-weight:normal">п.</span>' +
     '</td>';
 
     // 7. Подрядчик / Исполнитель, ПМ и быстрый входной контроль
@@ -1765,8 +1765,8 @@ function pageTasks() {
         roadLine +
       '</td>';
     } else if (appMode === 'contractor') {
-      var cPorts = factPorts || inOrderPorts || 1;
-      var effUnitPrice = cFin.unitPrice > 0 ? cFin.unitPrice : (cPorts > 0 ? Math.round(cFin.total / cPorts) : cFin.total);
+      var cPorts = factPorts !== null ? factPorts : inOrderPorts;
+      var effUnitPrice = cFin.unitPrice > 0 ? cFin.unitPrice : (cPorts > 0 ? Math.round(cFin.total / cPorts) : 0);
       var priceBtn = (effUnitPrice > 0 || cFin.total > 0)
         ? '<button type="button" class="btn-link" onclick="openSubcontractRateModal(\'' + tid + '\')" title="Индивидуальные договорные условия подряда (кликните для изменения)" style="font-weight:600;color:var(--text);font-size:.8rem;text-align:left">' +
             fmtMoney(effUnitPrice) + '<span class="t3" style="font-size:.68rem">/ед <span style="font-size:.7rem;opacity:0.65">✏️</span></span>' +
@@ -2502,7 +2502,7 @@ window.openSubcontractRateModal = function(taskId) {
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
   if (!t) return;
 
-  var ports = Number(t.fact) || Number(t.inOrder) || 1;
+  var ports = t.fact !== null && t.fact !== undefined && t.fact !== '' ? Number(t.fact) : (Number(t.inOrder) || 0);
   var fin = getTaskFinance(t);
   var raw = t.rawData || {};
   var cFin = getTaskContractorFinance(t);

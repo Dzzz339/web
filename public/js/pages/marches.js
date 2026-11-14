@@ -350,7 +350,7 @@ function pageMarchDetail() {
         '<div class="t3" style="font-size:.72rem;color:var(--text-3)">' + fromLabel + (p.contractor ? ' · 👷 ' + escHtml(p.contractor) : '') + '</div>' +
       '</td>' +
       '<td style="padding:6px 8px;text-align:center">' +
-        '<input type="number" min="1" value="' + (p.ports || 1) + '" style="width:50px;text-align:center;padding:3px 4px;border:1px solid var(--border);border-radius:4px;font-size:.8rem;" ' +
+        '<input type="number" min="0" value="' + (p.ports !== null && p.ports !== undefined && p.ports !== '' ? p.ports : '') + '" style="width:50px;text-align:center;padding:3px 4px;border:1px solid var(--border);border-radius:4px;font-size:.8rem;" ' +
         'onchange="updateMarchPointField(\'' + march.id + '\', ' + i + ', \'ports\', this.value)">' +
       '</td>' +
       '<td style="padding:6px 8px;text-align:right">' +
@@ -549,7 +549,7 @@ function openFastAddPointsModal(marchId) {
     }
 
     listEl.innerHTML = filtered.map(function(t) {
-      var ports = t.fact || t.inOrder || 1;
+      var ports = t.fact !== null && t.fact !== undefined && t.fact !== '' ? Number(t.fact) : (Number(t.inOrder) || 0);
       var sberAmount = Number(t.amount) || 0;
       var regionLabel = t.region ? '📍 ' + escHtml(t.region) + ' · ' : '';
 
@@ -612,7 +612,7 @@ function addSingleTaskToMarch(marchId, taskId) {
     if (detectedBase) march.baseCity = detectedBase;
   }
 
-  var ports = Number(task.fact) || Number(task.inOrder) || 1;
+  var ports = task.fact !== null && task.fact !== undefined && task.fact !== '' ? Number(task.fact) : (Number(task.inOrder) || 0);
   var ppp   = Number(task.pricePerUnit) || (ports >= 3 ? 3750 : ports === 2 ? 4250 : 4500);
   var tmc   = Number(task.tmc) || (2500 * ports);
   var sber  = Number(task.amount) || 0;

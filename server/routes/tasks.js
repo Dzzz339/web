@@ -321,7 +321,7 @@ router.post('/tasks', authenticateToken, requireRole('admin', 'director', 'manag
       Math.max(0, Number(t.amount) || 0), 
       Math.max(0, Number(t.pricePerUnit) || 0),
       Math.max(0, Number(t.inOrder) || 0), 
-      Math.max(0, Number(t.fact) || 0),
+      t.fact !== null && t.fact !== undefined && t.fact !== '' ? Math.max(0, Number(t.fact)) : null,
       safeDate(t.dateZayavki), 
       safeDate(t.deadline),
       t.techLink || null, 
@@ -1631,7 +1631,7 @@ router.post('/tasks/:id/ports', authenticateToken, async (req, res) => {
         patchPanel || null,
         room || null,
         marking || null,
-        cableLength !== undefined && cableLength !== '' ? Number(cableLength) : null,
+        cableLength !== null && cableLength !== undefined && cableLength !== '' ? Number(cableLength) : null,
         cabinet || null,
         unit || null,
         crimping || null,
@@ -2040,10 +2040,12 @@ router.post('/tasks/:id/items', authenticateToken, requireRole('admin', 'directo
         UPDATE task_materials SET
           item_name = COALESCE($1, item_name),
           plan_qty = COALESCE($2, plan_qty),
-          fact_qty = COALESCE($2, fact_qty),
           unit = COALESCE($3, unit),
           price = COALESCE($4, price),
-          total_price = COALESCE($5, total_price),
+          total_price = CASE
+            WHEN fact_qty IS NOT NULL AND COALESCE($4, price) IS NOT NULL THEN ROUND(fact_qty * COALESCE($4, price))
+            ELSE COALESCE($5, total_price)
+          END,
           supplier = COALESCE($6, supplier),
           article = COALESCE($7, article)
         WHERE task_id = $8 AND (
@@ -2097,7 +2099,7 @@ router.post('/tasks/:id/items/:itemId/duplicate', authenticateToken, requireRole
     await pool.query(`
       INSERT INTO task_materials (
         task_id, item_name, article, unit, plan_qty, fact_qty, price, total_price, supplier, source
-      ) VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, 'task_items')
+      ) VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, 'task_items')
     `, [
       s.task_id, s.work_type, s.article_plan || s.article, s.unit || 'шт',
       s.quantity, s.price_customer || s.price_contractor || 0,
@@ -2175,7 +2177,7 @@ router.post('/tasks/:id/items/batch', authenticateToken, requireRole('admin', 'd
       await pool.query(`
         INSERT INTO task_materials (
           task_id, pos_num, item_name, article, unit, plan_qty, fact_qty, price, total_price, supplier, source
-        ) VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, 'items_excel')
+        ) VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, $9, 'items_excel')
       `, [
         req.params.id, String(idx + 1), name, art, unit, qty, price, total, supp
       ]);
@@ -2284,10 +2286,12 @@ router.put('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', '
         UPDATE task_materials SET
           item_name = COALESCE($1, item_name),
           plan_qty = COALESCE($2, plan_qty),
-          fact_qty = COALESCE($2, fact_qty),
           unit = COALESCE($3, unit),
           price = COALESCE($4, price),
-          total_price = COALESCE($5, total_price),
+          total_price = CASE
+            WHEN fact_qty IS NOT NULL AND COALESCE($4, price) IS NOT NULL THEN ROUND(fact_qty * COALESCE($4, price))
+            ELSE COALESCE($5, total_price)
+          END,
           supplier = COALESCE($6, supplier),
           article = COALESCE($7, article)
         WHERE task_id = $8 AND (
@@ -2341,7 +2345,7 @@ router.post('/tasks/:id/items/:itemId/duplicate', authenticateToken, requireRole
     await pool.query(`
       INSERT INTO task_materials (
         task_id, item_name, article, unit, plan_qty, fact_qty, price, total_price, supplier, source
-      ) VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, 'task_items')
+      ) VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, 'task_items')
     `, [
       s.task_id, s.work_type, s.article_plan || s.article, s.unit || 'шт',
       s.quantity, s.price_customer || s.price_contractor || 0,

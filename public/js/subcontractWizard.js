@@ -1055,7 +1055,7 @@
       if (curSub && curSub.calculation_details && Array.isArray(curSub.calculation_details.lines) && curSub.calculation_details.lines.length) {
         window._taskSmrSpec[taskId] = JSON.parse(JSON.stringify(curSub.calculation_details.lines));
       } else {
-        var defaultPorts = parseInt(t.fact || t.in_order || t.inOrder || 1, 10) || 1;
+        var defaultPorts = parseInt(t.in_order ?? t.inOrder ?? 0, 10) || 0;
         var isSber = (t.customer || '').toLowerCase().includes('сбер') || (t.id && String(t.id).includes('СЗБ'));
         var pPrice = defaultPorts > 3 ? 2500 : 3000;
         var defaultLineName = isSber
@@ -2068,7 +2068,7 @@
         third_party_lines: thirdParty,
         tax_details: taxCalc
       },
-      ports_count: ports || parseInt(t.fact || t.in_order || 0, 10),
+      ports_count: ports || parseInt(t.in_order ?? t.inOrder ?? 0, 10) || 0,
       distance_km: parseFloat(t.distance_km || 0)
     };
 
@@ -2142,7 +2142,7 @@
       }
     }
 
-    var defaultPorts = parseInt(t.fact || t.in_order || 0, 10) || 1;
+    var defaultPorts = parseInt(t.in_order ?? t.inOrder ?? 0, 10) || 0;
     var defaultKm = parseFloat(t.distance_km || 0) || 0;
 
     var modal = document.createElement('div');
@@ -2362,7 +2362,7 @@
         bestContract = contracts.find(function(c){ return c.price_items_count > 0; }) || contracts[0] || null;
       }
 
-      var defaultPorts = parseInt(t.fact || t.in_order || 0, 10) || 1;
+      var defaultPorts = parseInt(t.in_order ?? t.inOrder ?? 0, 10) || 0;
       var defaultKm = parseFloat(t.distance_km || 0) || 0;
 
       var html = '<div style="display:flex;flex-direction:column;gap:12px">';
@@ -2557,7 +2557,7 @@
     var mode = modeEl ? modeEl.value : 'price';
 
     var curTask = window._curWizTask || (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
-    var ports = Number(curTask.fact || curTask.inOrder || curTask.ports || 0);
+    var ports = Number(curTask.inOrder ?? curTask.in_order ?? curTask.ports ?? 0) || 0;
     var portType = curTask.port_type || 'port_5e';
     var cab = curTask.cabinet_type || '';
     var km = parseFloat(curTask.distance_km || 0);
@@ -2614,7 +2614,7 @@
       finalPrice = mTotal;
       calcDetails = Object.assign({}, calcRes, { manualOverride: { total: mTotal, rate: ports > 0 ? Math.round(mTotal / ports) : mTotal, originalCalc: calcRes.totalAmount } });
     } else if (mRate > 0) {
-      finalPrice = Math.round(mRate * (ports || 1));
+      finalPrice = Math.round(mRate * ports);
       calcDetails = Object.assign({}, calcRes, { manualOverride: { total: finalPrice, rate: mRate, originalCalc: calcRes.totalAmount } });
     } else if (!finalPrice && window._taskSmrSpec && window._taskSmrSpec[taskId]) {
       var specSum = 0;

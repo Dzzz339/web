@@ -19,7 +19,7 @@ export function rowToTask(r) {
     contact:      r.contact,
     contractor:   r.contractor,
     inOrder:      Number(r.in_order)      || 0,
-    fact:         Number(r.fact)          || 0,
+    fact:         r.fact !== null && r.fact !== undefined && r.fact !== '' ? Number(r.fact) : null,
     obsledovanie: r.obsledovanie,
     dostup:       r.dostup,
     dataVyhoda:   r.data_vyhoda  ? new Date(r.data_vyhoda).toLocaleDateString('en-CA') : null,

@@ -455,8 +455,8 @@ window.rejectSmrFact = function(taskId) {
 
 window.openCableJournalGeneratorModal = function(taskId) {
   var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
-  var planCount = Number(t.inOrder || t.ports || t.fact || 206);
-  if (!planCount || planCount <= 0) planCount = 206;
+  var planCount = Number(t.inOrder ?? t.in_order ?? t.ports ?? '');
+  if (!Number.isFinite(planCount) || planCount <= 0) planCount = 0;
 
   var oldM = document.getElementById('_kj_generator_modal');
   if (oldM) oldM.remove();
@@ -578,7 +578,11 @@ window._updateKjGenPreview = function() {
   var previewBox = document.getElementById('kj_gen_preview_box');
   if (!previewBox) return;
 
-  var activePorts = parseInt(document.getElementById('kj_gen_active_ports')?.value) || 206;
+  var activePorts = parseInt(document.getElementById('kj_gen_active_ports')?.value, 10);
+  if (!Number.isFinite(activePorts) || activePorts <= 0) {
+    previewBox.innerHTML = '<div style="font-weight:700;color:#b45309">Укажите положительное плановое количество рабочих портов. Фактический объём не используется как план.</div>';
+    return;
+  }
   var cap = parseInt(document.getElementById('kj_gen_panel_cap')?.value) || 24;
   var totalPanels = parseInt(document.getElementById('kj_gen_panels_count')?.value) || 11;
   var splitKT = Boolean(document.getElementById('kj_gen_split_kt')?.checked);
@@ -612,7 +616,13 @@ window._executeKjGeneration = function(taskId) {
     btn.textContent = '⏳ Генерация...';
   }
 
-  var activePorts = parseInt(document.getElementById('kj_gen_active_ports')?.value) || 206;
+  var activePorts = parseInt(document.getElementById('kj_gen_active_ports')?.value, 10);
+  if (!Number.isFinite(activePorts) || activePorts <= 0) {
+    if (typeof showToast === 'function') showToast('Укажите положительное плановое количество рабочих портов', 'error');
+    else alert('Укажите положительное плановое количество рабочих портов');
+    if (btn) { btn.disabled = false; btn.textContent = '⚡ Сгенерировать порты КЖ'; }
+    return;
+  }
   var cap = parseInt(document.getElementById('kj_gen_panel_cap')?.value) || 24;
   var totalPanels = parseInt(document.getElementById('kj_gen_panels_count')?.value) || 11;
   var splitKT = Boolean(document.getElementById('kj_gen_split_kt')?.checked);
@@ -2540,14 +2550,14 @@ function pageCard() {
     var reportedDateStr = reportedDate ? String(reportedDate).slice(0, 10) : '';
     var isDateConfirmed = Boolean(t.smrDateConfirmed || (formattedDate && reportedDateStr && formattedDate === reportedDateStr));
 
-    var reportedPorts = t.contractorFact != null ? t.contractorFact : (t.fact != null ? t.fact : (t.inOrder || 0));
-    var curFact = t.fact != null ? t.fact : (t.inOrder || 0);
-    var isFactConfirmed = Boolean(t.factConfirmed || (curFact !== '' && Number(curFact) === Number(reportedPorts)));
+    var reportedPorts = t.contractorFact != null ? t.contractorFact : null;
+    var curFact = t.fact != null && t.fact !== '' ? t.fact : null;
+    var isFactConfirmed = Boolean(t.factConfirmed);
 
     var curStage = Number(t.stage_num !== undefined ? t.stage_num : t.stageNum) || 0;
     var stageTitle = (ID_STAGES[curStage] && ID_STAGES[curStage].name) || ('Этап ' + curStage);
     var kjPortsCount = (window._curTaskPorts && window._curTaskPorts[t.id] !== undefined) ? window._curTaskPorts[t.id] : (window._curPortsCount || 0);
-    var hasPortsDesync = (kjPortsCount > 0 && curFact !== '' && Number(curFact) !== Number(kjPortsCount));
+    var hasPortsDesync = (kjPortsCount > 0 && curFact !== null && Number(curFact) !== Number(kjPortsCount));
 
     return '<div class="card p mb" id="smrClosingBlock" style="border:1.5px solid var(--border);border-radius:8px;background:var(--surface,#fff);margin-bottom:1rem">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;padding-bottom:.5rem;border-bottom:1.5px solid var(--border);flex-wrap:wrap;gap:8px">' +
@@ -2586,14 +2596,14 @@ function pageCard() {
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
             '<div style="display:flex;align-items:center;gap:4px">' +
               '<label style="font-size:.78rem;font-weight:700;color:var(--text-2);margin:0">🔌 Фактически смонтировано (портов):</label>' +
-              (kjPortsCount > 0 && Number(curFact) !== Number(kjPortsCount) ? (
+              (kjPortsCount > 0 && (curFact === null || Number(curFact) !== Number(kjPortsCount)) ? (
                 '<button type="button" class="btn btn-xs btn-outline" onclick="window.syncFactFromKj(\'' + eid + '\', ' + kjPortsCount + ')" style="font-size:.68rem;padding:1px 5px;font-weight:700" title="Установить объем из Кабельного журнала">⚡ Из КЖ (' + kjPortsCount + ')</button>'
               ) : '') +
             '</div>' +
-            (reportedPorts ? ('<span class="badge ' + (isFactConfirmed ? 'b-green' : 'b-amber') + '" style="font-size:.7rem;padding:1px 6px">' + (isFactConfirmed ? '✓ Подтверждено' : 'Заявлено: ' + reportedPorts + ' шт.') + '</span>') : '') +
+            (reportedPorts !== null && reportedPorts !== '' ? ('<span class="badge ' + (isFactConfirmed ? 'b-green' : 'b-amber') + '" style="font-size:.7rem;padding:1px 6px">' + (isFactConfirmed ? '✓ Подтверждено' : 'Заявлено: ' + reportedPorts + ' шт.') + '</span>') : '') +
           '</div>' +
-          '<input type="number" class="inp" min="0" name="fact" data-key="fact" value="' + (t.fact != null ? t.fact : (t.inOrder || 0)) + '" style="padding:4px 8px;font-size:.84rem;width:100%">' +
-          (reportedPorts && !isFactConfirmed ? (
+          '<input type="number" class="inp" min="0" name="fact" data-key="fact" value="' + (curFact !== null ? curFact : '') + '" style="padding:4px 8px;font-size:.84rem;width:100%">' +
+          (reportedPorts !== null && reportedPorts !== '' && !isFactConfirmed ? (
             '<div style="display:flex;gap:4px;margin-top:4px">' +
               '<button type="button" class="btn btn-xs btn-primary" onclick="window.confirmSmrFact(\'' + eid + '\', ' + reportedPorts + ')" style="font-size:.7rem;padding:2px 6px">✓ Подтвердить</button>' +
               '<button type="button" class="btn btn-xs btn-ghost" onclick="var inp=document.querySelector(\'#smrClosingBlock input[name=fact]\');if(inp){inp.focus();inp.select();}" style="font-size:.7rem;padding:2px 6px">✏️ Скорректировать</button>' +
@@ -2806,10 +2816,11 @@ function pageCard() {
     var distanceVal = parseFloat(t.distanceKm) || 0;
     var extrasVal = parseFloat(t.extras) || 0;
     var tmcVal = parseFloat(t.tmc) || 0;
-    var inOrderVal = parseFloat(t.inOrder) || 0;
-    var factVal = parseFloat(t.fact) || 0;
-    var isFactKnown = factVal > 0;
-    var effectivePorts = isFactKnown ? factVal : (inOrderVal > 0 ? inOrderVal : (parseFloat(t.ports) || 1));
+    var inOrderVal = parseFloat(t.inOrder ?? t.ports ?? 0) || 0;
+    var parsedFactVal = parseFloat(t.fact);
+    var isFactKnown = t.fact !== null && t.fact !== undefined && t.fact !== '' && Number.isFinite(parsedFactVal);
+    var factVal = isFactKnown ? parsedFactVal : null;
+    var effectivePorts = isFactKnown ? factVal : inOrderVal;
 
     // Расчет ставки за ед. по формуле Алексея: =(сумма - транспорт) / портов
     var calcUnitRate = (inOrderVal > 0) ? Math.round((amountVal - distanceVal) / inOrderVal) : 0;
@@ -3064,7 +3075,7 @@ function pageCard() {
               '</div>' +
               '<div>' +
                 '<label class="t3" style="display:block;font-size:.72rem;margin-bottom:2px">' + (isFactKnown ? 'Факт портов (из заявки)' : 'В заказе (план портов)') + '</label>' +
-                '<div style="padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-weight:700;color:var(--text)">' + effectivePorts + ' шт.' + (!isFactKnown ? ' <span class="t3" style="font-weight:normal;font-size:.7rem">(факт 0)</span>' : '') + '</div>' +
+                '<div style="padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-weight:700;color:var(--text)">' + effectivePorts + ' шт.' + (!isFactKnown ? ' <span class="t3" style="font-weight:normal;font-size:.7rem">(факт не указан)</span>' : '') + '</div>' +
               '</div>' +
               '<div>' +
                 '<label class="t3" style="display:block;font-size:.72rem;margin-bottom:2px">Удалёнка подрядчика (₽)</label>' +
@@ -6333,26 +6344,33 @@ function writeOffTaskMaterials(taskId) {
     .then(function(materials) {
       if (!materials || !materials.length) return alert('Спецификация материалов пуста');
       var items = [];
+      var missingFactNames = [];
       materials.forEach(function(m, idx) {
         var rowKey = m.id || m.material_id || ('row_' + idx);
         var inp = document.getElementById('fact_mat_' + rowKey);
         var suppInp = document.getElementById('supp_mat_' + rowKey);
         var priceInp = document.getElementById('price_mat_' + rowKey);
-        var qty = inp ? parseFloat(inp.value) : (m.fact_qty != null ? parseFloat(m.fact_qty) : parseFloat(m.plan_qty));
+        var rawQty = inp ? inp.value.trim() : (m.fact_qty !== null && m.fact_qty !== undefined && m.fact_qty !== '' ? String(m.fact_qty) : '');
+        var qty = rawQty === '' ? null : Number(rawQty);
+        if (qty === null || !Number.isFinite(qty) || qty < 0) missingFactNames.push(m.name || m.item_name || ('Позиция ' + (idx + 1)));
         var supp = suppInp ? suppInp.value : (m.supplier || null);
         var price = priceInp ? parseFloat(priceInp.value) : (m.price != null ? parseFloat(m.price) : (parseFloat(m.price_default) || 0));
-        var total = (!isNaN(qty) && !isNaN(price)) ? Math.round(qty * price) : 0;
+        var total = (qty !== null && Number.isFinite(qty) && !isNaN(price)) ? Math.round(qty * price) : null;
 
         items.push({
           id: m.id,
           material_id: m.material_id,
-          quantity: isNaN(qty) ? (m.plan_qty || 0) : qty,
-          fact_qty: isNaN(qty) ? (m.plan_qty || 0) : qty,
+          quantity: qty,
+          fact_qty: qty,
           supplier: supp,
           price: price,
           total_price: total
         });
       });
+      if (missingFactNames.length) {
+        alert('Перед списанием укажите фактический расход (0 допускается) для позиций:\n' + missingFactNames.join('\n'));
+        return;
+      }
 
       if (!confirm('Подтвердить фактический расход и списать материалы на объект?\n\nБудут автоматически сформированы:\n1. Акт списания материалов (ТМЦ)\n2. Ведомость остатков ТМЦ к возврату на склад')) return;
 
@@ -6517,7 +6535,7 @@ function renderSmrChecklist(taskId) {
     var dOut = new Date(rawEndDate);
     var dOutStr = String(rawEndDate).slice(0, 10).split('-').reverse().join('.');
     if (!isFactNonZero) {
-      dateDesc = 'Дата указана: ' + dOutStr + ' (⚠️ факт: 0 портов — работы не завершены!)';
+      dateDesc = 'Дата указана: ' + dOutStr + (factVal === null ? ' (⚠️ факт монтажа не указан)' : ' (⚠️ факт: 0 портов — работы не завершены!)');
     } else if (deadlineVal) {
       var dDl = new Date(deadlineVal);
       var diffDays = Math.round((dOut - dDl) / (1000 * 60 * 60 * 24));
@@ -6549,12 +6567,13 @@ function renderSmrChecklist(taskId) {
   var hasVolumeSync = isFactSet && (portsCount > 0) && (portsCount === factValNum);
   var checkKj = Boolean(hasVolumeSync && totalCableLen > 0);
 
-  var kjPct = (inOrderVal > 0 && portsCount > 0) ? Math.min(100, Math.round((portsCount / inOrderVal) * 100)) : (portsCount > 0 ? 100 : 0);
   var kjDesc = '';
   if (!portsCount) {
     kjDesc = 'КЖ не заполнен монтажником (0 линий)';
   } else if (!isFactSet) {
-    kjDesc = portsCount + ' линий в КЖ (⚠️ Не зафиксирован факт монтажа — укажите смонтированный объем)';
+    kjDesc = portsCount + ' линий в КЖ' + (factValNum === null
+      ? ' (⚠️ Не зафиксирован факт монтажа — укажите смонтированный объем)'
+      : ' (⚠️ Факт монтажа: 0 портов)');
   } else if (portsCount < factValNum) {
     kjDesc = portsCount + ' из ' + factValNum + ' линий в КЖ (' + Math.round((portsCount / factValNum) * 100) + '% от факта, ⚠️ не все смонтированные линии внесены)';
   } else if (portsCount > factValNum) {
@@ -6578,9 +6597,11 @@ function renderSmrChecklist(taskId) {
       id: 'ports',
       title: '1. Смонтированный объем портов',
       desc: (factVal !== null && factVal > 0)
-        ? ('Смонтировано: ' + factVal + (inOrderVal ? ' из ' + inOrderVal + ' шт. (' + Math.round((factVal / inOrderVal) * 100) + '%)' : ' шт.') +
+        ? ('Смонтировано: ' + factVal + (inOrderVal > 0 ? ' из ' + inOrderVal + ' шт. (' + Math.round((factVal / inOrderVal) * 100) + '%)' : ' шт.') +
            (portsCount > 0 ? ' · в КЖ: ' + portsCount + ' шт.' + (totalCableLen > 0 ? ' (' + totalCableLen.toFixed(1) + ' м)' : '') : ''))
-        : (inOrderVal ? ('План: ' + inOrderVal + ' шт. (факт: 0 шт., работы не завершены)') : 'Факт монтажа не указан'),
+        : (factVal === 0
+          ? 'Факт: 0 шт. (работы не завершены)' + (inOrderVal > 0 ? ' · План: ' + inOrderVal + ' шт.' : '')
+          : (inOrderVal > 0 ? 'План: ' + inOrderVal + ' шт. (факт не указан)' : 'Факт монтажа не указан')),
       passed: checkPorts,
       action: '<button type="button" class="btn btn-xs btn-ghost" onclick="var inp=document.querySelector(\'#smrClosingBlock input[type=number]\');if(inp){inp.focus();inp.select();}" style="font-size:.7rem;padding:2px 6px">Указать факт</button>'
     },
@@ -8181,9 +8202,12 @@ window._recalcSubFinance = function(taskId) {
   var dist = parseFloat(document.getElementById('sub_distance_input').value) || 0;
   var ext = parseFloat(document.getElementById('sub_extras_input').value) || 0;
   var isDraft = function(k) { return Object.prototype.hasOwnProperty.call(S.cardDraft, k); };
-  var fact = isDraft('fact') ? (parseFloat(S.cardDraft.fact) || 0) : (parseFloat(t.fact) || 0);
+  var rawFact = isDraft('fact') ? S.cardDraft.fact : t.fact;
+  var parsedFact = parseFloat(rawFact);
+  var isFactKnown = rawFact !== null && rawFact !== undefined && rawFact !== '' && Number.isFinite(parsedFact);
+  var fact = isFactKnown ? parsedFact : null;
   var inOrder = isDraft('inOrder') ? (parseFloat(S.cardDraft.inOrder) || 0) : (parseFloat(t.inOrder) || 0);
-  var ports = fact > 0 ? fact : (inOrder > 0 ? inOrder : 1);
+  var ports = isFactKnown ? fact : inOrder;
   if (!t.rawData) t.rawData = {};
   t.rawData.subRate = rate;
   t.rawData.subDist = dist;

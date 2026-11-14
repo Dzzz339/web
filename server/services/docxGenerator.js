@@ -1067,7 +1067,7 @@ export async function generateIdRegistry({
       cable: 'UTP 4x2x0.52 Cat.5e Cu',
       panel: existing?.patch_panel || 'PP-01',
       panelPort: i,
-      lengthM: existing?.cable_length || (18 + (i * 3) % 45),
+      lengthM: existing?.cable_length !== null && existing?.cable_length !== undefined && existing?.cable_length !== '' ? Number(existing.cable_length) : null,
       purpose: i <= 2 ? 'АРМ сотрудника' : (i === 3 ? 'Банкомат / ТСП' : (i === 4 ? 'Сетевой принтер' : 'Резерв СКС')),
       testStatus: 'PASS (ГОСТ Р 53246-2008)',
       resistance: (14.2 + (i * 0.3) % 3.5).toFixed(1),
@@ -1082,7 +1082,7 @@ export async function generateIdRegistry({
       new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: String(p.num), size: 17, alignment: AlignmentType.CENTER })] }),
       new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: p.marking, size: 17, bold: true })] }),
       new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: `${p.panel} / ${p.panelPort}`, size: 17, alignment: AlignmentType.CENTER })] }),
-      new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: `${p.lengthM} м`, size: 17, alignment: AlignmentType.CENTER })] }),
+      new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: p.lengthM === null ? '—' : `${p.lengthM} м`, size: 17, alignment: AlignmentType.CENTER })] }),
       new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: `${p.resistance} Ом`, size: 17, alignment: AlignmentType.CENTER })] }),
       new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: `+${p.nextMargin} dB`, size: 17, alignment: AlignmentType.CENTER })] }),
       new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: `+${p.returnLoss} dB`, size: 17, alignment: AlignmentType.CENTER })] }),
@@ -1098,7 +1098,7 @@ export async function generateIdRegistry({
       new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: p.room, size: 17 })] }),
       new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: p.cable, size: 17 })] }),
       new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: `${p.panel} (порт ${p.panelPort})`, size: 17 })] }),
-      new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: `${p.lengthM} м`, size: 17, alignment: AlignmentType.CENTER })] }),
+      new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: p.lengthM === null ? '—' : `${p.lengthM} м`, size: 17, alignment: AlignmentType.CENTER })] }),
       new TableCell({ borders: CELL_BORDERS_ALL, margins: CELL_PADDING, children: [new Paragraph({ text: p.purpose, size: 17 })] })
     ]
   }));

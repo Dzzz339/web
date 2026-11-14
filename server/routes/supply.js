@@ -478,7 +478,7 @@ router.get('/tasks/:id/materials', authenticateToken, async (req, res) => {
         tm.fact_qty,
         COALESCE(tm.price, m.price_default, 0) AS price,
         COALESCE(tm.price, m.price_default, 0) AS price_default,
-        COALESCE(tm.total_price, ROUND(COALESCE(tm.fact_qty, tm.plan_qty, 0) * COALESCE(tm.price, m.price_default, 0))) AS total_price,
+        CASE WHEN tm.fact_qty IS NULL THEN NULL ELSE COALESCE(tm.total_price, ROUND(tm.fact_qty * COALESCE(tm.price, m.price_default, 0))) END AS total_price,
         tm.mass_kg,
         tm.note,
         tm.calc_details,
@@ -507,7 +507,7 @@ router.get('/tasks/:id/materials', authenticateToken, async (req, res) => {
           await pool.query(`
             INSERT INTO task_materials (
               task_id, pos_num, item_name, article, unit, plan_qty, fact_qty, price, total_price, supplier, source
-            ) VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, 'task_items')
+            ) VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, $9, 'task_items')
           `, [
             req.params.id, String(idx + 1), it.work_type, it.article_plan || it.article || null,
             it.unit || 'шт', qty, price, total, it.supplier || null
@@ -520,7 +520,7 @@ router.get('/tasks/:id/materials', authenticateToken, async (req, res) => {
             COALESCE(tm.article, m.code) AS code, tm.supplier,
             COALESCE(tm.unit, m.unit, 'шт') AS unit, tm.plan_qty, tm.fact_qty,
             COALESCE(tm.price, m.price_default, 0) AS price_default,
-            COALESCE(tm.total_price, ROUND(COALESCE(tm.fact_qty, tm.plan_qty, 0) * COALESCE(tm.price, m.price_default, 0))) AS total_price,
+            CASE WHEN tm.fact_qty IS NULL THEN NULL ELSE COALESCE(tm.total_price, ROUND(tm.fact_qty * COALESCE(tm.price, m.price_default, 0))) END AS total_price,
             tm.mass_kg, tm.note, tm.calc_details, tm.source, tm.is_written_off, tm.written_off_at, m.category
           FROM task_materials tm
           LEFT JOIN materials m ON tm.material_id = m.id
@@ -570,7 +570,7 @@ router.post('/tasks/:id/materials/add-item', authenticateToken, async (req, res)
     const { rows } = await pool.query(`
       INSERT INTO task_materials (
         task_id, pos_num, item_name, model, article, supplier, unit, plan_qty, fact_qty, price, total_price, note, source
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, 'manual')
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, $9, $10, $11, 'manual')
       RETURNING *
     `, [taskId, pos_num || null, name.trim(), model || null, article || null, supplier || null, unit || 'шт', qty, pr, tot, note || null]);
 
@@ -678,7 +678,9 @@ router.post('/tasks/:id/materials/save-fact', authenticateToken, async (req, res
 
     if (Array.isArray(items)) {
       for (const item of items) {
-        const qty = parseFloat(item.fact_qty !== undefined ? item.fact_qty : item.quantity);
+        const hasQty = Object.prototype.hasOwnProperty.call(item, 'fact_qty') || Object.prototype.hasOwnProperty.call(item, 'quantity');
+        const rawQty = item.fact_qty !== undefined ? item.fact_qty : item.quantity;
+        const qty = hasQty && rawQty !== null && rawQty !== '' ? parseFloat(rawQty) : null;
         let supplier = (item.supplier !== undefined && item.supplier !== null) ? String(item.supplier).trim() : null;
         const hasSupplierText = Object.prototype.hasOwnProperty.call(item, 'supplier');
         const hasSupplierContractorId = Object.prototype.hasOwnProperty.call(item, 'supplier_contractor_id') || Object.prototype.hasOwnProperty.call(item, 'supplier_id');
@@ -702,7 +704,8 @@ router.post('/tasks/:id/materials/save-fact', authenticateToken, async (req, res
         const price = (item.price !== undefined && item.price !== null && item.price !== '') ? parseFloat(item.price) : null;
         const totalPrice = (item.total_price !== undefined && item.total_price !== null && item.total_price !== '')
           ? parseFloat(item.total_price)
-          : (!isNaN(qty) && price !== null && !isNaN(price) ? Math.round(qty * price) : null);
+          : (qty !== null && !isNaN(qty) && price !== null && !isNaN(price) ? Math.round(qty * price) : null);
+        const clearTotalPrice = hasQty && qty === null && (item.total_price === undefined || item.total_price === null || item.total_price === '');
         const itemId = item.id ? parseInt(item.id, 10) : null;
         const materialId = item.material_id ? parseInt(item.material_id, 10) : null;
         const itemName = (item.item_name || item.name) ? String(item.item_name || item.name).trim() : null;
@@ -712,11 +715,11 @@ router.post('/tasks/:id/materials/save-fact', authenticateToken, async (req, res
           const vals = [];
           let idx = 1;
 
-          if (!isNaN(qty)) { sets.push(`fact_qty = $${idx++}`); vals.push(qty); }
+          if (hasQty && (qty === null || !isNaN(qty))) { sets.push(`fact_qty = $${idx++}`); vals.push(qty); }
           if (hasSupplierText) { sets.push(`supplier = $${idx++}`); vals.push(supplier); }
           if (hasSupplierContractorId) { sets.push(`supplier_contractor_id = $${idx++}`); vals.push(supplierContractorId); }
           if (price !== null && !isNaN(price)) { sets.push(`price = $${idx++}`); vals.push(price); }
-          if (totalPrice !== null && !isNaN(totalPrice)) { sets.push(`total_price = $${idx++}`); vals.push(totalPrice); }
+          if (clearTotalPrice || (totalPrice !== null && !isNaN(totalPrice))) { sets.push(`total_price = $${idx++}`); vals.push(totalPrice); }
           if (materialId) { sets.push(`material_id = $${idx++}`); vals.push(materialId); }
           if (itemName) { sets.push(`item_name = $${idx++}`); vals.push(itemName); }
 
@@ -734,11 +737,11 @@ router.post('/tasks/:id/materials/save-fact', authenticateToken, async (req, res
           const vals = [];
           let idx = 1;
 
-          if (!isNaN(qty)) { sets.push(`fact_qty = $${idx++}`); vals.push(qty); }
+          if (hasQty && (qty === null || !isNaN(qty))) { sets.push(`fact_qty = $${idx++}`); vals.push(qty); }
           if (hasSupplierText) { sets.push(`supplier = $${idx++}`); vals.push(supplier); }
           if (hasSupplierContractorId) { sets.push(`supplier_contractor_id = $${idx++}`); vals.push(supplierContractorId); }
           if (price !== null && !isNaN(price)) { sets.push(`price = $${idx++}`); vals.push(price); }
-          if (totalPrice !== null && !isNaN(totalPrice)) { sets.push(`total_price = $${idx++}`); vals.push(totalPrice); }
+          if (clearTotalPrice || (totalPrice !== null && !isNaN(totalPrice))) { sets.push(`total_price = $${idx++}`); vals.push(totalPrice); }
           if (itemName) { sets.push(`item_name = $${idx++}`); vals.push(itemName); }
 
           if (sets.length > 0) {

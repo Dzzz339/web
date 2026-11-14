@@ -442,7 +442,9 @@ function parseDate(v) {
 
         var work = strVal(row[colMap['ТИП РАБОТ']]);
         var inOrder = parseNum(row[colMap['В заказе']]);
-        var fact = parseNum(row[colMap['Факт']]);
+        var rawFact = row[colMap['Факт']];
+        var hasFact = rawFact !== null && rawFact !== undefined && String(rawFact).trim() !== '';
+        var fact = hasFact ? parseNum(rawFact) : null;
         var priceUnit = parseNum(row[colMap['Стоимость за ед.']]);
         var rowAmount = parseNum(row[colMap['Сумма договора']]);
         var contractor = strVal(row[colMap['Подрядчик']]);
@@ -450,10 +452,10 @@ function parseDate(v) {
 
         var itemObj = {
           workType: work || 'Монтажные работы',
-          quantity: fact || inOrder || 1,
+          quantity: inOrder,
           unit: 'шт.',
           priceCustomer: priceUnit || (inOrder > 0 && rowAmount > 0 ? Math.round(rowAmount / inOrder) : 0),
-          amountCustomer: rowAmount || ((fact || inOrder || 1) * priceUnit) || 0,
+          amountCustomer: rowAmount || (inOrder * priceUnit) || 0,
           contractor: contractor || null,
           distanceKm: distKm || 0
         };
@@ -462,7 +464,7 @@ function parseDate(v) {
           var existing = sheetTasks[num];
           existing.items.push(itemObj);
           existing.inOrder = (existing.inOrder || 0) + inOrder;
-          existing.fact = (existing.fact || 0) + fact;
+          if (hasFact) existing.fact = (existing.fact === null ? 0 : (Number(existing.fact) || 0)) + fact;
           if (rowAmount > 0) existing.amount = (existing.amount || 0) + rowAmount;
           if (!existing.workType && work) existing.workType = work;
           else if (work && !existing.workType.includes(work)) {
