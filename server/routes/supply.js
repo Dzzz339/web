@@ -501,7 +501,9 @@ router.get('/tasks/:id/materials', authenticateToken, async (req, res) => {
       if (items.length) {
         for (let idx = 0; idx < items.length; idx++) {
           const it = items[idx];
-          const qty = Number(it.quantity) || 1;
+          const parsedQty = Number(it.quantity);
+          if (it.quantity === null || it.quantity === undefined || String(it.quantity).trim() === '' || !Number.isFinite(parsedQty)) continue;
+          const qty = parsedQty;
           const price = Number(it.price_customer || it.price_contractor || 0) || 0;
           const total = Number(it.amount_customer || it.amount_contractor || (qty * price)) || 0;
           await pool.query(`
@@ -563,7 +565,11 @@ router.post('/tasks/:id/materials/add-item', authenticateToken, async (req, res)
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Наименование обязательно' });
     }
-    const qty = parseFloat(plan_qty) || 1;
+    const hasQuantity = plan_qty !== null && plan_qty !== undefined && String(plan_qty).trim() !== '';
+    const qty = hasQuantity ? Number(plan_qty) : NaN;
+    if (!Number.isFinite(qty)) {
+      return res.status(400).json({ error: 'Количество (план) должно быть числом' });
+    }
     const pr = parseFloat(price) || 0;
     const tot = Math.round(qty * pr);
 

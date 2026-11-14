@@ -1054,7 +1054,7 @@ export async function generateIdRegistry({
   const customerName = task.customer || 'ПАО Сбербанк';
 
   // Фактическое количество портов
-  const portsCount = Number(task.fact || task.in_order || (ports.length > 0 ? ports.length : 4));
+  const portsCount = Number(task.fact);
 
   // Список портов для протокола испытаний и КЖ
   const portItems = [];

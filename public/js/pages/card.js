@@ -5810,7 +5810,7 @@ function loadCardMaterials(taskId) {
     var allWrittenOff = materials.every(function(m){ return m.is_written_off; });
     var totalTmcSum = null;
     var supplierOrganizations = (S.contractors || []).filter(function(c) {
-      return c.type === 'supplier' && c.is_own !== true && String(c.status || 'active') === 'active';
+      return c.type === 'supplier' && c.is_own !== true && c.status === 'active';
     });
 
     html += '<table style="width:100%;border-collapse:collapse;font-size:.82rem;margin-bottom:10px">' +
@@ -6202,7 +6202,7 @@ function saveTaskMaterialsFact(taskId, options) {
           var selectedOrg = selection.startsWith('org:')
             ? (S.contractors || []).find(function(org) {
                 return selection === 'org:' + Number(org.id) && org.type === 'supplier' &&
-                  org.is_own !== true && String(org.status || 'active') === 'active';
+                  org.is_own !== true && org.status === 'active';
               })
             : null;
           item.supplier = selectedOrg ? selectedOrg.name_short : (selection === 'legacy' ? (m.supplier || null) : null);
