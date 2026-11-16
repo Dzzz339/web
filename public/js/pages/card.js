@@ -3434,6 +3434,7 @@ function refreshTaskItemsList(taskId) {
             '<select class="select" id="item_supplier_' + it.id + '"' + selectDisabled + ' aria-label="Поставщик / склад">' +
               suppOptions +
             '</select>' +
+            (!isLocked ? ('<button type="button" class="btn btn-xs btn-ghost" data-new-supplier-task="' + escHtml(taskId) + '" data-new-supplier-row="' + it.id + '" style="font-size:.7rem;padding:1px 4px;margin-top:2px;display:inline-block">+ Новый поставщик</button>') : '') +
           '</td>' +
           '<td style="padding:4px 6px;white-space:nowrap;font-size:.76rem;color:var(--text-3)">' +
             (it.shipment_method ? escHtml(it.shipment_method) : '<span class="t3" style="font-size:.7rem">—</span>') +
@@ -3509,6 +3510,29 @@ function refreshTaskItemsList(taskId) {
           window.onItemSupplierChange(taskId, itemId, this.value, this);
         });
       });
+
+      el.querySelectorAll('[data-new-supplier-task]').forEach(function(button) {
+        button.addEventListener('click', function() {
+          window.openNewSupplierForMaterial(button.getAttribute('data-new-supplier-task'), button.getAttribute('data-new-supplier-row'));
+        });
+      });
+
+      var supplierReturn = window._supplierReturn;
+      if (supplierReturn && String(supplierReturn.taskId) === String(taskId) && supplierReturn.createdSupplierId) {
+        var createdSelect = document.getElementById('item_supplier_' + supplierReturn.rowKey);
+        if (createdSelect) {
+          var optExists = Array.from(createdSelect.options).some(function(o) { return o.value === String(supplierReturn.createdSupplierId); });
+          if (!optExists) {
+            var newOpt = document.createElement('option');
+            newOpt.value = String(supplierReturn.createdSupplierId);
+            newOpt.textContent = supplierReturn.createdSupplierName || ('Поставщик #' + supplierReturn.createdSupplierId);
+            createdSelect.appendChild(newOpt);
+          }
+          createdSelect.value = String(supplierReturn.createdSupplierId);
+          window.onItemSupplierChange(taskId, parseInt(supplierReturn.rowKey, 10), String(supplierReturn.createdSupplierId), createdSelect);
+        }
+        window._supplierReturn = null;
+      }
 
       // Обновляем селект поставщиков в групповой панели
       var bSuppSel = document.getElementById('batchSupplierSelect');
@@ -3978,6 +4002,11 @@ window.loadCardShipments = function(taskId) {
         return;
       }
 
+      var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); }) || {};
+      var isLogistAccepted = Boolean((t.rawData && t.rawData.tmcLogistAccepted) || (t.raw_data && t.raw_data.tmcLogistAccepted) || t.tmcLogistAccepted);
+      var userRole = S.user ? String(S.user.role || '').toLowerCase() : '';
+      var canAcceptShipment = !isLogistAccepted && ['worker', 'foreman', 'contractor', 'subcontractor', 'installer', 'master', 'admin', 'director', 'manager', 'to_engineer'].includes(userRole);
+
       var rowsHtml = list.map(function(s) {
         var statusBadge = '';
         if (s.status === 'shipped') {
@@ -4003,7 +4032,7 @@ window.loadCardShipments = function(taskId) {
 
         var actionsHtml = '<button type="button" class="btn btn-xs btn-outline btn-view-shipment" data-shipment-id="' + s.id + '">👁️ Просмотр</button>';
         actionsHtml += ' <button type="button" class="btn btn-xs btn-outline btn-export-shipment" data-shipment-id="' + s.id + '" style="margin-left:3px" title="Скачать Excel отгрузки">📥 XLSX</button>';
-        if (s.status === 'shipped') {
+        if (s.status === 'shipped' && canAcceptShipment) {
           actionsHtml += ' <button type="button" class="btn btn-xs btn-primary btn-accept-shipment" data-shipment-id="' + s.id + '" style="margin-left:3px">✍️ Принять</button>';
         } else if (s.status === 'draft') {
           actionsHtml += ' <button type="button" class="btn btn-xs btn-outline btn-edit-shipment" data-shipment-id="' + s.id + '" style="margin-left:3px">✏️</button>';
@@ -4317,6 +4346,11 @@ window.openViewShipmentModal = function(taskId, shipmentId, isEditMode) {
       var isAcceptedStatus = isAccepted || isAcceptedDisc;
       var editable = isDraft && isEditMode;
 
+      var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); }) || {};
+      var isLogistAccepted = Boolean((t.rawData && t.rawData.tmcLogistAccepted) || (t.raw_data && t.raw_data.tmcLogistAccepted) || t.tmcLogistAccepted);
+      var userRole = S.user ? String(S.user.role || '').toLowerCase() : '';
+      var canAcceptShipment = !isLogistAccepted && ['worker', 'foreman', 'contractor', 'subcontractor', 'installer', 'master', 'admin', 'director', 'manager', 'to_engineer'].includes(userRole);
+
       var items = s.items || [];
       var bannerHtml = '';
       if (isAccepted) {
@@ -4437,7 +4471,7 @@ window.openViewShipmentModal = function(taskId, shipmentId, isEditMode) {
         footerHtml = '<div style="display:flex;justify-content:space-between;align-items:center">' +
           '<button type="button" class="btn btn-sm btn-outline" id="btnExportShipmentExcel" style="display:flex;align-items:center;gap:4px">📥 Скачать Excel</button>' +
           '<div style="display:flex;gap:8px">' +
-            (isShipped ? '<button type="button" class="btn btn-sm btn-primary" id="btnAcceptShipmentFromView">✍️ Принять отгрузку</button>' : '') +
+            (isShipped && canAcceptShipment ? '<button type="button" class="btn btn-sm btn-primary" id="btnAcceptShipmentFromView">✍️ Принять отгрузку</button>' : '') +
             '<button type="button" class="btn btn-sm btn-ghost" id="btnCloseShipmentViewModal">Закрыть</button>' +
           '</div>' +
         '</div>';
@@ -6816,7 +6850,13 @@ window.returnToMaterialSupplier = function(createdSupplier) {
   var context = window._supplierReturn;
   if (!context || !createdSupplier || !createdSupplier.id) return false;
   context.createdSupplierId = Number(createdSupplier.id);
-  S.cardTab = context.cardTab;
+  context.createdSupplierName = createdSupplier.name_short || createdSupplier.name || ('Поставщик #' + createdSupplier.id);
+  if (!createdSupplier.type) createdSupplier.type = 'supplier';
+  if (!createdSupplier.status) createdSupplier.status = 'active';
+  if (Array.isArray(S.contractors) && !S.contractors.some(function(c) { return Number(c.id) === Number(createdSupplier.id); })) {
+    S.contractors.push(createdSupplier);
+  }
+  S.cardTab = context.cardTab || 'items';
   openCard(context.taskId);
   return true;
 };
@@ -6964,13 +7004,13 @@ function loadCardMaterials(taskId) {
       var priceInput = (isDone || isLogistAccepted)
         ? '<span style="color:var(--text-2);font-size:.8rem">' + price.toLocaleString('ru-RU') + ' ₽</span>'
         : '<div style="display:flex;align-items:center;justify-content:flex-end;gap:3px">' +
-            '<input type="number" step="any" min="0" value="' + price + '" id="price_mat_' + rowKey + '" oninput="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" onchange="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" style="width:70px;padding:3px 6px;text-align:right;font-size:.82rem" title="Цена за единицу ТМЦ">' +
+            '<input type="number" step="any" min="0" value="' + price + '" id="price_mat_' + rowKey + '" oninput="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" onchange="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" style="width:70px;padding:3px 6px;text-align:right;font-size:.82rem" title="Цена за единицу ТМЦ"' + factDisabled + '>' +
             '<span style="font-size:.74rem;color:var(--text-3)">₽</span>' +
           '</div>';
 
       var noteInput = (isDone || isLogistAccepted)
         ? '<span style="font-size:.74rem;color:var(--text-3)">' + escHtml(m.note || '—') + '</span>'
-        : '<input type="text" id="note_mat_' + rowKey + '" value="' + escHtml(m.note || '') + '" placeholder="Примечание..." style="width:100%;min-width:90px;padding:2px 4px;font-size:.76rem" class="inp" oninput="window._onTmcFactChange(\'' + encodeURIComponent(taskId) + '\')">';
+        : '<input type="text" id="note_mat_' + rowKey + '" value="' + escHtml(m.note || '') + '" placeholder="Примечание..." style="width:100%;min-width:90px;padding:2px 4px;font-size:.76rem" class="inp" oninput="window._onTmcFactChange(\'' + encodeURIComponent(taskId) + '\')"' + factDisabled + '>';
 
       var planQty = parseFloat(m.plan_qty) || 0;
       var planDisplay = '';

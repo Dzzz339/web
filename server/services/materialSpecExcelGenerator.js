@@ -380,6 +380,7 @@ export async function generateShipmentExcel(taskId, shipmentId) {
   let totalShippedQty = 0;
   let totalAcceptedQty = 0;
   let hasAnyAccepted = false;
+  let hasAnyPrice = false;
   let totalSum = 0;
 
   items.forEach((it, idx) => {
@@ -396,9 +397,18 @@ export async function generateShipmentExcel(taskId, shipmentId) {
       }
     }
 
-    const price = it.price_snapshot !== null && it.price_snapshot !== undefined ? Number(it.price_snapshot) : 0;
-    const itemSum = Math.round(shQty * price);
-    totalSum += itemSum;
+    let priceVal = '';
+    let itemSumVal = '';
+    if (it.price_snapshot !== null && it.price_snapshot !== undefined && String(it.price_snapshot).trim() !== '') {
+      const parsedPrice = Number(it.price_snapshot);
+      if (Number.isFinite(parsedPrice) && parsedPrice >= 0) {
+        priceVal = parsedPrice;
+        const itemSum = Math.round(shQty * parsedPrice);
+        itemSumVal = itemSum;
+        totalSum += itemSum;
+        hasAnyPrice = true;
+      }
+    }
 
     const row = [
       idx + 1,
@@ -410,8 +420,8 @@ export async function generateShipmentExcel(taskId, shipmentId) {
       acQtyVal,
       fmtSource(it.source_snapshot),
       it.supplier_contractor_name || it.supplier_snapshot || '',
-      price > 0 ? price : '',
-      itemSum > 0 ? itemSum : '',
+      priceVal,
+      itemSumVal,
       it.discrepancy_reason || ''
     ];
 
@@ -430,7 +440,7 @@ export async function generateShipmentExcel(taskId, shipmentId) {
     '',
     '',
     '',
-    totalSum > 0 ? totalSum : '',
+    hasAnyPrice ? totalSum : '',
     ''
   ];
   wsData.push(totalRow);

@@ -632,14 +632,27 @@ router.delete('/tasks/:id/materials/:itemId', authenticateToken, async (req, res
   }
 });
 
-// POST /api/tasks/:id/materials/calculate
-router.post('/tasks/:id/materials/calculate', authenticateToken, async (req, res) => {
+// POST /api/tasks/:id/materials/calculate (также /materials/recalculate)
+router.post(['/tasks/:id/materials/calculate', '/tasks/:id/materials/recalculate'], authenticateToken, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    // Загружаем данные задачи для точного определения объема портов
-    const { rows: tRows } = await client.query('SELECT in_order, fact, work_type FROM tasks WHERE id = $1', [taskId]);
-    const taskObj = tRows[0] || {};
+    const taskId = req.params.id;
+    // Загружаем данные задачи для точного определения объема портов и проверки блокировки логистом
+    const { rows: tRows } = await client.query('SELECT in_order, fact, work_type, raw_data FROM tasks WHERE id = $1', [taskId]);
+    if (!tRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Заявка не найдена' });
+    }
+    const taskObj = tRows[0];
+    let rawData = taskObj.raw_data || {};
+    if (typeof rawData === 'string') {
+      try { rawData = JSON.parse(rawData); } catch { rawData = {}; }
+    }
+    if (rawData.tmcLogistAccepted) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Отчёт по ТМЦ утверждён логистом и заблокирован от пересчёта и изменений' });
+    }
     const taskPorts = Math.max(1, parseInt(taskObj.fact, 10) || parseInt(taskObj.in_order, 10) || 1);
 
     let checklist = req.body.checklist;
@@ -1060,10 +1073,19 @@ router.post('/tasks/:id/materials/batch', authenticateToken, requireRole('admin'
     const taskId = req.params.id;
 
     // Проверка заявки
-    const { rows: taskRows } = await client.query('SELECT id FROM tasks WHERE id = $1', [taskId]);
+    const { rows: taskRows } = await client.query('SELECT id, raw_data FROM tasks WHERE id = $1', [taskId]);
     if (!taskRows.length) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Заявка не найдена' });
+    }
+    const task = taskRows[0];
+    let rawData = task.raw_data || {};
+    if (typeof rawData === 'string') {
+      try { rawData = JSON.parse(rawData); } catch { rawData = {}; }
+    }
+    if (rawData.tmcLogistAccepted) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Отчёт по ТМЦ утверждён логистом и заблокирован от изменений' });
     }
 
     // Запрет изменения запрещённых полей через batch
@@ -1538,6 +1560,26 @@ router.post('/tasks/:id/materials/accept-logist', authenticateToken, requireRole
     let rawData = task.raw_data || task.rawData || {};
     if (typeof rawData === 'string') {
       try { rawData = JSON.parse(rawData); } catch { rawData = {}; }
+    }
+
+    if (rawData.tmcLogistAccepted) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Отчёт по ТМЦ уже утверждён логистом' });
+    }
+
+    let hasContractorAcceptance = Boolean(rawData.tmcAccepted);
+    if (!hasContractorAcceptance) {
+      const { rows: acceptedShipments } = await client.query(
+        "SELECT 1 FROM material_shipments WHERE task_id = $1 AND status IN ('accepted', 'accepted_discrepancy') LIMIT 1",
+        [taskId]
+      );
+      if (acceptedShipments.length > 0) {
+        hasContractorAcceptance = true;
+      }
+    }
+    if (!hasContractorAcceptance) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Нельзя утвердить отчёт по ТМЦ до приёмки материалов подрядчиком' });
     }
 
     const logistName = req.user.full_name || req.user.username || 'Логист';
@@ -2265,6 +2307,25 @@ router.get('/tasks/:id/shipments/:shipmentId', authenticateToken, async (req, re
   }
 });
 
+function getSnapshotPrice(it, tiRow, tmRow) {
+  if (it && it.price !== undefined) {
+    if (it.price === null || String(it.price).trim() === '') return null;
+    const p = Number(it.price);
+    return Number.isFinite(p) ? p : null;
+  }
+  if (tmRow && tmRow.price !== null && tmRow.price !== undefined && String(tmRow.price).trim() !== '') {
+    const p = Number(tmRow.price);
+    if (Number.isFinite(p) && p > 0) return p;
+  }
+  if (tiRow) {
+    const pc = Number(tiRow.price_contractor);
+    if (Number.isFinite(pc) && pc > 0) return pc;
+    const pCust = Number(tiRow.price_customer);
+    if (Number.isFinite(pCust) && pCust > 0) return pCust;
+  }
+  return null;
+}
+
 // POST /api/tasks/:id/shipments
 router.post('/tasks/:id/shipments', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics', 'to_engineer'), async (req, res) => {
   const client = await pool.connect();
@@ -2353,7 +2414,7 @@ router.post('/tasks/:id/shipments', authenticateToken, requireRole('admin', 'dir
       const source = (tiRow && tiRow.source) || (tmRow && tmRow.source) || null;
       const supplier = (tiRow && tiRow.supplier) || (tmRow && tmRow.supplier) || null;
       const supplierContractorId = (tiRow && tiRow.supplier_contractor_id) || (tmRow && tmRow.supplier_contractor_id) || null;
-      const price = (tiRow && (parseFloat(tiRow.price_customer || tiRow.price_contractor) || 0)) || (tmRow && (parseFloat(tmRow.price) || 0)) || 0;
+      const price = getSnapshotPrice(it, tiRow, tmRow);
 
       validatedItems.push({
         task_item_id: tiRow ? tiRow.id : null,
@@ -2549,7 +2610,7 @@ router.put('/tasks/:id/shipments/:shipmentId', authenticateToken, requireRole('a
         const source = (tiRow && tiRow.source) || (tmRow && tmRow.source) || null;
         const supplier = (tiRow && tiRow.supplier) || (tmRow && tmRow.supplier) || null;
         const supplierContractorId = (tiRow && tiRow.supplier_contractor_id) || (tmRow && tmRow.supplier_contractor_id) || null;
-        const price = (tiRow && (parseFloat(tiRow.price_customer || tiRow.price_contractor) || 0)) || (tmRow && (parseFloat(tmRow.price) || 0)) || 0;
+        const price = getSnapshotPrice(it, tiRow, tmRow);
 
         validatedItems.push({
           task_item_id: tiRow ? tiRow.id : null,
@@ -2705,8 +2766,13 @@ router.post('/tasks/:id/shipments/:shipmentId/accept', authenticateToken, async 
       return res.status(409).json({ error: 'Отгрузка уже акцептована ранее' });
     }
 
-    const { items, comment, acceptance_comment } = req.body;
+    const { items, comment, acceptance_comment } = req.body || {};
     const accComment = (acceptance_comment !== undefined ? acceptance_comment : comment) ? String(acceptance_comment !== undefined ? acceptance_comment : comment).trim() : '';
+
+    if (!Array.isArray(items) || items.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Список принимаемых позиций (items) не может быть пустым' });
+    }
 
     const { rows: curItems } = await client.query(
       'SELECT * FROM material_shipment_items WHERE shipment_id = $1 ORDER BY id ASC',
@@ -2717,24 +2783,24 @@ router.post('/tasks/:id/shipments/:shipmentId/accept', authenticateToken, async 
     const itemUpdates = [];
 
     for (const curIt of curItems) {
-      const match = Array.isArray(items) ? items.find(x => Number(x.id) === curIt.id || (x.task_item_id && Number(x.task_item_id) === curIt.task_item_id) || (x.task_material_id && Number(x.task_material_id) === curIt.task_material_id)) : null;
+      const match = items.find(x => Number(x.id) === curIt.id || (x.task_item_id && Number(x.task_item_id) === curIt.task_item_id) || (x.task_material_id && Number(x.task_material_id) === curIt.task_material_id));
 
-      let accQty = curIt.shipped_qty;
-      let discReason = null;
-
-      if (match) {
-        if (match.accepted_qty === null || match.accepted_qty === undefined || match.accepted_qty === '') {
-          await client.query('ROLLBACK');
-          return res.status(400).json({ error: 'Принятое количество должно быть указано для всех позиций' });
-        }
-        const parsed = Number(match.accepted_qty);
-        if (!Number.isFinite(parsed) || parsed < 0) {
-          await client.query('ROLLBACK');
-          return res.status(400).json({ error: 'Принятое количество должно быть неотрицательным числом (>= 0)' });
-        }
-        accQty = parsed;
-        discReason = match.discrepancy_reason ? String(match.discrepancy_reason).trim() : null;
+      if (!match) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `Не указаны данные приёмки для позиции #${curIt.id} (${curIt.item_name_snapshot || ''})` });
       }
+
+      if (match.accepted_qty === null || match.accepted_qty === undefined || String(match.accepted_qty).trim() === '') {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Принятое количество должно быть указано для всех позиций' });
+      }
+      const parsed = Number(match.accepted_qty);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Принятое количество должно быть неотрицательным числом (>= 0)' });
+      }
+      const accQty = parsed;
+      const discReason = match.discrepancy_reason ? String(match.discrepancy_reason).trim() : null;
 
       if (Number(accQty) !== Number(curIt.shipped_qty)) {
         hasDiscrepancy = true;
