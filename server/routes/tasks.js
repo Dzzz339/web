@@ -1984,19 +1984,25 @@ router.get('/tasks/:id/items', authenticateToken, async (req, res) => {
           const qty = m.plan_qty !== null && m.plan_qty !== undefined ? Number(m.plan_qty) : null;
           const pr = Number(m.price || 0) || 0;
           const tot = qty !== null ? Math.round(qty * pr) : 0;
-          await pool.query(
+          const { rows: insertedTi } = await pool.query(
             `INSERT INTO task_items (
               task_id, work_type, quantity, unit, price_customer, amount_customer,
               price_contractor, amount_contractor, article, article_plan,
-              manufacturer, supplier, supplier_contractor_id, source, shipment_method, status
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'pending')`,
+              manufacturer, supplier, supplier_contractor_id, source, shipment_method, status,
+              demand_name, material_id
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'pending',$16,$17)
+            RETURNING id`,
             [
               req.params.id, m.item_name || 'Материал', qty, m.unit || 'шт',
               pr, tot, pr, tot, m.article || null, m.article || null,
               m.manufacturer || null, m.supplier || null, m.supplier_contractor_id || null,
-              m.source || null, m.shipment_method || null
+              m.source || null, m.shipment_method || null,
+              m.demand_name || m.item_name || null, m.material_id || null
             ]
           );
+          if (insertedTi.length) {
+            await pool.query('UPDATE task_materials SET task_item_id = $1 WHERE id = $2', [insertedTi[0].id, m.id]);
+          }
         }
         const recheck = await pool.query(
           `SELECT ti.*, c.name_short AS contractor_short_name, c.inn AS contractor_inn,
@@ -2118,38 +2124,20 @@ router.post('/tasks/:id/items', authenticateToken, requireRole('admin', 'directo
     // Синхронизация правок с task_materials (вкладка "Закрытие и учет ТМЦ")
     if (rows[0]) {
       const it = rows[0];
+      const pr = it.price_customer || it.price_contractor || 0;
+      const tot = it.quantity !== null && it.quantity !== undefined ? Math.round(Number(it.quantity) * Number(pr)) : null;
       await pool.query(`
-        UPDATE task_materials SET
-          item_name = COALESCE($1, item_name),
-          plan_qty = CASE WHEN $2::boolean THEN $3::numeric ELSE plan_qty END,
-          unit = COALESCE($4, unit),
-          price = COALESCE($5, price),
-          total_price = CASE
-            WHEN fact_qty IS NOT NULL AND COALESCE($5, price) IS NOT NULL THEN ROUND(fact_qty * COALESCE($5, price))
-            ELSE total_price
-          END,
-          supplier = COALESCE($6, supplier),
-          supplier_contractor_id = COALESCE($7, supplier_contractor_id),
-          article = COALESCE($8, article),
-          manufacturer = COALESCE($9, manufacturer),
-          source = COALESCE($10, source),
-          shipment_method = COALESCE($11, shipment_method),
-          material_id = COALESCE($12, material_id)
-        WHERE task_id = $13 AND (
-          LOWER(TRIM(item_name)) = LOWER(TRIM($1)) OR
-          pos_num = $14
-        ) AND (is_written_off IS FALSE OR is_written_off IS NULL)
+        INSERT INTO task_materials (
+          task_id, task_item_id, item_name, article, unit, plan_qty, fact_qty, price, total_price,
+          supplier, supplier_contractor_id, source, manufacturer, shipment_method,
+          material_id, demand_name
+        ) VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       `, [
-        it.work_type, effectiveQty !== null, effectiveQty,
-        it.unit,
-        it.price_customer || it.price_contractor || null,
-        it.supplier, it.supplier_contractor_id || null,
-        it.article_plan || it.article,
-        it.manufacturer || null,
-        it.source || null,
-        it.shipment_method || null,
-        it.material_id || null,
-        req.params.id, String(it.id)
+        req.params.id, it.id, it.work_type, it.article_plan || it.article || null, it.unit || 'шт',
+        it.quantity, pr, tot,
+        it.supplier || null, it.supplier_contractor_id || null, it.source || null,
+        it.manufacturer || null, it.shipment_method || null, it.material_id || null,
+        it.demand_name || it.work_type
       ]);
     }
 
@@ -2189,16 +2177,18 @@ router.post('/tasks/:id/items/:itemId/duplicate', authenticateToken, requireRole
       s.manufacturer, s.supplier_contractor_id, s.source, s.material_id, s.demand_name
     ]);
 
-    // Синхронизируем дубликат и в task_materials
+    // Синхронизируем дубликат и в task_materials с привязкой task_item_id
     await pool.query(`
       INSERT INTO task_materials (
-        task_id, item_name, article, unit, plan_qty, fact_qty, price, total_price, supplier, supplier_contractor_id, source, manufacturer, shipment_method, material_id, demand_name
-      ) VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, 'task_items', $10, $11, $12, $13)
+        task_id, item_name, article, unit, plan_qty, fact_qty, price, total_price, supplier, supplier_contractor_id, source, manufacturer, shipment_method, material_id, demand_name, task_item_id
+      ) VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
     `, [
       s.task_id, s.work_type, s.article_plan || s.article, s.unit || 'шт',
       s.quantity, s.price_customer || s.price_contractor || 0,
       s.amount_customer || s.amount_contractor || 0, s.supplier, s.supplier_contractor_id,
-      s.manufacturer, s.shipment_method, s.material_id, s.demand_name || s.work_type
+      s.source || 'task_items',
+      s.manufacturer, s.shipment_method, s.material_id, s.demand_name || s.work_type,
+      copy[0].id
     ]);
 
     res.json(copy[0]);
@@ -2431,40 +2421,74 @@ router.put('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', '
     // Синхронизация правок с task_materials (вкладка "Закрытие и учет ТМЦ")
     if (rows[0]) {
       const it = rows[0];
-      await pool.query(`
-        UPDATE task_materials SET
-          item_name = COALESCE($1, item_name),
-          plan_qty = CASE WHEN $2::boolean THEN $3::numeric ELSE plan_qty END,
-          unit = COALESCE($4, unit),
-          price = COALESCE($5, price),
-          total_price = CASE
-            WHEN fact_qty IS NOT NULL AND COALESCE($5, price) IS NOT NULL THEN ROUND(fact_qty * COALESCE($5, price))
-            ELSE total_price
-          END,
-          supplier = CASE WHEN $6::boolean THEN $7 ELSE supplier END,
-          supplier_contractor_id = CASE WHEN $8::boolean THEN $9::integer ELSE supplier_contractor_id END,
-          article = COALESCE($10, article),
-          manufacturer = COALESCE($11, manufacturer),
-          source = COALESCE($12, source),
-          shipment_method = COALESCE($13, shipment_method),
-          material_id = COALESCE($14, material_id)
-        WHERE task_id = $15 AND (
-          LOWER(TRIM(item_name)) = LOWER(TRIM($1)) OR
-          pos_num = $16
-        ) AND (is_written_off IS FALSE OR is_written_off IS NULL)
-      `, [
-        it.work_type, hasQty, effectiveQty,
-        it.unit,
-        it.price_customer || it.price_contractor || null,
-        supplier !== undefined, it.supplier,
-        supplier_contractor_id !== undefined, it.supplier_contractor_id || null,
-        it.article_plan || it.article,
-        it.manufacturer || null,
-        it.source || null,
-        it.shipment_method || null,
-        it.material_id || null,
-        req.params.id, String(it.id)
-      ]);
+      // Ищем связанную запись строго по task_item_id
+      const { rows: tmLinked } = await pool.query(
+        'SELECT id FROM task_materials WHERE task_id = $1 AND task_item_id = $2',
+        [req.params.id, it.id]
+      );
+      let targetTmId = tmLinked.length ? tmLinked[0].id : null;
+      if (!targetTmId) {
+        // Безопасное сопоставление одной не привязанной записи в рамках заявки
+        const { rows: tmSafe } = await pool.query(
+          'SELECT id FROM task_materials WHERE task_id = $1 AND task_item_id IS NULL AND LOWER(TRIM(item_name)) = LOWER(TRIM($2)) LIMIT 1',
+          [req.params.id, it.work_type]
+        );
+        if (tmSafe.length) {
+          targetTmId = tmSafe[0].id;
+          await pool.query('UPDATE task_materials SET task_item_id = $1 WHERE id = $2', [it.id, targetTmId]);
+        }
+      }
+
+      if (targetTmId) {
+        await pool.query(`
+          UPDATE task_materials SET
+            item_name = COALESCE($1, item_name),
+            plan_qty = CASE WHEN $2::boolean THEN $3::numeric ELSE plan_qty END,
+            unit = COALESCE($4, unit),
+            price = COALESCE($5, price),
+            total_price = CASE
+              WHEN fact_qty IS NOT NULL AND COALESCE($5, price) IS NOT NULL THEN ROUND(fact_qty * COALESCE($5, price))
+              ELSE total_price
+            END,
+            supplier = CASE WHEN $6::boolean THEN $7 ELSE supplier END,
+            supplier_contractor_id = CASE WHEN $8::boolean THEN $9::integer ELSE supplier_contractor_id END,
+            article = COALESCE($10, article),
+            manufacturer = COALESCE($11, manufacturer),
+            source = COALESCE($12, source),
+            shipment_method = COALESCE($13, shipment_method),
+            material_id = COALESCE($14, material_id),
+            demand_name = COALESCE(demand_name, $15)
+          WHERE id = $16 AND (is_written_off IS FALSE OR is_written_off IS NULL)
+        `, [
+          it.work_type, hasQty, effectiveQty,
+          it.unit,
+          it.price_customer || it.price_contractor || null,
+          supplier !== undefined, it.supplier,
+          supplier_contractor_id !== undefined, it.supplier_contractor_id || null,
+          it.article_plan || it.article,
+          it.manufacturer || null,
+          it.source || null,
+          it.shipment_method || null,
+          it.material_id || null,
+          it.demand_name || it.work_type,
+          targetTmId
+        ]);
+      } else {
+        await pool.query(`
+          INSERT INTO task_materials (
+            task_id, task_item_id, item_name, article, unit, plan_qty, fact_qty, price, total_price,
+            supplier, supplier_contractor_id, source, manufacturer, shipment_method,
+            material_id, demand_name
+          ) VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        `, [
+          req.params.id, it.id, it.work_type, it.article_plan || it.article || null, it.unit || 'шт',
+          it.quantity, it.price_customer || it.price_contractor || 0,
+          it.quantity !== null && it.quantity !== undefined ? Math.round(Number(it.quantity) * Number(it.price_customer || it.price_contractor || 0)) : null,
+          it.supplier || null, it.supplier_contractor_id || null, it.source || null,
+          it.manufacturer || null, it.shipment_method || null, it.material_id || null,
+          it.demand_name || it.work_type
+        ]);
+      }
     }
 
     res.json(rows[0]);

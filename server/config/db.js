@@ -994,6 +994,7 @@ export async function initDB() {
   await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS supplier_contractor_id INTEGER REFERENCES contractors(id) ON DELETE SET NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_materials_supplier_contractor ON task_materials(supplier_contractor_id)`);
   await pool.query(`ALTER TABLE task_materials ALTER COLUMN material_id DROP NOT NULL`);
+  await pool.query(`ALTER TABLE task_materials ALTER COLUMN plan_qty DROP NOT NULL`);
   await pool.query(`ALTER TABLE task_materials DROP CONSTRAINT IF EXISTS task_materials_task_id_material_id_key`);
   await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS pos_num TEXT`);
   await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS item_name TEXT`);
@@ -1007,6 +1008,8 @@ export async function initDB() {
   await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS manufacturer TEXT`);
   await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS shipment_method TEXT`);
   await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS demand_name TEXT`);
+  await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS task_item_id INTEGER REFERENCES task_items(id) ON DELETE SET NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_materials_task_item_id ON task_materials(task_item_id)`);
 
   // 7. Поставщики ТМЦ
   await pool.query(`

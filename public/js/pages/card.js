@@ -2469,7 +2469,7 @@ function pageCard() {
     '<div id="materialsGroupActionBar" style="display:none;background:#f8fafc;border:1.5px solid #cbd5e1;border-radius:8px;padding:8px 12px;margin-bottom:.75rem;align-items:center;gap:10px;flex-wrap:wrap">' +
       '<span style="font-weight:700;font-size:.8rem;color:var(--text)">Выбрано: <span id="batchSelectedCount">0</span> поз.</span>' +
       '<label style="display:flex;align-items:center;gap:4px;font-size:.78rem">Источник: ' +
-        '<select class="select" id="batchSourceSelect" onchange="window.onBatchSourceChange(this.value)">' +
+        '<select class="select" id="batchSourceSelect">' +
           '<option value="">-- Не менять --</option>' +
           '<option value="warehouse">Склад</option>' +
           '<option value="supplier">Поставщик</option>' +
@@ -2481,8 +2481,8 @@ function pageCard() {
         '</select>' +
       '</label>' +
       '<input list="shipmentMethodsDL" id="batchShipmentMethod" placeholder="Способ доставки..." style="width:140px;height:28px;padding:2px 6px;font-size:.78rem;border:1px solid var(--border);border-radius:4px">' +
-      '<button type="button" class="btn btn-sm btn-primary" id="batchApplyBtn" onclick="window.applyMaterialsBatchAction(\'' + eid + '\')">Применить</button>' +
-      '<button type="button" class="btn btn-sm btn-ghost" id="batchClearBtn" style="color:var(--red)" onclick="window.clearMaterialsBatchSource(\'' + eid + '\')">Очистить источник</button>' +
+      '<button type="button" class="btn btn-sm btn-primary" id="batchApplyBtn">Применить</button>' +
+      '<button type="button" class="btn btn-sm btn-ghost" id="batchClearBtn" style="color:var(--red)">Очистить источник</button>' +
     '</div>' +
     '<div id="taskItemsList" class="t3">Загрузка позиций…</div>' +
     '<div id="cardContractorOrdersBar" style="margin-top:.75rem;display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.78rem"></div>' +
@@ -3364,19 +3364,20 @@ function refreshTaskItemsList(taskId) {
           '<optgroup label="Поставщики">';
 
         var activeSuppliers = (S.contractors || []).filter(function(c) {
-          return c.type === 'supplier' && c.is_own !== true && (c.status === 'active' || !c.status);
+          return c.type === 'supplier' && c.is_own !== true && c.status === 'active';
         });
         var foundSuppInActive = false;
         activeSuppliers.forEach(function(sc) {
-          var isSel = (it.supplier_contractor_id === sc.id || (curSupp && curSupp.toLowerCase() === sc.name_short.toLowerCase()));
+          var isSel = (it.supplier_contractor_id && sc.id && Number(it.supplier_contractor_id) === Number(sc.id));
           if (isSel) foundSuppInActive = true;
           suppOptions += '<option value="' + sc.id + '"' + (isSel ? ' selected' : '') + '>' + escHtml(sc.name_short) + '</option>';
         });
         suppOptions += '</optgroup>';
-        if (curSupp && !foundSuppInActive && curSource !== 'warehouse') {
-          suppOptions = '<option value="' + escHtml(curSupp) + '" selected>' + escHtml(curSupp) + '</option>' + suppOptions;
+        if (!foundSuppInActive && curSource !== 'warehouse' && (it.supplier_contractor_id || it.supplier)) {
+          var histVal = it.supplier_contractor_id ? String(it.supplier_contractor_id) : (it.supplier || '');
+          var histLabel = it.supplier_contractor_name || it.supplier || ('Поставщик #' + it.supplier_contractor_id);
+          suppOptions = '<option value="' + escHtml(histVal) + '" selected>' + escHtml(histLabel) + ' (текущий / архив)</option>' + suppOptions;
         }
-        suppOptions += '<option value="__custom__">Вписать другого...</option>';
 
         var unitPrice = Number(it.price_contractor || it.price_customer || 0);
         var qtyVal = (it.quantity !== null && it.quantity !== undefined && it.quantity !== '') ? it.quantity : '';
@@ -3385,12 +3386,13 @@ function refreshTaskItemsList(taskId) {
 
         return '<tr style="border-bottom:1px solid var(--border);font-size:.78rem">' +
           '<td style="padding:4px 6px;text-align:center">' +
-            '<input type="checkbox" class="task-item-chk" value="' + it.id + '" onchange="window.onTaskItemCheckChange()">' +
+            '<input type="checkbox" class="task-item-chk" value="' + it.id + '">' +
           '</td>' +
           '<td style="padding:4px 6px;font-weight:600;color:var(--text-3);text-align:center">' + (idx + 1) + '</td>' +
           '<td style="padding:4px 6px;max-width:240px">' +
             '<div style="font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(it.work_type) + '">' + escHtml(it.work_type) + '</div>' +
             (it.demand_name && it.demand_name !== it.work_type ? ('<div style="font-size:.68rem;color:var(--text-3)" title="Исходная потребность">Потребность: ' + escHtml(it.demand_name) + '</div>') : '') +
+            (it.comment ? ('<div style="font-size:.68rem;color:var(--text-2);margin-top:2px" title="Комментарий">💬 ' + escHtml(it.comment) + '</div>') : '') +
           '</td>' +
           '<td style="padding:4px 6px;white-space:nowrap">' + artCell + '</td>' +
           '<td style="padding:4px 6px;white-space:nowrap">' + manufCell + '</td>' +
@@ -3408,7 +3410,7 @@ function refreshTaskItemsList(taskId) {
           '</td>' +
           '<td style="padding:4px 6px;min-width:140px">' +
             '<div>' + sourceBadge + '</div>' +
-            '<select class="select" id="item_supplier_' + it.id + '"' + selectDisabled + ' onchange="window.onItemSupplierChange(\'' + escTaskId + '\', ' + it.id + ', this.value, this)" aria-label="Поставщик / склад">' +
+            '<select class="select" id="item_supplier_' + it.id + '"' + selectDisabled + ' aria-label="Поставщик / склад">' +
               suppOptions +
             '</select>' +
           '</td>' +
@@ -3427,7 +3429,7 @@ function refreshTaskItemsList(taskId) {
       el.innerHTML = '<div style="overflow-x:auto;max-width:100%">' +
         '<table style="width:100%;border-collapse:collapse;text-align:left;line-height:1.25">' +
           '<thead><tr style="background:var(--bg);font-size:.72rem;color:var(--text-3);border-bottom:1.5px solid var(--border)">' +
-            '<th style="padding:5px 6px;width:28px;text-align:center"><input type="checkbox" id="selectAllTaskItems" onchange="window.toggleSelectAllTaskItems(this.checked)" title="Выбрать все на текущем экране"></th>' +
+            '<th style="padding:5px 6px;width:28px;text-align:center"><input type="checkbox" id="selectAllTaskItems" title="Выбрать все на текущем экране"></th>' +
             '<th style="padding:5px 6px;width:24px;text-align:center">№</th>' +
             '<th style="padding:5px 6px">Наименование материала</th>' +
             '<th style="padding:5px 6px;width:100px">Артикул</th>' +
@@ -3442,11 +3444,46 @@ function refreshTaskItemsList(taskId) {
           '<tbody>' + rows + '</tbody>' +
         '</table></div>';
 
+      // Привязка обработчиков событий (без inline-обработчиков)
+      var bSrc = document.getElementById('batchSourceSelect');
+      if (bSrc && !bSrc._hasTmcListener) {
+        bSrc._hasTmcListener = true;
+        bSrc.addEventListener('change', function() { window.onBatchSourceChange(this.value); });
+      }
+      var bApply = document.getElementById('batchApplyBtn');
+      if (bApply && !bApply._hasTmcListener) {
+        bApply._hasTmcListener = true;
+        bApply.addEventListener('click', function() { window.applyMaterialsBatchAction(taskId); });
+      }
+      var bClear = document.getElementById('batchClearBtn');
+      if (bClear && !bClear._hasTmcListener) {
+        bClear._hasTmcListener = true;
+        bClear.addEventListener('click', function() { window.clearMaterialsBatchSource(taskId); });
+      }
+
+      var selAll = document.getElementById('selectAllTaskItems');
+      if (selAll) {
+        selAll.addEventListener('change', function() {
+          window.toggleSelectAllTaskItems(this.checked);
+        });
+      }
+
+      el.querySelectorAll('.task-item-chk').forEach(function(chk) {
+        chk.addEventListener('change', window.onTaskItemCheckChange);
+      });
+
+      el.querySelectorAll('select[id^="item_supplier_"]').forEach(function(sel) {
+        sel.addEventListener('change', function() {
+          var itemId = parseInt(this.id.replace('item_supplier_', ''), 10);
+          window.onItemSupplierChange(taskId, itemId, this.value, this);
+        });
+      });
+
       // Обновляем селект поставщиков в групповой панели
       var bSuppSel = document.getElementById('batchSupplierSelect');
       if (bSuppSel) {
         var activeSupps = (S.contractors || []).filter(function(c) {
-          return c.type === 'supplier' && c.is_own !== true && (c.status === 'active' || !c.status);
+          return c.type === 'supplier' && c.is_own !== true && c.status === 'active';
         });
         bSuppSel.innerHTML = '<option value="">-- Не менять --</option>' +
           activeSupps.map(function(s) {
@@ -3513,16 +3550,7 @@ window.updateItemInline = function(taskId, itemId, field, val) {
 
 window.onItemSupplierChange = function(taskId, itemId, val, selEl) {
   var payload = {};
-  if (val === '__custom__') {
-    var customVal = prompt('Укажите название поставщика:');
-    if (!customVal || !customVal.trim()) {
-      if (selEl) selEl.value = '';
-      return;
-    }
-    payload.supplier = customVal.trim();
-    payload.source = 'supplier';
-    payload.supplier_contractor_id = null;
-  } else if (val === '__wh_company__' || val === '__wh_central__' || val === '__wh_object__') {
+  if (val === '__wh_company__' || val === '__wh_central__' || val === '__wh_object__') {
     var whNames = {
       '__wh_company__': 'Склад компании',
       '__wh_central__': 'Центральный склад',
@@ -3536,12 +3564,13 @@ window.onItemSupplierChange = function(taskId, itemId, val, selEl) {
     var found = (S.contractors || []).find(function(c) { return c.id === scId; });
     payload.source = 'supplier';
     payload.supplier_contractor_id = scId;
-    payload.supplier = found ? found.name_short : null;
+    payload.supplier = found ? (found.name_short || found.name) : null;
   } else if (!val) {
     payload.source = null;
     payload.supplier = null;
     payload.supplier_contractor_id = null;
   } else {
+    // Историческое/архивное сохраненное значение
     payload.source = val.toLowerCase().includes('склад') ? 'warehouse' : 'supplier';
     payload.supplier = val;
     payload.supplier_contractor_id = null;
@@ -3875,7 +3904,7 @@ window._applyCatalogLink = function(catalogId) {
   var taskId = window._curLinkTaskId;
   var itemId = window._curLinkItemId;
 
-  api('/api/tasks/' + encodeURIComponent(taskId) + '/materials/' + encodeURIComponent(itemId) + '/bind', {
+  api('/tasks/' + encodeURIComponent(taskId) + '/materials/' + encodeURIComponent(itemId) + '/bind', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ material_id: catalogId })
@@ -4005,8 +4034,19 @@ function submitTaskItemForm(e, taskId, itemId) {
   var manufacturer = (document.getElementById('m_item_manufacturer') ? document.getElementById('m_item_manufacturer').value : '').trim() || null;
   var source = (document.getElementById('m_item_source') ? document.getElementById('m_item_source').value : '').trim() || null;
   var suppSelect = document.getElementById('m_item_supplier_contractor_id');
-  var suppId = suppSelect && suppSelect.value ? parseInt(suppSelect.value, 10) : null;
-  var suppName = (suppSelect && suppSelect.selectedIndex > 0) ? suppSelect.options[suppSelect.selectedIndex].text : null;
+  var rawSuppVal = suppSelect ? suppSelect.value : '';
+  var isKeepSupplier = (rawSuppVal === '__keep__');
+  var suppId = null;
+  var suppName = null;
+
+  if (isKeepSupplier) {
+    // Сохраняем текущего поставщика без перезаписи
+  } else if (rawSuppVal && !isNaN(parseInt(rawSuppVal, 10))) {
+    suppId = parseInt(rawSuppVal, 10);
+    var foundSc = (S.contractors || []).find(function(c) { return c.id === suppId; });
+    suppName = foundSc ? (foundSc.name_short || foundSc.name) : ((suppSelect && suppSelect.selectedIndex > 0) ? suppSelect.options[suppSelect.selectedIndex].text : null);
+  }
+
   var shipMethod = (document.getElementById('m_item_shipment_method') ? document.getElementById('m_item_shipment_method').value : '').trim() || null;
   var comment = (document.getElementById('m_item_comment') ? document.getElementById('m_item_comment').value : '').trim() || null;
 
@@ -4022,6 +4062,7 @@ function submitTaskItemForm(e, taskId, itemId) {
   if (source === 'warehouse') {
     finalSupplier = 'Склад';
     suppId = null;
+    isKeepSupplier = false;
   } else if (source === 'supplier') {
     finalSupplier = suppName || null;
   }
@@ -4032,8 +4073,8 @@ function submitTaskItemForm(e, taskId, itemId) {
     article_plan: artPlan || null,
     manufacturer: manufacturer,
     source: source,
-    supplier_contractor_id: suppId,
-    supplier: finalSupplier,
+    supplier_contractor_id: isKeepSupplier ? undefined : suppId,
+    supplier: isKeepSupplier ? undefined : finalSupplier,
     shipment_method: shipMethod,
     comment: comment,
     quantity: qty,
@@ -4043,6 +4084,10 @@ function submitTaskItemForm(e, taskId, itemId) {
     price_contractor: priceCont,
     amount_contractor: (qty !== null && qty !== undefined) ? qty * priceCont : 0
   };
+  if (isKeepSupplier) {
+    delete payload.supplier_contractor_id;
+    delete payload.supplier;
+  }
 
   var url = itemId
     ? ('/tasks/' + encodeURIComponent(taskId) + '/items/' + itemId)
@@ -4077,17 +4122,26 @@ function openEditItemModal(taskId, itemId) {
         return c.type === 'supplier' && !c.is_own && c.status === 'active';
       });
 
-      var suppOptions = '<option value="">(Не назначен)</option>' +
-        activeSuppliers.map(function(c) {
-          var sel = (it.supplier_contractor_id && Number(it.supplier_contractor_id) === Number(c.id)) ? ' selected' : '';
-          return '<option value="' + c.id + '"' + sel + '>' + escHtml(c.name_short || c.name) + '</option>';
-        }).join('');
+      var foundSuppInActive = false;
+      var suppOptions = '<option value="">(Не назначен)</option>';
+      activeSuppliers.forEach(function(c) {
+        var sel = (it.supplier_contractor_id && Number(it.supplier_contractor_id) === Number(c.id));
+        if (sel) foundSuppInActive = true;
+        suppOptions += '<option value="' + c.id + '"' + (sel ? ' selected' : '') + '>' + escHtml(c.name_short || c.name) + '</option>';
+      });
+
+      // Если у строки был неактивный supplier_contractor_id или исторический текстовый поставщик,
+      // добавляем опцию сохранения текущего поставщика (keep/legacy)
+      if (!foundSuppInActive && (it.supplier_contractor_id || it.supplier)) {
+        var histLabel = it.supplier_contractor_name || it.supplier || ('Поставщик #' + it.supplier_contractor_id);
+        suppOptions = '<option value="__keep__" selected>Текущий: ' + escHtml(histLabel) + ' (сохранить)</option>' + suppOptions;
+      }
 
       var modalId = 'modal_item_edit';
       var oldM = document.getElementById(modalId);
       if (oldM) oldM.remove();
 
-      var qtyVal = (it.quantity !== null && it.quantity !== undefined) ? it.quantity : 0;
+      var qtyVal = (it.quantity !== null && it.quantity !== undefined) ? it.quantity : '';
       var curSource = it.source || (it.supplier && it.supplier.toLowerCase().includes('склад') ? 'warehouse' : (it.supplier ? 'supplier' : ''));
 
       var html = '<div class="modal-overlay" id="' + modalId + '" onclick="if(event.target===this)this.remove()">' +
@@ -4113,8 +4167,8 @@ function openEditItemModal(taskId, itemId) {
             '</div>' +
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">' +
               '<div>' +
-                '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Плановое количество *</label>' +
-                '<input type="number" id="m_item_qty" step="any" min="0" value="' + qtyVal + '" required style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
+                '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Плановое количество</label>' +
+                '<input type="number" id="m_item_qty" step="any" min="0" value="' + qtyVal + '" style="width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem">' +
               '</div>' +
               '<div>' +
                 '<label style="display:block;font-size:.78rem;font-weight:700;margin-bottom:4px">Единица изм.</label>' +

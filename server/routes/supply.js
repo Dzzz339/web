@@ -791,86 +791,188 @@ router.post('/tasks/:id/materials/save-fact', authenticateToken, async (req, res
 
 // POST /api/tasks/:id/materials/:itemId/bind (Быстрая привязка позиции каталога)
 router.post('/tasks/:id/materials/:itemId/bind', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics', 'to_engineer'), async (req, res) => {
+  const client = await pool.connect();
   try {
+    await client.query('BEGIN');
     const taskId = req.params.id;
     const itemId = parseInt(req.params.itemId, 10);
     const { material_id } = req.body;
 
-    if (!material_id) return res.status(400).json({ error: 'material_id обязателен' });
+    if (!material_id) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'material_id обязателен' });
+    }
 
-    const { rows: mRows } = await pool.query('SELECT * FROM materials WHERE id = $1', [material_id]);
-    if (!mRows.length) return res.status(404).json({ error: 'Позиция номенклатуры не найдена' });
+    const { rows: mRows } = await client.query('SELECT * FROM materials WHERE id = $1', [material_id]);
+    if (!mRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Позиция номенклатуры не найдена' });
+    }
     const mat = mRows[0];
     if (mat.is_active === false) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Позиция номенклатуры неактивна или удалена из каталога' });
     }
 
-    const { rows: tmRows } = await pool.query('SELECT * FROM task_materials WHERE id = $1 AND task_id = $2', [itemId, taskId]);
-    if (!tmRows.length) return res.status(404).json({ error: 'Строка спецификации не найдена' });
-    const tm = tmRows[0];
+    // Проверяем: itemId может быть из task_items (таблица комплектации) или из task_materials
+    let tiRow = null;
+    let tmRow = null;
 
-    if (tm.is_written_off) {
+    const { rows: checkTi } = await client.query(
+      'SELECT * FROM task_items WHERE id = $1 AND task_id = $2',
+      [itemId, taskId]
+    );
+
+    if (checkTi.length > 0) {
+      tiRow = checkTi[0];
+      // Ищем связанную запись в task_materials по task_item_id
+      const { rows: checkTm } = await client.query(
+        'SELECT * FROM task_materials WHERE task_id = $1 AND task_item_id = $2',
+        [taskId, tiRow.id]
+      );
+      if (checkTm.length > 0) {
+        tmRow = checkTm[0];
+      } else {
+        // Безопасное сопоставление в рамках заявки (если task_item_id еще не был проставлен)
+        const { rows: safeTm } = await client.query(
+          'SELECT * FROM task_materials WHERE task_id = $1 AND task_item_id IS NULL AND LOWER(TRIM(item_name)) = LOWER(TRIM($2)) LIMIT 1',
+          [taskId, tiRow.work_type]
+        );
+        if (safeTm.length > 0) {
+          tmRow = safeTm[0];
+          await client.query('UPDATE task_materials SET task_item_id = $1 WHERE id = $2', [tiRow.id, tmRow.id]);
+        }
+      }
+    } else {
+      const { rows: checkTm } = await client.query(
+        'SELECT * FROM task_materials WHERE id = $1 AND task_id = $2',
+        [itemId, taskId]
+      );
+      if (checkTm.length > 0) {
+        tmRow = checkTm[0];
+        if (tmRow.task_item_id) {
+          const { rows: linkedTi } = await client.query(
+            'SELECT * FROM task_items WHERE id = $1 AND task_id = $2',
+            [tmRow.task_item_id, taskId]
+          );
+          if (linkedTi.length > 0) tiRow = linkedTi[0];
+        } else {
+          const { rows: safeTi } = await client.query(
+            'SELECT * FROM task_items WHERE task_id = $1 AND LOWER(TRIM(work_type)) = LOWER(TRIM($2)) LIMIT 1',
+            [taskId, tmRow.item_name]
+          );
+          if (safeTi.length > 0) {
+            tiRow = safeTi[0];
+            await client.query('UPDATE task_materials SET task_item_id = $1 WHERE id = $2', [tiRow.id, tmRow.id]);
+          }
+        }
+      }
+    }
+
+    if (!tiRow && !tmRow) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Строка спецификации или комплектации не найдена' });
+    }
+
+    // Если связанная запись в task_materials имеет is_written_off = true — 409
+    if (tmRow && tmRow.is_written_off) {
+      await client.query('ROLLBACK');
       return res.status(409).json({ error: 'Нельзя привязывать позицию каталога к уже списанной строке' });
     }
 
-    // Сохраняем исходное наименование потребности (demand_name / item_name)
-    const demandName = tm.demand_name || tm.item_name || null;
-    const price = parseFloat(mat.price_default) || parseFloat(tm.price) || 0;
+    const price = parseFloat(mat.price_default) || (tmRow ? parseFloat(tmRow.price) : 0) || (tiRow ? parseFloat(tiRow.price_customer || tiRow.price_contractor) : 0) || 0;
 
-    // fact_qty строго не трогаем!
-    // total_price рассчитываем ТОЛЬКО если fact_qty IS NOT NULL
-    const totalPrice = tm.fact_qty !== null && tm.fact_qty !== undefined
-      ? Math.round(Number(tm.fact_qty) * price)
-      : null;
+    // В task_items:
+    // сохрани исходное наименование в demand_name = COALESCE(demand_name, work_type)
+    // обнови work_type = mat.name, material_id = mat.id, article = mat.code, article_plan = mat.code,
+    // manufacturer = COALESCE(mat.manufacturer, manufacturer), unit = COALESCE(mat.unit, unit)
+    if (tiRow) {
+      const { rows: updTi } = await client.query(`
+        UPDATE task_items SET
+          demand_name = COALESCE(demand_name, work_type),
+          work_type = $1,
+          material_id = $2,
+          article = $3,
+          article_plan = $3,
+          manufacturer = COALESCE($4, manufacturer),
+          unit = COALESCE($5, unit),
+          price_customer = CASE WHEN $6::numeric > 0 THEN $6::numeric ELSE price_customer END,
+          price_contractor = CASE WHEN $6::numeric > 0 THEN $6::numeric ELSE price_contractor END,
+          amount_customer = CASE WHEN $6::numeric > 0 AND quantity IS NOT NULL THEN ROUND(quantity * $6::numeric) ELSE amount_customer END,
+          amount_contractor = CASE WHEN $6::numeric > 0 AND quantity IS NOT NULL THEN ROUND(quantity * $6::numeric) ELSE amount_contractor END,
+          updated_at = NOW()
+        WHERE id = $7 AND task_id = $8
+        RETURNING *
+      `, [
+        mat.name, mat.id, mat.code,
+        mat.manufacturer || null,
+        mat.unit || tiRow.unit || 'шт',
+        price,
+        tiRow.id, taskId
+      ]);
+      tiRow = updTi[0];
+    }
 
-    const { rows: updated } = await pool.query(`
-      UPDATE task_materials SET
-        material_id = $1,
-        model = $2,
-        article = $3,
-        unit = $4,
-        price = $5,
-        total_price = $6,
-        demand_name = COALESCE(demand_name, $7),
-        manufacturer = COALESCE($8, manufacturer)
-      WHERE id = $9 AND task_id = $10
-      RETURNING *
-    `, [
-      mat.id, mat.name, mat.code,
-      mat.unit || tm.unit || 'шт',
-      price,
-      totalPrice,
-      demandName,
-      mat.manufacturer || null,
-      itemId,
-      taskId
-    ]);
+    // В task_materials:
+    // сохрани demand_name = COALESCE(demand_name, item_name)
+    // обнови item_name = mat.name, model = mat.name, material_id = mat.id, article = mat.code,
+    // manufacturer = COALESCE(mat.manufacturer, manufacturer), unit = COALESCE(mat.unit, unit), price = price,
+    // строго НЕ меняя fact_qty и plan_qty, и считая total_price только при fact_qty IS NOT NULL.
+    if (tmRow) {
+      const totalPrice = tmRow.fact_qty !== null && tmRow.fact_qty !== undefined
+        ? Math.round(Number(tmRow.fact_qty) * price)
+        : null;
 
-    // Синхронизируем с task_items если есть связанная строка
-    await pool.query(`
-      UPDATE task_items SET
-        material_id = $1,
-        article = $2,
-        article_plan = $2,
-        manufacturer = COALESCE($3, manufacturer),
-        demand_name = COALESCE(demand_name, work_type),
-        unit = COALESCE($4, unit),
-        price_contractor = CASE WHEN $5::numeric > 0 THEN $5::numeric ELSE price_contractor END,
-        price_customer = CASE WHEN $5::numeric > 0 THEN $5::numeric ELSE price_customer END,
-        amount_customer = CASE WHEN $5::numeric > 0 AND quantity IS NOT NULL THEN ROUND(quantity * $5::numeric) ELSE amount_customer END,
-        amount_contractor = CASE WHEN $5::numeric > 0 AND quantity IS NOT NULL THEN ROUND(quantity * $5::numeric) ELSE amount_contractor END
-      WHERE task_id = $6 AND (
-        material_id = $1 OR
-        LOWER(TRIM(work_type)) = LOWER(TRIM($7)) OR
-        id = $8
-      )
-    `, [
-      mat.id, mat.code, mat.manufacturer || null, mat.unit || 'шт', price, taskId,
-      tm.item_name || '', itemId
-    ]);
+      const { rows: updTm } = await client.query(`
+        UPDATE task_materials SET
+          demand_name = COALESCE(demand_name, item_name),
+          item_name = $1,
+          model = $1,
+          material_id = $2,
+          article = $3,
+          manufacturer = COALESCE($4, manufacturer),
+          unit = COALESCE($5, unit),
+          price = $6,
+          total_price = $7,
+          task_item_id = COALESCE(task_item_id, $8)
+        WHERE id = $9 AND task_id = $10
+        RETURNING *
+      `, [
+        mat.name, mat.id, mat.code,
+        mat.manufacturer || null,
+        mat.unit || tmRow.unit || 'шт',
+        price,
+        totalPrice,
+        tiRow ? tiRow.id : null,
+        tmRow.id, taskId
+      ]);
+      tmRow = updTm[0];
+    } else if (tiRow) {
+      // Создаем связанную запись с task_item_id, если ее еще не было
+      const { rows: newTm } = await client.query(`
+        INSERT INTO task_materials (
+          task_id, task_item_id, item_name, model, material_id, article,
+          manufacturer, unit, price, total_price, plan_qty, fact_qty,
+          demand_name, source, supplier, supplier_contractor_id, shipment_method
+        ) VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, NULL, $9, NULL, $10, $11, $12, $13, $14)
+        RETURNING *
+      `, [
+        taskId, tiRow.id, mat.name, mat.id, mat.code,
+        mat.manufacturer || tiRow.manufacturer || null,
+        mat.unit || tiRow.unit || 'шт',
+        price,
+        tiRow.quantity,
+        tiRow.demand_name || mat.name,
+        tiRow.source || null,
+        tiRow.supplier || null,
+        tiRow.supplier_contractor_id || null,
+        tiRow.shipment_method || null
+      ]);
+      tmRow = newTm[0];
+    }
 
     // Обновляем сумму tmc в tasks ТОЛЬКО по строкам с введённым фактом (P0-ТМЦ-1)
-    const { rows: tmcSum } = await pool.query(`
+    const { rows: tmcSum } = await client.query(`
       SELECT COALESCE(SUM(
         CASE WHEN tm.fact_qty IS NULL THEN 0
              ELSE COALESCE(tm.total_price, ROUND(tm.fact_qty * COALESCE(tm.price, m.price_default, 0)))
@@ -881,13 +983,17 @@ router.post('/tasks/:id/materials/:itemId/bind', authenticateToken, requireRole(
       WHERE tm.task_id = $1
     `, [taskId]);
     if (tmcSum.length > 0) {
-      await pool.query('UPDATE tasks SET tmc = $1, updated_at = NOW() WHERE id = $2', [tmcSum[0].total_tmc, taskId]);
+      await client.query('UPDATE tasks SET tmc = $1, updated_at = NOW() WHERE id = $2', [tmcSum[0].total_tmc, taskId]);
     }
 
-    res.json({ success: true, item: updated[0] });
+    await client.query('COMMIT');
+    res.json({ success: true, item: tmRow || tiRow });
   } catch (e) {
+    await client.query('ROLLBACK');
     console.error('BIND ERROR in supply.js:', e);
     res.status(500).json({ error: e.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -964,12 +1070,10 @@ router.post('/tasks/:id/materials/batch', authenticateToken, requireRole('admin'
         await client.query('ROLLBACK');
         return res.status(403).json({ error: 'Позиция принадлежит другой заявке' });
       }
-      tiRows = tiCheck;
-      const workNames = tiRows.map(r => (r.work_type || '').toLowerCase().trim());
-      const posIds = tiRows.map(r => String(r.id));
+      // Проверяем списанные строки в task_materials строго по task_item_id
       const { rows: writtenOffCheck } = await client.query(
-        'SELECT id FROM task_materials WHERE task_id = $1 AND is_written_off IS TRUE AND (LOWER(TRIM(item_name)) = ANY($2::text[]) OR pos_num = ANY($3::text[]))',
-        [taskId, workNames, posIds]
+        'SELECT id FROM task_materials WHERE task_id = $1 AND is_written_off IS TRUE AND task_item_id = ANY($2::int[])',
+        [taskId, targetIds]
       );
       if (writtenOffCheck.length > 0) {
         await client.query('ROLLBACK');
@@ -978,7 +1082,7 @@ router.post('/tasks/:id/materials/batch', authenticateToken, requireRole('admin'
       isItemsTable = true;
     } else {
       const { rows: tmCheck } = await client.query(
-        'SELECT id, task_id, is_written_off, item_name, pos_num FROM task_materials WHERE id = ANY($1::int[])',
+        'SELECT id, task_id, is_written_off, item_name, pos_num, task_item_id FROM task_materials WHERE id = ANY($1::int[])',
         [targetIds]
       );
       if (tmCheck.length === targetIds.length) {
@@ -992,7 +1096,6 @@ router.post('/tasks/:id/materials/batch', authenticateToken, requireRole('admin'
           await client.query('ROLLBACK');
           return res.status(409).json({ error: 'Нельзя изменять уже списанные строки' });
         }
-        tmRows = tmCheck;
         isMaterialsTable = true;
       } else {
         const foreignTi = tiCheck.filter(r => String(r.task_id) !== String(taskId));
@@ -1009,24 +1112,26 @@ router.post('/tasks/:id/materials/batch', authenticateToken, requireRole('admin'
     // Применяем обновления
     if (clear_source) {
       if (isMaterialsTable) {
-        await client.query(
+        const { rows: updTm } = await client.query(
           `UPDATE task_materials SET
              source = NULL,
              supplier = NULL,
              supplier_contractor_id = NULL
-           WHERE id = ANY($1::int[]) AND task_id = $2`,
+           WHERE id = ANY($1::int[]) AND task_id = $2
+           RETURNING task_item_id`,
           [targetIds, taskId]
         );
-        const names = tmRows.map(r => (r.item_name || '').toLowerCase().trim());
-        const posNums = tmRows.map(r => String(r.pos_num || ''));
-        await client.query(
-          `UPDATE task_items SET
-             source = NULL,
-             supplier = NULL,
-             supplier_contractor_id = NULL
-           WHERE task_id = $1 AND (LOWER(TRIM(work_type)) = ANY($2::text[]) OR id::text = ANY($3::text[]))`,
-          [taskId, names, posNums]
-        );
+        const linkedTiIds = updTm.map(r => r.task_item_id).filter(Boolean);
+        if (linkedTiIds.length > 0) {
+          await client.query(
+            `UPDATE task_items SET
+               source = NULL,
+               supplier = NULL,
+               supplier_contractor_id = NULL
+             WHERE id = ANY($1::int[]) AND task_id = $2`,
+            [linkedTiIds, taskId]
+          );
+        }
       } else if (isItemsTable) {
         await client.query(
           `UPDATE task_items SET
@@ -1036,15 +1141,13 @@ router.post('/tasks/:id/materials/batch', authenticateToken, requireRole('admin'
            WHERE id = ANY($1::int[]) AND task_id = $2`,
           [targetIds, taskId]
         );
-        const names = tiRows.map(r => (r.work_type || '').toLowerCase().trim());
-        const posIds = tiRows.map(r => String(r.id));
         await client.query(
           `UPDATE task_materials SET
              source = NULL,
              supplier = NULL,
              supplier_contractor_id = NULL
-           WHERE task_id = $1 AND (LOWER(TRIM(item_name)) = ANY($2::text[]) OR pos_num = ANY($3::text[]))`,
-          [taskId, names, posIds]
+           WHERE task_id = $1 AND task_item_id = ANY($2::int[])`,
+          [taskId, targetIds]
         );
       }
     } else {
@@ -1081,29 +1184,28 @@ router.post('/tasks/:id/materials/batch', authenticateToken, requireRole('admin'
         vals.push(taskId);
 
         if (isMaterialsTable) {
-          await client.query(
-            `UPDATE task_materials SET ${sets.join(', ')} WHERE id = ANY($${idx++}::int[]) AND task_id = $${idx++}`,
+          const { rows: updTm } = await client.query(
+            `UPDATE task_materials SET ${sets.join(', ')} WHERE id = ANY($${idx++}::int[]) AND task_id = $${idx++} RETURNING task_item_id`,
             vals
           );
-          const names = tmRows.map(r => (r.item_name || '').toLowerCase().trim());
-          const posNums = tmRows.map(r => String(r.pos_num || ''));
-          const itemSets = [...sets];
-          const itemVals = [...vals.slice(0, sets.length), taskId, names, posNums];
-          await client.query(
-            `UPDATE task_items SET ${itemSets.join(', ')} WHERE task_id = $${sets.length + 1} AND (LOWER(TRIM(work_type)) = ANY($${sets.length + 2}::text[]) OR id::text = ANY($${sets.length + 3}::text[]))`,
-            itemVals
-          );
+          const linkedTiIds = updTm.map(r => r.task_item_id).filter(Boolean);
+          if (linkedTiIds.length > 0) {
+            const itemSets = [...sets];
+            const itemVals = [...vals.slice(0, sets.length), taskId, linkedTiIds];
+            await client.query(
+              `UPDATE task_items SET ${itemSets.join(', ')} WHERE task_id = $${sets.length + 1} AND id = ANY($${sets.length + 2}::int[])`,
+              itemVals
+            );
+          }
         } else if (isItemsTable) {
           await client.query(
             `UPDATE task_items SET ${sets.join(', ')} WHERE id = ANY($${idx++}::int[]) AND task_id = $${idx++}`,
             vals
           );
-          const names = tiRows.map(r => (r.work_type || '').toLowerCase().trim());
-          const posIds = tiRows.map(r => String(r.id));
           const matSets = [...sets];
-          const matVals = [...vals.slice(0, sets.length), taskId, names, posIds];
+          const matVals = [...vals.slice(0, sets.length), taskId, targetIds];
           await client.query(
-            `UPDATE task_materials SET ${matSets.join(', ')} WHERE task_id = $${sets.length + 1} AND (LOWER(TRIM(item_name)) = ANY($${sets.length + 2}::text[]) OR pos_num = ANY($${sets.length + 3}::text[]))`,
+            `UPDATE task_materials SET ${matSets.join(', ')} WHERE task_id = $${sets.length + 1} AND task_item_id = ANY($${sets.length + 2}::int[]) AND (is_written_off IS FALSE OR is_written_off IS NULL)`,
             matVals
           );
         }
