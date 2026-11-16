@@ -1111,6 +1111,9 @@ export async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_material_shipment_items_shipment ON material_shipment_items(shipment_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_material_shipment_items_task_item ON material_shipment_items(task_item_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_material_shipment_items_task_material ON material_shipment_items(task_material_id)`);
+  await pool.query(`ALTER TABLE material_shipment_items ADD COLUMN IF NOT EXISTS discrepancy_reason TEXT`);
+  await pool.query(`ALTER TABLE material_shipments ADD COLUMN IF NOT EXISTS logist_accepted_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE material_shipments ADD COLUMN IF NOT EXISTS logist_accepted_at TIMESTAMPTZ`);
 
   await seedMaterialsAndWarehouses();
 

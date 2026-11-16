@@ -3979,18 +3979,33 @@ window.loadCardShipments = function(taskId) {
       }
 
       var rowsHtml = list.map(function(s) {
-        var statusBadge = s.status === 'shipped'
-          ? '<span class="badge b-blue" style="font-size:.72rem">🚚 Отгружено</span>'
-          : '<span class="badge b-amber" style="font-size:.72rem">📝 Черновик</span>';
+        var statusBadge = '';
+        if (s.status === 'shipped') {
+          statusBadge = '<span class="badge b-blue" style="font-size:.72rem">🚚 Отгружено</span>';
+        } else if (s.status === 'accepted') {
+          statusBadge = '<span class="badge b-green" style="font-size:.72rem">✓ Принято</span>';
+        } else if (s.status === 'accepted_discrepancy') {
+          statusBadge = '<span class="badge b-amber" style="font-size:.72rem">⚠️ С расхожд.</span>';
+        } else {
+          statusBadge = '<span class="badge b-amber" style="font-size:.72rem">📝 Черновик</span>';
+        }
 
         var dateStr = s.shipment_date ? String(s.shipment_date).slice(0, 10) : '—';
         var carrierStr = s.carrier ? escHtml(s.carrier) : '—';
-        var whoStr = s.status === 'shipped'
-          ? ('Отправил: <b>' + escHtml(s.shipped_by_name || s.created_by_name || 'Пользователь') + '</b>')
-          : ('Создал: <b>' + escHtml(s.created_by_name || 'Пользователь') + '</b>');
+        var whoStr = '';
+        if (s.status === 'accepted' || s.status === 'accepted_discrepancy') {
+          whoStr = 'Принял: <b>' + escHtml(s.accepter_name || s.accepted_by_name || 'Подрядчик') + '</b>';
+        } else if (s.status === 'shipped') {
+          whoStr = 'Отправил: <b>' + escHtml(s.shipped_by_name || s.created_by_name || 'Пользователь') + '</b>';
+        } else {
+          whoStr = 'Создал: <b>' + escHtml(s.created_by_name || 'Пользователь') + '</b>';
+        }
 
         var actionsHtml = '<button type="button" class="btn btn-xs btn-outline btn-view-shipment" data-shipment-id="' + s.id + '">👁️ Просмотр</button>';
-        if (s.status === 'draft') {
+        actionsHtml += ' <button type="button" class="btn btn-xs btn-outline btn-export-shipment" data-shipment-id="' + s.id + '" style="margin-left:3px" title="Скачать Excel отгрузки">📥 XLSX</button>';
+        if (s.status === 'shipped') {
+          actionsHtml += ' <button type="button" class="btn btn-xs btn-primary btn-accept-shipment" data-shipment-id="' + s.id + '" style="margin-left:3px">✍️ Принять</button>';
+        } else if (s.status === 'draft') {
           actionsHtml += ' <button type="button" class="btn btn-xs btn-outline btn-edit-shipment" data-shipment-id="' + s.id + '" style="margin-left:3px">✏️</button>';
           actionsHtml += ' <button type="button" class="btn btn-xs btn-ghost btn-del-shipment" data-shipment-id="' + s.id + '" style="color:var(--red);margin-left:3px" title="Удалить черновик">🗑️</button>';
         }
@@ -4027,6 +4042,18 @@ window.loadCardShipments = function(taskId) {
           window.openViewShipmentModal(taskId, sId, false);
         });
       });
+      container.querySelectorAll('.btn-export-shipment').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var sId = parseInt(this.getAttribute('data-shipment-id'), 10);
+          window.exportShipmentExcel(taskId, sId);
+        });
+      });
+      container.querySelectorAll('.btn-accept-shipment').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var sId = parseInt(this.getAttribute('data-shipment-id'), 10);
+          window.openAcceptShipmentModal(taskId, sId);
+        });
+      });
       container.querySelectorAll('.btn-edit-shipment').forEach(function(btn) {
         btn.addEventListener('click', function() {
           var sId = parseInt(this.getAttribute('data-shipment-id'), 10);
@@ -4043,6 +4070,15 @@ window.loadCardShipments = function(taskId) {
     .catch(function(err) {
       container.innerHTML = '<div style="padding:8px;color:var(--red);font-size:.8rem">Ошибка загрузки отгрузок: ' + (err.message || err) + '</div>';
     });
+};
+
+window.exportShipmentExcel = function(taskId, shipmentId) {
+  var filename = 'Отгрузка_' + encodeURIComponent(shipmentId) + '.xlsx';
+  if (typeof window.downloadAuthFile === 'function') {
+    window.downloadAuthFile('/api/tasks/' + encodeURIComponent(taskId) + '/shipments/' + encodeURIComponent(shipmentId) + '/export-excel', filename);
+  } else {
+    window.open('/api/tasks/' + encodeURIComponent(taskId) + '/shipments/' + encodeURIComponent(shipmentId) + '/export-excel', '_blank');
+  }
 };
 
 window.deleteShipmentDraft = function(taskId, shipmentId) {
@@ -4276,13 +4312,24 @@ window.openViewShipmentModal = function(taskId, shipmentId, isEditMode) {
 
       var isShipped = s.status === 'shipped';
       var isDraft = s.status === 'draft';
+      var isAccepted = s.status === 'accepted';
+      var isAcceptedDisc = s.status === 'accepted_discrepancy';
+      var isAcceptedStatus = isAccepted || isAcceptedDisc;
       var editable = isDraft && isEditMode;
 
       var items = s.items || [];
       var bannerHtml = '';
-      if (isShipped) {
+      if (isAccepted) {
+        bannerHtml = '<div style="background:#f0fdf4;border:1px solid #86efac;color:#166534;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:.8rem;font-weight:600;display:flex;align-items:center;gap:6px">' +
+          '<span>✅</span> <span>Отгрузка принята подрядчиком без расхождений. Принял: <b>' + escHtml(s.accepter_name || s.accepted_by_name || 'Подрядчик') + '</b>' + (s.accepted_at ? ' (' + String(s.accepted_at).slice(0, 16).replace('T', ' ') + ')' : '') + '</span>' +
+        '</div>';
+      } else if (isAcceptedDisc) {
+        bannerHtml = '<div style="background:#fff7ed;border:1px solid #fdba74;color:#9a3412;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:.8rem;font-weight:600;display:flex;align-items:center;gap:6px">' +
+          '<span>⚠️</span> <span>Отгрузка принята с расхождениями! Принял: <b>' + escHtml(s.accepter_name || s.accepted_by_name || 'Подрядчик') + '</b>' + (s.accepted_at ? ' (' + String(s.accepted_at).slice(0, 16).replace('T', ' ') + ')' : '') + (s.acceptance_comment ? ' · <i>' + escHtml(s.acceptance_comment) + '</i>' : '') + '</span>' +
+        '</div>';
+      } else if (isShipped) {
         bannerHtml = '<div style="background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:.8rem;font-weight:600;display:flex;align-items:center;gap:6px">' +
-          '<span>🔒</span> <span>Отгрузка сформирована и отправлена. Исторический документ защищен от изменений.</span>' +
+          '<span>🔒</span> <span>Отгрузка сформирована и отправлена. Исторический документ защищен от изменений. Ожидает приёмки подрядчиком.</span>' +
         '</div>';
       } else {
         bannerHtml = '<div style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:.8rem;font-weight:600;display:flex;align-items:center;gap:6px">' +
@@ -4304,6 +4351,17 @@ window.openViewShipmentModal = function(taskId, shipmentId, isEditMode) {
           ? ('<button type="button" class="btn btn-xs btn-ghost btn-remove-ship-item" data-idx="' + idx + '" style="color:var(--red);padding:1px 5px" title="Удалить из отгрузки">✕</button>')
           : '';
 
+        var acceptedTd = '';
+        if (isAcceptedStatus) {
+          var accVal = it.accepted_qty !== null && it.accepted_qty !== undefined ? it.accepted_qty : it.shipped_qty;
+          var hasDiff = Number(accVal) !== Number(it.shipped_qty);
+          acceptedTd = '<td style="padding:5px 6px;text-align:center;font-weight:700;' + (hasDiff ? 'color:var(--amber,#d97706)' : 'color:var(--green,#16a34a)') + '">' + accVal + '</td>';
+          if (s.status === 'accepted_discrepancy') {
+            var discReason = it.discrepancy_reason ? escHtml(it.discrepancy_reason) : (hasDiff ? 'Расхождение' : '—');
+            acceptedTd += '<td style="padding:5px 6px;font-size:.74rem;color:var(--text-2)">' + discReason + '</td>';
+          }
+        }
+
         return '<tr style="border-bottom:1px solid var(--border);font-size:.78rem" data-row-idx="' + idx + '">' +
           '<td style="padding:5px 6px;text-align:center;color:var(--text-3)">' + (idx + 1) + '</td>' +
           '<td style="padding:5px 6px;font-weight:600">' + escHtml(it.item_name_snapshot) + '</td>' +
@@ -4311,14 +4369,22 @@ window.openViewShipmentModal = function(taskId, shipmentId, isEditMode) {
           '<td style="padding:5px 6px;font-size:.74rem">' + escHtml(manuf) + '</td>' +
           '<td style="padding:5px 6px;font-size:.74rem">' + escHtml(supp) + '</td>' +
           '<td style="padding:5px 6px;text-align:center">' + qtyCell + '</td>' +
+          acceptedTd +
           '<td style="padding:5px 6px;font-size:.74rem">' + escHtml(unit) + '</td>' +
           (editable ? ('<td style="padding:5px 6px;text-align:center">' + delBtn + '</td>') : '') +
         '</tr>';
       }).join('');
 
-      var statusBadge = isShipped
-        ? '<span class="badge b-blue" style="font-size:.72rem">🚚 Отгружено</span>'
-        : '<span class="badge b-amber" style="font-size:.72rem">📝 Черновик</span>';
+      var statusBadge = '';
+      if (s.status === 'shipped') {
+        statusBadge = '<span class="badge b-blue" style="font-size:.72rem">🚚 Отгружено</span>';
+      } else if (s.status === 'accepted') {
+        statusBadge = '<span class="badge b-green" style="font-size:.72rem">✓ Принято</span>';
+      } else if (s.status === 'accepted_discrepancy') {
+        statusBadge = '<span class="badge b-amber" style="font-size:.72rem">⚠️ С расхожд.</span>';
+      } else {
+        statusBadge = '<span class="badge b-amber" style="font-size:.72rem">📝 Черновик</span>';
+      }
 
       var dateStr = s.shipment_date ? String(s.shipment_date).slice(0, 10) : '';
 
@@ -4368,8 +4434,12 @@ window.openViewShipmentModal = function(taskId, shipmentId, isEditMode) {
 
       var footerHtml = '';
       if (!editable) {
-        footerHtml = '<div style="display:flex;justify-content:flex-end;gap:8px">' +
-          '<button type="button" class="btn btn-sm btn-ghost" id="btnCloseShipmentViewModal">Закрыть</button>' +
+        footerHtml = '<div style="display:flex;justify-content:space-between;align-items:center">' +
+          '<button type="button" class="btn btn-sm btn-outline" id="btnExportShipmentExcel" style="display:flex;align-items:center;gap:4px">📥 Скачать Excel</button>' +
+          '<div style="display:flex;gap:8px">' +
+            (isShipped ? '<button type="button" class="btn btn-sm btn-primary" id="btnAcceptShipmentFromView">✍️ Принять отгрузку</button>' : '') +
+            '<button type="button" class="btn btn-sm btn-ghost" id="btnCloseShipmentViewModal">Закрыть</button>' +
+          '</div>' +
         '</div>';
       } else {
         footerHtml = '<div style="display:flex;justify-content:space-between;align-items:center">' +
@@ -4407,6 +4477,8 @@ window.openViewShipmentModal = function(taskId, shipmentId, isEditMode) {
               '<th style="padding:5px 6px;width:95px">Производитель</th>' +
               '<th style="padding:5px 6px;width:110px">Источник / Поставщик</th>' +
               '<th style="padding:5px 6px;width:90px;text-align:center">Отгружено</th>' +
+              (isAcceptedStatus ? '<th style="padding:5px 6px;width:80px;text-align:center">Принято</th>' : '') +
+              (s.status === 'accepted_discrepancy' ? '<th style="padding:5px 6px;width:120px">Причина</th>' : '') +
               '<th style="padding:5px 6px;width:40px">Ед.</th>' +
               (editable ? '<th style="padding:5px 6px;width:30px;text-align:center">✕</th>' : '') +
             '</tr></thead>' +
@@ -4422,6 +4494,20 @@ window.openViewShipmentModal = function(taskId, shipmentId, isEditMode) {
       if (btnCloseTop) btnCloseTop.addEventListener('click', function() { modal.remove(); });
       var btnCloseBottom = document.getElementById('btnCloseShipmentViewModal');
       if (btnCloseBottom) btnCloseBottom.addEventListener('click', function() { modal.remove(); });
+
+      var btnExport = document.getElementById('btnExportShipmentExcel');
+      if (btnExport) {
+        btnExport.addEventListener('click', function() {
+          window.exportShipmentExcel(taskId, shipmentId);
+        });
+      }
+      var btnAcceptFromView = document.getElementById('btnAcceptShipmentFromView');
+      if (btnAcceptFromView) {
+        btnAcceptFromView.addEventListener('click', function() {
+          modal.remove();
+          window.openAcceptShipmentModal(taskId, shipmentId);
+        });
+      }
 
       if (editable) {
         // Удаление строки из черновика
@@ -4519,6 +4605,168 @@ window.openViewShipmentModal = function(taskId, shipmentId, isEditMode) {
     })
     .catch(function(err) {
       alert('Ошибка открытия отгрузки: ' + (err.message || err));
+    });
+};
+
+window.openAcceptShipmentModal = function(taskId, shipmentId) {
+  var oldM = document.getElementById('modal_accept_shipment');
+  if (oldM) oldM.remove();
+
+  api('/tasks/' + encodeURIComponent(taskId) + '/shipments/' + shipmentId)
+    .then(function(s) {
+      if (!s || s.error) return alert('Ошибка загрузки отгрузки: ' + ((s && s.error) || 'Не найдена'));
+      if (s.status !== 'shipped') {
+        return alert('Принять можно только отгрузку в статусе "shipped" (отгружено). Текущий статус: ' + s.status);
+      }
+
+      var items = s.items || [];
+      var rowsHtml = items.map(function(it, idx) {
+        var art = it.article_snapshot || '—';
+        var manuf = it.manufacturer_snapshot || '—';
+        var supp = it.supplier_snapshot || (it.source_snapshot === 'warehouse' ? 'Склад' : (it.source_snapshot || '—'));
+        var unit = it.unit_snapshot || 'шт.';
+        var shippedQty = Number(it.shipped_qty) || 0;
+
+        return '<tr style="border-bottom:1px solid var(--border);font-size:.78rem" data-item-id="' + it.id + '">' +
+          '<td style="padding:6px 6px;text-align:center;color:var(--text-3)">' + (idx + 1) + '</td>' +
+          '<td style="padding:6px 6px;font-weight:600">' + escHtml(it.item_name_snapshot) + '</td>' +
+          '<td style="padding:6px 6px;font-size:.74rem">' + escHtml(art) + '</td>' +
+          '<td style="padding:6px 6px;font-size:.74rem">' + escHtml(manuf) + '</td>' +
+          '<td style="padding:6px 6px;font-size:.74rem">' + escHtml(supp) + '</td>' +
+          '<td style="padding:6px 6px;text-align:center;font-weight:700">' + shippedQty + ' ' + escHtml(unit) + '</td>' +
+          '<td style="padding:6px 6px;text-align:center">' +
+            '<input type="number" step="any" min="0" class="field-input acc-qty-input" data-item-id="' + it.id + '" data-shipped-qty="' + shippedQty + '" value="' + shippedQty + '" style="width:72px;padding:3px 6px;text-align:right;font-weight:700">' +
+          '</td>' +
+          '<td style="padding:6px 6px">' +
+            '<input type="text" class="field-input acc-disc-input" data-item-id="' + it.id + '" placeholder="Причина (бой, недовоз...)" style="width:100%;padding:3px 6px;font-size:.74rem">' +
+          '</td>' +
+        '</tr>';
+      }).join('');
+
+      var modal = document.createElement('div');
+      modal.id = 'modal_accept_shipment';
+      modal.className = 'modal-overlay';
+      modal.innerHTML = '<div class="modal-box" style="max-width:860px;width:95%;padding:22px;border-radius:12px;max-height:92vh;display:flex;flex-direction:column">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid var(--border);padding-bottom:10px">' +
+          '<div style="display:flex;align-items:center;gap:8px">' +
+            '<span style="font-size:1.3rem">✍️</span>' +
+            '<div>' +
+              '<h3 style="margin:0;font-size:1.1rem;color:var(--text)">Приёмка отгрузки ' + escHtml(s.shipment_number) + '</h3>' +
+              '<div style="font-size:.74rem;color:var(--text-3);margin-top:2px">Подтвердите фактическое получение ТМЦ на объекте</div>' +
+            '</div>' +
+          '</div>' +
+          '<button type="button" class="btn btn-sm btn-ghost" id="btnCloseAcceptShipmentTop" style="font-size:1.2rem;line-height:1">✕</button>' +
+        '</div>' +
+        '<div style="background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:.8rem">' +
+          'Проверьте количество поступивших позиций. Если фактическое количество отличается от отгруженного, укажите причину расхождения в строке и обязательный комментарий к приёмке.' +
+        '</div>' +
+        '<div style="flex:1;overflow-y:auto;border:1px solid var(--border);border-radius:6px;margin-bottom:12px">' +
+          '<table style="width:100%;border-collapse:collapse;text-align:left;line-height:1.25">' +
+            '<thead><tr style="background:var(--bg);font-size:.72rem;color:var(--text-3);border-bottom:1.5px solid var(--border);position:sticky;top:0;z-index:2">' +
+              '<th style="padding:5px 6px;width:24px;text-align:center">№</th>' +
+              '<th style="padding:5px 6px">Наименование</th>' +
+              '<th style="padding:5px 6px;width:95px">Артикул</th>' +
+              '<th style="padding:5px 6px;width:95px">Производитель</th>' +
+              '<th style="padding:5px 6px;width:105px">Источник</th>' +
+              '<th style="padding:5px 6px;width:80px;text-align:center">Отгружено</th>' +
+              '<th style="padding:5px 6px;width:90px;text-align:center">Принято *</th>' +
+              '<th style="padding:5px 6px;width:160px">Причина расхождения</th>' +
+            '</tr></thead>' +
+            '<tbody>' + rowsHtml + '</tbody>' +
+          '</table>' +
+        '</div>' +
+        '<div style="margin-bottom:12px">' +
+          '<label style="display:block;font-size:.74rem;font-weight:700;margin-bottom:3px">Комментарий к приёмке (обязателен при расхождениях)</label>' +
+          '<input type="text" id="acc_general_comment" class="field-input" placeholder="Например: приняты все позиции, упаковка цела / недовоз 2 шт..." style="width:100%;padding:5px 8px;font-size:.82rem">' +
+        '</div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+          '<button type="button" class="btn btn-sm btn-ghost" id="btnCancelAcceptShipment">Отмена</button>' +
+          '<button type="button" class="btn btn-sm btn-primary" id="btnConfirmAcceptShipmentAction">Подтвердить приёмку ТМЦ ↵</button>' +
+        '</div>' +
+      '</div>';
+
+      document.body.appendChild(modal);
+
+      var btnCloseTop = document.getElementById('btnCloseAcceptShipmentTop');
+      if (btnCloseTop) btnCloseTop.addEventListener('click', function() { modal.remove(); });
+      var btnCancel = document.getElementById('btnCancelAcceptShipment');
+      if (btnCancel) btnCancel.addEventListener('click', function() { modal.remove(); });
+
+      var btnConfirm = document.getElementById('btnConfirmAcceptShipmentAction');
+      if (btnConfirm) {
+        btnConfirm.addEventListener('click', function() {
+          var commInp = document.getElementById('acc_general_comment');
+          var commentVal = commInp ? commInp.value.trim() : '';
+
+          var payloadItems = [];
+          var hasDiscrepancy = false;
+          var hasInvalid = false;
+
+          var qtyInputs = modal.querySelectorAll('.acc-qty-input');
+          qtyInputs.forEach(function(inp) {
+            var itemId = parseInt(inp.getAttribute('data-item-id'), 10);
+            var shippedQty = parseFloat(inp.getAttribute('data-shipped-qty')) || 0;
+            var accVal = parseFloat(inp.value);
+
+            if (isNaN(accVal) || accVal < 0) {
+              hasInvalid = true;
+            }
+
+            var discInp = modal.querySelector('.acc-disc-input[data-item-id="' + itemId + '"]');
+            var discVal = discInp ? discInp.value.trim() : '';
+
+            if (Math.abs(accVal - shippedQty) > 0.0001) {
+              hasDiscrepancy = true;
+            }
+
+            payloadItems.push({
+              id: itemId,
+              accepted_qty: accVal,
+              discrepancy_reason: discVal || undefined
+            });
+          });
+
+          if (hasInvalid) {
+            return alert('Принятое количество должно быть неотрицательным числом (>= 0)');
+          }
+
+          if (hasDiscrepancy && !commentVal) {
+            return alert('При наличии расхождений комментарий к приёмке обязателен!');
+          }
+
+          btnConfirm.disabled = true;
+
+          api('/tasks/' + encodeURIComponent(taskId) + '/shipments/' + shipmentId + '/accept', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              acceptance_comment: commentVal || undefined,
+              items: payloadItems
+            })
+          })
+          .then(function(res) {
+            if (res && res.error) {
+              btnConfirm.disabled = false;
+              return alert('Ошибка приёмки отгрузки: ' + res.error);
+            }
+            modal.remove();
+            if (typeof showToast === 'function') {
+              showToast('✓ Отгрузка успешно принята' + (res.status === 'accepted_discrepancy' || (res.shipment && res.shipment.status === 'accepted_discrepancy') ? ' (с расхождениями)' : ''), 'success');
+            }
+            window.loadCardShipments(taskId);
+            if (typeof window.loadCardMaterials === 'function') {
+              window.loadCardMaterials(taskId);
+            }
+          })
+          .catch(function(err) {
+            btnConfirm.disabled = false;
+            alert('Сетевая ошибка при приёмке: ' + (err.message || err));
+          });
+        });
+      }
+    })
+    .catch(function(err) {
+      alert('Ошибка открытия приёмки: ' + (err.message || err));
     });
 };
 
@@ -6602,9 +6850,25 @@ function loadCardMaterials(taskId) {
 
     var html = '';
 
-    // Электронный акцепт ТМЦ в подотчет (без бумажной М-15)
+    // Электронный акцепт ТМЦ в подотчет (без бумажной М-15) и блокировка логистом
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
     var isCustodyAccepted = Boolean((t.rawData && t.rawData.tmcAccepted) || (t.raw_data && t.raw_data.tmcAccepted) || t.tmcAccepted);
+    var isLogistAccepted = Boolean((t.rawData && t.rawData.tmcLogistAccepted) || (t.raw_data && t.raw_data.tmcLogistAccepted) || t.tmcLogistAccepted);
+
+    if (isLogistAccepted) {
+      var logistByStr = (t.rawData && t.rawData.tmcLogistAcceptedBy) || (t.raw_data && t.raw_data.tmcLogistAcceptedBy) || 'Логист';
+      var logistAtStr = (t.rawData && t.rawData.tmcLogistAcceptedAt) || (t.raw_data && t.raw_data.tmcLogistAcceptedAt) || '';
+      html += '<div style="background:#f1f5f9;border:1.5px solid #94a3b8;border-radius:6px;padding:8px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="font-size:1.25rem">🔒</span>' +
+          '<div>' +
+            '<div style="font-weight:700;font-size:.82rem;color:#334155">Отчёт по ТМЦ утверждён логистом (редактирование заблокировано)</div>' +
+            '<div style="font-size:.73rem;color:#64748b">Утвердил: <b>' + escHtml(logistByStr) + '</b>' + (logistAtStr ? ' · ' + escHtml(logistAtStr) : '') + ' · Спецификация и фактический расход закрыты от изменений</div>' +
+          '</div>' +
+        '</div>' +
+        '<span class="badge b-gray" style="font-size:.72rem;font-weight:700">🔒 Закрыто логистом</span>' +
+      '</div>';
+    }
 
     if (isCustodyAccepted) {
       var acceptedByStr = (t.rawData && t.rawData.tmcAcceptedBy) || (t.raw_data && t.raw_data.tmcAcceptedBy) || t.contractor || 'Исполнитель';
@@ -6650,12 +6914,14 @@ function loadCardMaterials(taskId) {
     if (!materials || !materials.length) {
       html += '<div class="t3" style="margin-bottom:12px">Спецификация материалов ещё не рассчитана и не загружена.</div>' +
         '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
-          '<label class="btn btn-sm btn-primary" style="cursor:pointer;font-weight:700">' +
-            '📥 Загрузить спецификацию (.xlsx)' +
-            '<input type="file" accept=".xlsx,.xls" style="display:none" onchange="window.uploadMaterialSpecExcel(this.files[0], \'' + encodeURIComponent(taskId) + '\')">' +
-          '</label>' +
-          '<button class="btn btn-sm btn-outline" onclick="window.addManualMaterialPrompt(\'' + encodeURIComponent(taskId) + '\')">+ Позиция вручную</button>' +
-          '<button class="btn btn-sm btn-ghost" onclick="recalculateTaskMaterials(\'' + encodeURIComponent(taskId) + '\')">⚡ Рассчитать по типовику</button>' +
+          (!isLogistAccepted ? (
+            '<label class="btn btn-sm btn-primary" style="cursor:pointer;font-weight:700">' +
+              '📥 Загрузить спецификацию (.xlsx)' +
+              '<input type="file" accept=".xlsx,.xls" style="display:none" onchange="window.uploadMaterialSpecExcel(this.files[0], \'' + encodeURIComponent(taskId) + '\')">' +
+            '</label>' +
+            '<button class="btn btn-sm btn-outline" onclick="window.addManualMaterialPrompt(\'' + encodeURIComponent(taskId) + '\')">+ Позиция вручную</button>' +
+            '<button class="btn btn-sm btn-ghost" onclick="recalculateTaskMaterials(\'' + encodeURIComponent(taskId) + '\')">⚡ Рассчитать по типовику</button>'
+          ) : '') +
         '</div>';
       cont.innerHTML = html;
       return;
@@ -6664,21 +6930,18 @@ function loadCardMaterials(taskId) {
     // Таблица материалов (план vs факт с ценами и суммами списания для накладной)
     var allWrittenOff = materials.every(function(m){ return m.is_written_off; });
     var totalTmcSum = null;
-    var supplierOrganizations = (S.contractors || []).filter(function(c) {
-      return c.type === 'supplier' && c.is_own !== true && c.status === 'active';
-    });
 
     html += '<table style="width:100%;border-collapse:collapse;font-size:.82rem;margin-bottom:10px">' +
       '<thead><tr style="border-bottom:1px solid var(--border);color:var(--text-3);text-align:left">' +
         '<th style="padding:6px 4px;width:35px">Поз.</th>' +
         '<th style="padding:6px 4px">Наименование / Модель / Артикул</th>' +
-        '<th style="padding:6px 4px">Поставщик / Склад</th>' +
-        '<th style="padding:6px 4px;text-align:right">План (норма)</th>' +
+        '<th style="padding:6px 4px;text-align:right">Принято / План</th>' +
         '<th style="padding:6px 4px;text-align:right">Факт расход</th>' +
         '<th style="padding:6px 4px;text-align:right">Остаток</th>' +
         '<th style="padding:6px 4px;text-align:right">Цена за ед.</th>' +
         '<th style="padding:6px 4px;text-align:right">Сумма (₽)</th>' +
-        (!allWrittenOff ? '<th style="padding:6px 4px;text-align:center;width:25px"></th>' : '') +
+        '<th style="padding:6px 4px;width:130px">Примечание</th>' +
+        (!allWrittenOff && !isLogistAccepted ? '<th style="padding:6px 4px;text-align:center;width:25px"></th>' : '') +
       '</tr></thead><tbody>';
 
     materials.forEach(function(m, idx) {
@@ -6691,42 +6954,32 @@ function loadCardMaterials(taskId) {
       if (itemSum !== null) totalTmcSum = (totalTmcSum === null ? 0 : totalTmcSum) + itemSum;
 
       var rowKey = m.id || m.material_id || ('row_' + idx);
-      var curSupplier = (m.supplier || '').trim();
-      var linkedSupplierId = m.supplier_contractor_id ? Number(m.supplier_contractor_id) : null;
-      var suppOptionsHtml = '<option value="">(Не выбран)</option>';
-      var matchedSupp = false;
-      supplierOrganizations.forEach(function(org) {
-        var isSel = linkedSupplierId === Number(org.id);
-        if (isSel) matchedSupp = true;
-        suppOptionsHtml += '<option value="org:' + Number(org.id) + '"' + (isSel ? ' selected' : '') + '>' + escHtml(org.name_short) + '</option>';
-      });
-      if (linkedSupplierId && !matchedSupp) {
-        suppOptionsHtml += '<option value="keep" selected>' + escHtml(curSupplier || 'Связанный поставщик') + ' (неактивен)</option>';
-      } else if (!linkedSupplierId && curSupplier) {
-        suppOptionsHtml += '<option value="legacy" selected>' + escHtml(curSupplier) + ' (историческое значение)</option>';
-      }
-
-      var supplierCell = isDone
-        ? '<span class="badge b-blue" style="font-size:.74rem;white-space:nowrap">' + escHtml(curSupplier || 'Не выбран') + '</span>'
-        : '<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">' +
-            '<select class="select" aria-label="Поставщик позиции" id="supp_mat_' + rowKey + '" data-task-id="' + escHtml(taskId) + '" data-row-key="' + rowKey + '">' + suppOptionsHtml + '</select>' +
-            '<button type="button" class="btn btn-sm btn-ghost" data-new-supplier-task="' + escHtml(taskId) + '" data-new-supplier-row="' + rowKey + '">+ Новый поставщик</button>' +
-          '</div>';
 
       var factValue = curQty === null ? '' : String(curQty);
-      var factDisabled = !isCustodyAccepted ? ' disabled title="Доступно после акцепта ТМЦ подрядчиком"' : '';
+      var factDisabled = (!isCustodyAccepted || isLogistAccepted) ? ' disabled title="' + (isLogistAccepted ? 'Заблокировано логистом' : 'Доступно после акцепта ТМЦ подрядчиком') + '"' : '';
       var factInput = isDone
         ? '<span style="font-weight:700;color:var(--green)">' + (curQty === null ? 'Не заполнено' : curQty + ' ' + (m.unit || 'шт')) + '</span>'
         : '<input type="number" step="any" min="0" value="' + factValue + '" id="fact_mat_' + rowKey + '" oninput="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" onchange="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" style="width:70px;padding:3px 6px;text-align:right;font-size:.82rem;font-weight:600"' + factDisabled + '>';
 
-      var priceInput = isDone
+      var priceInput = (isDone || isLogistAccepted)
         ? '<span style="color:var(--text-2);font-size:.8rem">' + price.toLocaleString('ru-RU') + ' ₽</span>'
         : '<div style="display:flex;align-items:center;justify-content:flex-end;gap:3px">' +
             '<input type="number" step="any" min="0" value="' + price + '" id="price_mat_' + rowKey + '" oninput="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" onchange="window._onTmcFactRowChange(\'' + encodeURIComponent(taskId) + '\',\'' + rowKey + '\')" style="width:70px;padding:3px 6px;text-align:right;font-size:.82rem" title="Цена за единицу ТМЦ">' +
             '<span style="font-size:.74rem;color:var(--text-3)">₽</span>' +
           '</div>';
 
+      var noteInput = (isDone || isLogistAccepted)
+        ? '<span style="font-size:.74rem;color:var(--text-3)">' + escHtml(m.note || '—') + '</span>'
+        : '<input type="text" id="note_mat_' + rowKey + '" value="' + escHtml(m.note || '') + '" placeholder="Примечание..." style="width:100%;min-width:90px;padding:2px 4px;font-size:.76rem" class="inp" oninput="window._onTmcFactChange(\'' + encodeURIComponent(taskId) + '\')">';
+
       var planQty = parseFloat(m.plan_qty) || 0;
+      var planDisplay = '';
+      if (m.accepted_qty !== null && m.accepted_qty !== undefined) {
+        planDisplay = '<b style="color:var(--text)">' + m.accepted_qty + '</b> / ' + m.plan_qty + ' ' + (m.unit || 'шт');
+      } else {
+        planDisplay = m.plan_qty + ' ' + (m.unit || 'шт');
+      }
+
       var remainder = curQty === null ? null : planQty - curQty;
       var remainderHtml = remainder === null
         ? '<span style="color:var(--text-3)">Не заполнено</span>'
@@ -6750,7 +7003,7 @@ function loadCardMaterials(taskId) {
               '<span style="font-weight:600;color:#2563eb">📏 По КЖ: ' + kjTotalCableLen.toFixed(1) + ' м</span>' +
               '<span class="badge ' + (isStandard ? 'b-green' : 'b-amber') + '" style="font-size:.65rem;padding:1px 4px">' + badgeText + '</span>' +
             '</div>' +
-            (!isDone ? (
+            (!isDone && !isLogistAccepted ? (
               '<div style="display:flex;align-items:center;gap:3px">' +
                 '<select class="inp" id="reserve_sel_' + rowKey + '" style="font-size:.7rem;padding:1px 3px;height:22px" onchange="window._applyCableReserve(\'' + encodeURIComponent(taskId) + '\', \'' + rowKey + '\', this.value, ' + kjTotalCableLen + ')">' +
                   '<option value="">Запас...</option>' +
@@ -6782,22 +7035,20 @@ function loadCardMaterials(taskId) {
           catalogLinkHtml +
           (detailsStr ? '<div style="margin-top:2px">' + detailsStr + '</div>' : '') +
         '</td>' +
-        '<td style="padding:6px 4px">' + supplierCell + '</td>' +
-        '<td style="padding:6px 4px;text-align:right;white-space:nowrap;color:var(--text-2)">' + m.plan_qty + ' ' + (m.unit || 'шт') + '</td>' +
+        '<td style="padding:6px 4px;text-align:right;white-space:nowrap;color:var(--text-2)">' + planDisplay + '</td>' +
         '<td style="padding:6px 4px;text-align:right;white-space:nowrap">' + factInput + cableMatchHtml + '</td>' +
         '<td style="padding:6px 4px;text-align:right;white-space:nowrap">' + remainderHtml + '</td>' +
         '<td style="padding:6px 4px;text-align:right;white-space:nowrap">' + priceInput + '</td>' +
         '<td style="padding:6px 4px;text-align:right;white-space:nowrap;font-weight:700;color:var(--text)" id="sum_mat_' + rowKey + '">' + (itemSum === null ? 'Не заполнено' : itemSum.toLocaleString('ru-RU') + ' ₽') + '</td>' +
-        (!allWrittenOff ? ('<td style="padding:6px 4px;text-align:center"><button type="button" class="btn btn-xs btn-ghost" style="color:var(--red);padding:1px 5px" onclick="window.deleteTaskMaterial(\'' + encodeURIComponent(taskId) + '\', ' + m.id + ')" title="Удалить позицию">✕</button></td>') : '') +
+        '<td style="padding:6px 4px">' + noteInput + '</td>' +
+        (!allWrittenOff && !isLogistAccepted ? ('<td style="padding:6px 4px;text-align:center"><button type="button" class="btn btn-xs btn-ghost" style="color:var(--red);padding:1px 5px" onclick="window.deleteTaskMaterial(\'' + encodeURIComponent(taskId) + '\', ' + m.id + ')" title="Удалить позицию">✕</button></td>') : '') +
       '</tr>';
     });
 
     html += '<tr style="background:var(--bg);font-weight:700;border-top:2px solid var(--border)">' +
-      '<td colspan="' + (!allWrittenOff ? 7 : 7) + '" style="padding:8px 6px;text-align:right">ИТОГО себестоимость ТМЦ по объекту:</td>' +
+      '<td colspan="' + (!allWrittenOff && !isLogistAccepted ? 7 : 7) + '" style="padding:8px 6px;text-align:right">ИТОГО себестоимость ТМЦ по объекту:</td>' +
       '<td style="padding:8px 6px;text-align:right;font-size:.92rem;color:var(--blue)" id="tmcTotalSummarySum">' + (totalTmcSum === null ? 'Не заполнено' : totalTmcSum.toLocaleString('ru-RU') + ' ₽') + '</td>' +
-      (!allWrittenOff ? '<td></td>' : '') +
-    '</tr>';
-      (!allWrittenOff ? '<td></td>' : '') +
+      (!allWrittenOff && !isLogistAccepted ? '<td></td>' : '') +
     '</tr>';
 
     html += '</tbody></table>';
@@ -6807,45 +7058,46 @@ function loadCardMaterials(taskId) {
         '<div style="display:flex;align-items:center;gap:6px"><span>✅</span> ТМЦ списаны со склада в подотчет объекта на сумму <b>' + (totalTmcSum === null ? 'Не заполнено' : totalTmcSum.toLocaleString('ru-RU') + ' ₽') + '</b></div>' +
       '</div>';
     } else {
+      var canLogistAccept = ['logistics', 'admin', 'director', 'manager', 'to_engineer'].includes(S.user && S.user.role);
+      var logistBtnHtml = (!isLogistAccepted && canLogistAccept)
+        ? '<button type="button" class="btn btn-sm btn-outline" id="btnAcceptLogistReport" style="color:var(--blue);font-weight:700">🔒 Утвердить отчёт логистом</button>'
+        : '';
+
       html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">' +
         '<div style="display:flex;gap:6px">' +
-          '<button class="btn btn-sm btn-primary" onclick="writeOffTaskMaterials(\'' + encodeURIComponent(taskId) + '\')" title="Списать фактически израсходованные ТМЦ с фиксацией в себестоимости">✅ Списать ТМЦ по факту</button>' +
-          '<button class="btn btn-sm" onclick="saveTaskMaterialsFact(\'' + encodeURIComponent(taskId) + '\')" title="Сохранить введенные количества факта без списания со склада"' + (!isCustodyAccepted ? ' disabled' : '') + '>💾 Сохранить факт</button>' +
+          '<button class="btn btn-sm btn-primary" onclick="writeOffTaskMaterials(\'' + encodeURIComponent(taskId) + '\')" title="Списать фактически израсходованные ТМЦ с фиксацией в себестоимости"' + (isLogistAccepted ? ' disabled' : '') + '>✅ Списать ТМЦ по факту</button>' +
+          '<button class="btn btn-sm" onclick="saveTaskMaterialsFact(\'' + encodeURIComponent(taskId) + '\')" title="Сохранить введенные количества факта без списания со склада"' + (!isCustodyAccepted || isLogistAccepted ? ' disabled' : '') + '>💾 Сохранить факт</button>' +
         '</div>' +
-        '<div style="display:flex;gap:6px">' +
-          '<button class="btn btn-sm btn-outline" onclick="window.addManualMaterialPrompt(\'' + encodeURIComponent(taskId) + '\')">+ Позиция вручную</button>' +
+        '<div style="display:flex;gap:6px;align-items:center">' +
+          logistBtnHtml +
+          (!isLogistAccepted ? '<button class="btn btn-sm btn-outline" onclick="window.addManualMaterialPrompt(\'' + encodeURIComponent(taskId) + '\')">+ Позиция вручную</button>' : '') +
         '</div>' +
       '</div>';
     }
 
     cont.innerHTML = html;
-    cont.querySelectorAll('select[id^="supp_mat_"]').forEach(function(select) {
-      select.addEventListener('change', function() {
-        window._onTmcFactRowChange(select.dataset.taskId, select.dataset.rowKey);
-      });
-    });
-    cont.querySelectorAll('[data-new-supplier-task]').forEach(function(button) {
-      button.addEventListener('click', function() {
-        window.openNewSupplierForMaterial(button.dataset.newSupplierTask, button.dataset.newSupplierRow);
-      });
-    });
 
-    var supplierReturn = window._supplierReturn;
-    if (supplierReturn && String(supplierReturn.taskId) === String(taskId) && supplierReturn.createdSupplierId) {
-      S.cardDraft = Object.assign({}, supplierReturn.cardDraft || {});
-      Object.keys(supplierReturn.rows || {}).forEach(function(key) {
-        var draft = supplierReturn.rows[key];
-        var fact = document.getElementById('fact_mat_' + key);
-        var price = document.getElementById('price_mat_' + key);
-        var supplier = document.getElementById('supp_mat_' + key);
-        if (fact) fact.value = draft.fact;
-        if (price) price.value = draft.price;
-        if (supplier) supplier.value = draft.supplier;
+    var btnAcceptLogist = cont.querySelector('#btnAcceptLogistReport');
+    if (btnAcceptLogist) {
+      btnAcceptLogist.addEventListener('click', function() {
+        if (!confirm('Утвердить отчёт по ТМЦ логистом? После подтверждения дальнейшее редактирование фактического расхода и состава материалов будет заблокировано.')) return;
+        btnAcceptLogist.disabled = true;
+        api('/tasks/' + encodeURIComponent(taskId) + '/materials/accept-logist', { method: 'POST' })
+          .then(function(res) {
+            if (res && res.error) {
+              btnAcceptLogist.disabled = false;
+              return alert('Ошибка утверждения логистом: ' + res.error);
+            }
+            if (typeof showToast === 'function') showToast('✓ Отчёт по ТМЦ утверждён логистом. Редактирование заблокировано', 'success');
+            if (t.rawData) { t.rawData.tmcLogistAccepted = true; }
+            if (t.raw_data) { t.raw_data.tmcLogistAccepted = true; }
+            loadCardMaterials(taskId);
+          })
+          .catch(function(err) {
+            btnAcceptLogist.disabled = false;
+            alert('Сетевая ошибка: ' + (err.message || err));
+          });
       });
-      var createdSelect = document.getElementById('supp_mat_' + supplierReturn.rowKey);
-      if (createdSelect) createdSelect.value = 'org:' + supplierReturn.createdSupplierId;
-      window._onTmcFactChange(taskId);
-      window._supplierReturn = null;
     }
   })
   .catch(function(err) {
@@ -7033,6 +7285,7 @@ function saveTaskMaterialsFact(taskId, options) {
         var inp = document.getElementById('fact_mat_' + rowKey);
         var priceInp = document.getElementById('price_mat_' + rowKey);
         var suppInp = document.getElementById('supp_mat_' + rowKey);
+        var noteInp = document.getElementById('note_mat_' + rowKey);
 
         var qty = inp
           ? (inp.value.trim() !== '' ? Number(inp.value) : null)
@@ -7043,12 +7296,17 @@ function saveTaskMaterialsFact(taskId, options) {
           : (m.price !== null && m.price !== undefined && m.price !== '' ? Number(m.price) : null);
         if (price !== null && !Number.isFinite(price)) price = null;
         var total = qty !== null && price !== null ? Math.round(qty * price) : null;
+        var noteVal = noteInp ? noteInp.value.trim() : (m.note || null);
+
         var item = {
           id: m.id,
           material_id: m.material_id,
           fact_qty: qty,
           price: price,
-          total_price: total
+          total_price: total,
+          note: noteVal,
+          supplier: m.supplier || null,
+          supplier_contractor_id: m.supplier_contractor_id || null
         };
         if (suppInp && suppInp.value !== 'keep') {
           var selection = suppInp.value;
