@@ -9,9 +9,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 function getBrowserPath() {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    return fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH) ? process.env.PUPPETEER_EXECUTABLE_PATH : null;
+  }
+  if (process.env.CHROME_BIN) {
+    return fs.existsSync(process.env.CHROME_BIN) ? process.env.CHROME_BIN : null;
+  }
   const candidates = [
-    process.env.CHROME_BIN,
-    process.env.PUPPETEER_EXECUTABLE_PATH,
     'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
     'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',

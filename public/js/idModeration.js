@@ -4,7 +4,7 @@
   'use strict';
 
   var _curModerationData = null;
-  var _curActiveDocKey = 'act';
+  var _curActiveDocKey = null;
   var _previewAvailabilityRefreshed = false;
 
   function esc(s) {
@@ -21,6 +21,27 @@
     if (parts.length === 3) return parts[2] + '.' + parts[1] + '.' + parts[0];
     return String(d);
   }
+
+  // Навигация из модалки модерации к блокам в карточке заявки (без дублирования сущностей)
+  window.navigateToCardBlock = function(tabName, elementId) {
+    var modal = document.getElementById('modal_id_moderation');
+    if (modal) modal.remove();
+    var checklistModal = document.getElementById('modal_id_checklist');
+    if (checklistModal) checklistModal.remove();
+
+    if (typeof window.setCardTab === 'function') {
+      window.setCardTab(tabName);
+    }
+    setTimeout(function() {
+      var el = document.getElementById(elementId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        el.style.transition = 'box-shadow 0.3s ease';
+        el.style.boxShadow = '0 0 0 3px #3b82f6';
+        setTimeout(function() { el.style.boxShadow = ''; }, 2000);
+      }
+    }, 100);
+  };
 
   // Открытие окна сплит-скрин модерации
   window.openIdModerationModal = function(taskId) {
@@ -59,11 +80,13 @@
   };
 
   function loadModerationData(taskId) {
-    api('/tasks/' + encodeURIComponent(taskId) + '/id-moderation')
+    window.api('/tasks/' + encodeURIComponent(taskId) + '/id-moderation')
       .then(function(res) {
         _curModerationData = res;
-        if (!_curActiveDocKey && res.documents && res.documents.length) {
-          _curActiveDocKey = res.documents[0].key;
+        var docs = res.documents || [];
+        var activeExists = docs.some(function(d){ return d.key === _curActiveDocKey || d.alias === _curActiveDocKey; });
+        if (!activeExists && docs.length > 0) {
+          _curActiveDocKey = docs[0].key;
         }
         renderModerationSplitScreen(taskId);
       })
@@ -72,6 +95,7 @@
         if (el) el.innerHTML = '<div style="color:var(--red);padding:20px;text-align:center">Ошибка загрузки модерации: ' + esc(err.message || err) + '</div>';
       });
   }
+  window.loadModerationData = loadModerationData;
 
   function renderModerationSplitScreen(taskId) {
     var cont = document.getElementById('idModerationContent');
@@ -114,7 +138,7 @@
     var hasRejected = (rejectedCount > 0);
 
     // Левая панель 35%
-    var leftHtml = '<div style="width:380px;min-width:340px;max-width:440px;border-right:1.5px solid var(--border);display:flex;flex-direction:column;background:#f8fafc;height:100%">' +
+    var leftHtml = '<div style="width:390px;min-width:350px;max-width:440px;border-right:1.5px solid var(--border);display:flex;flex-direction:column;background:#f8fafc;height:100%">' +
       // Шапка параметров заявки
       '<div style="padding:14px;background:#fff;border-bottom:1px solid var(--border)">' +
         '<div style="margin-bottom:8px">' + slaHtml + '</div>' +
@@ -128,29 +152,47 @@
           '<div>Портов факт: <b>' + (task.fact != null ? task.fact : (task.in_order || 0)) + ' шт.</b></div>' +
           '<div>Маржа: <b style="color:var(--green)">' + (task.margin ? Number(task.margin).toLocaleString('ru-RU') + ' ₽' : '—') + '</b></div>' +
         '</div>' +
+        '<div style="margin-top:8px">' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="window.navigateToCardBlock(\'items\', \'shipmentsBlock\')" style="border:1px solid #cbd5e1;font-size:.73rem;padding:3px 8px;font-weight:600;color:#334155;width:100%">' +
+            '🚚 Перейти к ТМЦ и отгрузкам ↗' +
+          '</button>' +
+        '</div>' +
       '</div>' +
 
-      // Список 5 документов чек-листа ИД
+      // Список документов чек-листа ИД
       '<div style="flex:1;overflow-y:auto;padding:12px">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:6px">' +
           '<span style="font-size:.82rem;font-weight:700;color:#0f172a">ЧЕК-ЛИСТ ДОКУМЕНТОВ ИД</span>' +
-          '<span class="badge ' + (allApproved ? 'b-green' : (hasRejected ? 'b-red' : 'b-amber')) + '" style="font-size:.7rem">' +
-            approvedCount + ' из ' + totalCount + ' одобрено' +
-          '</span>' +
+          '<div style="display:flex;align-items:center;gap:6px">' +
+            '<button type="button" class="btn btn-xs btn-outline" id="btnChecklistConfig" onclick="window.openIdChecklistConfigModal(\'' + esc(taskId) + '\')" title="Настроить состав документов альбома ИД" style="font-size:.7rem;padding:2px 6px;font-weight:600">' +
+              '⚙️ Состав ИД' +
+            '</button>' +
+            '<span class="badge ' + (allApproved ? 'b-green' : (hasRejected ? 'b-red' : 'b-amber')) + '" style="font-size:.7rem">' +
+              approvedCount + ' из ' + totalCount + ' одобрено' +
+            '</span>' +
+          '</div>' +
         '</div>' +
         '<div style="display:flex;flex-direction:column;gap:8px">';
 
     docs.forEach(function(d) {
-      var isCur = (d.key === _curActiveDocKey);
+      var isCur = (d.key === _curActiveDocKey || (d.alias && d.alias === _curActiveDocKey));
       var st = d.status || 'pending';
       var badgeHtml = '';
       if (st === 'approved') badgeHtml = '<span class="badge b-green" style="font-size:.68rem">✓ Одобрен</span>';
       else if (st === 'rejected') badgeHtml = '<span class="badge b-red" style="font-size:.68rem">✗ Отклонен</span>';
       else badgeHtml = '<span class="badge b-gray" style="font-size:.68rem">○ На проверке</span>';
 
+      var kjJumpBtn = '';
+      if (d.key === 'kj') {
+        kjJumpBtn = '<button type="button" class="btn btn-xs btn-ghost" onclick="event.stopPropagation(); window.navigateToCardBlock(\'main\', \'portsBlock\')" style="font-size:.7rem;padding:1px 6px;color:#2563eb;font-weight:600" title="Открыть Кабельный журнал в карточке заявки">📋 Перейти к КЖ ↗</button>';
+      }
+
       leftHtml += '<div style="border:' + (isCur ? '2px solid var(--blue)' : '1px solid var(--border)') + ';background:' + (isCur ? '#eff6ff' : '#fff') + ';border-radius:8px;padding:10px;cursor:pointer;transition:all .15s ease" onclick="window.selectModerationDoc(\'' + esc(d.key) + '\')">' +
         '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">' +
-          '<span style="font-size:.7rem;font-weight:700;color:var(--text-3)">' + esc(d.code || 'ИД') + '</span>' +
+          '<div style="display:flex;align-items:center;gap:6px">' +
+            '<span style="font-size:.7rem;font-weight:700;color:var(--text-3)">' + esc(d.code || 'ИД') + '</span>' +
+            kjJumpBtn +
+          '</div>' +
           badgeHtml +
         '</div>' +
         '<div style="font-weight:700;font-size:.82rem;color:#0f172a;line-height:1.3">' + esc(d.title) + '</div>' +
@@ -161,7 +203,11 @@
           '</div>'
         ) : '') +
         '<div style="display:flex;justify-content:flex-end;gap:6px;margin-top:8px" onclick="event.stopPropagation()">' +
-          '<button type="button" class="btn btn-xs ' + (st === 'approved' ? 'btn-primary' : 'btn-ghost') + '" ' + (d.available === false ? 'disabled aria-disabled="true" style="opacity:.5;cursor:not-allowed;font-size:.72rem;padding:2px 8px;font-weight:700" title="Документ не сформирован или недоступен"' : 'onclick="window.setModerationDocStatus(\'' + esc(taskId) + '\',\'' + esc(d.key) + '\',\'approved\')" style="font-size:.72rem;padding:2px 8px;font-weight:700" title="Одобрить документ"') + '>✓ Одобрить</button>' +
+          '<button type="button" class="btn btn-xs ' + (st === 'approved' ? 'btn-primary' : 'btn-ghost') + '" ' +
+            (d.available === false
+              ? 'disabled aria-disabled="true" style="opacity:.5;cursor:not-allowed;font-size:.72rem;padding:2px 8px;font-weight:700" title="Документ не сформирован или недоступен для одобрения"'
+              : 'onclick="window.setModerationDocStatus(\'' + esc(taskId) + '\',\'' + esc(d.key) + '\',\'approved\')" style="font-size:.72rem;padding:2px 8px;font-weight:700" title="Одобрить документ"') +
+          '>✓ Одобрить</button>' +
           '<button type="button" class="btn btn-xs ' + (st === 'rejected' ? 'btn-danger' : 'btn-ghost') + '" onclick="window.openRejectDocModal(\'' + esc(taskId) + '\',\'' + esc(d.key) + '\',\'' + esc(d.title) + '\')" style="font-size:.72rem;padding:2px 8px;font-weight:700;color:' + (st === 'rejected' ? '#fff' : 'var(--red)') + '" title="Отклонить документ с указанием причины">✗ Отклонить</button>' +
         '</div>' +
       '</div>';
@@ -185,7 +231,7 @@
     '</div>';
 
     // Правая панель 65% — встроенный интерактивный просмотрщик
-    var activeDoc = docs.find(function(d){ return d.key === _curActiveDocKey; }) || docs[0] || {};
+    var activeDoc = docs.find(function(d){ return d.key === _curActiveDocKey || (d.alias && d.alias === _curActiveDocKey); }) || docs[0] || {};
     var rawFileUrl = activeDoc.file_url || data.fullAlbumUrl || ('/api/tasks/' + encodeURIComponent(taskId) + '/id-album.pdf');
     var rawFullAlbumUrl = data.fullAlbumUrl || ('/api/tasks/' + encodeURIComponent(taskId) + '/id-album.pdf');
 
@@ -195,6 +241,11 @@
     var isImage = (activeDoc.file_type && ['png', 'jpg', 'jpeg', 'webp'].includes(activeDoc.file_type.toLowerCase())) ||
                   rawFileUrl.match(/\.(png|jpg|jpeg|webp)(\?.*)?$/i);
 
+    var kjHeaderNav = '';
+    if (activeDoc.key === 'kj') {
+      kjHeaderNav = '<button type="button" class="btn btn-xs btn-ghost" style="color:#93c5fd;border:1px solid #3b82f6" onclick="window.navigateToCardBlock(\'main\', \'portsBlock\')">📋 Открыть КЖ в карточке ↗</button>';
+    }
+
     var rightHtml = '<div style="flex:1;display:flex;flex-direction:column;background:#0f172a;height:100%">' +
       '<div style="padding:10px 16px;background:#1e293b;border-bottom:1px solid #334155;color:#fff;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
         '<div style="display:flex;align-items:center;gap:8px">' +
@@ -202,18 +253,32 @@
           '<span class="badge b-gray" style="font-size:.68rem">' + esc(activeDoc.code || 'ИД') + '</span>' +
         '</div>' +
         '<div style="display:flex;gap:6px">' +
+          kjHeaderNav +
           '<button type="button" class="btn btn-xs btn-ghost" style="color:#fff;border:1px solid #475569" onclick="window.open(\'' + esc(authFullAlbumUrl) + '\', \'_blank\')">📑 Открыть полный Альбом PDF ↗</button>' +
           '<button type="button" class="btn btn-xs btn-ghost" style="color:#fff;border:1px solid #475569" onclick="window.downloadAuthFile(\'' + esc(rawFileUrl) + '\', \'' + esc(activeDoc.title || 'document') + '.pdf\')">📥 Скачать</button>' +
         '</div>' +
       '</div>' +
-      '<div style="flex:1;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#0f172a">' +
-        (isImage ? (
-          '<img src="' + esc(authFileUrl) + '" style="max-width:98%;max-height:98%;object-fit:contain;border-radius:6px;box-shadow:0 8px 32px rgba(0,0,0,0.6)">'
-        ) : (
-          '<iframe src="' + esc(authFileUrl) + '" style="width:100%;height:100%;border:none;background:#525659"></iframe>'
-        )) +
-      '</div>' +
-    '</div>';
+      '<div style="flex:1;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#0f172a">';
+
+    if (activeDoc.available === false) {
+      rightHtml += '<div style="background:#1e293b;border:1px dashed #475569;border-radius:10px;padding:32px 24px;text-align:center;color:#cbd5e1;max-width:520px;box-shadow:0 12px 36px rgba(0,0,0,0.4)">' +
+        '<div style="font-size:2.5rem;margin-bottom:12px">📄</div>' +
+        '<div style="font-weight:700;font-size:1.1rem;color:#f8fafc;margin-bottom:8px">Документ не сформирован или недоступен</div>' +
+        '<div style="font-size:.85rem;color:#94a3b8;line-height:1.5;margin-bottom:20px">' +
+          'Файл для «' + esc(activeDoc.title) + '» пока отсутствует на диске. Чтобы его проверить и одобрить, сформируйте Альбом ИД в PDF или прикрепите соответствующий файл в карточке заявки.' +
+        '</div>' +
+        '<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">' +
+          '<button type="button" class="btn btn-sm btn-primary" onclick="window.generateAndOpenIdAlbumPdf(\'' + esc(taskId) + '\')" style="font-weight:700">⚡ Сформировать Альбом ИД (.PDF)</button>' +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="window.loadModerationData(\'' + esc(taskId) + '\')" style="border:1px solid #475569;color:#fff">🔄 Обновить предпросмотр</button>' +
+        '</div>' +
+      '</div>';
+    } else if (isImage) {
+      rightHtml += '<img src="' + esc(authFileUrl) + '" style="max-width:98%;max-height:98%;object-fit:contain;border-radius:6px;box-shadow:0 8px 32px rgba(0,0,0,0.6)">';
+    } else {
+      rightHtml += '<iframe src="' + esc(authFileUrl) + '" style="width:100%;height:100%;border:none;background:#525659"></iframe>';
+    }
+
+    rightHtml += '</div></div>';
 
     cont.innerHTML = leftHtml + rightHtml;
 
@@ -234,9 +299,109 @@
     }
   };
 
+  // Модалка настройки состава чек-листа ИД (Задача 6.3)
+  window.openIdChecklistConfigModal = function(taskId) {
+    var old = document.getElementById('modal_id_checklist');
+    if (old) old.remove();
+
+    if (!_curModerationData) return;
+    var task = _curModerationData.task || {};
+    var isFinalized = (task.id_moderation_status === 'approved');
+    var items = _curModerationData.availableChecklistItems || [];
+    var checklist = _curModerationData.checklist || {};
+
+    var modal = document.createElement('div');
+    modal.id = 'modal_id_checklist';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:100001;display:flex;align-items:center;justify-content:center;padding:12px;backdrop-filter:blur(2px)';
+
+    var itemsHtml = items.map(function(item) {
+      var isChecked = (checklist[item.key] === true);
+      var isMandatory = item.mandatory === true;
+      var disabledAttr = (isMandatory || isFinalized) ? 'disabled' : '';
+
+      var categoryBadge = '';
+      if (item.category === 'basic') categoryBadge = '<span class="badge b-blue" style="font-size:.65rem">Обязательный</span>';
+      else if (item.category === 'appendix') categoryBadge = '<span class="badge b-gray" style="font-size:.65rem">Приложение</span>';
+      else categoryBadge = '<span class="badge b-amber" style="font-size:.65rem">Настраиваемый</span>';
+
+      return '<label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid #f1f5f9;cursor:' + (disabledAttr ? 'not-allowed' : 'pointer') + ';background:' + (isChecked ? '#f8fafc' : '#fff') + '">' +
+        '<input type="checkbox" data-checklist-key="' + esc(item.key) + '" ' + (isChecked ? 'checked' : '') + ' ' + disabledAttr + ' style="width:16px;height:16px;cursor:' + (disabledAttr ? 'not-allowed' : 'pointer') + '">' +
+        '<div style="flex:1">' +
+          '<div style="font-weight:700;font-size:.82rem;color:#0f172a;display:flex;align-items:center;gap:6px">' +
+            '<span>' + esc(item.code) + '</span> ' +
+            '<span>' + esc(item.title) + '</span>' +
+            categoryBadge +
+          '</div>' +
+          (isMandatory ? '<div style="font-size:.7rem;color:#64748b">Входит в базовый состав альбома ИД и не может быть отключен</div>' : '') +
+        '</div>' +
+      '</label>';
+    }).join('');
+
+    modal.innerHTML = '<div style="background:#fff;border-radius:10px;width:100%;max-width:580px;padding:20px;box-shadow:0 16px 48px rgba(0,0,0,0.3);display:flex;flex-direction:column;max-height:90vh">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+        '<div style="font-weight:700;font-size:1.05rem;color:#0f172a">⚙️ Настройка состава комплекта ИД</div>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'modal_id_checklist\').remove()">✕</button>' +
+      '</div>' +
+      (isFinalized ? (
+        '<div style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;padding:8px 12px;border-radius:6px;font-size:.78rem;font-weight:700;margin-bottom:10px">' +
+          '⚠️ Комплект ИД уже одобрен и отправлен на Портал. Изменение состава заблокировано.' +
+        '</div>'
+      ) : (
+        '<div style="font-size:.78rem;color:var(--text-3);margin-bottom:10px">' +
+          'Отметьте документы, входящие в исполнительную документацию для данного Заказчика и объекта.' +
+        '</div>'
+      )) +
+      '<div style="flex:1;overflow-y:auto;border:1px solid var(--border);border-radius:6px;margin-bottom:16px">' +
+        itemsHtml +
+      '</div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:8px">' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'modal_id_checklist\').remove()">Отмена</button>' +
+        (!isFinalized ? '<button type="button" class="btn btn-sm btn-primary" id="btnSaveIdChecklist" style="font-weight:700">Сохранить состав</button>' : '') +
+      '</div>' +
+    '</div>';
+
+    document.body.appendChild(modal);
+
+    var saveBtn = document.getElementById('btnSaveIdChecklist');
+    if (saveBtn) {
+      saveBtn.onclick = function() {
+        var payload = {};
+        modal.querySelectorAll('input[data-checklist-key]').forEach(function(inp) {
+          var k = inp.getAttribute('data-checklist-key');
+          if (k) payload[k] = inp.checked;
+        });
+
+        saveBtn.disabled = true;
+        saveBtn.innerText = 'Сохранение…';
+
+        window.api('/tasks/' + encodeURIComponent(taskId) + '/id-moderation/checklist', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }).then(function(res) {
+          modal.remove();
+          if (typeof showToast === 'function') showToast('Состав ИД успешно обновлен', 'success');
+          loadModerationData(taskId);
+        }).catch(function(err) {
+          saveBtn.disabled = false;
+          saveBtn.innerText = 'Сохранить состав';
+          alert('Ошибка обновления состава ИД: ' + (err.message || err));
+        });
+      };
+    }
+  };
+
   // Установка статуса проверки (одобрено)
   window.setModerationDocStatus = function(taskId, docKey, status) {
-    api('/tasks/' + encodeURIComponent(taskId) + '/id-moderation/status', {
+    if (status === 'approved' && _curModerationData && _curModerationData.documents) {
+      var targetDoc = _curModerationData.documents.find(function(x){ return x.key === docKey || x.alias === docKey; });
+      if (targetDoc && targetDoc.available === false) {
+        alert('Нельзя одобрить документ: файл документа не сформирован или недоступен.');
+        return;
+      }
+    }
+
+    window.api('/tasks/' + encodeURIComponent(taskId) + '/id-moderation/status', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ docKey: docKey, status: status })
@@ -245,16 +410,8 @@
         alert('Ошибка обновления статуса: ' + ((res && res.error) || 'Сервер отклонил запрос'));
         return;
       }
-      if (_curModerationData && _curModerationData.documents) {
-        var d = _curModerationData.documents.find(function(x){ return x.key === docKey; });
-        if (d) {
-          d.status = status;
-          d.rejection_reason = null;
-          d.comment = null;
-        }
-      }
       if (typeof showToast === 'function') showToast('Документ одобрен: ' + docKey, 'success');
-      renderModerationSplitScreen(taskId);
+      loadModerationData(taskId);
     }).catch(function(err) {
       alert('Ошибка обновления статуса: ' + (err.message || err));
     });
@@ -287,8 +444,8 @@
       '<div style="font-size:.85rem;color:#475569;margin-bottom:14px">Документ: <b>' + esc(docTitle) + '</b></div>' +
 
       '<div style="margin-bottom:12px">' +
-        '<label style="display:block;font-size:.8rem;font-weight:700;color:#334155;margin-bottom:4px">Обязательная причина отклонения:</label>' +
-        '<select id="rejectReasonSelect" class="inp" style="width:100%;padding:6px 10px;font-size:.85rem">' +
+        '<label for="rejectReasonSelect" style="display:block;font-size:.8rem;font-weight:700;color:#334155;margin-bottom:4px">Обязательная причина отклонения:</label>' +
+        '<select id="rejectReasonSelect" class="select" style="width:100%">' +
           optionsHtml +
         '</select>' +
       '</div>' +
@@ -307,10 +464,15 @@
     document.body.appendChild(modal);
 
     document.getElementById('btnConfirmDocReject').onclick = function() {
-      var reason = document.getElementById('rejectReasonSelect').value;
-      var comment = document.getElementById('rejectCommentText').value.trim();
+      var reason = (document.getElementById('rejectReasonSelect').value || '').trim();
+      var comment = (document.getElementById('rejectCommentText').value || '').trim();
 
-      api('/tasks/' + encodeURIComponent(taskId) + '/id-moderation/status', {
+      if (!reason) {
+        alert('Пожалуйста, укажите причину отклонения документа');
+        return;
+      }
+
+      window.api('/tasks/' + encodeURIComponent(taskId) + '/id-moderation/status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -321,16 +483,8 @@
         })
       }).then(function() {
         modal.remove();
-        if (_curModerationData && _curModerationData.documents) {
-          var d = _curModerationData.documents.find(function(x){ return x.key === docKey; });
-          if (d) {
-            d.status = 'rejected';
-            d.rejection_reason = reason;
-            d.comment = comment;
-          }
-        }
         if (typeof showToast === 'function') showToast('Документ отклонен: ' + reason, 'error');
-        renderModerationSplitScreen(taskId);
+        loadModerationData(taskId);
       }).catch(function(err) {
         alert('Ошибка отклонения: ' + (err.message || err));
       });
@@ -344,7 +498,7 @@
       var summary = rejectedDocs.map(function(d){ return '• ' + d.title + ': ' + (d.rejection_reason || 'Замечания') + (d.comment ? ' (' + d.comment + ')' : ''); }).join('\n');
       if (!confirm('Вернуть комплект ИД подрядчику на доработку со следующими замечаниями:\n\n' + summary)) return;
 
-      api('/tasks/' + encodeURIComponent(taskId) + '/id-moderation/finalize', {
+      window.api('/tasks/' + encodeURIComponent(taskId) + '/id-moderation/finalize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'return_rework', notes: summary })
@@ -353,13 +507,15 @@
         var m = document.getElementById('modal_id_moderation');
         if (m) m.remove();
         if (window.openCard) openCard(taskId);
+      }).catch(function(err) {
+        alert('Ошибка возврата на доработку: ' + (err.message || err));
       });
     }
 
     if (action === 'send_portal') {
-      if (!confirm('Все 5 обязательных документов ИД успешно проверены и одобрены.\n\nОтправить комплект ИД на Портал поставщиков?')) return;
+      if (!confirm('Все документы чек-листа ИД успешно проверены и одобрены.\n\nОтправить комплект ИД на Портал поставщиков?')) return;
 
-      api('/tasks/' + encodeURIComponent(taskId) + '/id-moderation/finalize', {
+      window.api('/tasks/' + encodeURIComponent(taskId) + '/id-moderation/finalize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'send_portal' })
@@ -372,6 +528,8 @@
         var m = document.getElementById('modal_id_moderation');
         if (m) m.remove();
         if (window.openCard) openCard(taskId);
+      }).catch(function(err) {
+        alert('Ошибка отправки на Портал: ' + (err.message || err));
       });
     }
   };
@@ -381,7 +539,7 @@
     if (!taskId) return;
     if (typeof showToast === 'function') showToast('Сборка альбома ИД в .PDF формате...', 'info');
 
-    api('/tasks/' + encodeURIComponent(taskId) + '/id-album/generate', { method: 'POST' })
+    window.api('/tasks/' + encodeURIComponent(taskId) + '/id-album/generate', { method: 'POST' })
       .then(function(res) {
         var targetUrl = res.fileUrl || ('/api/tasks/' + encodeURIComponent(taskId) + '/id-album.pdf');
         var authUrl = (typeof window.withAuthToken === 'function') ? window.withAuthToken(targetUrl) : targetUrl;
@@ -389,6 +547,7 @@
         if (typeof showToast === 'function') {
           showToast('Альбом ИД сформирован: ' + (res.docNumber || taskId), 'success');
         }
+        loadModerationData(taskId);
       })
       .catch(function(err) {
         alert('Ошибка формирования альбома ИД: ' + (err.message || err));

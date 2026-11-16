@@ -212,6 +212,8 @@ export async function initDB() {
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status_acts TEXT DEFAULT 'pending'`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status_payment_sub TEXT DEFAULT 'pending'`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status_payment_customer TEXT DEFAULT 'pending'`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS id_moderation_status TEXT DEFAULT 'pending'`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS id_moderation_notes TEXT`);
   
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_status_smr ON tasks(status_smr)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_status_supply ON tasks(status_supply)`);

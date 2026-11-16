@@ -741,16 +741,190 @@ router.post('/tasks/:taskId/id-album/generate', authenticateToken, requireRole('
   }
 });
 
-const ID_MODERATION_KEYS = ['act', 'cert', 'scheme', 'kj', 'fluke'];
+const ID_MODERATION_KEYS = [
+  'title', 'album_list', 'aosr', 'act', 'act_equip', 'act_mount',
+  'work_log', 'scheme', 'kj', 'fluke', 'cert', 'manual', 'warranty'
+];
+
+const ID_DOCUMENT_SPECS = [
+  {
+    key: 'title',
+    code: 'ИД-01',
+    title: 'Титульный лист альбома ИД',
+    category: 'basic',
+    mandatory: true,
+    page: 1,
+    defaultType: 'pdf'
+  },
+  {
+    key: 'album_list',
+    code: 'ИД-02',
+    title: 'Ведомость документов исполнительной документации',
+    category: 'basic',
+    mandatory: true,
+    page: 2,
+    defaultType: 'pdf'
+  },
+  {
+    key: 'aosr',
+    alias: 'act',
+    code: 'ИД-03',
+    title: 'Акт освидетельствования скрытых работ (АОСР)',
+    category: 'configurable',
+    mandatory: false,
+    page: 3,
+    defaultType: 'pdf'
+  },
+  {
+    key: 'act_equip',
+    code: 'ИД-04',
+    title: 'Спецификация смонтированного оборудования и материалов',
+    category: 'configurable',
+    mandatory: false,
+    page: 4,
+    defaultType: 'pdf'
+  },
+  {
+    key: 'act_mount',
+    code: 'ИД-04/1',
+    title: 'Акт монтажа оборудования и кабельных трасс',
+    category: 'configurable',
+    mandatory: false,
+    page: 4,
+    defaultType: 'pdf'
+  },
+  {
+    key: 'work_log',
+    code: 'ИД-04/2',
+    title: 'Журнал производства работ (СМР)',
+    category: 'configurable',
+    mandatory: false,
+    page: 2,
+    defaultType: 'pdf'
+  },
+  {
+    key: 'scheme',
+    code: 'ИД-05',
+    title: 'Исполнительная схема трасс СКС и розеток',
+    category: 'basic',
+    mandatory: true,
+    page: 5,
+    defaultType: 'image_or_pdf'
+  },
+  {
+    key: 'kj',
+    code: 'ИД-06',
+    title: 'Кабельный журнал и таблица соединений (КЖ)',
+    category: 'basic',
+    mandatory: true,
+    page: 6,
+    defaultType: 'pdf'
+  },
+  {
+    key: 'fluke',
+    code: 'ИД-07',
+    title: 'Протокол измерений Fluke Networks (100% PASS)',
+    category: 'basic',
+    mandatory: true,
+    page: 7,
+    defaultType: 'pdf'
+  },
+  {
+    key: 'cert',
+    code: 'ИД-08',
+    title: 'Сертификат соответствия на кабель Cat 5e/6',
+    category: 'appendix',
+    mandatory: false,
+    page: 8,
+    defaultType: 'pdf'
+  },
+  {
+    key: 'manual',
+    code: 'ИД-09',
+    title: 'Руководства по эксплуатации и паспорта оборудования',
+    category: 'appendix',
+    mandatory: false,
+    page: 2,
+    defaultType: 'pdf'
+  },
+  {
+    key: 'warranty',
+    code: 'ИД-10',
+    title: 'Гарантийные обязательства производителя и подрядчика',
+    category: 'appendix',
+    mandatory: false,
+    page: 2,
+    defaultType: 'pdf'
+  }
+];
+
+function isSfrCustomer(customer) {
+  const custName = (customer || '').toLowerCase();
+  return custName.includes('сфр') || custName.includes('социальн') || custName.includes('пенсион');
+}
+
+function getDefaultChecklist(customer) {
+  const isSfr = isSfrCustomer(customer);
+  return {
+    title: true,
+    album_list: true,
+    aosr: !isSfr,
+    act: !isSfr,
+    act_equip: false,
+    act_mount: false,
+    work_log: false,
+    scheme: true,
+    kj: true,
+    fluke: true,
+    cert: true,
+    manual: false,
+    warranty: false
+  };
+}
+
+function resolveTaskChecklist(task) {
+  const defaults = getDefaultChecklist(task.customer);
+  const raw = task.raw_data || {};
+  const saved = raw.idChecklist || raw.id_checklist || {};
+
+  const merged = { ...defaults };
+  // Mandatory keys always true
+  merged.title = true;
+  merged.album_list = true;
+  merged.scheme = true;
+  merged.kj = true;
+  merged.fluke = true;
+
+  const optKeys = ['aosr', 'act_equip', 'act_mount', 'work_log', 'cert', 'manual', 'warranty'];
+  for (const k of optKeys) {
+    if (typeof saved[k] === 'boolean') {
+      merged[k] = saved[k];
+    }
+  }
+  if (typeof saved.act === 'boolean' && saved.aosr === undefined) {
+    merged.aosr = saved.act;
+  }
+  merged.act = merged.aosr;
+
+  return merged;
+}
 
 function isModerationFileAvailable(fileReference) {
   if (!fileReference || typeof fileReference !== 'string') return false;
   try {
-    const relativePath = fileReference.replace(/^\/uploads\//, '').replace(/^uploads\//, '');
     const rootPath = path.resolve(UPLOADS_DIR);
-    const filePath = path.resolve(rootPath, relativePath);
+    let filePath;
+    if (fileReference.startsWith('/uploads/') || fileReference.startsWith('uploads/')) {
+      const relativePath = fileReference.replace(/^\/uploads\//, '').replace(/^uploads\//, '');
+      filePath = path.resolve(rootPath, relativePath);
+    } else if (path.isAbsolute(fileReference) && (fileReference.startsWith(rootPath) || /^[a-zA-Z]:/.test(fileReference))) {
+      filePath = path.resolve(fileReference);
+    } else {
+      const relativePath = fileReference.replace(/^\/+/, '');
+      filePath = path.resolve(rootPath, relativePath);
+    }
     const relativeToRoot = path.relative(rootPath, filePath);
-    if (!relativeToRoot || relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) return false;
+    if (!relativeToRoot || relativeToRoot.startsWith('..')) return false;
     return fs.statSync(filePath).isFile();
   } catch {
     return false;
@@ -758,7 +932,7 @@ function isModerationFileAvailable(fileReference) {
 }
 
 function findSchemeAttachment(attachments) {
-  return attachments.find(a =>
+  return (attachments || []).find(a =>
     a.type === 'scheme' ||
     a.category === 'scheme' ||
     a.category === 'plan' ||
@@ -768,16 +942,46 @@ function findSchemeAttachment(attachments) {
 }
 
 function getModerationAvailability(docKey, documents, attachments) {
-  const albumDoc = [...documents].reverse().find(d => d.doc_type === 'id_album');
-  let sourceDoc = albumDoc;
-  if (docKey === 'act') {
-    sourceDoc = documents.find(d => d.doc_type === 'hidden_works_act' || d.title?.includes('скрытых')) || albumDoc;
-  } else if (docKey === 'cert') {
-    sourceDoc = documents.find(d => d.doc_type === 'cable_certificate' || d.title?.includes('Сертификат')) || albumDoc;
-  } else if (docKey === 'scheme') {
-    sourceDoc = findSchemeAttachment(attachments) || albumDoc;
+  const normKey = (docKey === 'act' ? 'aosr' : docKey);
+  const albumDoc = [...(documents || [])].reverse().find(d => d.doc_type === 'id_album');
+  const isAlbumFileOnDisk = isModerationFileAvailable(albumDoc?.file_path || albumDoc?.file_url);
+
+  if (normKey === 'aosr') {
+    const actDoc = (documents || []).find(d => d.doc_type === 'hidden_works_act' || d.title?.includes('скрытых'));
+    if (actDoc && isModerationFileAvailable(actDoc.file_path || actDoc.file_url)) return true;
+    return isAlbumFileOnDisk;
   }
-  return isModerationFileAvailable(sourceDoc?.file_path || sourceDoc?.file_url);
+  if (normKey === 'cert') {
+    const certDoc = (documents || []).find(d => d.doc_type === 'cable_certificate' || d.title?.includes('Сертификат'));
+    if (certDoc && isModerationFileAvailable(certDoc.file_path || certDoc.file_url)) return true;
+    return isAlbumFileOnDisk;
+  }
+  if (normKey === 'scheme') {
+    const schemeAtt = findSchemeAttachment(attachments);
+    if (schemeAtt && isModerationFileAvailable(schemeAtt.file_path || schemeAtt.file_url)) return true;
+    return isAlbumFileOnDisk;
+  }
+  if (normKey === 'act_equip' || normKey === 'act_mount') {
+    const equipDoc = (documents || []).find(d => d.doc_type === 'equipment_act' || d.title?.includes('Спецификация') || d.title?.includes('оборудования'));
+    if (equipDoc && isModerationFileAvailable(equipDoc.file_path || equipDoc.file_url)) return true;
+    return isAlbumFileOnDisk;
+  }
+  if (normKey === 'work_log') {
+    const logDoc = (documents || []).find(d => d.doc_type === 'work_log' || d.title?.includes('Журнал'));
+    if (logDoc && isModerationFileAvailable(logDoc.file_path || logDoc.file_url)) return true;
+    return isAlbumFileOnDisk;
+  }
+  if (normKey === 'manual') {
+    const manualDoc = (documents || []).find(d => d.doc_type === 'manual' || d.title?.includes('паспорт') || d.title?.includes('Руководство'));
+    if (manualDoc && isModerationFileAvailable(manualDoc.file_path || manualDoc.file_url)) return true;
+    return isAlbumFileOnDisk;
+  }
+  if (normKey === 'warranty') {
+    const wDoc = (documents || []).find(d => d.doc_type === 'warranty' || d.title?.includes('Гарант'));
+    if (wDoc && isModerationFileAvailable(wDoc.file_path || wDoc.file_url)) return true;
+    return isAlbumFileOnDisk;
+  }
+  return isAlbumFileOnDisk;
 }
 
 // 6. Получить состояние модерации комплекта ИД по задаче
@@ -801,110 +1005,74 @@ router.get('/tasks/:taskId/id-moderation', authenticateToken, async (req, res) =
     const attRes = await pool.query('SELECT * FROM task_attachments WHERE task_id = $1 ORDER BY id ASC', [taskId]);
     const portsRes = await pool.query('SELECT * FROM task_ports WHERE task_id = $1 ORDER BY id ASC', [taskId]);
 
-    // Модерация по 5 ключевым документам чек-листа
     const rawMeta = (task.raw_data && task.raw_data.id_moderation) || {};
+    const checklist = resolveTaskChecklist(task);
 
-    // 1. Акт скрытых работ
+    const availableChecklistItems = ID_DOCUMENT_SPECS.map(spec => ({
+      key: spec.key,
+      alias: spec.alias || null,
+      code: spec.code,
+      title: spec.title,
+      category: spec.category,
+      mandatory: spec.mandatory,
+      active: checklist[spec.key] === true
+    }));
+
     const actRecord = docsRes.rows.find(d => d.doc_type === 'hidden_works_act' || d.title?.includes('скрытых'));
-    const actDoc = {
-      ...(actRecord || {
-        id: 'act',
-        title: 'Акт освидетельствования скрытых работ',
-        code: 'ИД-03',
-        file_url: '/api/tasks/' + taskId + '/id-album.pdf#page=3',
-        file_type: 'pdf'
-      }),
-      key: 'act',
-      status: rawMeta.act?.status || 'pending',
-      rejection_reason: rawMeta.act?.rejection_reason || null,
-      comment: rawMeta.act?.comment || null,
-      available: getModerationAvailability('act', docsRes.rows, attRes.rows)
-    };
-
-    // 2. Сертификат на кабель
     const certRecord = docsRes.rows.find(d => d.doc_type === 'cable_certificate' || d.title?.includes('Сертификат'));
-    const certDoc = {
-      ...(certRecord || {
-        id: 'cert',
-        title: 'Сертификат соответствия на кабель Cat 5e/6',
-        code: 'ИД-08',
-        file_url: '/api/tasks/' + taskId + '/id-album.pdf#page=8',
-        file_type: 'pdf'
-      }),
-      key: 'cert',
-      status: rawMeta.cert?.status || 'pending',
-      rejection_reason: rawMeta.cert?.rejection_reason || null,
-      comment: rawMeta.cert?.comment || null,
-      available: getModerationAvailability('cert', docsRes.rows, attRes.rows)
-    };
-
-    // 3. Исполнительная схема
     const schemeAtt = findSchemeAttachment(attRes.rows);
-    const schemeFileUrl = schemeAtt ? ('/api/attachments/' + schemeAtt.id + '/file') : ('/api/tasks/' + taskId + '/id-album.pdf#page=5');
-    const schemeDoc = {
-      id: 'scheme',
-      key: 'scheme',
-      title: 'Исполнительная схема трасс СКС и розеток',
-      code: 'ИД-05',
-      file_url: schemeFileUrl,
-      file_type: schemeAtt ? (path.extname(schemeAtt.original_name || schemeAtt.file_path || '').slice(1) || 'png') : 'pdf',
-      status: rawMeta.scheme?.status || 'pending',
-      rejection_reason: rawMeta.scheme?.rejection_reason || null,
-      comment: rawMeta.scheme?.comment || null,
-      available: getModerationAvailability('scheme', docsRes.rows, attRes.rows)
-    };
 
-    // 4. Кабельный журнал
-    const kjDoc = {
-      id: 'kj',
-      key: 'kj',
-      title: 'Кабельный журнал и таблица соединений (' + portsRes.rows.length + ' портов)',
-      code: 'ИД-06',
-      file_url: '/api/tasks/' + taskId + '/id-album.pdf#page=6',
-      file_type: 'pdf',
-      status: rawMeta.kj?.status || 'pending',
-      rejection_reason: rawMeta.kj?.rejection_reason || null,
-      comment: rawMeta.kj?.comment || null,
-      available: getModerationAvailability('kj', docsRes.rows, attRes.rows)
-    };
+    const activeDocs = [];
 
-    // 5. Протокол Fluke
-    const flukeDoc = {
-      id: 'fluke',
-      key: 'fluke',
-      title: 'Протокол измерений Fluke Networks (100% PASS)',
-      code: 'ИД-07',
-      file_url: '/api/tasks/' + taskId + '/id-album.pdf#page=7',
-      file_type: 'pdf',
-      status: rawMeta.fluke?.status || 'pending',
-      rejection_reason: rawMeta.fluke?.rejection_reason || null,
-      comment: rawMeta.fluke?.comment || null,
-      available: getModerationAvailability('fluke', docsRes.rows, attRes.rows)
-    };
+    for (const spec of ID_DOCUMENT_SPECS) {
+      if (checklist[spec.key] !== true) continue;
 
-    // Адаптивный чек-лист по Заказчику (по замечаниям Алексея):
-    // Для фонда СФР (Социальный фонд России) АОСР исключается ("он нам не нужен")
-    const custName = (task.customer || '').toLowerCase();
-    const isSfr = custName.includes('сфр') || custName.includes('социальн') || custName.includes('пенсион');
-    const isSber = custName.includes('сбер') || (!isSfr && !custName);
+      let fileUrl = `/api/tasks/${taskId}/id-album.pdf#page=${spec.page}`;
+      let fileType = 'pdf';
+      let title = spec.title;
 
-    let checkList = [];
-    if (isSfr) {
-      // Комплект СФР: Исполнительная схема, Кабельный журнал, Протокол Fluke, Сертификаты (без АОСР)
-      checkList = [schemeDoc, kjDoc, flukeDoc, certDoc];
-    } else if (isSber) {
-      // Комплект Сбербанка: АОСР, Сертификаты, Исполнительная схема, Кабельный журнал, Протокол Fluke
-      checkList = [actDoc, certDoc, schemeDoc, kjDoc, flukeDoc];
-    } else {
-      // Общий комплект: Схема, КЖ, Протокол, Сертификаты (+ АОСР если он сформирован)
-      checkList = [schemeDoc, kjDoc, flukeDoc, certDoc];
-      if (docsRes.rows.some(d => d.doc_type === 'hidden_works_act' || d.title?.includes('скрытых'))) {
-        checkList.unshift(actDoc);
+      if (spec.key === 'aosr') {
+        if (actRecord?.file_url) fileUrl = actRecord.file_url;
+      } else if (spec.key === 'cert') {
+        if (certRecord?.file_url) fileUrl = certRecord.file_url;
+      } else if (spec.key === 'scheme') {
+        if (schemeAtt) {
+          fileUrl = `/api/attachments/${schemeAtt.id}/file`;
+          fileType = path.extname(schemeAtt.original_name || schemeAtt.file_path || '').slice(1) || 'png';
+        }
+      } else if (spec.key === 'kj') {
+        title = `Кабельный журнал и таблица соединений (${portsRes.rows.length} линий)`;
       }
+
+      // STRICT RULE: If not explicitly moderated by user, status is ALWAYS 'pending'!
+      // Neither ports, nor attachments, nor fact, nor album can make status 'approved' automatically!
+      const explicitMeta = rawMeta[spec.key] || (spec.alias ? rawMeta[spec.alias] : null) || {};
+      const status = (explicitMeta.status === 'approved' || explicitMeta.status === 'rejected') ? explicitMeta.status : 'pending';
+      const rejectionReason = explicitMeta.status === 'rejected' ? (explicitMeta.rejection_reason || null) : null;
+      const comment = explicitMeta.comment || null;
+
+      activeDocs.push({
+        id: spec.key,
+        key: spec.key,
+        alias: spec.alias || null,
+        code: spec.code,
+        title,
+        category: spec.category,
+        mandatory: spec.mandatory,
+        file_url: fileUrl,
+        file_type: fileType,
+        status,
+        rejection_reason: rejectionReason,
+        comment,
+        available: getModerationAvailability(spec.key, docsRes.rows, attRes.rows)
+      });
     }
-    const approvedCount = checkList.filter(d => d.status === 'approved').length;
-    const hasRejected = checkList.some(d => d.status === 'rejected');
-    const allApproved = (approvedCount === checkList.length);
+
+    const approvedCount = activeDocs.filter(d => d.status === 'approved').length;
+    const rejectedCount = activeDocs.filter(d => d.status === 'rejected').length;
+    const hasRejected = rejectedCount > 0;
+    const allApproved = (activeDocs.length > 0 && approvedCount === activeDocs.length);
+    const overallStatus = hasRejected ? 'rejected' : (allApproved ? 'approved' : 'pending');
 
     res.json({
       task: {
@@ -921,17 +1089,66 @@ router.get('/tasks/:taskId/id-moderation', authenticateToken, async (req, res) =
         fact: task.fact,
         in_order: task.in_order
       },
-      documents: checkList,
-      fullAlbumUrl: '/api/tasks/' + taskId + '/id-album.pdf',
+      checklist,
+      availableChecklistItems,
+      documents: activeDocs,
+      fullAlbumUrl: `/api/tasks/${taskId}/id-album.pdf`,
       approvedCount,
-      totalCount: checkList.length,
+      rejectedCount,
+      totalCount: activeDocs.length,
       allApproved,
       hasRejected,
-      overallStatus: hasRejected ? 'rejected' : (allApproved ? 'approved' : 'pending')
+      overallStatus
     });
   } catch (err) {
     console.error('Error fetching ID moderation state:', err);
     res.status(500).json({ error: 'Ошибка получения состояния модерации ИД: ' + err.message });
+  }
+});
+
+// 6.1. Настройка чек-листа состава комплекта ИД
+router.put('/tasks/:taskId/id-moderation/checklist', authenticateToken, requireRole('admin', 'director', 'manager', 'to_engineer'), async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const taskRes = await pool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
+    if (!taskRes.rows.length) return res.status(404).json({ error: 'Задача не найдена' });
+    const task = taskRes.rows[0];
+
+    if (task.id_moderation_status === 'approved') {
+      return res.status(409).json({ error: 'Нельзя изменять состав чек-листа: комплект ИД уже финализирован и отправлен на Портал' });
+    }
+
+    const currentChecklist = resolveTaskChecklist(task);
+    const body = req.body || {};
+    const updated = { ...currentChecklist };
+
+    const optKeys = ['aosr', 'act_equip', 'act_mount', 'work_log', 'cert', 'manual', 'warranty'];
+    for (const k of optKeys) {
+      if (typeof body[k] === 'boolean') {
+        updated[k] = body[k];
+      }
+    }
+    if (typeof body.act === 'boolean' && body.aosr === undefined) {
+      updated.aosr = body.act;
+    }
+    updated.act = updated.aosr;
+
+    // Mandatory keys cannot be disabled
+    updated.title = true;
+    updated.album_list = true;
+    updated.scheme = true;
+    updated.kj = true;
+    updated.fluke = true;
+
+    const rawData = task.raw_data || {};
+    rawData.idChecklist = updated;
+    rawData.id_checklist = updated;
+
+    await pool.query('UPDATE tasks SET raw_data = $1 WHERE id = $2', [JSON.stringify(rawData), taskId]);
+    res.json({ success: true, checklist: updated });
+  } catch (err) {
+    console.error('Error updating ID checklist:', err);
+    res.status(500).json({ error: 'Ошибка обновления чек-листа ИД: ' + err.message });
   }
 });
 
@@ -943,6 +1160,7 @@ router.post('/tasks/:taskId/id-moderation/status', authenticateToken, requireRol
     if (!ID_MODERATION_KEYS.includes(docKey) || !['approved', 'rejected'].includes(status)) {
       return res.status(400).json({ success: false, error: 'Некорректные docKey или status' });
     }
+    const canonicalKey = (docKey === 'act' ? 'aosr' : docKey);
     const normalizedReason = String(rejectionReason || '').trim();
     if (status === 'rejected' && !normalizedReason) {
       return res.status(400).json({ success: false, error: 'Укажите причину отклонения документа' });
@@ -956,23 +1174,28 @@ router.post('/tasks/:taskId/id-moderation/status', authenticateToken, requireRol
         pool.query('SELECT * FROM task_documents WHERE task_id = $1 ORDER BY id ASC', [taskId]),
         pool.query('SELECT * FROM task_attachments WHERE task_id = $1 ORDER BY id ASC', [taskId])
       ]);
-      if (!getModerationAvailability(docKey, docsRes.rows, attRes.rows)) {
+      if (!getModerationAvailability(canonicalKey, docsRes.rows, attRes.rows)) {
         return res.status(409).json({ success: false, error: 'Документ не сформирован или недоступен для одобрения' });
       }
     }
 
-    const rawData = taskRes.rows[0].raw_data || {};
+    const task = taskRes.rows[0];
+    const rawData = task.raw_data || {};
     if (!rawData.id_moderation) rawData.id_moderation = {};
-    rawData.id_moderation[docKey] = {
+    const modEntry = {
       status,
       rejection_reason: status === 'rejected' ? normalizedReason : null,
       comment: comment || null,
       moderated_at: new Date().toISOString(),
       moderated_by: req.user?.id || null
     };
+    rawData.id_moderation[canonicalKey] = modEntry;
+    if (canonicalKey === 'aosr') {
+      rawData.id_moderation.act = modEntry;
+    }
 
     await pool.query('UPDATE tasks SET raw_data = $1 WHERE id = $2', [JSON.stringify(rawData), taskId]);
-    res.json({ success: true, docKey, status, rejectionReason, comment });
+    res.json({ success: true, docKey, canonicalKey, status, rejectionReason: modEntry.rejection_reason, comment });
   } catch (err) {
     console.error('Error updating document moderation status:', err);
     res.status(500).json({ error: 'Ошибка сохранения статуса: ' + err.message });
