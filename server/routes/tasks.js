@@ -1958,14 +1958,60 @@ router.get('/export/:type/:id', authenticateToken, async (req, res) => {
 // ─── API: ПОДТАБЛИЦА СОСТАВА РАБОТ (TASK_ITEMS) ──────────────────────────────
 router.get('/tasks/:id/items', authenticateToken, async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      `SELECT ti.*, c.name_short AS contractor_short_name, c.inn AS contractor_inn
+    let { rows } = await pool.query(
+      `SELECT ti.*, c.name_short AS contractor_short_name, c.inn AS contractor_inn,
+              sc.name_short AS supplier_contractor_name
        FROM task_items ti
        LEFT JOIN contractors c ON c.id = ti.contractor_id
+       LEFT JOIN contractors sc ON sc.id = ti.supplier_contractor_id
        WHERE ti.task_id = $1
        ORDER BY ti.id ASC`,
       [req.params.id]
     );
+
+    // Если в task_items пусто, но есть task_materials — авто-синхронизируем для совместимости
+    if (!rows.length) {
+      const { rows: mats } = await pool.query(
+        `SELECT tm.*, sc.name_short AS supplier_contractor_name
+         FROM task_materials tm
+         LEFT JOIN contractors sc ON sc.id = tm.supplier_contractor_id
+         WHERE tm.task_id = $1
+         ORDER BY tm.id ASC`,
+        [req.params.id]
+      );
+      if (mats.length) {
+        for (const m of mats) {
+          const qty = m.plan_qty !== null && m.plan_qty !== undefined ? Number(m.plan_qty) : null;
+          const pr = Number(m.price || 0) || 0;
+          const tot = qty !== null ? Math.round(qty * pr) : 0;
+          await pool.query(
+            `INSERT INTO task_items (
+              task_id, work_type, quantity, unit, price_customer, amount_customer,
+              price_contractor, amount_contractor, article, article_plan,
+              manufacturer, supplier, supplier_contractor_id, source, shipment_method, status
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'pending')`,
+            [
+              req.params.id, m.item_name || 'Материал', qty, m.unit || 'шт',
+              pr, tot, pr, tot, m.article || null, m.article || null,
+              m.manufacturer || null, m.supplier || null, m.supplier_contractor_id || null,
+              m.source || null, m.shipment_method || null
+            ]
+          );
+        }
+        const recheck = await pool.query(
+          `SELECT ti.*, c.name_short AS contractor_short_name, c.inn AS contractor_inn,
+                  sc.name_short AS supplier_contractor_name
+           FROM task_items ti
+           LEFT JOIN contractors c ON c.id = ti.contractor_id
+           LEFT JOIN contractors sc ON sc.id = ti.supplier_contractor_id
+           WHERE ti.task_id = $1
+           ORDER BY ti.id ASC`,
+          [req.params.id]
+        );
+        rows = recheck.rows;
+      }
+    }
+
     res.json(rows);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -1976,7 +2022,7 @@ router.post('/tasks/:id/items', authenticateToken, requireRole('admin', 'directo
   try {
     const {
       work_type,
-      quantity = 1,
+      quantity,
       unit = 'шт.',
       price_customer = 0,
       amount_customer = 0,
@@ -1992,18 +2038,52 @@ router.post('/tasks/:id/items', authenticateToken, requireRole('admin', 'directo
       article_plan = null,
       article_fact = null,
       shipment_date = null,
-      shipment_method = null
+      shipment_method = null,
+      manufacturer = null,
+      supplier_contractor_id = null,
+      source = null,
+      material_id = null,
+      demand_name = null
     } = req.body;
 
     if (!work_type || !work_type.trim()) {
       return res.status(400).json({ error: 'Наименование работы обязательно' });
     }
 
-    const calcAmountCust = Number(amount_customer) || (Number(quantity) * Number(price_customer));
-    const calcAmountCont = Number(amount_contractor) || (Number(quantity) * Number(price_contractor));
+    const hasQty = quantity !== undefined && quantity !== null && String(quantity).trim() !== '';
+    const parsedQty = hasQty ? Number(quantity) : NaN;
+    const effectiveQty = Number.isFinite(parsedQty) ? parsedQty : null;
+
+    let effectiveSupplier = supplier ? String(supplier).trim() : null;
+    let validSupplierContractorId = null;
+    if (supplier_contractor_id !== undefined && supplier_contractor_id !== null && supplier_contractor_id !== '') {
+      const scId = parseInt(supplier_contractor_id, 10);
+      if (Number.isInteger(scId) && scId > 0) {
+        const { rows: scRows } = await pool.query(
+          "SELECT id, name_short FROM contractors WHERE id = $1 AND type = 'supplier' AND is_own IS NOT TRUE AND status = 'active'",
+          [scId]
+        );
+        if (!scRows.length) {
+          return res.status(400).json({ error: 'Поставщик не найден или неактивен' });
+        }
+        validSupplierContractorId = scRows[0].id;
+        if (!effectiveSupplier) effectiveSupplier = scRows[0].name_short;
+      }
+    }
+
+    const calcAmountCust = amount_customer !== undefined && amount_customer !== null && amount_customer !== ''
+      ? Number(amount_customer)
+      : (effectiveQty !== null ? effectiveQty * Number(price_customer || 0) : 0);
+    const calcAmountCont = amount_contractor !== undefined && amount_contractor !== null && amount_contractor !== ''
+      ? Number(amount_contractor)
+      : (effectiveQty !== null ? effectiveQty * Number(price_contractor || 0) : 0);
     const effectiveArtPlan = article_plan ? String(article_plan).trim() : (article ? String(article).trim() : null);
     const effectiveArtFact = article_fact ? String(article_fact).trim() : null;
     const effectiveShipMethod = shipment_method ? String(shipment_method).trim() : null;
+    const effectiveManuf = manufacturer ? String(manufacturer).trim() : null;
+    const effectiveSource = source ? String(source).trim() : null;
+    const effectiveMatId = material_id ? parseInt(material_id, 10) : null;
+    const effectiveDemandName = demand_name ? String(demand_name).trim() : work_type.trim();
 
     const { rows } = await pool.query(
       `INSERT INTO task_items (
@@ -2013,17 +2093,19 @@ router.post('/tasks/:id/items', authenticateToken, requireRole('admin', 'directo
         price_contractor, amount_contractor,
         distance_km, status, comment,
         article, supplier,
-        article_plan, article_fact, shipment_date, shipment_method
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+        article_plan, article_fact, shipment_date, shipment_method,
+        manufacturer, supplier_contractor_id, source, material_id, demand_name
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
       RETURNING *`,
       [
-        req.params.id, work_type.trim(), Number(quantity) || 1, unit || 'шт.',
+        req.params.id, work_type.trim(), effectiveQty, unit || 'шт.',
         Number(price_customer) || 0, calcAmountCust,
         contractor_id ? parseInt(contractor_id, 10) : null, contractor_name ? contractor_name.trim() : null,
         Number(price_contractor) || 0, calcAmountCont,
         Number(distance_km) || 0, status || 'pending', comment || null,
-        effectiveArtPlan, supplier ? String(supplier).trim() : null,
-        effectiveArtPlan, effectiveArtFact, shipment_date || null, effectiveShipMethod
+        effectiveArtPlan, effectiveSupplier,
+        effectiveArtPlan, effectiveArtFact, shipment_date || null, effectiveShipMethod,
+        effectiveManuf, validSupplierContractorId, effectiveSource, effectiveMatId, effectiveDemandName
       ]
     );
 
@@ -2039,25 +2121,35 @@ router.post('/tasks/:id/items', authenticateToken, requireRole('admin', 'directo
       await pool.query(`
         UPDATE task_materials SET
           item_name = COALESCE($1, item_name),
-          plan_qty = COALESCE($2, plan_qty),
-          unit = COALESCE($3, unit),
-          price = COALESCE($4, price),
+          plan_qty = CASE WHEN $2::boolean THEN $3::numeric ELSE plan_qty END,
+          unit = COALESCE($4, unit),
+          price = COALESCE($5, price),
           total_price = CASE
-            WHEN fact_qty IS NOT NULL AND COALESCE($4, price) IS NOT NULL THEN ROUND(fact_qty * COALESCE($4, price))
-            ELSE COALESCE($5, total_price)
+            WHEN fact_qty IS NOT NULL AND COALESCE($5, price) IS NOT NULL THEN ROUND(fact_qty * COALESCE($5, price))
+            ELSE total_price
           END,
           supplier = COALESCE($6, supplier),
-          article = COALESCE($7, article)
-        WHERE task_id = $8 AND (
-          LOWER(TRIM(item_name)) = LOWER(TRIM($9)) OR
-          pos_num = $10
+          supplier_contractor_id = COALESCE($7, supplier_contractor_id),
+          article = COALESCE($8, article),
+          manufacturer = COALESCE($9, manufacturer),
+          source = COALESCE($10, source),
+          shipment_method = COALESCE($11, shipment_method),
+          material_id = COALESCE($12, material_id)
+        WHERE task_id = $13 AND (
+          LOWER(TRIM(item_name)) = LOWER(TRIM($1)) OR
+          pos_num = $14
         ) AND (is_written_off IS FALSE OR is_written_off IS NULL)
       `, [
-        it.work_type, it.quantity, it.unit,
+        it.work_type, effectiveQty !== null, effectiveQty,
+        it.unit,
         it.price_customer || it.price_contractor || null,
-        it.amount_customer || it.amount_contractor || null,
-        it.supplier, it.article_plan || it.article,
-        req.params.id, it.work_type, String(it.id)
+        it.supplier, it.supplier_contractor_id || null,
+        it.article_plan || it.article,
+        it.manufacturer || null,
+        it.source || null,
+        it.shipment_method || null,
+        it.material_id || null,
+        req.params.id, String(it.id)
       ]);
     }
 
@@ -2082,8 +2174,9 @@ router.post('/tasks/:id/items/:itemId/duplicate', authenticateToken, requireRole
         price_contractor, amount_contractor,
         distance_km, status, comment,
         article, supplier,
-        article_plan, article_fact, shipment_date, shipment_method
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+        article_plan, article_fact, shipment_date, shipment_method,
+        manufacturer, supplier_contractor_id, source, material_id, demand_name
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
       RETURNING *
     `, [
       s.task_id, s.work_type, s.quantity, s.unit,
@@ -2092,18 +2185,20 @@ router.post('/tasks/:id/items/:itemId/duplicate', authenticateToken, requireRole
       s.price_contractor, s.amount_contractor,
       s.distance_km, s.status, s.comment,
       s.article, s.supplier,
-      s.article_plan, s.article_fact, s.shipment_date, s.shipment_method
+      s.article_plan, s.article_fact, s.shipment_date, s.shipment_method,
+      s.manufacturer, s.supplier_contractor_id, s.source, s.material_id, s.demand_name
     ]);
 
     // Синхронизируем дубликат и в task_materials
     await pool.query(`
       INSERT INTO task_materials (
-        task_id, item_name, article, unit, plan_qty, fact_qty, price, total_price, supplier, source
-      ) VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, 'task_items')
+        task_id, item_name, article, unit, plan_qty, fact_qty, price, total_price, supplier, supplier_contractor_id, source, manufacturer, shipment_method, material_id, demand_name
+      ) VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, 'task_items', $10, $11, $12, $13)
     `, [
       s.task_id, s.work_type, s.article_plan || s.article, s.unit || 'шт',
       s.quantity, s.price_customer || s.price_contractor || 0,
-      s.amount_customer || s.amount_contractor || 0, s.supplier
+      s.amount_customer || s.amount_contractor || 0, s.supplier, s.supplier_contractor_id,
+      s.manufacturer, s.shipment_method, s.material_id, s.demand_name || s.work_type
     ]);
 
     res.json(copy[0]);
@@ -2214,38 +2309,82 @@ router.put('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', '
       article_plan,
       article_fact,
       shipment_date,
-      shipment_method
+      shipment_method,
+      manufacturer,
+      supplier_contractor_id,
+      source,
+      material_id,
+      demand_name
     } = req.body;
+
+    const hasQty = quantity !== undefined;
+    let effectiveQty = undefined;
+    if (hasQty) {
+      if (quantity === null || String(quantity).trim() === '') {
+        effectiveQty = null;
+      } else {
+        const p = Number(quantity);
+        effectiveQty = Number.isFinite(p) ? p : null;
+      }
+    }
+
+    let effectiveSupplier = supplier !== undefined ? (supplier ? String(supplier).trim() : null) : undefined;
+    let validSupplierContractorId = undefined;
+    if (supplier_contractor_id !== undefined) {
+      if (supplier_contractor_id === null || String(supplier_contractor_id).trim() === '') {
+        validSupplierContractorId = null;
+      } else {
+        const scId = parseInt(supplier_contractor_id, 10);
+        if (Number.isInteger(scId) && scId > 0) {
+          const { rows: scRows } = await pool.query(
+            "SELECT id, name_short FROM contractors WHERE id = $1 AND type = 'supplier' AND is_own IS NOT TRUE AND status = 'active'",
+            [scId]
+          );
+          if (!scRows.length) {
+            return res.status(400).json({ error: 'Поставщик не найден или неактивен' });
+          }
+          validSupplierContractorId = scRows[0].id;
+          if (effectiveSupplier === undefined) effectiveSupplier = scRows[0].name_short;
+        } else {
+          return res.status(400).json({ error: 'Некорректный ID поставщика' });
+        }
+      }
+    }
 
     const calcAmountCust = amount_customer !== undefined ? Number(amount_customer) : undefined;
     const calcAmountCont = amount_contractor !== undefined ? Number(amount_contractor) : undefined;
 
     const { rows } = await pool.query(
       `UPDATE task_items SET
-        work_type         = COALESCE($1, work_type),
-        quantity          = COALESCE($2, quantity),
-        unit              = COALESCE($3, unit),
-        price_customer    = COALESCE($4, price_customer),
-        amount_customer   = COALESCE($5, amount_customer),
-        contractor_id     = $6,
-        contractor_name   = COALESCE($7, contractor_name),
-        price_contractor  = COALESCE($8, price_contractor),
-        amount_contractor = COALESCE($9, amount_contractor),
-        distance_km       = COALESCE($10, distance_km),
-        status            = COALESCE($11, status),
-        comment           = COALESCE($12, comment),
-        article           = CASE WHEN $15::boolean THEN $13 ELSE article END,
-        supplier          = CASE WHEN $16::boolean THEN $14 ELSE supplier END,
-        article_plan      = CASE WHEN $19::boolean THEN $17 ELSE article_plan END,
-        article_fact      = CASE WHEN $20::boolean THEN $18 ELSE article_fact END,
-        shipment_date     = CASE WHEN $22::boolean THEN $21::date ELSE shipment_date END,
-        shipment_method   = CASE WHEN $24::boolean THEN $23 ELSE shipment_method END,
-        updated_at        = NOW()
-      WHERE id = $25 AND task_id = $26
+        work_type               = COALESCE($1, work_type),
+        quantity                = CASE WHEN $2::boolean THEN $3::numeric ELSE quantity END,
+        unit                    = COALESCE($4, unit),
+        price_customer          = COALESCE($5, price_customer),
+        amount_customer         = COALESCE($6, amount_customer),
+        contractor_id           = $7,
+        contractor_name         = COALESCE($8, contractor_name),
+        price_contractor        = COALESCE($9, price_contractor),
+        amount_contractor       = COALESCE($10, amount_contractor),
+        distance_km             = COALESCE($11, distance_km),
+        status                  = COALESCE($12, status),
+        comment                 = COALESCE($13, comment),
+        article                 = CASE WHEN $16::boolean THEN $14 ELSE article END,
+        supplier                = CASE WHEN $17::boolean THEN $15 ELSE supplier END,
+        article_plan            = CASE WHEN $20::boolean THEN $18 ELSE article_plan END,
+        article_fact            = CASE WHEN $21::boolean THEN $19 ELSE article_fact END,
+        shipment_date           = CASE WHEN $23::boolean THEN $22::date ELSE shipment_date END,
+        shipment_method         = CASE WHEN $25::boolean THEN $24 ELSE shipment_method END,
+        manufacturer            = CASE WHEN $27::boolean THEN $26 ELSE manufacturer END,
+        supplier_contractor_id  = CASE WHEN $29::boolean THEN $28::integer ELSE supplier_contractor_id END,
+        source                  = CASE WHEN $31::boolean THEN $30 ELSE source END,
+        material_id             = CASE WHEN $33::boolean THEN $32::integer ELSE material_id END,
+        demand_name             = CASE WHEN $35::boolean THEN $34 ELSE demand_name END,
+        updated_at              = NOW()
+      WHERE id = $36 AND task_id = $37
       RETURNING *`,
       [
         work_type ? work_type.trim() : null,
-        quantity !== undefined ? Number(quantity) : null,
+        hasQty, effectiveQty,
         unit || null,
         price_customer !== undefined ? Number(price_customer) : null,
         calcAmountCust,
@@ -2257,9 +2396,9 @@ router.put('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', '
         status || null,
         comment !== undefined ? comment : null,
         article ? String(article).trim() : null,
-        supplier ? String(supplier).trim() : null,
+        effectiveSupplier !== undefined ? effectiveSupplier : null,
         article !== undefined,
-        supplier !== undefined,
+        effectiveSupplier !== undefined,
         article_plan !== undefined ? (article_plan ? String(article_plan).trim() : null) : null,
         article_fact !== undefined ? (article_fact ? String(article_fact).trim() : null) : null,
         article_plan !== undefined,
@@ -2268,6 +2407,16 @@ router.put('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', '
         shipment_date !== undefined,
         shipment_method !== undefined ? (shipment_method ? String(shipment_method).trim() : null) : null,
         shipment_method !== undefined,
+        manufacturer !== undefined ? (manufacturer ? String(manufacturer).trim() : null) : null,
+        manufacturer !== undefined,
+        validSupplierContractorId !== undefined ? validSupplierContractorId : null,
+        supplier_contractor_id !== undefined,
+        source !== undefined ? (source ? String(source).trim() : null) : null,
+        source !== undefined,
+        material_id !== undefined ? (material_id ? parseInt(material_id, 10) : null) : null,
+        material_id !== undefined,
+        demand_name !== undefined ? (demand_name ? String(demand_name).trim() : null) : null,
+        demand_name !== undefined,
         req.params.itemId,
         req.params.id
       ]
@@ -2285,74 +2434,40 @@ router.put('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', '
       await pool.query(`
         UPDATE task_materials SET
           item_name = COALESCE($1, item_name),
-          plan_qty = COALESCE($2, plan_qty),
-          unit = COALESCE($3, unit),
-          price = COALESCE($4, price),
+          plan_qty = CASE WHEN $2::boolean THEN $3::numeric ELSE plan_qty END,
+          unit = COALESCE($4, unit),
+          price = COALESCE($5, price),
           total_price = CASE
-            WHEN fact_qty IS NOT NULL AND COALESCE($4, price) IS NOT NULL THEN ROUND(fact_qty * COALESCE($4, price))
-            ELSE COALESCE($5, total_price)
+            WHEN fact_qty IS NOT NULL AND COALESCE($5, price) IS NOT NULL THEN ROUND(fact_qty * COALESCE($5, price))
+            ELSE total_price
           END,
-          supplier = COALESCE($6, supplier),
-          article = COALESCE($7, article)
-        WHERE task_id = $8 AND (
-          LOWER(TRIM(item_name)) = LOWER(TRIM($9)) OR
-          pos_num = $10
+          supplier = CASE WHEN $6::boolean THEN $7 ELSE supplier END,
+          supplier_contractor_id = CASE WHEN $8::boolean THEN $9::integer ELSE supplier_contractor_id END,
+          article = COALESCE($10, article),
+          manufacturer = COALESCE($11, manufacturer),
+          source = COALESCE($12, source),
+          shipment_method = COALESCE($13, shipment_method),
+          material_id = COALESCE($14, material_id)
+        WHERE task_id = $15 AND (
+          LOWER(TRIM(item_name)) = LOWER(TRIM($1)) OR
+          pos_num = $16
         ) AND (is_written_off IS FALSE OR is_written_off IS NULL)
       `, [
-        it.work_type, it.quantity, it.unit,
+        it.work_type, hasQty, effectiveQty,
+        it.unit,
         it.price_customer || it.price_contractor || null,
-        it.amount_customer || it.amount_contractor || null,
-        it.supplier, it.article_plan || it.article,
-        req.params.id, it.work_type, String(it.id)
+        supplier !== undefined, it.supplier,
+        supplier_contractor_id !== undefined, it.supplier_contractor_id || null,
+        it.article_plan || it.article,
+        it.manufacturer || null,
+        it.source || null,
+        it.shipment_method || null,
+        it.material_id || null,
+        req.params.id, String(it.id)
       ]);
     }
 
     res.json(rows[0]);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Дублировать / разделить позицию материала (для разделения по источникам поставки)
-router.post('/tasks/:id/items/:itemId/duplicate', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics', 'to_engineer'), async (req, res) => {
-  try {
-    const { id, itemId } = req.params;
-    const { rows: source } = await pool.query('SELECT * FROM task_items WHERE id = $1 AND task_id = $2', [itemId, id]);
-    if (!source.length) return res.status(404).json({ error: 'Позиция не найдена' });
-    const s = source[0];
-    const { rows: copy } = await pool.query(`
-      INSERT INTO task_items (
-        task_id, work_type, quantity, unit,
-        price_customer, amount_customer,
-        contractor_id, contractor_name,
-        price_contractor, amount_contractor,
-        distance_km, status, comment,
-        article, supplier,
-        article_plan, article_fact, shipment_date, shipment_method
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-      RETURNING *
-    `, [
-      s.task_id, s.work_type, s.quantity, s.unit,
-      s.price_customer, s.amount_customer,
-      s.contractor_id, s.contractor_name,
-      s.price_contractor, s.amount_contractor,
-      s.distance_km, s.status, s.comment,
-      s.article, s.supplier,
-      s.article_plan, s.article_fact, s.shipment_date, s.shipment_method
-    ]);
-
-    // Синхронизируем дубликат и в task_materials
-    await pool.query(`
-      INSERT INTO task_materials (
-        task_id, item_name, article, unit, plan_qty, fact_qty, price, total_price, supplier, source
-      ) VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, 'task_items')
-    `, [
-      s.task_id, s.work_type, s.article_plan || s.article, s.unit || 'шт',
-      s.quantity, s.price_customer || s.price_contractor || 0,
-      s.amount_customer || s.amount_contractor || 0, s.supplier
-    ]);
-
-    res.json(copy[0]);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

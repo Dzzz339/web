@@ -711,6 +711,11 @@ export async function initDB() {
   await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS article_fact TEXT`);
   await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS shipment_date DATE`);
   await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS shipment_method TEXT`);
+  await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS manufacturer TEXT`);
+  await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS supplier_contractor_id INTEGER REFERENCES contractors(id) ON DELETE SET NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_items_supplier_contractor ON task_items(supplier_contractor_id)`);
+  await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS source TEXT`);
+  await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS demand_name TEXT`);
 
 
   await pool.query(`
@@ -901,6 +906,8 @@ export async function initDB() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_materials_code ON materials(code)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_materials_category ON materials(category)`);
+  await pool.query(`ALTER TABLE materials ADD COLUMN IF NOT EXISTS manufacturer TEXT`);
+  await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS material_id INTEGER REFERENCES materials(id) ON DELETE SET NULL`);
 
   // 2. Таблица складов (центральные, региональные, виртуальные склады подрядчиков)
   await pool.query(`
@@ -997,6 +1004,9 @@ export async function initDB() {
   await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS total_price NUMERIC`);
   await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS mass_kg NUMERIC`);
   await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS note TEXT`);
+  await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS manufacturer TEXT`);
+  await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS shipment_method TEXT`);
+  await pool.query(`ALTER TABLE task_materials ADD COLUMN IF NOT EXISTS demand_name TEXT`);
 
   // 7. Поставщики ТМЦ
   await pool.query(`

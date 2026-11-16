@@ -4,7 +4,7 @@ import fs from 'fs';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { pool } from '../config/db.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { uploadAttachment, fixUtf8Filename } from '../middleware/upload.js';
 import { parseMaterialSpecExcel, saveImportedMaterials } from '../services/materialSpecParser.js';
 
@@ -790,7 +790,7 @@ router.post('/tasks/:id/materials/save-fact', authenticateToken, async (req, res
 });
 
 // POST /api/tasks/:id/materials/:itemId/bind (Быстрая привязка позиции каталога)
-router.post('/tasks/:id/materials/:itemId/bind', authenticateToken, async (req, res) => {
+router.post('/tasks/:id/materials/:itemId/bind', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics', 'to_engineer'), async (req, res) => {
   try {
     const taskId = req.params.id;
     const itemId = parseInt(req.params.itemId, 10);
@@ -801,31 +801,80 @@ router.post('/tasks/:id/materials/:itemId/bind', authenticateToken, async (req, 
     const { rows: mRows } = await pool.query('SELECT * FROM materials WHERE id = $1', [material_id]);
     if (!mRows.length) return res.status(404).json({ error: 'Позиция номенклатуры не найдена' });
     const mat = mRows[0];
+    if (mat.is_active === false) {
+      return res.status(400).json({ error: 'Позиция номенклатуры неактивна или удалена из каталога' });
+    }
 
     const { rows: tmRows } = await pool.query('SELECT * FROM task_materials WHERE id = $1 AND task_id = $2', [itemId, taskId]);
     if (!tmRows.length) return res.status(404).json({ error: 'Строка спецификации не найдена' });
     const tm = tmRows[0];
 
-    const qty = parseFloat(tm.fact_qty != null ? tm.fact_qty : tm.plan_qty) || 0;
+    if (tm.is_written_off) {
+      return res.status(409).json({ error: 'Нельзя привязывать позицию каталога к уже списанной строке' });
+    }
+
+    // Сохраняем исходное наименование потребности (demand_name / item_name)
+    const demandName = tm.demand_name || tm.item_name || null;
     const price = parseFloat(mat.price_default) || parseFloat(tm.price) || 0;
-    const total = Math.round(qty * price);
+
+    // fact_qty строго не трогаем!
+    // total_price рассчитываем ТОЛЬКО если fact_qty IS NOT NULL
+    const totalPrice = tm.fact_qty !== null && tm.fact_qty !== undefined
+      ? Math.round(Number(tm.fact_qty) * price)
+      : null;
 
     const { rows: updated } = await pool.query(`
       UPDATE task_materials SET
         material_id = $1,
-        item_name = $2,
+        model = $2,
         article = $3,
         unit = $4,
         price = $5,
-        total_price = $6
-      WHERE id = $7 AND task_id = $8
+        total_price = $6,
+        demand_name = COALESCE(demand_name, $7),
+        manufacturer = COALESCE($8, manufacturer)
+      WHERE id = $9 AND task_id = $10
       RETURNING *
-    `, [mat.id, mat.name, mat.code, mat.unit || 'шт', price, total, itemId, taskId]);
+    `, [
+      mat.id, mat.name, mat.code,
+      mat.unit || tm.unit || 'шт',
+      price,
+      totalPrice,
+      demandName,
+      mat.manufacturer || null,
+      itemId,
+      taskId
+    ]);
 
-    // Обновляем сумму tmc в tasks
+    // Синхронизируем с task_items если есть связанная строка
+    await pool.query(`
+      UPDATE task_items SET
+        material_id = $1,
+        article = $2,
+        article_plan = $2,
+        manufacturer = COALESCE($3, manufacturer),
+        demand_name = COALESCE(demand_name, work_type),
+        unit = COALESCE($4, unit),
+        price_contractor = CASE WHEN $5::numeric > 0 THEN $5::numeric ELSE price_contractor END,
+        price_customer = CASE WHEN $5::numeric > 0 THEN $5::numeric ELSE price_customer END,
+        amount_customer = CASE WHEN $5::numeric > 0 AND quantity IS NOT NULL THEN ROUND(quantity * $5::numeric) ELSE amount_customer END,
+        amount_contractor = CASE WHEN $5::numeric > 0 AND quantity IS NOT NULL THEN ROUND(quantity * $5::numeric) ELSE amount_contractor END
+      WHERE task_id = $6 AND (
+        material_id = $1 OR
+        LOWER(TRIM(work_type)) = LOWER(TRIM($7)) OR
+        id = $8
+      )
+    `, [
+      mat.id, mat.code, mat.manufacturer || null, mat.unit || 'шт', price, taskId,
+      tm.item_name || '', itemId
+    ]);
+
+    // Обновляем сумму tmc в tasks ТОЛЬКО по строкам с введённым фактом (P0-ТМЦ-1)
     const { rows: tmcSum } = await pool.query(`
       SELECT COALESCE(SUM(
-        COALESCE(tm.total_price, ROUND(COALESCE(tm.fact_qty, tm.plan_qty, 0) * COALESCE(tm.price, m.price_default, 0)))
+        CASE WHEN tm.fact_qty IS NULL THEN 0
+             ELSE COALESCE(tm.total_price, ROUND(tm.fact_qty * COALESCE(tm.price, m.price_default, 0)))
+        END
       ), 0) AS total_tmc
       FROM task_materials tm
       LEFT JOIN materials m ON tm.material_id = m.id
@@ -837,7 +886,237 @@ router.post('/tasks/:id/materials/:itemId/bind', authenticateToken, async (req, 
 
     res.json({ success: true, item: updated[0] });
   } catch (e) {
+    console.error('BIND ERROR in supply.js:', e);
     res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/tasks/:id/materials/batch (Групповые операции над строками комплектации)
+router.post('/tasks/:id/materials/batch', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics', 'to_engineer'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const taskId = req.params.id;
+
+    // Проверка заявки
+    const { rows: taskRows } = await client.query('SELECT id FROM tasks WHERE id = $1', [taskId]);
+    if (!taskRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Заявка не найдена' });
+    }
+
+    // Запрет изменения запрещённых полей через batch
+    const forbidden = ['fact_qty', 'plan_qty', 'is_written_off', 'quantity', 'written_off_at'];
+    for (const f of forbidden) {
+      if (Object.prototype.hasOwnProperty.call(req.body, f)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `Поле ${f} запрещено для изменения через групповую операцию` });
+      }
+    }
+
+    const { item_ids, ids, source, supplier_contractor_id, shipment_method, clear_source } = req.body;
+    const rawIds = Array.isArray(item_ids) ? item_ids : (Array.isArray(ids) ? ids : []);
+    const targetIds = Array.from(new Set(rawIds.map(Number))).filter(n => Number.isInteger(n) && n > 0);
+
+    if (!targetIds.length) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Не указаны ID строк для групповой операции' });
+    }
+
+    // Проверяем валидность поставщика, если указан
+    let effectiveSupplier = null;
+    let validSupplierContractorId = null;
+
+    if (clear_source) {
+      // Очистка источника и зависимого поставщика
+    } else if (supplier_contractor_id !== undefined && supplier_contractor_id !== null && supplier_contractor_id !== '') {
+      const scId = parseInt(supplier_contractor_id, 10);
+      if (!Number.isInteger(scId) || scId <= 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Некорректный ID поставщика' });
+      }
+      const { rows: scRows } = await client.query(
+        "SELECT id, name_short FROM contractors WHERE id = $1 AND type = 'supplier' AND is_own IS NOT TRUE AND status = 'active'",
+        [scId]
+      );
+      if (!scRows.length) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Поставщик не найден или неактивен' });
+      }
+      validSupplierContractorId = scRows[0].id;
+      effectiveSupplier = scRows[0].name_short;
+    }
+
+    // Определяем, к какой таблице относятся переданные ID: task_items (комплектация) или task_materials
+    const { rows: tiCheck } = await client.query(
+      'SELECT id, task_id, work_type FROM task_items WHERE id = ANY($1::int[])',
+      [targetIds]
+    );
+
+    let isItemsTable = false;
+    let isMaterialsTable = false;
+    let tiRows = [];
+    let tmRows = [];
+
+    if (tiCheck.length === targetIds.length) {
+      const foreign = tiCheck.filter(r => String(r.task_id) !== String(taskId));
+      if (foreign.length > 0) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'Позиция принадлежит другой заявке' });
+      }
+      tiRows = tiCheck;
+      const workNames = tiRows.map(r => (r.work_type || '').toLowerCase().trim());
+      const posIds = tiRows.map(r => String(r.id));
+      const { rows: writtenOffCheck } = await client.query(
+        'SELECT id FROM task_materials WHERE task_id = $1 AND is_written_off IS TRUE AND (LOWER(TRIM(item_name)) = ANY($2::text[]) OR pos_num = ANY($3::text[]))',
+        [taskId, workNames, posIds]
+      );
+      if (writtenOffCheck.length > 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'Нельзя изменять уже списанные строки' });
+      }
+      isItemsTable = true;
+    } else {
+      const { rows: tmCheck } = await client.query(
+        'SELECT id, task_id, is_written_off, item_name, pos_num FROM task_materials WHERE id = ANY($1::int[])',
+        [targetIds]
+      );
+      if (tmCheck.length === targetIds.length) {
+        const foreign = tmCheck.filter(r => String(r.task_id) !== String(taskId));
+        if (foreign.length > 0) {
+          await client.query('ROLLBACK');
+          return res.status(403).json({ error: 'Позиция принадлежит другой заявке' });
+        }
+        const writtenOff = tmCheck.filter(r => r.is_written_off);
+        if (writtenOff.length > 0) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({ error: 'Нельзя изменять уже списанные строки' });
+        }
+        tmRows = tmCheck;
+        isMaterialsTable = true;
+      } else {
+        const foreignTi = tiCheck.filter(r => String(r.task_id) !== String(taskId));
+        const foreignTm = tmCheck.filter(r => String(r.task_id) !== String(taskId));
+        if (foreignTi.length > 0 || foreignTm.length > 0) {
+          await client.query('ROLLBACK');
+          return res.status(403).json({ error: 'Позиция принадлежит другой заявке' });
+        }
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Одна или несколько позиций не найдены' });
+      }
+    }
+
+    // Применяем обновления
+    if (clear_source) {
+      if (isMaterialsTable) {
+        await client.query(
+          `UPDATE task_materials SET
+             source = NULL,
+             supplier = NULL,
+             supplier_contractor_id = NULL
+           WHERE id = ANY($1::int[]) AND task_id = $2`,
+          [targetIds, taskId]
+        );
+        const names = tmRows.map(r => (r.item_name || '').toLowerCase().trim());
+        const posNums = tmRows.map(r => String(r.pos_num || ''));
+        await client.query(
+          `UPDATE task_items SET
+             source = NULL,
+             supplier = NULL,
+             supplier_contractor_id = NULL
+           WHERE task_id = $1 AND (LOWER(TRIM(work_type)) = ANY($2::text[]) OR id::text = ANY($3::text[]))`,
+          [taskId, names, posNums]
+        );
+      } else if (isItemsTable) {
+        await client.query(
+          `UPDATE task_items SET
+             source = NULL,
+             supplier = NULL,
+             supplier_contractor_id = NULL
+           WHERE id = ANY($1::int[]) AND task_id = $2`,
+          [targetIds, taskId]
+        );
+        const names = tiRows.map(r => (r.work_type || '').toLowerCase().trim());
+        const posIds = tiRows.map(r => String(r.id));
+        await client.query(
+          `UPDATE task_materials SET
+             source = NULL,
+             supplier = NULL,
+             supplier_contractor_id = NULL
+           WHERE task_id = $1 AND (LOWER(TRIM(item_name)) = ANY($2::text[]) OR pos_num = ANY($3::text[]))`,
+          [taskId, names, posIds]
+        );
+      }
+    } else {
+      const sets = [];
+      const vals = [];
+      let idx = 1;
+
+      if (source !== undefined) {
+        sets.push(`source = $${idx++}`);
+        vals.push(source ? String(source).trim() : null);
+        if (source === 'warehouse' && validSupplierContractorId === null && req.body.supplier === undefined) {
+          sets.push(`supplier = $${idx++}`);
+          vals.push('Склад');
+          sets.push(`supplier_contractor_id = $${idx++}`);
+          vals.push(null);
+        }
+      }
+      if (validSupplierContractorId !== null) {
+        sets.push(`supplier_contractor_id = $${idx++}`);
+        vals.push(validSupplierContractorId);
+        sets.push(`supplier = $${idx++}`);
+        vals.push(effectiveSupplier);
+      } else if (req.body.supplier !== undefined) {
+        sets.push(`supplier = $${idx++}`);
+        vals.push(req.body.supplier ? String(req.body.supplier).trim() : null);
+      }
+      if (shipment_method !== undefined) {
+        sets.push(`shipment_method = $${idx++}`);
+        vals.push(shipment_method ? String(shipment_method).trim() : null);
+      }
+
+      if (sets.length > 0) {
+        vals.push(targetIds);
+        vals.push(taskId);
+
+        if (isMaterialsTable) {
+          await client.query(
+            `UPDATE task_materials SET ${sets.join(', ')} WHERE id = ANY($${idx++}::int[]) AND task_id = $${idx++}`,
+            vals
+          );
+          const names = tmRows.map(r => (r.item_name || '').toLowerCase().trim());
+          const posNums = tmRows.map(r => String(r.pos_num || ''));
+          const itemSets = [...sets];
+          const itemVals = [...vals.slice(0, sets.length), taskId, names, posNums];
+          await client.query(
+            `UPDATE task_items SET ${itemSets.join(', ')} WHERE task_id = $${sets.length + 1} AND (LOWER(TRIM(work_type)) = ANY($${sets.length + 2}::text[]) OR id::text = ANY($${sets.length + 3}::text[]))`,
+            itemVals
+          );
+        } else if (isItemsTable) {
+          await client.query(
+            `UPDATE task_items SET ${sets.join(', ')} WHERE id = ANY($${idx++}::int[]) AND task_id = $${idx++}`,
+            vals
+          );
+          const names = tiRows.map(r => (r.work_type || '').toLowerCase().trim());
+          const posIds = tiRows.map(r => String(r.id));
+          const matSets = [...sets];
+          const matVals = [...vals.slice(0, sets.length), taskId, names, posIds];
+          await client.query(
+            `UPDATE task_materials SET ${matSets.join(', ')} WHERE task_id = $${sets.length + 1} AND (LOWER(TRIM(item_name)) = ANY($${sets.length + 2}::text[]) OR pos_num = ANY($${sets.length + 3}::text[]))`,
+            matVals
+          );
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json({ success: true, count: targetIds.length, updated: targetIds.length });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally {
+    client.release();
   }
 });
 
