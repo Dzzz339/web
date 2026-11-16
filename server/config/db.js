@@ -1061,6 +1061,57 @@ export async function initDB() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_purchase_order_items_po ON purchase_order_items(purchase_order_id)`);
 
+  // 10. Отгрузки материалов (минимальная модель material_shipments, material_shipment_items — задачи 5.1–5.4)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS material_shipments (
+      id                  SERIAL PRIMARY KEY,
+      task_id             TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      shipment_number     TEXT NOT NULL,
+      shipment_date       DATE DEFAULT CURRENT_DATE,
+      status              TEXT NOT NULL DEFAULT 'draft', -- 'draft', 'shipped', 'accepted', 'accepted_discrepancy', 'rejected'
+      carrier             TEXT, -- перевозчик / способ доставки
+      comment             TEXT,
+      created_by          INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at          TIMESTAMPTZ DEFAULT NOW(),
+      shipped_by          INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      shipped_at          TIMESTAMPTZ,
+      accepted_by         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      accepted_at         TIMESTAMPTZ,
+      acceptance_result   TEXT, -- 'full', 'discrepancy', 'rejected'
+      acceptance_comment  TEXT,
+      logist_accepted_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      logist_accepted_at  TIMESTAMPTZ,
+      updated_at          TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_material_shipments_task ON material_shipments(task_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_material_shipments_status ON material_shipments(status)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_material_shipments_date ON material_shipments(shipment_date)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS material_shipment_items (
+      id                              SERIAL PRIMARY KEY,
+      shipment_id                     INTEGER NOT NULL REFERENCES material_shipments(id) ON DELETE CASCADE,
+      task_item_id                    INTEGER REFERENCES task_items(id) ON DELETE SET NULL,
+      task_material_id                INTEGER REFERENCES task_materials(id) ON DELETE SET NULL,
+      shipped_qty                     NUMERIC NOT NULL CHECK (shipped_qty > 0),
+      accepted_qty                    NUMERIC DEFAULT NULL,
+      fact_qty                        NUMERIC DEFAULT NULL,
+      item_name_snapshot              TEXT NOT NULL,
+      article_snapshot                TEXT,
+      manufacturer_snapshot           TEXT,
+      unit_snapshot                   TEXT DEFAULT 'шт.',
+      source_snapshot                 TEXT,
+      supplier_snapshot               TEXT,
+      supplier_contractor_id_snapshot INTEGER REFERENCES contractors(id) ON DELETE SET NULL,
+      price_snapshot                  NUMERIC DEFAULT 0,
+      created_at                      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_material_shipment_items_shipment ON material_shipment_items(shipment_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_material_shipment_items_task_item ON material_shipment_items(task_item_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_material_shipment_items_task_material ON material_shipment_items(task_material_id)`);
+
   await seedMaterialsAndWarehouses();
 
   const userCount = await pool.query('SELECT COUNT(*) FROM users');

@@ -2064,4 +2064,483 @@ router.post('/purchase-orders/:id/receive', authenticateToken, async (req, res) 
   }
 });
 
+// ─── 9. ОТГРУЗКИ МАТЕРИАЛОВ (material_shipments, material_shipment_items — задачи 5.1–5.4) ─────
+
+// GET /api/tasks/:id/shipments
+router.get('/tasks/:id/shipments', authenticateToken, async (req, res) => {
+  try {
+    const taskId = req.params.id;
+    const { rows: taskRows } = await pool.query('SELECT id FROM tasks WHERE id = $1', [taskId]);
+    if (!taskRows.length) {
+      return res.status(404).json({ error: 'Заявка не найдена' });
+    }
+
+    const { rows } = await pool.query(`
+      SELECT s.*,
+             u_cr.full_name AS created_by_name,
+             u_sh.full_name AS shipped_by_name,
+             u_ac.full_name AS accepted_by_name,
+             u_lo.full_name AS logist_accepted_by_name,
+             COALESCE(COUNT(si.id), 0)::int AS items_count,
+             COALESCE(SUM(si.shipped_qty), 0)::numeric AS total_shipped_qty
+      FROM material_shipments s
+      LEFT JOIN users u_cr ON u_cr.id = s.created_by
+      LEFT JOIN users u_sh ON u_sh.id = s.shipped_by
+      LEFT JOIN users u_ac ON u_ac.id = s.accepted_by
+      LEFT JOIN users u_lo ON u_lo.id = s.logist_accepted_by
+      LEFT JOIN material_shipment_items si ON si.shipment_id = s.id
+      WHERE s.task_id = $1
+      GROUP BY s.id, u_cr.full_name, u_sh.full_name, u_ac.full_name, u_lo.full_name
+      ORDER BY s.shipment_date DESC, s.id DESC
+    `, [taskId]);
+
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/tasks/:id/shipments/:shipmentId
+router.get('/tasks/:id/shipments/:shipmentId', authenticateToken, async (req, res) => {
+  try {
+    const taskId = req.params.id;
+    const shipmentId = parseInt(req.params.shipmentId, 10);
+    if (!Number.isInteger(shipmentId)) {
+      return res.status(400).json({ error: 'Некорректный ID отгрузки' });
+    }
+
+    const { rows: sRows } = await pool.query(`
+      SELECT s.*,
+             u_cr.full_name AS created_by_name,
+             u_sh.full_name AS shipped_by_name,
+             u_ac.full_name AS accepted_by_name,
+             u_lo.full_name AS logist_accepted_by_name
+      FROM material_shipments s
+      LEFT JOIN users u_cr ON u_cr.id = s.created_by
+      LEFT JOIN users u_sh ON u_sh.id = s.shipped_by
+      LEFT JOIN users u_ac ON u_ac.id = s.accepted_by
+      LEFT JOIN users u_lo ON u_lo.id = s.logist_accepted_by
+      WHERE s.id = $1 AND s.task_id = $2
+    `, [shipmentId, taskId]);
+
+    if (!sRows.length) {
+      return res.status(404).json({ error: 'Отгрузка не найдена' });
+    }
+
+    const shipment = sRows[0];
+
+    const { rows: itemRows } = await pool.query(`
+      SELECT si.*,
+             sc.name_short AS supplier_contractor_name_snapshot
+      FROM material_shipment_items si
+      LEFT JOIN contractors sc ON sc.id = si.supplier_contractor_id_snapshot
+      WHERE si.shipment_id = $1
+      ORDER BY si.id ASC
+    `, [shipmentId]);
+
+    shipment.items = itemRows;
+    res.json(shipment);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/tasks/:id/shipments
+router.post('/tasks/:id/shipments', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics', 'to_engineer'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const taskId = req.params.id;
+
+    const { rows: taskRows } = await client.query('SELECT id FROM tasks WHERE id = $1', [taskId]);
+    if (!taskRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Заявка не найдена' });
+    }
+
+    const {
+      shipment_number,
+      shipment_date,
+      status = 'draft',
+      carrier = null,
+      comment = null,
+      items
+    } = req.body;
+
+    if (!['draft', 'shipped'].includes(status)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Недопустимый статус отгрузки при создании (допустимы: draft, shipped)' });
+    }
+
+    if (!Array.isArray(items) || items.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Список отгружаемых позиций не может быть пустым' });
+    }
+
+    // Проверяем каждую позицию
+    const validatedItems = [];
+    for (const it of items) {
+      const shippedQty = Number(it.shipped_qty);
+      if (!Number.isFinite(shippedQty) || shippedQty <= 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Отгружаемое количество должно быть положительным числом (> 0)' });
+      }
+
+      let tiRow = null;
+      let tmRow = null;
+
+      if (it.task_item_id) {
+        const tiId = parseInt(it.task_item_id, 10);
+        const { rows: checkTi } = await client.query('SELECT * FROM task_items WHERE id = $1', [tiId]);
+        if (!checkTi.length) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: `Строка спецификации #${tiId} не найдена` });
+        }
+        if (checkTi[0].task_id !== taskId) {
+          await client.query('ROLLBACK');
+          return res.status(403).json({ error: `Строка спецификации #${tiId} принадлежит другой заявке` });
+        }
+        tiRow = checkTi[0];
+
+        // Ищем соответствующую строку в task_materials
+        const { rows: checkTm } = await client.query('SELECT * FROM task_materials WHERE task_id = $1 AND task_item_id = $2', [taskId, tiId]);
+        if (checkTm.length) tmRow = checkTm[0];
+      } else if (it.task_material_id) {
+        const tmId = parseInt(it.task_material_id, 10);
+        const { rows: checkTm } = await client.query('SELECT * FROM task_materials WHERE id = $1', [tmId]);
+        if (!checkTm.length) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: `Строка материала #${tmId} не найдена` });
+        }
+        if (checkTm[0].task_id !== taskId) {
+          await client.query('ROLLBACK');
+          return res.status(403).json({ error: `Строка материала #${tmId} принадлежит другой заявке` });
+        }
+        tmRow = checkTm[0];
+        if (tmRow.task_item_id) {
+          const { rows: checkTi } = await client.query('SELECT * FROM task_items WHERE id = $1 AND task_id = $2', [tmRow.task_item_id, taskId]);
+          if (checkTi.length) tiRow = checkTi[0];
+        }
+      } else {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Каждая строка должна содержать task_item_id или task_material_id' });
+      }
+
+      const itemName = (tiRow && tiRow.work_type) || (tmRow && tmRow.item_name) || 'Материал';
+      const article = (tiRow && (tiRow.article_plan || tiRow.article)) || (tmRow && tmRow.article) || null;
+      const manufacturer = (tiRow && tiRow.manufacturer) || (tmRow && tmRow.manufacturer) || null;
+      const unit = (tiRow && tiRow.unit) || (tmRow && tmRow.unit) || 'шт.';
+      const source = (tiRow && tiRow.source) || (tmRow && tmRow.source) || null;
+      const supplier = (tiRow && tiRow.supplier) || (tmRow && tmRow.supplier) || null;
+      const supplierContractorId = (tiRow && tiRow.supplier_contractor_id) || (tmRow && tmRow.supplier_contractor_id) || null;
+      const price = (tiRow && (parseFloat(tiRow.price_customer || tiRow.price_contractor) || 0)) || (tmRow && (parseFloat(tmRow.price) || 0)) || 0;
+
+      validatedItems.push({
+        task_item_id: tiRow ? tiRow.id : null,
+        task_material_id: tmRow ? tmRow.id : null,
+        shipped_qty: shippedQty,
+        item_name_snapshot: itemName,
+        article_snapshot: article,
+        manufacturer_snapshot: manufacturer,
+        unit_snapshot: unit,
+        source_snapshot: source,
+        supplier_snapshot: supplier,
+        supplier_contractor_id_snapshot: supplierContractorId,
+        price_snapshot: price
+      });
+    }
+
+    let finalShipmentNumber = shipment_number ? String(shipment_number).trim() : '';
+    if (!finalShipmentNumber) {
+      const { rows: countRows } = await client.query('SELECT COUNT(*) FROM material_shipments WHERE task_id = $1', [taskId]);
+      const nextNum = parseInt(countRows[0].count, 10) + 1;
+      finalShipmentNumber = `ОТГ-${taskId}-${String(nextNum).padStart(2, '0')}`;
+    }
+
+    const finalShipmentDate = shipment_date ? String(shipment_date).trim() : new Date().toISOString().slice(0, 10);
+    const isShipped = status === 'shipped';
+
+    const { rows: sRows } = await client.query(`
+      INSERT INTO material_shipments (
+        task_id, shipment_number, shipment_date, status, carrier, comment,
+        created_by, created_at, shipped_by, shipped_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9)
+      RETURNING *
+    `, [
+      taskId,
+      finalShipmentNumber,
+      finalShipmentDate,
+      status,
+      carrier ? String(carrier).trim() : null,
+      comment ? String(comment).trim() : null,
+      req.user.id,
+      isShipped ? req.user.id : null,
+      isShipped ? new Date() : null
+    ]);
+
+    const createdShipment = sRows[0];
+    const createdItems = [];
+
+    for (const vIt of validatedItems) {
+      const { rows: siRows } = await client.query(`
+        INSERT INTO material_shipment_items (
+          shipment_id, task_item_id, task_material_id, shipped_qty,
+          accepted_qty, fact_qty,
+          item_name_snapshot, article_snapshot, manufacturer_snapshot,
+          unit_snapshot, source_snapshot, supplier_snapshot,
+          supplier_contractor_id_snapshot, price_snapshot
+        ) VALUES ($1, $2, $3, $4, NULL, NULL, $5, $6, $7, $8, $9, $10, $11, $12)
+        RETURNING *
+      `, [
+        createdShipment.id,
+        vIt.task_item_id,
+        vIt.task_material_id,
+        vIt.shipped_qty,
+        vIt.item_name_snapshot,
+        vIt.article_snapshot,
+        vIt.manufacturer_snapshot,
+        vIt.unit_snapshot,
+        vIt.source_snapshot,
+        vIt.supplier_snapshot,
+        vIt.supplier_contractor_id_snapshot,
+        vIt.price_snapshot
+      ]);
+      createdItems.push(siRows[0]);
+    }
+
+    await client.query('COMMIT');
+    res.status(201).json({
+      success: true,
+      shipment: { ...createdShipment, items: createdItems }
+    });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally {
+    client.release();
+  }
+});
+
+// PUT /api/tasks/:id/shipments/:shipmentId
+router.put('/tasks/:id/shipments/:shipmentId', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics', 'to_engineer'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const taskId = req.params.id;
+    const shipmentId = parseInt(req.params.shipmentId, 10);
+    if (!Number.isInteger(shipmentId)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Некорректный ID отгрузки' });
+    }
+
+    const { rows: sRows } = await client.query('SELECT * FROM material_shipments WHERE id = $1 AND task_id = $2 FOR UPDATE', [shipmentId, taskId]);
+    if (!sRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Отгрузка не найдена' });
+    }
+
+    const curShipment = sRows[0];
+
+    // ЗАДАЧА 5.3: Если отгрузка уже переведена в 'shipped' (или последующие), изменение строго запрещено (409 Conflict)
+    if (curShipment.status !== 'draft') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Сформированная отгрузка защищена от изменений' });
+    }
+
+    const {
+      shipment_number,
+      shipment_date,
+      carrier,
+      comment,
+      status,
+      items
+    } = req.body;
+
+    const newNumber = shipment_number !== undefined ? (String(shipment_number).trim() || curShipment.shipment_number) : curShipment.shipment_number;
+    const newDate = shipment_date !== undefined ? (String(shipment_date).trim() || curShipment.shipment_date) : curShipment.shipment_date;
+    const newCarrier = carrier !== undefined ? (carrier ? String(carrier).trim() : null) : curShipment.carrier;
+    const newComment = comment !== undefined ? (comment ? String(comment).trim() : null) : curShipment.comment;
+
+    const willBeShipped = status === 'shipped';
+    const newStatus = willBeShipped ? 'shipped' : 'draft';
+
+    // Если переданы items — обновляем строки
+    if (items !== undefined) {
+      if (!Array.isArray(items) || items.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Список отгружаемых позиций не может быть пустым' });
+      }
+
+      const validatedItems = [];
+      for (const it of items) {
+        const shippedQty = Number(it.shipped_qty);
+        if (!Number.isFinite(shippedQty) || shippedQty <= 0) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'Отгружаемое количество должно быть положительным числом (> 0)' });
+        }
+
+        let tiRow = null;
+        let tmRow = null;
+
+        if (it.task_item_id) {
+          const tiId = parseInt(it.task_item_id, 10);
+          const { rows: checkTi } = await client.query('SELECT * FROM task_items WHERE id = $1', [tiId]);
+          if (!checkTi.length) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: `Строка спецификации #${tiId} не найдена` });
+          }
+          if (checkTi[0].task_id !== taskId) {
+            await client.query('ROLLBACK');
+            return res.status(403).json({ error: `Строка спецификации #${tiId} принадлежит другой заявке` });
+          }
+          tiRow = checkTi[0];
+          const { rows: checkTm } = await client.query('SELECT * FROM task_materials WHERE task_id = $1 AND task_item_id = $2', [taskId, tiId]);
+          if (checkTm.length) tmRow = checkTm[0];
+        } else if (it.task_material_id) {
+          const tmId = parseInt(it.task_material_id, 10);
+          const { rows: checkTm } = await client.query('SELECT * FROM task_materials WHERE id = $1', [tmId]);
+          if (!checkTm.length) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: `Строка материала #${tmId} не найдена` });
+          }
+          if (checkTm[0].task_id !== taskId) {
+            await client.query('ROLLBACK');
+            return res.status(403).json({ error: `Строка материала #${tmId} принадлежит другой заявке` });
+          }
+          tmRow = checkTm[0];
+          if (tmRow.task_item_id) {
+            const { rows: checkTi } = await client.query('SELECT * FROM task_items WHERE id = $1 AND task_id = $2', [tmRow.task_item_id, taskId]);
+            if (checkTi.length) tiRow = checkTi[0];
+          }
+        } else {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'Каждая строка должна содержать task_item_id или task_material_id' });
+        }
+
+        const itemName = (tiRow && tiRow.work_type) || (tmRow && tmRow.item_name) || 'Материал';
+        const article = (tiRow && (tiRow.article_plan || tiRow.article)) || (tmRow && tmRow.article) || null;
+        const manufacturer = (tiRow && tiRow.manufacturer) || (tmRow && tmRow.manufacturer) || null;
+        const unit = (tiRow && tiRow.unit) || (tmRow && tmRow.unit) || 'шт.';
+        const source = (tiRow && tiRow.source) || (tmRow && tmRow.source) || null;
+        const supplier = (tiRow && tiRow.supplier) || (tmRow && tmRow.supplier) || null;
+        const supplierContractorId = (tiRow && tiRow.supplier_contractor_id) || (tmRow && tmRow.supplier_contractor_id) || null;
+        const price = (tiRow && (parseFloat(tiRow.price_customer || tiRow.price_contractor) || 0)) || (tmRow && (parseFloat(tmRow.price) || 0)) || 0;
+
+        validatedItems.push({
+          task_item_id: tiRow ? tiRow.id : null,
+          task_material_id: tmRow ? tmRow.id : null,
+          shipped_qty: shippedQty,
+          item_name_snapshot: itemName,
+          article_snapshot: article,
+          manufacturer_snapshot: manufacturer,
+          unit_snapshot: unit,
+          source_snapshot: source,
+          supplier_snapshot: supplier,
+          supplier_contractor_id_snapshot: supplierContractorId,
+          price_snapshot: price
+        });
+      }
+
+      // Удаляем старые строки черновика и вставляем обновленные
+      await client.query('DELETE FROM material_shipment_items WHERE shipment_id = $1', [shipmentId]);
+
+      for (const vIt of validatedItems) {
+        await client.query(`
+          INSERT INTO material_shipment_items (
+            shipment_id, task_item_id, task_material_id, shipped_qty,
+            accepted_qty, fact_qty,
+            item_name_snapshot, article_snapshot, manufacturer_snapshot,
+            unit_snapshot, source_snapshot, supplier_snapshot,
+            supplier_contractor_id_snapshot, price_snapshot
+          ) VALUES ($1, $2, $3, $4, NULL, NULL, $5, $6, $7, $8, $9, $10, $11, $12)
+        `, [
+          shipmentId,
+          vIt.task_item_id,
+          vIt.task_material_id,
+          vIt.shipped_qty,
+          vIt.item_name_snapshot,
+          vIt.article_snapshot,
+          vIt.manufacturer_snapshot,
+          vIt.unit_snapshot,
+          vIt.source_snapshot,
+          vIt.supplier_snapshot,
+          vIt.supplier_contractor_id_snapshot,
+          vIt.price_snapshot
+        ]);
+      }
+    }
+
+    const { rows: updatedSRows } = await client.query(`
+      UPDATE material_shipments SET
+        shipment_number = $1,
+        shipment_date = $2,
+        carrier = $3,
+        comment = $4,
+        status = $5,
+        shipped_by = CASE WHEN $6::boolean THEN $7 ELSE shipped_by END,
+        shipped_at = CASE WHEN $6::boolean THEN NOW() ELSE shipped_at END,
+        updated_at = NOW()
+      WHERE id = $8 AND task_id = $9
+      RETURNING *
+    `, [
+      newNumber,
+      newDate,
+      newCarrier,
+      newComment,
+      newStatus,
+      willBeShipped,
+      req.user.id,
+      shipmentId,
+      taskId
+    ]);
+
+    const { rows: finalItems } = await client.query(`
+      SELECT si.*, sc.name_short AS supplier_contractor_name_snapshot
+      FROM material_shipment_items si
+      LEFT JOIN contractors sc ON sc.id = si.supplier_contractor_id_snapshot
+      WHERE si.shipment_id = $1
+      ORDER BY si.id ASC
+    `, [shipmentId]);
+
+    await client.query('COMMIT');
+    res.json({
+      success: true,
+      shipment: { ...updatedSRows[0], items: finalItems }
+    });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /api/tasks/:id/shipments/:shipmentId
+router.delete('/tasks/:id/shipments/:shipmentId', authenticateToken, requireRole('admin', 'director', 'manager'), async (req, res) => {
+  try {
+    const taskId = req.params.id;
+    const shipmentId = parseInt(req.params.shipmentId, 10);
+    if (!Number.isInteger(shipmentId)) {
+      return res.status(400).json({ error: 'Некорректный ID отгрузки' });
+    }
+
+    const { rows } = await pool.query('SELECT * FROM material_shipments WHERE id = $1 AND task_id = $2', [shipmentId, taskId]);
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Отгрузка не найдена' });
+    }
+
+    const shipment = rows[0];
+
+    // ЗАДАЧА 5.3: Запрет удаления отправленной отгрузки (409 Conflict)
+    if (shipment.status !== 'draft') {
+      return res.status(409).json({ error: 'Нельзя удалить уже отправленную отгрузку' });
+    }
+
+    await pool.query('DELETE FROM material_shipments WHERE id = $1 AND task_id = $2', [shipmentId, taskId]);
+    res.json({ success: true, message: 'Черновик отгрузки удален' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 export default router;
