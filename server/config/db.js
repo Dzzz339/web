@@ -725,6 +725,9 @@ export async function initDB() {
   await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS demand_name TEXT`);
   await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS sort_order NUMERIC`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_items_sort_order ON task_items(task_id, sort_order)`);
+  await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS pos_label TEXT`);
+  await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS parent_item_id INTEGER REFERENCES task_items(id) ON DELETE SET NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_items_parent_id ON task_items(parent_item_id)`);
 
 
   await pool.query(`
@@ -1123,6 +1126,8 @@ export async function initDB() {
   await pool.query(`ALTER TABLE material_shipment_items ADD COLUMN IF NOT EXISTS discrepancy_reason TEXT`);
   await pool.query(`ALTER TABLE material_shipments ADD COLUMN IF NOT EXISTS logist_accepted_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE material_shipments ADD COLUMN IF NOT EXISTS logist_accepted_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE material_shipments ADD COLUMN IF NOT EXISTS waybill_number TEXT`);
+  await pool.query(`ALTER TABLE material_shipments ADD COLUMN IF NOT EXISTS delivery_cost NUMERIC DEFAULT 0`);
 
   await seedMaterialsAndWarehouses();
 

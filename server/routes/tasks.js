@@ -2155,18 +2155,57 @@ router.post('/tasks/:id/items/:itemId/duplicate', authenticateToken, requireRole
     if (!source.length) return res.status(404).json({ error: 'Позиция не найдена' });
     const s = source[0];
 
-    // Вычисляем порядок сортировки, чтобы дубликат встал сразу за исходной строкой
+    // 1. Исходная запись и определение материнской (корневой) позиции
+    const rootParentId = s.parent_item_id || s.id;
+
+    // 2. Получаем все строки заявки в порядке отображения
     const { rows: allItems } = await pool.query(
-      'SELECT id, sort_order FROM task_items WHERE task_id = $1 ORDER BY COALESCE(sort_order, id::numeric) ASC, id ASC',
+      'SELECT id, parent_item_id, pos_label, sort_order FROM task_items WHERE task_id = $1 ORDER BY COALESCE(sort_order, id::numeric) ASC, id ASC',
       [id]
     );
-    const idx = allItems.findIndex(it => Number(it.id) === Number(itemId));
+
+    // Вычисляем базовый номер материнской строки (например, 19)
+    let basePos = null;
+    const rootItem = allItems.find(it => Number(it.id) === Number(rootParentId));
+    if (rootItem && rootItem.pos_label) {
+      basePos = String(rootItem.pos_label).split('-')[0].trim();
+    }
+    if (!basePos) {
+      // Ищем порядковый номер среди корневых (не дочерних) элементов
+      const rootItems = allItems.filter(it => !it.parent_item_id);
+      const rIdx = rootItems.findIndex(it => Number(it.id) === Number(rootParentId));
+      basePos = (rIdx !== -1) ? String(rIdx + 1) : String(rootParentId);
+      // Сохраняем pos_label для материнской строки, если еще не было
+      await pool.query('UPDATE task_items SET pos_label = $1 WHERE id = $2 AND pos_label IS NULL', [basePos, rootParentId]);
+    }
+
+    // Считаем существующие копии для этой материнской позиции
+    const { rows: existingChildren } = await pool.query(
+      'SELECT id, pos_label FROM task_items WHERE task_id = $1 AND parent_item_id = $2',
+      [id, rootParentId]
+    );
+    const childNum = existingChildren.length + 1;
+    const newPosLabel = `${basePos}-${childNum}`;
+
+    // 3. Вычисляем порядок сортировки, чтобы дубликат встал сразу за последним элементом своего семейства
+    let lastFamilyIdx = -1;
+    for (let i = allItems.length - 1; i >= 0; i--) {
+      const it = allItems[i];
+      if (Number(it.id) === Number(rootParentId) || Number(it.parent_item_id) === Number(rootParentId)) {
+        lastFamilyIdx = i;
+        break;
+      }
+    }
+    if (lastFamilyIdx === -1) {
+      lastFamilyIdx = allItems.findIndex(it => Number(it.id) === Number(itemId));
+    }
+
     let newSortOrder;
-    if (idx !== -1) {
-      const currentEff = (allItems[idx].sort_order !== null && allItems[idx].sort_order !== undefined)
-        ? Number(allItems[idx].sort_order)
-        : Number(allItems[idx].id);
-      const nextItem = allItems[idx + 1];
+    if (lastFamilyIdx !== -1) {
+      const currentEff = (allItems[lastFamilyIdx].sort_order !== null && allItems[lastFamilyIdx].sort_order !== undefined)
+        ? Number(allItems[lastFamilyIdx].sort_order)
+        : Number(allItems[lastFamilyIdx].id);
+      const nextItem = allItems[lastFamilyIdx + 1];
       if (nextItem) {
         const nextEff = (nextItem.sort_order !== null && nextItem.sort_order !== undefined)
           ? Number(nextItem.sort_order)
@@ -2193,8 +2232,8 @@ router.post('/tasks/:id/items/:itemId/duplicate', authenticateToken, requireRole
         article, supplier,
         article_plan, article_fact, shipment_date, shipment_method,
         manufacturer, supplier_contractor_id, source, material_id, demand_name,
-        sort_order
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+        sort_order, pos_label, parent_item_id
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
       RETURNING *
     `, [
       s.task_id, s.work_type, s.quantity, s.unit,
@@ -2205,7 +2244,7 @@ router.post('/tasks/:id/items/:itemId/duplicate', authenticateToken, requireRole
       s.article, s.supplier,
       s.article_plan, s.article_fact, s.shipment_date, s.shipment_method,
       s.manufacturer, s.supplier_contractor_id, s.source, s.material_id, s.demand_name,
-      newSortOrder
+      newSortOrder, newPosLabel, rootParentId
     ]);
 
     // Синхронизируем дубликат и в task_materials с привязкой task_item_id
@@ -2375,6 +2414,12 @@ router.put('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', '
     const calcAmountCust = amount_customer !== undefined ? Number(amount_customer) : undefined;
     const calcAmountCont = amount_contractor !== undefined ? Number(amount_contractor) : undefined;
 
+    const effectiveArticle = article !== undefined ? (article ? String(article).trim() : null) : undefined;
+    let effectiveArticlePlan = article_plan !== undefined ? (article_plan ? String(article_plan).trim() : null) : undefined;
+    if (effectiveArticle !== undefined && effectiveArticlePlan === undefined) {
+      effectiveArticlePlan = effectiveArticle;
+    }
+
     const { rows } = await pool.query(
       `UPDATE task_items SET
         work_type               = COALESCE($1, work_type),
@@ -2416,13 +2461,13 @@ router.put('/tasks/:id/items/:itemId', authenticateToken, requireRole('admin', '
         distance_km !== undefined ? Number(distance_km) : null,
         status || null,
         comment !== undefined ? comment : null,
-        article ? String(article).trim() : null,
+        effectiveArticle !== undefined ? effectiveArticle : null,
         effectiveSupplier !== undefined ? effectiveSupplier : null,
-        article !== undefined,
+        effectiveArticle !== undefined,
         effectiveSupplier !== undefined,
-        article_plan !== undefined ? (article_plan ? String(article_plan).trim() : null) : null,
+        effectiveArticlePlan !== undefined ? effectiveArticlePlan : null,
         article_fact !== undefined ? (article_fact ? String(article_fact).trim() : null) : null,
-        article_plan !== undefined,
+        effectiveArticlePlan !== undefined,
         article_fact !== undefined,
         shipment_date !== undefined ? (shipment_date || null) : null,
         shipment_date !== undefined,

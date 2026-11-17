@@ -1274,6 +1274,9 @@ router.get('/customer-tariffs/regions', authenticateToken, async (req, res) => {
     `);
     res.json(rows);
   } catch (err) {
+    if (err.code === '42P01') {
+      return res.json([]);
+    }
     console.error('Error fetching tariff regions:', err);
     res.status(500).json({ error: 'Ошибка получения регионов тарифов' });
   }

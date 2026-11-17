@@ -2244,7 +2244,8 @@ router.get('/tasks/:id/shipments', authenticateToken, async (req, res) => {
              u_ac.full_name AS accepted_by_name,
              u_lo.full_name AS logist_accepted_by_name,
              COALESCE(COUNT(si.id), 0)::int AS items_count,
-             COALESCE(SUM(si.shipped_qty), 0)::numeric AS total_shipped_qty
+             COALESCE(SUM(si.shipped_qty), 0)::numeric AS total_shipped_qty,
+             COALESCE(SUM(si.shipped_qty * COALESCE(si.price_snapshot, 0)), 0)::numeric AS items_amount
       FROM material_shipments s
       LEFT JOIN users u_cr ON u_cr.id = s.created_by
       LEFT JOIN users u_sh ON u_sh.id = s.shipped_by
@@ -2301,6 +2302,7 @@ router.get('/tasks/:id/shipments/:shipmentId', authenticateToken, async (req, re
     `, [shipmentId]);
 
     shipment.items = itemRows;
+    shipment.items_amount = itemRows.reduce((acc, it) => acc + ((Number(it.shipped_qty) || 0) * (Number(it.price_snapshot) || 0)), 0);
     res.json(shipment);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -2345,6 +2347,8 @@ router.post('/tasks/:id/shipments', authenticateToken, requireRole('admin', 'dir
       status = 'draft',
       carrier = null,
       comment = null,
+      waybill_number = null,
+      delivery_cost = 0,
       items
     } = req.body;
 
@@ -2352,6 +2356,17 @@ router.post('/tasks/:id/shipments', authenticateToken, requireRole('admin', 'dir
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Недопустимый статус отгрузки при создании (допустимы: draft, shipped)' });
     }
+
+    let finalDeliveryCost = 0;
+    if (delivery_cost !== undefined && delivery_cost !== null && String(delivery_cost).trim() !== '') {
+      const dc = Number(delivery_cost);
+      if (!Number.isFinite(dc) || dc < 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Стоимость доставки должна быть неотрицательным числом' });
+      }
+      finalDeliveryCost = dc;
+    }
+    const finalWaybillNumber = waybill_number !== undefined ? (waybill_number ? String(waybill_number).trim() : null) : null;
 
     if (!Array.isArray(items) || items.length === 0) {
       await client.query('ROLLBACK');
@@ -2444,8 +2459,9 @@ router.post('/tasks/:id/shipments', authenticateToken, requireRole('admin', 'dir
     const { rows: sRows } = await client.query(`
       INSERT INTO material_shipments (
         task_id, shipment_number, shipment_date, status, carrier, comment,
-        created_by, created_at, shipped_by, shipped_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9)
+        created_by, created_at, shipped_by, shipped_at,
+        waybill_number, delivery_cost
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11)
       RETURNING *
     `, [
       taskId,
@@ -2456,7 +2472,9 @@ router.post('/tasks/:id/shipments', authenticateToken, requireRole('admin', 'dir
       comment ? String(comment).trim() : null,
       req.user.id,
       isShipped ? req.user.id : null,
-      isShipped ? new Date() : null
+      isShipped ? new Date() : null,
+      finalWaybillNumber,
+      finalDeliveryCost
     ]);
 
     const createdShipment = sRows[0];
@@ -2534,6 +2552,8 @@ router.put('/tasks/:id/shipments/:shipmentId', authenticateToken, requireRole('a
       carrier,
       comment,
       status,
+      waybill_number,
+      delivery_cost,
       items
     } = req.body;
 
@@ -2546,6 +2566,20 @@ router.put('/tasks/:id/shipments/:shipmentId', authenticateToken, requireRole('a
     const newDate = shipment_date !== undefined ? (String(shipment_date).trim() || curShipment.shipment_date) : curShipment.shipment_date;
     const newCarrier = carrier !== undefined ? (carrier ? String(carrier).trim() : null) : curShipment.carrier;
     const newComment = comment !== undefined ? (comment ? String(comment).trim() : null) : curShipment.comment;
+    const newWaybillNumber = waybill_number !== undefined ? (waybill_number ? String(waybill_number).trim() : null) : curShipment.waybill_number;
+    let newDeliveryCost = (curShipment.delivery_cost !== null && curShipment.delivery_cost !== undefined) ? Number(curShipment.delivery_cost) : 0;
+    if (delivery_cost !== undefined) {
+      if (delivery_cost === null || String(delivery_cost).trim() === '') {
+        newDeliveryCost = 0;
+      } else {
+        const dc = Number(delivery_cost);
+        if (!Number.isFinite(dc) || dc < 0) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'Стоимость доставки должна быть неотрицательным числом' });
+        }
+        newDeliveryCost = dc;
+      }
+    }
 
     const willBeShipped = status === 'shipped';
     const newStatus = willBeShipped ? 'shipped' : 'draft';
@@ -2665,8 +2699,10 @@ router.put('/tasks/:id/shipments/:shipmentId', authenticateToken, requireRole('a
         status = $5,
         shipped_by = CASE WHEN $6::boolean THEN $7 ELSE shipped_by END,
         shipped_at = CASE WHEN $6::boolean THEN NOW() ELSE shipped_at END,
+        waybill_number = $8,
+        delivery_cost = $9,
         updated_at = NOW()
-      WHERE id = $8 AND task_id = $9
+      WHERE id = $10 AND task_id = $11
       RETURNING *
     `, [
       newNumber,
@@ -2676,6 +2712,8 @@ router.put('/tasks/:id/shipments/:shipmentId', authenticateToken, requireRole('a
       newStatus,
       willBeShipped,
       req.user.id,
+      newWaybillNumber,
+      newDeliveryCost,
       shipmentId,
       taskId
     ]);
