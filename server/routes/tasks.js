@@ -1965,7 +1965,7 @@ router.get('/tasks/:id/items', authenticateToken, async (req, res) => {
        LEFT JOIN contractors c ON c.id = ti.contractor_id
        LEFT JOIN contractors sc ON sc.id = ti.supplier_contractor_id
        WHERE ti.task_id = $1
-       ORDER BY ti.id ASC`,
+       ORDER BY COALESCE(ti.sort_order, ti.id::numeric) ASC, ti.id ASC`,
       [req.params.id]
     );
 
@@ -2011,7 +2011,7 @@ router.get('/tasks/:id/items', authenticateToken, async (req, res) => {
            LEFT JOIN contractors c ON c.id = ti.contractor_id
            LEFT JOIN contractors sc ON sc.id = ti.supplier_contractor_id
            WHERE ti.task_id = $1
-           ORDER BY ti.id ASC`,
+           ORDER BY COALESCE(ti.sort_order, ti.id::numeric) ASC, ti.id ASC`,
           [req.params.id]
         );
         rows = recheck.rows;
@@ -2154,6 +2154,35 @@ router.post('/tasks/:id/items/:itemId/duplicate', authenticateToken, requireRole
     const { rows: source } = await pool.query('SELECT * FROM task_items WHERE id = $1 AND task_id = $2', [itemId, id]);
     if (!source.length) return res.status(404).json({ error: 'Позиция не найдена' });
     const s = source[0];
+
+    // Вычисляем порядок сортировки, чтобы дубликат встал сразу за исходной строкой
+    const { rows: allItems } = await pool.query(
+      'SELECT id, sort_order FROM task_items WHERE task_id = $1 ORDER BY COALESCE(sort_order, id::numeric) ASC, id ASC',
+      [id]
+    );
+    const idx = allItems.findIndex(it => Number(it.id) === Number(itemId));
+    let newSortOrder;
+    if (idx !== -1) {
+      const currentEff = (allItems[idx].sort_order !== null && allItems[idx].sort_order !== undefined)
+        ? Number(allItems[idx].sort_order)
+        : Number(allItems[idx].id);
+      const nextItem = allItems[idx + 1];
+      if (nextItem) {
+        const nextEff = (nextItem.sort_order !== null && nextItem.sort_order !== undefined)
+          ? Number(nextItem.sort_order)
+          : Number(nextItem.id);
+        if (nextEff > currentEff) {
+          newSortOrder = (currentEff + nextEff) / 2;
+        } else {
+          newSortOrder = currentEff + 0.1;
+        }
+      } else {
+        newSortOrder = currentEff + 1;
+      }
+    } else {
+      newSortOrder = Number(itemId) + 1;
+    }
+
     const { rows: copy } = await pool.query(`
       INSERT INTO task_items (
         task_id, work_type, quantity, unit,
@@ -2163,8 +2192,9 @@ router.post('/tasks/:id/items/:itemId/duplicate', authenticateToken, requireRole
         distance_km, status, comment,
         article, supplier,
         article_plan, article_fact, shipment_date, shipment_method,
-        manufacturer, supplier_contractor_id, source, material_id, demand_name
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+        manufacturer, supplier_contractor_id, source, material_id, demand_name,
+        sort_order
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
       RETURNING *
     `, [
       s.task_id, s.work_type, s.quantity, s.unit,
@@ -2174,7 +2204,8 @@ router.post('/tasks/:id/items/:itemId/duplicate', authenticateToken, requireRole
       s.distance_km, s.status, s.comment,
       s.article, s.supplier,
       s.article_plan, s.article_fact, s.shipment_date, s.shipment_method,
-      s.manufacturer, s.supplier_contractor_id, s.source, s.material_id, s.demand_name
+      s.manufacturer, s.supplier_contractor_id, s.source, s.material_id, s.demand_name,
+      newSortOrder
     ]);
 
     // Синхронизируем дубликат и в task_materials с привязкой task_item_id

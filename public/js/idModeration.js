@@ -234,6 +234,9 @@
           '>' +
           '🚀 Одобрить и отправить на Портал поставщиков' +
         '</button>' +
+        (data.moderationStatus === 'approved' && ['admin', 'director'].includes(String(window.S && window.S.user && window.S.user.role || '').toLowerCase())
+          ? '<button type="button" class="btn btn-sm btn-ghost" id="btnAdminRollbackIdMod" style="color:var(--orange);border:1.5px solid var(--orange);font-weight:700;width:100%;font-size:.82rem;padding:7px;margin-top:6px">↩️ Откатить (Админ)</button>'
+          : '') +
       '</div>' +
     '</div>';
 
@@ -346,6 +349,13 @@
     if (btnFinalizePortal && !btnFinalizePortal.disabled) {
       btnFinalizePortal.addEventListener('click', function() {
         window.finalizeIdModeration(taskId, 'send_portal');
+      });
+    }
+
+    var btnAdminRollbackIdMod = cont.querySelector('#btnAdminRollbackIdMod');
+    if (btnAdminRollbackIdMod) {
+      btnAdminRollbackIdMod.addEventListener('click', function() {
+        window.adminRollbackIdModeration(taskId);
       });
     }
 
@@ -649,6 +659,30 @@
         alert('Ошибка отправки на Портал: ' + (err.message || err));
       });
     }
+  };
+
+  // Откат утверждения модерации ИД (только admin / director)
+  window.adminRollbackIdModeration = function(taskId) {
+    var reason = prompt('Укажите причину отката утверждения модерации ИД (обязательно):');
+    if (reason === null) return;
+    reason = (reason || '').trim();
+    if (!reason) return alert('Причина отката обязательна!');
+    window.api('/tasks/' + encodeURIComponent(taskId) + '/id-moderation/rollback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: reason })
+    }).then(function(res) {
+      if (res && res.error) return alert('Ошибка отката: ' + res.error);
+      if (typeof showToast === 'function') {
+        showToast('↩️ Модерация ИД возвращена в статус проверки', 'success');
+      } else {
+        alert('↩️ Модерация ИД возвращена в статус проверки');
+      }
+      loadModerationData(taskId);
+      if (window.openCard) openCard(taskId);
+    }).catch(function(err) {
+      alert('Ошибка отката: ' + (err.message || err));
+    });
   };
 
   // Генерация и просмотр полного альбома ИД в .PDF

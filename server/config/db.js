@@ -432,6 +432,11 @@ export async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_contract_law_type ON contracts(contract_law_type)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_manager_id ON contracts(manager_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contracts_own_company_id ON contracts(own_company_id)`);
+  try {
+    await initSubcontractDms(pool);
+  } catch (dmsErr) {
+    console.error('[DB] Subcontract DMS post-contracts init error:', dmsErr.message);
+  }
   await pool.query(`
     UPDATE contracts c SET own_company_id = oc.id 
     FROM own_companies oc 
@@ -718,6 +723,8 @@ export async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_items_supplier_contractor ON task_items(supplier_contractor_id)`);
   await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS source TEXT`);
   await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS demand_name TEXT`);
+  await pool.query(`ALTER TABLE task_items ADD COLUMN IF NOT EXISTS sort_order NUMERIC`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_items_sort_order ON task_items(task_id, sort_order)`);
 
 
   await pool.query(`

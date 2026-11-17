@@ -44,7 +44,7 @@ router.get('/contractors/:id/contracts', authenticateToken, async (req, res) => 
       LEFT JOIN contracts pc ON cc.parent_contract_id = pc.id
       LEFT JOIN contractor_price_lists pl ON pl.contract_id = cc.id AND pl.is_active = true
       WHERE cc.contractor_id = $1
-      ORDER BY cc.id DESC
+      ORDER BY (cc.status = 'active') DESC, cc.id DESC
     `, [contractorId]);
     res.json(rows);
   } catch (err) {
@@ -945,6 +945,13 @@ router.post('/tasks/:taskId/subcontract-wizard', authenticateToken, async (req, 
         ports_count || 0, distance_km || 0, comment || ''
       ]);
       subcontractId = insRes.rows[0].id;
+    }
+
+    if (contractor_contract_id) {
+      await pool.query(
+        `UPDATE contractor_contracts SET status = 'active', updated_at = NOW() WHERE id = $1 AND status = 'created'`,
+        [contractor_contract_id]
+      );
     }
 
     // Синхронизируем подрядчика, собственное юрлицо и историю в таблице tasks

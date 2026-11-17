@@ -242,6 +242,7 @@ function stageBadge(s) {
 
 var ID_ROLES = {
   ADMIN: 'admin',
+  DIRECTOR: 'director',
   LEADER: 'leader',
   MANAGER: 'manager',
   DESIGNER: 'designer',

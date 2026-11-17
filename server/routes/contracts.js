@@ -534,6 +534,18 @@ router.post('/contracts', authenticateToken, async (req, res) => {
       finalDeadlineDate = computeDeadlineDate(deadline_raw, contract_date);
     }
 
+    const custId = customer_id || req.body.contractor_id;
+    if (!custId) {
+      return res.status(400).json({ error: 'Необходимо выбрать организацию-заказчика из справочника контрагентов' });
+    }
+    const { rows: custRows } = await pool.query('SELECT id, name_short, name_full FROM contractors WHERE id = $1', [custId]);
+    if (!custRows.length) {
+      return res.status(400).json({ error: 'Указанная организация-заказчик не найдена в справочнике' });
+    }
+    const matchedCust = custRows[0];
+    const effectiveCustomerId = matchedCust.id;
+    const effectiveCustomerName = matchedCust.name_short || matchedCust.name_full || customer_name;
+
     const { rows } = await pool.query(`
       INSERT INTO contracts (
         internal_number, contract_number, contract_date, contract_type_summary,
@@ -554,7 +566,7 @@ router.post('/contracts', authenticateToken, async (req, res) => {
       RETURNING *
     `, [
       internal_number || '', contract_number || '', contract_date || null, contract_type_summary || 'СМР / СКС и ЛВС',
-      customer_name || 'Не указан', customer_id || null, our_entity_region || '', our_entity_name || null,
+      effectiveCustomerName || 'Не указан', effectiveCustomerId || null, our_entity_region || '', our_entity_name || null,
       delivery_place || '', subject || '', terms_text || '', zakupki_url || '',
       deadline_raw || '', finalDeadlineDate || null, payment_terms || '',
       security_amount || 0, security_condition || '', discount_percent || 0, amount || 0,
@@ -625,6 +637,20 @@ router.put('/contracts/:id', authenticateToken, async (req, res) => {
       finalDeadlineDate = computeDeadlineDate(deadline_raw, contract_date);
     }
 
+    let finalCustomerId = customer_id !== undefined ? customer_id : req.body.contractor_id;
+    let finalCustomerName = customer_name;
+    if (finalCustomerId !== undefined) {
+      if (!finalCustomerId) {
+        return res.status(400).json({ error: 'Необходимо выбрать организацию-заказчика из справочника контрагентов' });
+      }
+      const { rows: custRows } = await pool.query('SELECT id, name_short, name_full FROM contractors WHERE id = $1', [finalCustomerId]);
+      if (!custRows.length) {
+        return res.status(400).json({ error: 'Указанная организация-заказчик не найдена в справочнике' });
+      }
+      finalCustomerId = custRows[0].id;
+      finalCustomerName = custRows[0].name_short || custRows[0].name_full || customer_name;
+    }
+
     const { rows } = await pool.query(`
       UPDATE contracts SET
         internal_number = COALESCE($1, internal_number),
@@ -632,7 +658,7 @@ router.put('/contracts/:id', authenticateToken, async (req, res) => {
         contract_date = $3,
         contract_type_summary = COALESCE($4, contract_type_summary),
         customer_name = COALESCE($5, customer_name),
-        customer_id = $6,
+        customer_id = COALESCE($6, customer_id),
         our_entity_region = COALESCE($7, our_entity_region),
         our_entity_name = COALESCE($8, our_entity_name),
         delivery_place = COALESCE($9, delivery_place),
@@ -665,7 +691,7 @@ router.put('/contracts/:id', authenticateToken, async (req, res) => {
       RETURNING *
     `, [
       internal_number, contract_number, contract_date || null, contract_type_summary,
-      customer_name, customer_id || null, our_entity_region, our_entity_name,
+      finalCustomerName !== undefined ? finalCustomerName : null, finalCustomerId !== undefined ? parseInt(finalCustomerId, 10) : null, our_entity_region, our_entity_name,
       delivery_place, subject, terms_text, zakupki_url,
       deadline_raw, finalDeadlineDate || null, payment_terms,
       security_amount, security_condition, discount_percent, amount,

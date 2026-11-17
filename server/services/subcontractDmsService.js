@@ -34,6 +34,8 @@ export async function initSubcontractDms(pool) {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_own_companies_code ON own_companies(code)`);
   await pool.query(`ALTER TABLE own_companies ADD COLUMN IF NOT EXISTS vat_rate NUMERIC(5,2) DEFAULT 0`);
   await pool.query(`ALTER TABLE own_companies ADD COLUMN IF NOT EXISTS tax_system VARCHAR(64) DEFAULT 'УСН'`);
+  await pool.query(`ALTER TABLE own_companies ADD COLUMN IF NOT EXISTS city TEXT`);
+  await pool.query(`ALTER TABLE own_companies ADD COLUMN IF NOT EXISTS sro_info TEXT`);
 
   // 2. Справочник рамочных договоров с подрядчиками
   await pool.query(`
@@ -576,13 +578,13 @@ export async function calculateSubcontractAmount(pool, { contractorId, contracto
     query += ` WHERE c.id = $1 LIMIT 1`;
     params.push(contractorContractId);
   } else {
-    query += ` WHERE c.contractor_id = $1 AND c.status = 'active'`;
+    query += ` WHERE c.contractor_id = $1 AND c.status IN ('active', 'created')`;
     params.push(contractorId);
     if (customerTag) {
-      query += ` ORDER BY (c.customer_tag ILIKE $2) DESC, c.id DESC LIMIT 1`;
+      query += ` ORDER BY (c.status = 'active') DESC, (c.customer_tag ILIKE $2) DESC, c.id DESC LIMIT 1`;
       params.push(`%${customerTag}%`);
     } else {
-      query += ` ORDER BY c.id DESC LIMIT 1`;
+      query += ` ORDER BY (c.status = 'active') DESC, c.id DESC LIMIT 1`;
     }
   }
 

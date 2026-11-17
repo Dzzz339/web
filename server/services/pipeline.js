@@ -6,20 +6,21 @@ export const ID_ROLES = {
   dispatch:   'Отдел отправки',
   payments:   'Оплаты',
   leader:     'Руководитель',
+  director:   'Генеральный директор',
   admin:      'Администратор',
   worker:     'Монтажник'
 };
 
 export const ID_STEPS = [
-  { label: 'Монтаж начат',        role: 'manager' },
-  { label: 'Объект готов',        role: 'manager' },
-  { label: 'Материалы переданы',  role: 'manager', link: true },
-  { label: 'Взял ИД в работу',    role: 'designer' },
-  { label: 'ИД готова',           role: 'designer', link: true },
-  { label: 'ИД отправлена в Сбер', role: 'dispatch' },
-  { label: 'Сбер принял ИД',      role: 'dispatch' },
-  { label: 'Передано на оплату',  role: 'payments' },
-  { label: 'Оплачено',            role: 'payments' },
+  { label: 'Монтаж начат',             role: 'manager' },
+  { label: 'Объект готов',             role: 'manager' },
+  { label: 'Материалы переданы',       role: 'manager', link: true },
+  { label: 'Взял ИД в работу',         role: 'designer' },
+  { label: 'ИД готова',                role: 'designer', link: true },
+  { label: 'ИД отправлена Заказчику',  role: 'dispatch' },
+  { label: 'Заказчик принял ИД',       role: 'dispatch' },
+  { label: 'Передано на оплату',       role: 'payments' },
+  { label: 'Оплачено',                 role: 'payments' },
 ];
 
 export const ID_STAGES = [
@@ -47,7 +48,7 @@ export function businessDue(start, days = 3) {
 export function hasRole(user, ...wanted) {
   if (!user || !user.role) return false;
   const userRoles = String(user.role).split(',').map(r => r.trim());
-  if (userRoles.includes('admin') || userRoles.includes('leader')) return true;
+  if (userRoles.includes('admin') || userRoles.includes('director') || userRoles.includes('leader')) return true;
   return userRoles.some(r => wanted.includes(r));
 }
 
@@ -56,7 +57,7 @@ export function canStep(user, task) {
   const stageNum = Number(task.stage_num !== undefined ? task.stage_num : task.stageNum) || 0;
   const s = ID_STEPS[stageNum];
   if (!s || task.archived) return false;
-  if (hasRole(user, 'admin', 'leader')) return true;
+  if (hasRole(user, 'admin', 'director', 'leader')) return true;
   if (s.role === 'manager') {
     const mgrId = task.manager_id !== undefined ? task.manager_id : task.managerId;
     return hasRole(user, 'manager') && (!mgrId || Number(mgrId) === Number(user.id));
@@ -72,7 +73,7 @@ export function canUndo(user, task) {
   if (!user || !task) return false;
   const stageNum = Number(task.stage_num !== undefined ? task.stage_num : task.stageNum) || 0;
   if (task.archived || stageNum <= 0) return false;
-  if (hasRole(user, 'admin', 'leader')) return true;
+  if (hasRole(user, 'admin', 'director', 'leader')) return true;
   const prevStep = ID_STEPS[stageNum - 1];
   return !!prevStep && hasRole(user, prevStep.role);
 }

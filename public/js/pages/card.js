@@ -3789,6 +3789,15 @@ window.duplicateTaskItem = function(taskId, itemId) {
   });
 };
 
+window.duplicateLastTaskItem = function(taskId) {
+  var rows = document.querySelectorAll('#cardItemsList tr[data-item-id]');
+  if (!rows || !rows.length) return alert('Нет строк для копирования');
+  var lastRow = rows[rows.length - 1];
+  var lastId = lastRow.getAttribute('data-item-id');
+  if (!lastId) return alert('Идентификатор последней строки не найден');
+  window.duplicateTaskItem(taskId, lastId);
+};
+
 function updateItemsSummary(taskId, items) {
   var countBadge = document.getElementById('cardItemsCountBadge');
   if (countBadge) countBadge.textContent = (items ? items.length : 0) + ' позиций';
@@ -4032,6 +4041,9 @@ window.loadCardShipments = function(taskId) {
           actionsHtml += ' <button type="button" class="btn btn-xs btn-outline btn-edit-shipment" data-shipment-id="' + s.id + '" style="margin-left:3px">✏️</button>';
           actionsHtml += ' <button type="button" class="btn btn-xs btn-ghost btn-del-shipment" data-shipment-id="' + s.id + '" style="color:var(--red);margin-left:3px" title="Удалить черновик">🗑️</button>';
         }
+        if (['admin', 'director'].includes(userRole) && ['shipped', 'accepted', 'accepted_discrepancy'].includes(s.status)) {
+          actionsHtml += ' <button type="button" class="btn btn-xs btn-ghost btn-rollback-shipment" data-shipment-id="' + s.id + '" style="color:var(--orange);margin-left:3px;font-weight:700" title="↩️ Откатить статус (Администратор)">↩️ Откатить (Админ)</button>';
+        }
 
         return '<tr style="border-bottom:1px solid var(--border);font-size:.78rem">' +
           '<td style="padding:5px 6px;font-weight:700;color:var(--text)">' + escHtml(s.shipment_number) + '</td>' +
@@ -4089,6 +4101,12 @@ window.loadCardShipments = function(taskId) {
           window.deleteShipmentDraft(taskId, sId);
         });
       });
+      container.querySelectorAll('.btn-rollback-shipment').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var sId = parseInt(this.getAttribute('data-shipment-id'), 10);
+          window.adminRollbackShipment(taskId, sId);
+        });
+      });
     })
     .catch(function(err) {
       container.innerHTML = '<div style="padding:8px;color:var(--red);font-size:.8rem">Ошибка загрузки отгрузок: ' + (err.message || err) + '</div>';
@@ -4116,6 +4134,49 @@ window.deleteShipmentDraft = function(taskId, shipmentId) {
   })
   .catch(function(err) {
     alert('Сетевая ошибка удаления: ' + (err.message || err));
+  });
+};
+
+window.adminRollbackLogist = function(taskId) {
+  var reason = prompt('Укажите причину отката утверждения снабжения (обязательно):');
+  if (reason === null) return;
+  reason = (reason || '').trim();
+  if (!reason) return alert('Причина отката обязательна!');
+  api('/tasks/' + encodeURIComponent(taskId) + '/materials/rollback-logist', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: reason })
+  }).then(function(res) {
+    if (res && res.error) return alert('Ошибка отката снабжения: ' + res.error);
+    if (typeof showToast === 'function') showToast('↩️ Утверждение снабжения успешно отозвано администратором', 'success');
+    var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+    if (t) {
+      if (t.rawData) { t.rawData.tmcLogistAccepted = false; }
+      if (t.raw_data) { t.raw_data.tmcLogistAccepted = false; }
+    }
+    loadCardMaterials(taskId);
+    if (window.loadCardShipments) window.loadCardShipments(taskId);
+  }).catch(function(err) {
+    alert('Ошибка отката: ' + (err.message || err));
+  });
+};
+
+window.adminRollbackShipment = function(taskId, shipmentId) {
+  var reason = prompt('Укажите причину отката отгрузки (обязательно):');
+  if (reason === null) return;
+  reason = (reason || '').trim();
+  if (!reason) return alert('Причина отката обязательна!');
+  api('/tasks/' + encodeURIComponent(taskId) + '/shipments/' + encodeURIComponent(shipmentId) + '/rollback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: reason })
+  }).then(function(res) {
+    if (res && res.error) return alert('Ошибка отката отгрузки: ' + res.error);
+    if (typeof showToast === 'function') showToast('↩️ Отгрузка успешно откачена администратором', 'success');
+    if (window.loadCardShipments) window.loadCardShipments(taskId);
+    loadCardMaterials(taskId);
+  }).catch(function(err) {
+    alert('Ошибка отката: ' + (err.message || err));
   });
 };
 
@@ -5656,7 +5717,7 @@ window.refreshAttachmentsList = refreshAttachmentsList;
 
 function refreshPortsList(taskId) {
   var el = document.getElementById('portsList');
-  if (!el) return;
+  if (!el) return Promise.resolve();
 
   var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
   var planPorts = Number(t.inOrder || t.ports || 0);
@@ -5670,7 +5731,7 @@ function refreshPortsList(taskId) {
     window._curPortsCount = 0;
   }
 
-  api('/tasks/' + taskId + '/ports').then(function(rows) {
+  return api('/tasks/' + taskId + '/ports').then(function(rows) {
     var pCount = Array.isArray(rows) ? rows.length : 0;
     if (!window._curTaskPorts) window._curTaskPorts = {};
     window._curTaskPorts[taskId] = pCount;
@@ -5866,6 +5927,29 @@ function refreshPortsList(taskId) {
           var nextRow = row && row.nextElementSibling;
           if (nextRow && columnIndex >= 0) {
             nextField = nextRow.children[columnIndex] ? nextRow.children[columnIndex].querySelector('input, select, textarea') : null;
+          } else if (!nextRow && columnIndex >= 0) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (typeof target.onchange === 'function') target.onchange();
+            if (confirm('Добавить новую строку?')) {
+              addPortRow(taskId).then(function() {
+                var newBody = document.getElementById('portsTableBody');
+                if (newBody) {
+                  var newRows = newBody.querySelectorAll('tr');
+                  var lastR = newRows[newRows.length - 1];
+                  if (lastR && lastR.children[columnIndex]) {
+                    var nf = lastR.children[columnIndex].querySelector('input, select, textarea');
+                    if (nf && !nf.disabled && !nf.readOnly) {
+                      nf.focus();
+                      if (typeof nf.select === 'function' && nf.type !== 'checkbox') nf.select();
+                    }
+                  }
+                }
+              });
+            } else {
+              target.focus();
+            }
+            return;
           }
         } else {
           nextField = fields[currentIndex + (event.shiftKey ? -1 : 1)] || null;
@@ -6008,7 +6092,7 @@ function addPortRow(taskId) {
 
   var nextMark = defaultFloor + '.' + (nextNum < 10 ? '0' + nextNum : nextNum);
 
-  api('/tasks/' + taskId + '/ports', {
+  return api('/tasks/' + taskId + '/ports', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -6027,7 +6111,7 @@ function addPortRow(taskId) {
       testingStatus: 'untested'
     })
   }).then(function() {
-    refreshPortsList(taskId);
+    return refreshPortsList(taskId);
   });
 }
 
@@ -6886,7 +6970,12 @@ function loadCardMaterials(taskId) {
             '<div style="font-size:.73rem;color:#64748b">Утвердил: <b>' + escHtml(logistByStr) + '</b>' + (logistAtStr ? ' · ' + escHtml(logistAtStr) : '') + ' · Спецификация и фактический расход закрыты от изменений</div>' +
           '</div>' +
         '</div>' +
-        '<span class="badge b-gray" style="font-size:.72rem;font-weight:700">🔒 Закрыто логистом</span>' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+          '<span class="badge b-gray" style="font-size:.72rem;font-weight:700">🔒 Закрыто логистом</span>' +
+          (['admin', 'director'].includes(String(S.user && S.user.role || '').toLowerCase())
+            ? '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--orange);border:1px solid var(--orange);font-size:.74rem;padding:2px 8px;font-weight:700" onclick="window.adminRollbackLogist(\'' + escHtml(taskId) + '\')">↩️ Откатить (Админ)</button>'
+            : '') +
+        '</div>' +
       '</div>';
     }
 

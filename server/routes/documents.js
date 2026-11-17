@@ -22,6 +22,7 @@ import {
   generateTmcAct,
   DEFAULT_GENERAL_CONTRACTOR
 } from '../services/docxGenerator.js';
+import { htmlToDocxBuffer } from '../services/htmlDocxConverter.js';
 import { collectDocumentContext, renderTemplateHtml, formatDateRu } from '../services/documentContext.js';
 
 const router = express.Router();
@@ -521,32 +522,72 @@ router.post('/tasks/:taskId/documents/upload', authenticateToken, uploadAttachme
   }
 });
 
-// 2.2. Быстрое обновление статуса, суммы и реквизитов документа
-router.patch('/documents/:id', authenticateToken, async (req, res) => {
+const ALLOWED_DOC_TRANSITIONS = {
+  draft: ['draft', 'review', 'pending', 'approved', 'signed', 'rejected'],
+  created: ['created', 'draft', 'review', 'pending', 'approved', 'signed', 'rejected'],
+  generated: ['generated', 'draft', 'review', 'pending', 'approved', 'signed', 'rejected'],
+  issued: ['issued', 'draft', 'review', 'pending', 'approved', 'signed', 'rejected'],
+  review: ['review', 'pending', 'approved', 'signed', 'rejected', 'draft'],
+  pending: ['pending', 'review', 'approved', 'signed', 'rejected', 'draft'],
+  approved: ['approved', 'signed', 'sent', 'rejected', 'pending', 'draft'],
+  rejected: ['rejected', 'draft', 'review', 'pending'],
+  signed: ['signed', 'sent', 'paid', 'rejected'],
+  sent: ['sent', 'signed', 'paid', 'rejected'],
+  paid: ['paid']
+};
+
+const handleDocumentUpdate = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, amount, doc_number, doc_date, title, comment } = req.body;
+    const { status, amount, doc_number, doc_date, title, comment, rejection_reason, reason } = req.body || {};
 
     const curRes = await pool.query('SELECT * FROM task_documents WHERE id = $1', [id]);
     if (!curRes.rows.length) return res.status(404).json({ error: 'Документ не найден' });
 
     const doc = curRes.rows[0];
     const meta = typeof doc.meta === 'string' ? JSON.parse(doc.meta || '{}') : (doc.meta || {});
+    const curStatus = String(doc.status || 'draft').toLowerCase();
 
-    if (status !== undefined) {
-      meta.status = status;
+    if (status !== undefined && status !== null) {
+      const nextStatus = String(status).trim().toLowerCase();
+      const allowedNext = ALLOWED_DOC_TRANSITIONS[curStatus] || ['draft', 'review', 'pending', 'approved', 'signed', 'rejected'];
+      if (nextStatus !== curStatus && !allowedNext.includes(nextStatus)) {
+        return res.status(400).json({
+          error: `Недопустимый переход статуса документа из «${curStatus}» в «${nextStatus}»`
+        });
+      }
+
+      if (nextStatus === 'rejected') {
+        const rejReason = (rejection_reason || reason || comment || '').trim();
+        if (!rejReason) {
+          return res.status(400).json({ error: 'При отклонении документа необходимо указать причину' });
+        }
+        meta.rejection_reason = rejReason;
+        meta.comment = rejReason;
+      }
+
+      meta.status = nextStatus;
     }
+
     if (amount !== undefined) {
       meta.amount = (amount !== '' && amount !== null) ? parseFloat(amount) : null;
     }
-    if (comment !== undefined) {
+    if (comment !== undefined && (!status || String(status).toLowerCase() !== 'rejected')) {
       meta.comment = comment;
     }
 
-    const newStatus = status !== undefined ? status : doc.status;
+    const newStatus = (status !== undefined && status !== null) ? String(status).trim().toLowerCase() : doc.status;
     const newDocNum = doc_number !== undefined ? doc_number : doc.doc_number;
     const newDocDate = doc_date !== undefined ? doc_date : doc.doc_date;
     const newTitle = title !== undefined ? title : doc.title;
+
+    // Синхронизируем статус с договором субподряда, если передан subcontract_contract_id И статус не rejected
+    if (doc.subcontract_contract_id && newStatus && newStatus !== 'rejected') {
+      await pool.query(
+        'UPDATE contractor_contracts SET status = $1, updated_at = NOW() WHERE id = $2 AND status != $1',
+        [newStatus, doc.subcontract_contract_id]
+      );
+    }
 
     const updRes = await pool.query(`
       UPDATE task_documents SET
@@ -564,7 +605,12 @@ router.patch('/documents/:id', authenticateToken, async (req, res) => {
     console.error('Error updating document:', err);
     res.status(500).json({ error: 'Ошибка обновления документа: ' + err.message });
   }
-});
+};
+
+// 2.2. Быстрое обновление статуса, суммы и реквизитов документа
+router.patch('/documents/:id', authenticateToken, requireRole('admin', 'director', 'manager', 'to_engineer'), handleDocumentUpdate);
+router.put('/documents/:id', authenticateToken, requireRole('admin', 'director', 'manager', 'to_engineer'), handleDocumentUpdate);
+router.post('/documents/:id/status', authenticateToken, requireRole('admin', 'director', 'manager', 'to_engineer'), handleDocumentUpdate);
 
 // 3. Удалить документ (запрещено удалять подписанные / отправленные документы)
 router.delete('/documents/:id', authenticateToken, requireRole('admin', 'director', 'manager'), async (req, res) => {
@@ -1684,9 +1730,12 @@ router.post('/documents/save', authenticateToken, async (req, res) => {
     }
 
     if (content_html) {
-      // Сохраняем Word-совместимый HTML
-      const wordHeader = `<!DOCTYPE html><html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>${title}</title><style>@page { size: 210mm 297mm; margin: 20mm 15mm 20mm 20mm; } body { font-family: 'Times New Roman', serif; font-size: 11pt; color: #000; } table { border-collapse: collapse; width: 100%; } td, th { border: 1pt solid #000; padding: 4pt 6pt; }</style></head><body>${content_html}</body></html>`;
-      fs.writeFileSync(filePath, wordHeader, 'utf8');
+      if (ext === 'docx') {
+        const docxBuffer = await htmlToDocxBuffer(content_html, title);
+        fs.writeFileSync(filePath, docxBuffer);
+      } else {
+        fs.writeFileSync(filePath, content_html, 'utf8');
+      }
     }
 
     let resolvedContractId = contract_id || null;
@@ -1697,8 +1746,8 @@ router.post('/documents/save', authenticateToken, async (req, res) => {
       }
     }
 
-    // Синхронизируем статус с договором субподряда, если передан subcontract_contract_id
-    if (subcontract_contract_id && status) {
+    // Синхронизируем статус с договором субподряда, если передан subcontract_contract_id И статус не rejected
+    if (subcontract_contract_id && status && status !== 'rejected') {
       await pool.query(
         'UPDATE contractor_contracts SET status = $1, updated_at = NOW() WHERE id = $2 AND status != $1',
         [status, subcontract_contract_id]
@@ -1822,6 +1871,119 @@ router.get('/documents/:id', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('Error fetching document:', err);
     res.status(500).json({ error: 'Ошибка загрузки документа' });
+  }
+});
+
+// 9.11. Экспорт произвольного HTML в валидный OOXML DOCX
+router.post('/documents/export-docx', authenticateToken, async (req, res) => {
+  try {
+    const rawHtml = req.body?.content_html || req.body?.html;
+    if (!rawHtml) {
+      return res.status(400).json({ error: 'content_html или html обязателен для экспорта' });
+    }
+    const cleanTitle = (req.body?.title || 'Документ').trim();
+    const docxBuf = await htmlToDocxBuffer(rawHtml, cleanTitle);
+    const safeAscii = cleanTitle.replace(/[^a-zA-Z0-9_-]/g, '_') + '.docx';
+    const utf8Filename = `${cleanTitle}.docx`;
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(utf8Filename)}`);
+    res.send(docxBuf);
+  } catch (err) {
+    console.error('Error exporting docx:', err);
+    res.status(500).json({ error: 'Ошибка экспорта в DOCX: ' + err.message });
+  }
+});
+
+// 9.12. Экспорт сохраненного документа по ID в валидный OOXML DOCX
+router.get('/documents/:id/export-docx', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query('SELECT * FROM task_documents WHERE id = $1', [id]);
+    if (!rows.length) return res.status(404).json({ error: 'Документ не найден' });
+    const doc = rows[0];
+    let docxBuf;
+    if (doc.content_html) {
+      docxBuf = await htmlToDocxBuffer(doc.content_html, doc.title || 'Документ');
+    } else if (doc.file_url) {
+      const diskPath = path.join(UPLOADS_DIR, doc.file_url.replace(/^\/uploads\/?/, ''));
+      if (fs.existsSync(diskPath)) {
+        docxBuf = fs.readFileSync(diskPath);
+      }
+    }
+    if (!docxBuf) {
+      docxBuf = await htmlToDocxBuffer('<p>Документ пуст</p>', doc.title || 'Документ');
+    }
+    const safeAscii = (doc.title || `Document_${id}`).replace(/[^a-zA-Z0-9_-]/g, '_') + '.docx';
+    const utf8Filename = `${doc.title || `Документ_${id}`}.docx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(utf8Filename)}`);
+    res.send(docxBuf);
+  } catch (err) {
+    console.error('Error exporting docx:', err);
+    res.status(500).json({ error: 'Ошибка экспорта документа: ' + err.message });
+  }
+});
+
+// 9.13. Откат утверждения модерации ИД администратором с фиксацией визы
+router.post('/tasks/:taskId/id-moderation/rollback', authenticateToken, requireRole('admin', 'director'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { taskId } = req.params;
+    const reason = (req.body && req.body.reason ? String(req.body.reason) : '').trim();
+    if (!reason) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'При откате необходимо указать причину' });
+    }
+
+    const { rows: taskRows } = await client.query('SELECT id_moderation_status, raw_data FROM tasks WHERE id = $1 FOR UPDATE', [taskId]);
+    if (!taskRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Задача не найдена' });
+    }
+
+    const task = taskRows[0];
+    let rawData = task.raw_data || {};
+    if (typeof rawData === 'string') {
+      try { rawData = JSON.parse(rawData); } catch { rawData = {}; }
+    }
+
+    const currentModStatus = task.id_moderation_status || rawData.id_moderation_status || 'pending';
+    if (currentModStatus !== 'approved') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `Модерация ИД находится в статусе «${currentModStatus}», откат возможен только из статуса «approved»` });
+    }
+
+    if (!Array.isArray(rawData.adminRollbacks)) rawData.adminRollbacks = [];
+    const rollbackVisa = {
+      action: 'rollback_id_moderation',
+      old_status: 'approved',
+      new_status: 'pending',
+      reason,
+      user_id: req.user.id,
+      user_name: req.user.full_name || req.user.username || 'Администратор',
+      role: req.user.role,
+      date: new Date().toISOString()
+    };
+    rawData.adminRollbacks.push(rollbackVisa);
+    rawData.id_moderation_status = 'pending';
+
+    await client.query(`
+      UPDATE tasks SET
+        id_moderation_status = 'pending',
+        raw_data = $1,
+        updated_at = NOW()
+      WHERE id = $2
+    `, [JSON.stringify(rawData), taskId]);
+
+    await client.query('COMMIT');
+    res.json({ success: true, id_moderation_status: 'pending', rollbackVisa });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally {
+    client.release();
   }
 });
 

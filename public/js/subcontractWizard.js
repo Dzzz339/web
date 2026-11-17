@@ -2374,12 +2374,21 @@
       window._curWizContracts = contracts;
       window._curWizPrevSubs = prevSubs;
 
+      var validContracts = contracts.filter(function(c) {
+        return c.status === 'active' || c.status === 'created';
+      });
+      if (!validContracts.length) validContracts = contracts;
+
       var bestContract = null;
       if (isSber) {
-        bestContract = contracts.find(function(c){ return (c.customer_tag || '').toLowerCase().includes('сбер') && c.price_items_count > 0; });
+        bestContract = validContracts.find(function(c){ return (c.status === 'active') && (c.customer_tag || '').toLowerCase().includes('сбер') && c.price_items_count > 0; }) ||
+                       validContracts.find(function(c){ return (c.customer_tag || '').toLowerCase().includes('сбер') && c.price_items_count > 0; });
       }
       if (!bestContract) {
-        bestContract = contracts.find(function(c){ return c.price_items_count > 0; }) || contracts[0] || null;
+        bestContract = validContracts.find(function(c){ return (c.status === 'active') && c.price_items_count > 0; }) ||
+                       validContracts.find(function(c){ return c.price_items_count > 0; }) ||
+                       validContracts.find(function(c){ return c.status === 'active'; }) ||
+                       validContracts[0] || null;
       }
 
       var defaultPorts = parseInt(t.in_order ?? t.inOrder ?? 0, 10) || 0;

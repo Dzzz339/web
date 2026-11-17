@@ -169,6 +169,13 @@ router.post('/tasks/:taskId/subcontracts', authenticateToken, requireRole('admin
       await pool.query('UPDATE tasks SET contractor = $1 WHERE id = $2', [contractor_name, taskId]);
     }
 
+    if (contractor_contract_id) {
+      await pool.query(
+        `UPDATE contractor_contracts SET status = 'active', updated_at = NOW() WHERE id = $1 AND status = 'created'`,
+        [contractor_contract_id]
+      );
+    }
+
     // Обновляем макро-статус заявки в 'assigned', если она была 'new' или 'in_progress'
     await pool.query(`
       UPDATE tasks 
@@ -302,6 +309,13 @@ router.put('/subcontracts/:id', authenticateToken, requireRole('admin', 'directo
     const updatedRow = result.rows[0];
     if (contractor_name && updatedRow.task_id) {
       await pool.query('UPDATE tasks SET contractor = $1 WHERE id = $2', [contractor_name, updatedRow.task_id]);
+    }
+
+    if (contractor_contract_id) {
+      await pool.query(
+        `UPDATE contractor_contracts SET status = 'active', updated_at = NOW() WHERE id = $1 AND status = 'created'`,
+        [Number(contractor_contract_id)]
+      );
     }
 
     res.json(updatedRow);

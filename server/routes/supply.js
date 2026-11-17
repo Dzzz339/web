@@ -2905,4 +2905,158 @@ router.get('/tasks/:id/shipments/:shipmentId/export-excel', authenticateToken, a
   }
 });
 
+// POST /api/tasks/:id/materials/rollback-logist (Откат утверждения снабжения администратором)
+router.post('/tasks/:id/materials/rollback-logist', authenticateToken, requireRole('admin', 'director'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const taskId = req.params.id;
+    const reason = (req.body && req.body.reason ? String(req.body.reason) : '').trim();
+    if (!reason) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'При откате необходимо указать причину' });
+    }
+
+    const { rows: taskRows } = await client.query('SELECT raw_data FROM tasks WHERE id = $1 FOR UPDATE', [taskId]);
+    if (!taskRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Задача не найдена' });
+    }
+
+    let rawData = taskRows[0].raw_data || {};
+    if (typeof rawData === 'string') {
+      try { rawData = JSON.parse(rawData); } catch { rawData = {}; }
+    }
+
+    if (!Array.isArray(rawData.adminRollbacks)) rawData.adminRollbacks = [];
+    const rollbackVisa = {
+      action: 'rollback_logist',
+      reason,
+      user_id: req.user.id,
+      user_name: req.user.full_name || req.user.username || 'Администратор',
+      role: req.user.role,
+      date: new Date().toISOString()
+    };
+    rawData.adminRollbacks.push(rollbackVisa);
+    rawData.tmcLogistAccepted = false;
+    delete rawData.tmcLogistAcceptedAt;
+    delete rawData.tmcLogistAcceptedBy;
+    delete rawData.tmcLogistAcceptedUserId;
+
+    await client.query('UPDATE tasks SET raw_data = $1, updated_at = NOW() WHERE id = $2', [JSON.stringify(rawData), taskId]);
+    await client.query('UPDATE material_shipments SET logist_accepted_by = NULL, logist_accepted_at = NULL, updated_at = NOW() WHERE task_id = $1', [taskId]);
+
+    await client.query('COMMIT');
+    res.json({ success: true, tmcLogistAccepted: false, rollbackVisa });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/tasks/:id/shipments/:shipmentId/rollback (Откат статуса отгрузки администратором)
+router.post('/tasks/:id/shipments/:shipmentId/rollback', authenticateToken, requireRole('admin', 'director'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const taskId = req.params.id;
+    const shipmentId = parseInt(req.params.shipmentId, 10);
+    const reason = (req.body && req.body.reason ? String(req.body.reason) : '').trim();
+    if (!reason) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'При откате необходимо указать причину' });
+    }
+
+    const { rows: sRows } = await client.query(
+      'SELECT * FROM material_shipments WHERE id = $1 AND task_id = $2 FOR UPDATE',
+      [shipmentId, taskId]
+    );
+    if (!sRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Отгрузка не найдена' });
+    }
+
+    const shipment = sRows[0];
+    let targetStatus;
+    if (shipment.status === 'accepted' || shipment.status === 'accepted_discrepancy') {
+      targetStatus = 'shipped';
+    } else if (shipment.status === 'shipped') {
+      targetStatus = 'draft';
+    } else {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `Отгрузка уже находится в статусе «${shipment.status}». Откат невозможен.` });
+    }
+
+    const { rows: taskRows } = await client.query('SELECT raw_data FROM tasks WHERE id = $1 FOR UPDATE', [taskId]);
+    let rawData = taskRows.length ? (taskRows[0].raw_data || {}) : {};
+    if (typeof rawData === 'string') {
+      try { rawData = JSON.parse(rawData); } catch { rawData = {}; }
+    }
+
+    if (!Array.isArray(rawData.adminRollbacks)) rawData.adminRollbacks = [];
+    const rollbackVisa = {
+      action: 'rollback_shipment',
+      shipment_id: shipmentId,
+      old_status: shipment.status,
+      new_status: targetStatus,
+      reason,
+      user_id: req.user.id,
+      user_name: req.user.full_name || req.user.username || 'Администратор',
+      role: req.user.role,
+      date: new Date().toISOString()
+    };
+    rawData.adminRollbacks.push(rollbackVisa);
+
+    await client.query('UPDATE tasks SET raw_data = $1, updated_at = NOW() WHERE id = $2', [JSON.stringify(rawData), taskId]);
+
+    if (targetStatus === 'shipped') {
+      await client.query(`
+        UPDATE material_shipments SET
+          status = 'shipped',
+          accepted_by = NULL,
+          accepted_at = NULL,
+          acceptance_result = NULL,
+          acceptance_comment = NULL,
+          updated_at = NOW()
+        WHERE id = $1 AND task_id = $2
+      `, [shipmentId, taskId]);
+      await client.query(`
+        UPDATE material_shipment_items SET
+          accepted_qty = NULL,
+          discrepancy_reason = NULL
+        WHERE shipment_id = $1
+      `, [shipmentId]);
+    } else if (targetStatus === 'draft') {
+      await client.query(`
+        UPDATE material_shipments SET
+          status = 'draft',
+          shipped_by = NULL,
+          shipped_at = NULL,
+          accepted_by = NULL,
+          accepted_at = NULL,
+          acceptance_result = NULL,
+          acceptance_comment = NULL,
+          updated_at = NOW()
+        WHERE id = $1 AND task_id = $2
+      `, [shipmentId, taskId]);
+      await client.query(`
+        UPDATE material_shipment_items SET
+          accepted_qty = NULL,
+          discrepancy_reason = NULL
+        WHERE shipment_id = $1
+      `, [shipmentId]);
+    }
+
+    await client.query('COMMIT');
+    res.json({ success: true, shipment_id: shipmentId, status: targetStatus, rollbackVisa });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally {
+    client.release();
+  }
+});
+
 export default router;

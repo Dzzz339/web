@@ -2714,29 +2714,32 @@ function openContractForm(id) {
     managerOptions += `<option value="${u.id}" data-name="${escHtml(name)}" ${isSel}>${escHtml(name + (roleName ? ' (' + roleName + ')' : ''))}</option>`;
   });
 
-  var custSet = new Set();
-  custSet.add('ОСФР по Новосибирской области');
-  custSet.add('ПАО Ростелеком');
-  custSet.add('СФР');
-  if (Array.isArray(S.contractors)) {
-    S.contractors.forEach(function(k) {
-      if (k.name_short) custSet.add(k.name_short.trim());
-      if (k.name_full) custSet.add(k.name_full.trim());
+  var activeContractors = (S.contractors || []).filter(function(k) {
+    var isOwn = k.is_own === true || k.is_own === 'true' || k.type === 'own';
+    var isArchived = k.status === 'archived' || k.status === 'inactive';
+    return !isOwn && !isArchived;
+  });
+
+  var selectedCustomerId = c ? (c.customer_id || null) : null;
+  if (!selectedCustomerId && c && c.customer_name) {
+    var matchedCust = (S.contractors || []).find(function(k) {
+      return (k.name_short && k.name_short.trim().toLowerCase() === c.customer_name.trim().toLowerCase()) ||
+             (k.name_full && k.name_full.trim().toLowerCase() === c.customer_name.trim().toLowerCase());
     });
+    if (matchedCust) selectedCustomerId = matchedCust.id;
   }
-  if (Array.isArray(S.contracts)) {
-    S.contracts.forEach(function(k) {
-      if (k.customer_name) custSet.add(k.customer_name.trim());
-    });
+
+  var foundInActive = activeContractors.some(function(k) { return Number(k.id) === Number(selectedCustomerId); });
+  if (selectedCustomerId && !foundInActive) {
+    var existingCust = (S.contractors || []).find(function(k) { return Number(k.id) === Number(selectedCustomerId); });
+    if (existingCust) activeContractors.unshift(existingCust);
   }
-  if (Array.isArray(S.tasks)) {
-    S.tasks.forEach(function(k) {
-      if (k.customer) custSet.add(k.customer.trim());
-    });
-  }
-  if (c && c.customer_name) custSet.add(c.customer_name.trim());
-  var custDatalistHtml = Array.from(custSet).filter(Boolean).sort().map(function(name) {
-    return `<option value="${escHtml(name)}">`;
+
+  var custOptionsHtml = '<option value="">-- Выберите организацию-заказчика --</option>' + activeContractors.map(function(k) {
+    var isSel = (selectedCustomerId && Number(selectedCustomerId) === Number(k.id)) ? 'selected' : '';
+    var name = k.name_short || k.name_full || ('Контрагент #' + k.id);
+    var innPart = k.inn ? ' (ИНН ' + k.inn + ')' : '';
+    return '<option value="' + k.id + '" ' + isSel + '>' + escHtml(name + innPart) + '</option>';
   }).join('');
 
   var ownCompanies = Array.isArray(S.ownCompanies) ? S.ownCompanies : [];
@@ -2803,11 +2806,11 @@ function openContractForm(id) {
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
         <div>
           <label style="font-size:.78rem; font-weight:700">Заказчик (Сторона 1) *</label>
-          <div style="position:relative">
-            <input type="text" id="cf_customer_name" required list="cf_customer_datalist" value="${escHtml(c ? c.customer_name : '')}" placeholder="Выберите из списка или введите название" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem">
-            <datalist id="cf_customer_datalist">
-              ${custDatalistHtml}
-            </datalist>
+          <div style="display:flex; gap:8px; align-items:center">
+            <select class="select" id="cf_customer_id" required aria-label="Организация-заказчик договора" style="flex:1">
+              ${custOptionsHtml}
+            </select>
+            <button type="button" class="btn btn-sm btn-ghost" onclick="window.openNewCustomerOrgModal()" title="Создать организацию-заказчика в справочнике" style="white-space:nowrap; border:1px dashed var(--border)">+ Создать организацию</button>
           </div>
         </div>
         <div>
@@ -2999,13 +3002,24 @@ function handleContractFormSubmit(e, id) {
     ? (S.ownCompanies || []).find(function(oc){ return String(oc.id) === String(ownCompanySelect.value); })
     : null;
 
+  var custSelect = document.getElementById('cf_customer_id');
+  var custId = custSelect && custSelect.value ? parseInt(custSelect.value, 10) : null;
+  if (!custId) {
+    showToast('Необходимо выбрать организацию-заказчика из справочника', 'error');
+    return;
+  }
+  var selectedCust = (S.contractors || []).find(function(k) { return Number(k.id) === Number(custId); });
+  var custName = selectedCust ? (selectedCust.name_short || selectedCust.name_full) : '';
+
   var payload = {
     internal_number: document.getElementById('cf_internal_number').value.trim(),
     contract_number: document.getElementById('cf_contract_number').value.trim(),
     contract_date: document.getElementById('cf_contract_date').value || null,
     contract_type_summary: document.getElementById('cf_type').value,
     status: document.getElementById('cf_status') ? document.getElementById('cf_status').value : 'играется',
-    customer_name: document.getElementById('cf_customer_name').value.trim(),
+    customer_id: custId,
+    contractor_id: custId,
+    customer_name: custName,
     own_company_id: selectedOwnCompany ? Number(selectedOwnCompany.id) : null,
     our_entity_name: selectedOwnCompany ? selectedOwnCompany.name_short : null,
     purchase_id: document.getElementById('cf_purchase_id') ? document.getElementById('cf_purchase_id').value.trim() : '',
@@ -3077,6 +3091,159 @@ function handleContractFormSubmit(e, id) {
     showToast('Ошибка: ' + err.message, 'error');
   });
 }
+
+window.openNewCustomerOrgModal = function() {
+  var old = document.getElementById('new_customer_org_modal');
+  if (old) old.remove();
+
+  var modal = document.createElement('div');
+  modal.id = 'new_customer_org_modal';
+  modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:99999;padding:16px';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:10px;width:100%;max-width:720px;max-height:90vh;overflow-y:auto;box-shadow:0 12px 36px rgba(0,0,0,0.25);display:flex;flex-direction:column">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0;font-size:1.1rem;color:var(--text)">🏛️ Новая организация-заказчик</h3>
+        <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('new_customer_org_modal').remove()" style="font-size:1.2rem;line-height:1">✕</button>
+      </div>
+      <div style="padding:20px;display:flex;flex-direction:column;gap:12px;font-size:.85rem">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <label style="font-weight:700;font-size:.78rem">Краткое наименование *</label>
+            <input type="text" id="nco_name_short" required placeholder="ПАО Ростелеком, ООО Заказчик" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-top:3px">
+          </div>
+          <div>
+            <label style="font-weight:700;font-size:.78rem">Полное наименование</label>
+            <input type="text" id="nco_name_full" placeholder="Публичное акционерное общество «...»" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-top:3px">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+          <div>
+            <label style="font-weight:700;font-size:.78rem">ИНН *</label>
+            <input type="text" id="nco_inn" required placeholder="10 или 12 цифр" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-top:3px">
+          </div>
+          <div>
+            <label style="font-weight:700;font-size:.78rem">КПП</label>
+            <input type="text" id="nco_kpp" placeholder="9 цифр" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-top:3px">
+          </div>
+          <div>
+            <label style="font-weight:700;font-size:.78rem">ОГРН</label>
+            <input type="text" id="nco_ogrn" placeholder="13 или 15 цифр" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-top:3px">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <label style="font-weight:700;font-size:.78rem">Руководитель (ФИО)</label>
+            <input type="text" id="nco_director" placeholder="Иванов И.И." style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-top:3px">
+          </div>
+          <div>
+            <label style="font-weight:700;font-size:.78rem">Действует на основании</label>
+            <input type="text" id="nco_acting_basis" value="Устава" placeholder="Устава, Доверенности №..." style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-top:3px">
+          </div>
+        </div>
+        <div>
+          <label style="font-weight:700;font-size:.78rem">Юридический адрес</label>
+          <input type="text" id="nco_address_legal" placeholder="Индекс, город, улица, дом, офис" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-top:3px">
+        </div>
+        <div>
+          <label style="font-weight:700;font-size:.78rem">Фактический / почтовый адрес</label>
+          <input type="text" id="nco_address_actual" placeholder="Адрес для корреспонденции" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-top:3px">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <label style="font-weight:700;font-size:.78rem">Телефон</label>
+            <input type="text" id="nco_phone" placeholder="+7 (999) 000-00-00" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-top:3px">
+          </div>
+          <div>
+            <label style="font-weight:700;font-size:.78rem">Email</label>
+            <input type="email" id="nco_email" placeholder="mail@org.ru" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-top:3px">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <label style="font-weight:700;font-size:.78rem">Расчетный счет (р/с)</label>
+            <input type="text" id="nco_rs" placeholder="40702810..." style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-top:3px">
+          </div>
+          <div>
+            <label style="font-weight:700;font-size:.78rem">БИК банка</label>
+            <input type="text" id="nco_bik" placeholder="044525..." style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-top:3px">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <label style="font-weight:700;font-size:.78rem">Банк</label>
+            <input type="text" id="nco_bank" placeholder="ПАО Сбербанк, АО Альфа-Банк..." style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-top:3px">
+          </div>
+          <div>
+            <label style="font-weight:700;font-size:.78rem">Корр. счет (к/с)</label>
+            <input type="text" id="nco_ks" placeholder="30101810..." style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-top:3px">
+          </div>
+        </div>
+      </div>
+      <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#f8fafc">
+        <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('new_customer_org_modal').remove()">Отмена</button>
+        <button type="button" class="btn btn-sm btn-primary" onclick="window.saveNewCustomerOrgModal()" style="font-weight:700">💾 Сохранить и выбрать</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  var firstInp = document.getElementById('nco_name_short');
+  if (firstInp) firstInp.focus();
+};
+
+window.saveNewCustomerOrgModal = function() {
+  var nameShort = (document.getElementById('nco_name_short')?.value || '').trim();
+  var inn = (document.getElementById('nco_inn')?.value || '').trim();
+  if (!nameShort || !inn) {
+    return alert('Краткое наименование и ИНН обязательны для заполнения!');
+  }
+
+  var data = {
+    name_short: nameShort,
+    name_full: (document.getElementById('nco_name_full')?.value || '').trim() || null,
+    inn: inn,
+    kpp: (document.getElementById('nco_kpp')?.value || '').trim() || null,
+    ogrn: (document.getElementById('nco_ogrn')?.value || '').trim() || null,
+    director: (document.getElementById('nco_director')?.value || '').trim() || null,
+    acting_basis: (document.getElementById('nco_acting_basis')?.value || '').trim() || 'Устава',
+    address_legal: (document.getElementById('nco_address_legal')?.value || '').trim() || null,
+    address_actual: (document.getElementById('nco_address_actual')?.value || '').trim() || null,
+    phone: (document.getElementById('nco_phone')?.value || '').trim() || null,
+    email: (document.getElementById('nco_email')?.value || '').trim() || null,
+    rs: (document.getElementById('nco_rs')?.value || '').trim() || null,
+    bik: (document.getElementById('nco_bik')?.value || '').trim() || null,
+    bank: (document.getElementById('nco_bank')?.value || '').trim() || null,
+    ks: (document.getElementById('nco_ks')?.value || '').trim() || null,
+    type: 'customer',
+    is_own: false
+  };
+
+  api('/contractors', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  }).then(function(newOrg) {
+    if (newOrg && newOrg.error) return alert('Ошибка создания организации: ' + newOrg.error);
+    if (!Array.isArray(S.contractors)) S.contractors = [];
+    S.contractors.push(newOrg);
+
+    var custSelect = document.getElementById('cf_customer_id');
+    if (custSelect) {
+      var opt = document.createElement('option');
+      opt.value = newOrg.id;
+      opt.textContent = (newOrg.name_short || newOrg.name_full) + (newOrg.inn ? ' (ИНН ' + newOrg.inn + ')' : '');
+      opt.selected = true;
+      custSelect.appendChild(opt);
+      custSelect.value = newOrg.id;
+    }
+    var m = document.getElementById('new_customer_org_modal');
+    if (m) m.remove();
+    if (typeof showToast === 'function') {
+      showToast('Организация «' + newOrg.name_short + '» создана и выбрана!', 'success');
+    }
+  }).catch(function(err) {
+    alert('Ошибка создания организации: ' + (err.message || err));
+  });
+};
 
 function deleteContract(id) {
   if (!confirm('Вы уверены, что хотите удалить этот договор?')) return;

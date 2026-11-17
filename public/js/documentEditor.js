@@ -819,28 +819,52 @@
     if (!sheet) return;
 
     var title = (titleEl && titleEl.value.trim()) || 'Документ';
-    var cleanFilename = title.replace(/[^a-zA-Zа-яА-Я0-9_ -]/g, '_') + '.doc';
+    var cleanFilename = title.replace(/[^a-zA-Zа-яА-Я0-9_ -]/g, '_') + '.docx';
 
-    var header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' " +
-      "xmlns:w='urn:schemas-microsoft-com:office:word' " +
-      "xmlns='http://www.w3.org/TR/REC-html40'>" +
-      "<head><meta charset='utf-8'><title>" + escHtml(title) + "</title>" +
-      "<style>" +
-      "@page Section1 { size: 595.3pt 841.9pt; margin: 42.5pt 28.3pt 42.5pt 56.7pt; mso-header-margin: 35.4pt; mso-footer-margin: 35.4pt; mso-paper-source: 0; }" +
-      "div.Section1 { page: Section1; font-family: 'Times New Roman', serif; font-size: 11pt; color: #000; }" +
-      "table { width: 100%; border-collapse: collapse; margin: 10pt 0; }" +
-      "td, th { border: 1pt solid #000; padding: 4pt 6pt; font-size: 10pt; }" +
-      "p { margin: 0 0 6pt 0; text-align: justify; }" +
-      "</style></head><body><div class='Section1'>" + sheet.innerHTML + "</div></body></html>";
+    fetch('/api/documents/export-docx', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + (S && S.token ? S.token : '')
+      },
+      body: JSON.stringify({ content_html: sheet.innerHTML, title: title })
+    })
+    .then(function(res) {
+      if (!res.ok) throw new Error('Ошибка сервера: ' + res.status);
+      return res.blob();
+    })
+    .then(function(blob) {
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = cleanFilename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function() { a.remove(); URL.revokeObjectURL(url); }, 500);
+    })
+    .catch(function(err) {
+      console.warn('Fallback export DOCX:', err);
+      var header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' " +
+        "xmlns:w='urn:schemas-microsoft-com:office:word' " +
+        "xmlns='http://www.w3.org/TR/REC-html40'>" +
+        "<head><meta charset='utf-8'><title>" + escHtml(title) + "</title>" +
+        "<style>" +
+        "@page Section1 { size: 595.3pt 841.9pt; margin: 42.5pt 28.3pt 42.5pt 56.7pt; mso-header-margin: 35.4pt; mso-footer-margin: 35.4pt; mso-paper-source: 0; }" +
+        "div.Section1 { page: Section1; font-family: 'Times New Roman', serif; font-size: 11pt; color: #000; }" +
+        "table { width: 100%; border-collapse: collapse; margin: 10pt 0; }" +
+        "td, th { border: 1pt solid #000; padding: 4pt 6pt; font-size: 10pt; }" +
+        "p { margin: 0 0 6pt 0; text-align: justify; }" +
+        "</style></head><body><div class='Section1'>" + sheet.innerHTML + "</div></body></html>";
 
-    var blob = new Blob(['\ufeff', header], { type: 'application/msword;charset=utf-8' });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = cleanFilename;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(function() { a.remove(); URL.revokeObjectURL(url); }, 500);
+      var blob = new Blob(['\ufeff', header], { type: 'application/msword;charset=utf-8' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = cleanFilename.replace(/\.docx$/i, '.doc');
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function() { a.remove(); URL.revokeObjectURL(url); }, 500);
+    });
 
     var dd = document.getElementById('_doc_download_dropdown');
     if (dd) dd.style.display = 'none';

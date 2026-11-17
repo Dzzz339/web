@@ -213,9 +213,9 @@ router.post('/contractors', authenticateToken, async (req, res) => {
       RETURNING *
     `, [
       (d.inn && d.inn.trim()) ? d.inn.trim() : null, d.kpp || null, d.ogrn || null, d.name_short, d.name_full || null, d.legal_form || null, 
-      d.address_legal || null, d.address_postal || null, d.director || null,
+      d.address_legal || null, d.address_postal || d.address_actual || null, d.director || null,
       d.signer_name || d.director || null, d.signer_position || 'Директор', d.acting_basis || 'Устава',
-      d.bank_name || null, d.bik || null, d.account_corr || null, d.account_pay || null, d.phone || null, d.email || null,
+      d.bank_name || d.bank || null, d.bik || null, d.account_corr || d.ks || null, d.account_pay || d.rs || null, d.phone || null, d.email || null,
       d.type || 'subcontractor',
       d.contract_number || null, d.contract_date || null, d.curator_name || null, d.curator_phone || null, d.curator_email || null, 
       d.comment || null, d.is_own === true || d.is_own === 'true',
