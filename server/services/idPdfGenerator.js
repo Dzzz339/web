@@ -63,6 +63,56 @@ function displayTestStatus(value) {
   return String(value);
 }
 
+export function isSfrCustomer(customer) {
+  const custName = (customer || '').toLowerCase();
+  return custName.includes('сфр') || custName.includes('социальн') || custName.includes('пенсион');
+}
+
+export function getDefaultChecklist(customer) {
+  const isSfr = isSfrCustomer(customer);
+  return {
+    title: true,
+    album_list: true,
+    aosr: !isSfr,
+    act: !isSfr,
+    act_equip: false,
+    act_mount: false,
+    work_log: false,
+    scheme: true,
+    kj: true,
+    fluke: true,
+    cert: true,
+    manual: false,
+    warranty: false
+  };
+}
+
+export function resolveTaskChecklist(task) {
+  const defaults = getDefaultChecklist(task.customer);
+  const raw = task.raw_data || {};
+  const saved = raw.idChecklist || raw.id_checklist || {};
+
+  const merged = { ...defaults };
+  merged.title = true;
+  merged.album_list = true;
+  merged.scheme = true;
+  merged.kj = true;
+  merged.fluke = true;
+
+  const optKeys = ['aosr', 'act_equip', 'act_mount', 'work_log', 'cert', 'manual', 'warranty'];
+  for (const k of optKeys) {
+    if (typeof saved[k] === 'boolean') {
+      merged[k] = saved[k];
+    }
+  }
+  if (typeof saved.act === 'boolean' && saved.aosr === undefined) {
+    merged.aosr = saved.act;
+  }
+  merged.act = merged.aosr;
+
+  return merged;
+}
+
 export async function generateIdPdfAlbum(opts) {
   const taskId = typeof opts === 'string' ? opts : opts?.taskId;
   const pool = (typeof opts === 'object' && opts?.pool) ? opts.pool : defaultPool;
@@ -70,6 +120,7 @@ export async function generateIdPdfAlbum(opts) {
   const taskRes = await pool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
   if (!taskRes.rows.length) throw new Error(`Задача ${taskId} не найдена`);
   const task = taskRes.rows[0];
+  const checklist = (opts && typeof opts === 'object' && opts.checklist) ? opts.checklist : resolveTaskChecklist(task);
 
   // 2. Субподряд и монтажники
   const subRes = await pool.query(`
@@ -140,6 +191,272 @@ export async function generateIdPdfAlbum(opts) {
   const subContractor = sub.contractor_name || task.contractor || '';
   const installerFio = sub.installer_fio || task.assignee || '';
   const completionDate = formatDateRu(task.smr_actual_end_date || task.data_vyhoda);
+
+  const albumTocEntries = [
+    { key: 'title', title: 'Титульный лист альбома исполнительной документации', sheets: 1, active: true },
+    { key: 'album_list', title: 'Ведомость документов исполнительной документации', sheets: 1, active: true },
+    { key: 'aosr', title: 'Акт освидетельствования скрытых работ (прокладка кабельных трасс СКС)', sheets: 1, active: Boolean(checklist.aosr || checklist.act) },
+    { key: 'act_equip', title: 'Спецификация смонтированного оборудования и израсходованных материалов', sheets: 1, active: Boolean(checklist.act_equip || checklist.act_mount) },
+    { key: 'work_log', title: 'Журнал производства работ и прокладки кабелей', sheets: 1, active: Boolean(checklist.work_log) },
+    { key: 'scheme', title: 'Исполнительная схема трасс СКС и размещения информационных розеток', sheets: 1, active: true },
+    { key: 'kj', title: 'Кабельный журнал и таблица соединений (КЖ)', sheets: 1, active: true },
+    { key: 'fluke', title: 'Протокол измерений параметров кабельных линий', sheets: 1, active: true },
+    { key: 'cert', title: 'Сертификаты соответствия и паспорта качества на кабель и компоненты', sheets: 1, active: Boolean(checklist.cert) },
+    { key: 'manual', title: 'Руководства по эксплуатации и технические паспорта оборудования', sheets: 1, active: Boolean(checklist.manual) },
+    { key: 'warranty', title: 'Гарантийные обязательства производителя и подрядчика', sheets: 1, active: Boolean(checklist.warranty) }
+  ].filter(e => e.active);
+
+  const tocRowsHtml = albumTocEntries.map((entry, idx) => {
+    const num = idx + 1;
+    const docCode = `ИД-${esc(taskId)}-${String(num).padStart(2, '0')}`;
+    return `<tr>
+      <td class="text-center">${num}</td>
+      <td><b>${docCode}</b></td>
+      <td>${esc(entry.title)}</td>
+      <td class="text-center">${entry.sheets}</td>
+      <td>Включен</td>
+    </tr>`;
+  }).join('');
+
+  let pageCounter = 3;
+  let sectionCounter = 2;
+  let sectionsHtml = '';
+
+  if (checklist.aosr || checklist.act) {
+    sectionsHtml += `
+  <!-- АКТ СКРЫТЫХ РАБОТ -->
+  <div class="page-break" style="padding:10px 0">
+    <div class="section-title">
+      <span>${sectionCounter++}. АКТ ОСВИДЕТЕЛЬСТВОВАНИЯ СКРЫТЫХ РАБОТ</span>
+      <span class="section-sub">Лист ${pageCounter++}</span>
+    </div>
+
+    <div style="text-align:center;font-weight:700;font-size:11pt;margin-bottom:12px">
+      АКТ № ${esc(taskId)}/СР<br>
+      освидетельствования скрытых работ по прокладке кабельных трасс СКС
+    </div>
+
+    <div style="font-size:9.5pt;line-height:1.5">
+      <p><b>Объект:</b> ${esc(objectAddress)}</p>
+      <p><b>Дата проведения освидетельствования:</b> ${completionDate}</p>
+      <p><b>Комиссия в составе:</b></p>
+      <ul>
+        <li>Представитель Заказчика: ${esc(customerName)}</li>
+        <li>Представитель Генподрядчика: ${esc(genContractor)} ${esc(genContractorDirector)}</li>
+        <li>Представитель Монтажной организации: ${esc(subContractor)} ${esc(installerFio)}</li>
+      </ul>
+      <p><b>произвела осмотр работ, выполненных подрядчиком:</b></p>
+      <p style="background:#f8fafc;padding:8px 12px;border:1px solid #cbd5e1;border-radius:4px">${esc(task.work_type)}</p>
+      <p><b>1. К освидетельствованию предъявлены работы:</b> Кабельных линий: ${ports.length}; общая протяженность: ${totalCableLen === null ? '' : totalCableLen.toFixed(1) + ' м'}</p>
+      <p><b>2. Работы выполнены в соответствии с:</b></p>
+      <p><b>3. Применены материалы:</b> ${esc(materials.map(m => m.name).filter(Boolean).join(', '))}</p>
+      <p><b>4. Решение комиссии:</b></p>
+    </div>
+
+    <div class="sign-block" style="margin-top:20px">
+      <div class="sign-item">
+        <b>Представитель Заказчика:</b>
+        <div class="sign-line"><span>(подпись)</span><span>/ _________________ /</span></div>
+      </div>
+      <div class="sign-item">
+        <b>Представитель Подрядчика:</b>
+        <div class="sign-line"><span>(подпись)</span><span>/ ${esc(installerFio)} /</span></div>
+      </div>
+    </div>
+  </div>`;
+  }
+
+  if (checklist.act_equip || checklist.act_mount) {
+    sectionsHtml += `
+  <!-- СПЕЦИФИКАЦИЯ ОБОРУДОВАНИЯ И МАТЕРИАЛОВ -->
+  <div class="page-break" style="padding:10px 0">
+    <div class="section-title">
+      <span>${sectionCounter++}. СПЕЦИФИКАЦИЯ СМОНТИРОВАННЫХ МАТЕРИАЛОВ И ОБОРУДОВАНИЯ</span>
+      <span class="section-sub">Лист ${pageCounter++}</span>
+    </div>
+
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:35px" class="text-center">№</th>
+          <th>Наименование материала / оборудования</th>
+          <th style="width:60px" class="text-center">Ед. изм.</th>
+          <th style="width:80px" class="text-right">План (норма)</th>
+          <th style="width:80px" class="text-right">Факт расход</th>
+          <th style="width:85px" class="text-right">Остаток</th>
+          <th style="width:130px">Поставщик / Склад</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${materials.map((m, idx) => {
+          const plan = numericValue(m.plan_qty);
+          const fact = numericValue(m.fact_qty);
+          const rem = plan !== null && fact !== null ? plan - fact : null;
+          return `<tr>
+            <td class="text-center">${idx + 1}</td>
+            <td><b>${esc(m.name)}</b></td>
+            <td class="text-center">${esc(m.unit)}</td>
+            <td class="text-right">${esc(plan)}</td>
+            <td class="text-right"><b>${esc(fact)}</b></td>
+            <td class="text-right">${esc(rem)}</td>
+            <td>${esc(m.supplier)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+
+    <div class="sign-block" style="margin-top:20px">
+      <div class="sign-item">
+        <b>Ответственный за ТМЦ (Генподрядчик):</b>
+        <div class="sign-line"><span>(подпись)</span><span>/  /</span></div>
+      </div>
+      <div class="sign-item">
+        <b>Монтажная бригада:</b>
+        <div class="sign-line"><span>(подпись)</span><span>/ ${esc(installerFio)} /</span></div>
+      </div>
+    </div>
+  </div>`;
+  }
+
+  sectionsHtml += `
+  <!-- ИСПОЛНИТЕЛЬНАЯ СХЕМА -->
+  <div class="page-break" style="padding:10px 0">
+    <div class="section-title">
+      <span>${sectionCounter++}. ИСПОЛНИТЕЛЬНАЯ СХЕМА РАЗМЕЩЕНИЯ ОБОРУДОВАНИЯ И ТРАСС СКС</span>
+      <span class="section-sub">Лист ${pageCounter++}</span>
+    </div>
+
+    ${schemeBase64 ? `
+      <div style="text-align:center;margin:15px 0">
+        <img src="${schemeBase64}" style="max-width:100%;max-height:480px;border:1.5px solid #cbd5e1;border-radius:6px;object-fit:contain">
+      </div>
+    ` : ''}
+
+    <div class="sign-block" style="margin-top:25px">
+      <div class="sign-item">
+        <b>Схему составил (Инженер СКС):</b>
+        <div class="sign-line"><span>(подпись)</span><span>/  /</span></div>
+      </div>
+      <div class="sign-item">
+        <b>Схему проверил (Монтажник):</b>
+        <div class="sign-line"><span>(подпись)</span><span>/ ${esc(installerFio)} /</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- КАБЕЛЬНЫЙ ЖУРНАЛ (LANDSCAPE) -->
+  <div class="page-landscape">
+    <div class="section-title">
+      <span>${sectionCounter++}. КАБЕЛЬНЫЙ ЖУРНАЛ СКС (КЖ)</span>
+      <span class="section-sub">Лист ${pageCounter++} (Альбомная ориентация)</span>
+    </div>
+
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:30px" class="text-center">№</th>
+          <th style="width:65px">Порт</th>
+          <th style="width:80px">Маркировка</th>
+          <th>Помещение</th>
+          <th style="width:75px">Шкаф</th>
+          <th style="width:55px">Юнит</th>
+          <th style="width:90px">Кросс / Панель</th>
+          <th style="width:75px" class="text-right">Длина, м</th>
+          <th style="width:70px">Обжим</th>
+          <th style="width:90px" class="text-center">Результат</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${ports.map((p, idx) => {
+          const cableLength = numericValue(p.cable_length);
+          return `<tr>
+            <td class="text-center">${idx + 1}</td>
+            <td><b>${esc(p.port_number)}</b></td>
+            <td>${esc(p.marking)}</td>
+            <td>${esc(p.room)}</td>
+            <td>${esc(p.cabinet)}</td>
+            <td>${esc(p.unit)}</td>
+            <td>${esc(p.patch_panel)}</td>
+            <td class="text-right">${esc(cableLength)}</td>
+            <td>${esc(p.crimping)}</td>
+            <td class="text-center">${esc(displayTestStatus(p.testing_status))}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+      <tfoot>
+        <tr style="background:#f8fafc;font-weight:700">
+          <td colspan="7" class="text-right">ИТОГО ПО ОБЪЕКТУ:</td>
+          <td class="text-right">${totalCableLen === null ? '' : totalCableLen.toFixed(1) + ' м'}</td>
+          <td colspan="2" class="text-center">${testedCount > 0 ? `Годных: ${passCount} / ${testedCount}` : ''}</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div class="sign-block" style="margin-top:20px">
+      <div class="sign-item">
+        <b>Ответственный за ведение КЖ:</b>
+        <div class="sign-line"><span>(подпись)</span><span>/ ${esc(installerFio)} /</span></div>
+      </div>
+      <div class="sign-item">
+        <b>Принял технический надзор Заказчика:</b>
+        <div class="sign-line"><span>(подпись)</span><span>/ _________________ /</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ПРОТОКОЛ ИЗМЕРЕНИЙ FLUKE NETWORKS -->
+  <div class="page-landscape">
+    <div class="section-title">
+      <span>${sectionCounter++}. ПРОТОКОЛ ТЕСТИРОВАНИЯ И ИЗМЕРЕНИЙ ПАРАМЕТРОВ ЛИНИЙ СКС</span>
+      <span class="section-sub">Лист ${pageCounter++}</span>
+    </div>
+
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:30px" class="text-center">№</th>
+          <th style="width:70px">ID Линии</th>
+          <th style="width:85px">Маркировка</th>
+          <th style="width:75px" class="text-right">Длина, м</th>
+          <th style="width:90px" class="text-center">WireMap</th>
+          <th style="width:90px" class="text-right">Затухание (дБ)</th>
+          <th style="width:95px" class="text-right">NEXT (дБ)</th>
+          <th style="width:95px" class="text-right">Return Loss</th>
+          <th style="width:80px" class="text-center">Статус</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${ports.map((p, idx) => {
+          const cableLength = numericValue(p.cable_length);
+          const attenuation = numericValue(p.attenuation ?? p.attenuation_db);
+          const next = numericValue(p.next ?? p.next_db);
+          const returnLoss = numericValue(p.return_loss ?? p.return_loss_db);
+          return `<tr>
+            <td class="text-center">${idx + 1}</td>
+            <td><b>${esc(p.port_number)}</b></td>
+            <td>${esc(p.marking)}</td>
+            <td class="text-right">${esc(cableLength)}</td>
+            <td class="text-center">${esc(p.wiremap ?? p.wire_map)}</td>
+            <td class="text-right">${esc(attenuation)}</td>
+            <td class="text-right">${esc(next)}</td>
+            <td class="text-right">${esc(returnLoss)}</td>
+            <td class="text-center">${esc(displayTestStatus(p.testing_status))}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+
+    <div class="sign-block" style="margin-top:20px">
+      <div class="sign-item">
+        <b>Специалист по тестированию:</b>
+        <div class="sign-line"><span>(подпись)</span><span>/  /</span></div>
+      </div>
+      <div class="sign-item">
+        <b>Представитель службы эксплуатации:</b>
+        <div class="sign-line"><span>(подпись)</span><span>/ _________________ /</span></div>
+      </div>
+    </div>
+  </div>`;
 
   // Генерация HTML альбома
   const html = `<!DOCTYPE html>
@@ -360,62 +677,7 @@ export async function generateIdPdfAlbum(opts) {
         </tr>
       </thead>
       <tbody>
-        <tr>
-          <td class="text-center">1</td>
-          <td><b>ИД-${esc(taskId)}-01</b></td>
-          <td>Титульный лист альбома исполнительной документации</td>
-          <td class="text-center">1</td>
-          <td></td>
-        </tr>
-        <tr>
-          <td class="text-center">2</td>
-          <td><b>ИД-${esc(taskId)}-02</b></td>
-          <td>Ведомость документов исполнительной документации</td>
-          <td class="text-center">1</td>
-          <td></td>
-        </tr>
-        <tr>
-          <td class="text-center">3</td>
-          <td><b>ИД-${esc(taskId)}-03</b></td>
-          <td>Акт освидетельствования скрытых работ (прокладка кабельных трасс СКС)</td>
-          <td class="text-center">1</td>
-          <td></td>
-        </tr>
-        <tr>
-          <td class="text-center">4</td>
-          <td><b>ИД-${esc(taskId)}-04</b></td>
-          <td>Спецификация смонтированного оборудования и израсходованных материалов</td>
-          <td class="text-center">1</td>
-          <td></td>
-        </tr>
-        <tr>
-          <td class="text-center">5</td>
-          <td><b>ИД-${esc(taskId)}-05</b></td>
-          <td>Исполнительная схема трасс СКС и размещения информационных розеток</td>
-          <td class="text-center">1</td>
-          <td></td>
-        </tr>
-        <tr>
-          <td class="text-center">6</td>
-          <td><b>ИД-${esc(taskId)}-06</b></td>
-          <td>Кабельный журнал и таблица соединений (КЖ)</td>
-          <td class="text-center">1</td>
-          <td></td>
-        </tr>
-        <tr>
-          <td class="text-center">7</td>
-          <td><b>ИД-${esc(taskId)}-07</b></td>
-          <td>Протокол измерений и тестирования параметров линий</td>
-          <td class="text-center">1</td>
-          <td></td>
-        </tr>
-        <tr>
-          <td class="text-center">8</td>
-          <td><b>ИД-${esc(taskId)}-08</b></td>
-          <td>Сертификаты соответствия и паспорта качества на кабель и компоненты</td>
-          <td class="text-center">1</td>
-          <td></td>
-        </tr>
+        ${tocRowsHtml}
       </tbody>
     </table>
 
@@ -433,234 +695,7 @@ export async function generateIdPdfAlbum(opts) {
     </div>
   </div>
 
-  <!-- ЛИСТ 3. АКТ СКРЫТЫХ РАБОТ -->
-  <div class="page-break" style="padding:10px 0">
-    <div class="section-title">
-      <span>2. АКТ ОСВИДЕТЕЛЬСТВОВАНИЯ СКРЫТЫХ РАБОТ</span>
-      <span class="section-sub">Лист 3</span>
-    </div>
-
-    <div style="text-align:center;font-weight:700;font-size:11pt;margin-bottom:12px">
-      АКТ № ${esc(taskId)}/СР<br>
-      освидетельствования скрытых работ по прокладке кабельных трасс СКС
-    </div>
-
-    <div style="font-size:9.5pt;line-height:1.5">
-      <p><b>Объект:</b> ${esc(objectAddress)}</p>
-      <p><b>Дата проведения освидетельствования:</b> ${completionDate}</p>
-      <p><b>Комиссия в составе:</b></p>
-      <ul>
-        <li>Представитель Заказчика: ${esc(customerName)}</li>
-        <li>Представитель Генподрядчика: ${esc(genContractor)} ${esc(genContractorDirector)}</li>
-        <li>Представитель Монтажной организации: ${esc(subContractor)} ${esc(installerFio)}</li>
-      </ul>
-      <p><b>произвела осмотр работ, выполненных подрядчиком:</b></p>
-      <p style="background:#f8fafc;padding:8px 12px;border:1px solid #cbd5e1;border-radius:4px">${esc(task.work_type)}</p>
-      <p><b>1. К освидетельствованию предъявлены работы:</b> Кабельных линий: ${ports.length}; общая протяженность: ${totalCableLen === null ? '' : totalCableLen.toFixed(1) + ' м'}</p>
-      <p><b>2. Работы выполнены в соответствии с:</b></p>
-      <p><b>3. Применены материалы:</b> ${esc(materials.map(m => m.name).filter(Boolean).join(', '))}</p>
-      <p><b>4. Решение комиссии:</b></p>
-    </div>
-
-    <div class="sign-block" style="margin-top:20px">
-      <div class="sign-item">
-        <b>Представитель Заказчика:</b>
-        <div class="sign-line"><span>(подпись)</span><span>/ _________________ /</span></div>
-      </div>
-      <div class="sign-item">
-        <b>Представитель Подрядчика:</b>
-        <div class="sign-line"><span>(подпись)</span><span>/ ${esc(installerFio)} /</span></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ЛИСТ 4. СПЕЦИФИКАЦИЯ ОБОРУДОВАНИЯ И МАТЕРИАЛОВ -->
-  <div class="page-break" style="padding:10px 0">
-    <div class="section-title">
-      <span>3. СПЕЦИФИКАЦИЯ СМОНТИРОВАННЫХ МАТЕРИАЛОВ И ОБОРУДОВАНИЯ</span>
-      <span class="section-sub">Лист 4</span>
-    </div>
-
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th style="width:35px" class="text-center">№</th>
-          <th>Наименование материала / оборудования</th>
-          <th style="width:60px" class="text-center">Ед. изм.</th>
-          <th style="width:80px" class="text-right">План (норма)</th>
-          <th style="width:80px" class="text-right">Факт расход</th>
-          <th style="width:85px" class="text-right">Остаток</th>
-          <th style="width:130px">Поставщик / Склад</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${materials.map((m, idx) => {
-          const plan = numericValue(m.plan_qty);
-          const fact = numericValue(m.fact_qty);
-          const rem = plan !== null && fact !== null ? plan - fact : null;
-          return `<tr>
-            <td class="text-center">${idx + 1}</td>
-            <td><b>${esc(m.name)}</b></td>
-            <td class="text-center">${esc(m.unit)}</td>
-            <td class="text-right">${esc(plan)}</td>
-            <td class="text-right"><b>${esc(fact)}</b></td>
-            <td class="text-right">${esc(rem)}</td>
-            <td>${esc(m.supplier)}</td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table>
-
-    <div class="sign-block" style="margin-top:20px">
-      <div class="sign-item">
-        <b>Ответственный за ТМЦ (Генподрядчик):</b>
-        <div class="sign-line"><span>(подпись)</span><span>/  /</span></div>
-      </div>
-      <div class="sign-item">
-        <b>Монтажная бригада:</b>
-        <div class="sign-line"><span>(подпись)</span><span>/ ${esc(installerFio)} /</span></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ЛИСТ 5. ИСПОЛНИТЕЛЬНАЯ СХЕМА -->
-  <div class="page-break" style="padding:10px 0">
-    <div class="section-title">
-      <span>4. ИСПОЛНИТЕЛЬНАЯ СХЕМА РАЗМЕЩЕНИЯ ОБОРУДОВАНИЯ И ТРАСС СКС</span>
-      <span class="section-sub">Лист 5</span>
-    </div>
-
-    ${schemeBase64 ? `
-      <div style="text-align:center;margin:15px 0">
-        <img src="${schemeBase64}" style="max-width:100%;max-height:480px;border:1.5px solid #cbd5e1;border-radius:6px;object-fit:contain">
-      </div>
-    ` : ''}
-
-    <div class="sign-block" style="margin-top:25px">
-      <div class="sign-item">
-        <b>Схему составил (Инженер СКС):</b>
-        <div class="sign-line"><span>(подпись)</span><span>/  /</span></div>
-      </div>
-      <div class="sign-item">
-        <b>Схему проверил (Монтажник):</b>
-        <div class="sign-line"><span>(подпись)</span><span>/ ${esc(installerFio)} /</span></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ЛИСТ 6. КАБЕЛЬНЫЙ ЖУРНАЛ (LANDSCAPE) -->
-  <div class="page-landscape">
-    <div class="section-title">
-      <span>5. КАБЕЛЬНЫЙ ЖУРНАЛ СКС (КЖ)</span>
-      <span class="section-sub">Лист 6 (Альбомная ориентация)</span>
-    </div>
-
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th style="width:30px" class="text-center">№</th>
-          <th style="width:65px">Порт</th>
-          <th style="width:80px">Маркировка</th>
-          <th>Помещение</th>
-          <th style="width:75px">Шкаф</th>
-          <th style="width:55px">Юнит</th>
-          <th style="width:90px">Кросс / Панель</th>
-          <th style="width:75px" class="text-right">Длина, м</th>
-          <th style="width:70px">Обжим</th>
-          <th style="width:90px" class="text-center">Результат</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${ports.map((p, idx) => {
-          const cableLength = numericValue(p.cable_length);
-          return `<tr>
-            <td class="text-center">${idx + 1}</td>
-            <td><b>${esc(p.port_number)}</b></td>
-            <td>${esc(p.marking)}</td>
-            <td>${esc(p.room)}</td>
-            <td>${esc(p.cabinet)}</td>
-            <td>${esc(p.unit)}</td>
-            <td>${esc(p.patch_panel)}</td>
-            <td class="text-right">${esc(cableLength)}</td>
-            <td>${esc(p.crimping)}</td>
-            <td class="text-center">${esc(displayTestStatus(p.testing_status))}</td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-      <tfoot>
-        <tr style="background:#f8fafc;font-weight:700">
-          <td colspan="7" class="text-right">ИТОГО ПО ОБЪЕКТУ:</td>
-          <td class="text-right">${totalCableLen === null ? '' : totalCableLen.toFixed(1) + ' м'}</td>
-          <td colspan="2" class="text-center">${testedCount > 0 ? `Годных: ${passCount} / ${testedCount}` : ''}</td>
-        </tr>
-      </tfoot>
-    </table>
-
-    <div class="sign-block" style="margin-top:20px">
-      <div class="sign-item">
-        <b>Ответственный за ведение КЖ:</b>
-        <div class="sign-line"><span>(подпись)</span><span>/ ${esc(installerFio)} /</span></div>
-      </div>
-      <div class="sign-item">
-        <b>Принял технический надзор Заказчика:</b>
-        <div class="sign-line"><span>(подпись)</span><span>/ _________________ /</span></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ЛИСТ 7. ПРОТОКОЛ ИЗМЕРЕНИЙ FLUKE NETWORKS -->
-  <div class="page-landscape">
-    <div class="section-title">
-      <span>6. ПРОТОКОЛ ТЕСТИРОВАНИЯ И ИЗМЕРЕНИЙ ПАРАМЕТРОВ ЛИНИЙ СКС</span>
-      <span class="section-sub">Лист 7</span>
-    </div>
-
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th style="width:30px" class="text-center">№</th>
-          <th style="width:70px">ID Линии</th>
-          <th style="width:85px">Маркировка</th>
-          <th style="width:75px" class="text-right">Длина, м</th>
-          <th style="width:90px" class="text-center">WireMap</th>
-          <th style="width:90px" class="text-right">Затухание (дБ)</th>
-          <th style="width:95px" class="text-right">NEXT (дБ)</th>
-          <th style="width:95px" class="text-right">Return Loss</th>
-          <th style="width:80px" class="text-center">Статус</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${ports.map((p, idx) => {
-          const cableLength = numericValue(p.cable_length);
-          const attenuation = numericValue(p.attenuation ?? p.attenuation_db);
-          const next = numericValue(p.next ?? p.next_db);
-          const returnLoss = numericValue(p.return_loss ?? p.return_loss_db);
-          return `<tr>
-            <td class="text-center">${idx + 1}</td>
-            <td><b>${esc(p.port_number)}</b></td>
-            <td>${esc(p.marking)}</td>
-            <td class="text-right">${esc(cableLength)}</td>
-            <td class="text-center">${esc(p.wiremap ?? p.wire_map)}</td>
-            <td class="text-right">${esc(attenuation)}</td>
-            <td class="text-right">${esc(next)}</td>
-            <td class="text-right">${esc(returnLoss)}</td>
-            <td class="text-center">${esc(displayTestStatus(p.testing_status))}</td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table>
-
-    <div class="sign-block" style="margin-top:20px">
-      <div class="sign-item">
-        <b>Специалист по тестированию:</b>
-        <div class="sign-line"><span>(подпись)</span><span>/  /</span></div>
-      </div>
-      <div class="sign-item">
-        <b>Представитель службы эксплуатации:</b>
-        <div class="sign-line"><span>(подпись)</span><span>/ _________________ /</span></div>
-      </div>
-    </div>
-  </div>
+  ${sectionsHtml}
 
 </body>
 </html>`;

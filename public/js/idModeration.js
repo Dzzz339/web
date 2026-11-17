@@ -65,7 +65,7 @@
           '</div>' +
         '</div>' +
         '<div style="display:flex;align-items:center;gap:8px">' +
-          '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'modal_id_moderation\').remove()" style="font-size:1.1rem;padding:4px 8px">✕</button>' +
+          '<button type="button" class="btn btn-sm btn-ghost" id="btnIdModerationClose" style="font-size:1.1rem;padding:4px 8px">✕</button>' +
         '</div>' +
       '</div>' +
       '<div id="idModerationContent" style="flex:1;display:flex;overflow:hidden;position:relative">' +
@@ -74,6 +74,13 @@
     '</div>';
 
     document.body.appendChild(modal);
+
+    var closeBtn = modal.querySelector('#btnIdModerationClose');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', function() {
+        modal.remove();
+      });
+    }
 
     // Загружаем данные с бэкенда
     loadModerationData(taskId);
@@ -153,7 +160,7 @@
           '<div>Маржа: <b style="color:var(--green)">' + (task.margin ? Number(task.margin).toLocaleString('ru-RU') + ' ₽' : '—') + '</b></div>' +
         '</div>' +
         '<div style="margin-top:8px">' +
-          '<button type="button" class="btn btn-xs btn-ghost" onclick="window.navigateToCardBlock(\'items\', \'shipmentsBlock\')" style="border:1px solid #cbd5e1;font-size:.73rem;padding:3px 8px;font-weight:600;color:#334155;width:100%">' +
+          '<button type="button" class="btn btn-xs btn-ghost" id="btnNavShipments" style="border:1px solid #cbd5e1;font-size:.73rem;padding:3px 8px;font-weight:600;color:#334155;width:100%">' +
             '🚚 Перейти к ТМЦ и отгрузкам ↗' +
           '</button>' +
         '</div>' +
@@ -164,7 +171,7 @@
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:6px">' +
           '<span style="font-size:.82rem;font-weight:700;color:#0f172a">ЧЕК-ЛИСТ ДОКУМЕНТОВ ИД</span>' +
           '<div style="display:flex;align-items:center;gap:6px">' +
-            '<button type="button" class="btn btn-xs btn-outline" id="btnChecklistConfig" onclick="window.openIdChecklistConfigModal(\'' + esc(taskId) + '\')" title="Настроить состав документов альбома ИД" style="font-size:.7rem;padding:2px 6px;font-weight:600">' +
+            '<button type="button" class="btn btn-xs btn-outline" id="btnChecklistConfig" title="Настроить состав документов альбома ИД" style="font-size:.7rem;padding:2px 6px;font-weight:600">' +
               '⚙️ Состав ИД' +
             '</button>' +
             '<span class="badge ' + (allApproved ? 'b-green' : (hasRejected ? 'b-red' : 'b-amber')) + '" style="font-size:.7rem">' +
@@ -184,10 +191,10 @@
 
       var kjJumpBtn = '';
       if (d.key === 'kj') {
-        kjJumpBtn = '<button type="button" class="btn btn-xs btn-ghost" onclick="event.stopPropagation(); window.navigateToCardBlock(\'main\', \'portsBlock\')" style="font-size:.7rem;padding:1px 6px;color:#2563eb;font-weight:600" title="Открыть Кабельный журнал в карточке заявки">📋 Перейти к КЖ ↗</button>';
+        kjJumpBtn = '<button type="button" class="btn btn-xs btn-ghost" data-action="nav-kj" style="font-size:.7rem;padding:1px 6px;color:#2563eb;font-weight:600" title="Открыть Кабельный журнал в карточке заявки">📋 Перейти к КЖ ↗</button>';
       }
 
-      leftHtml += '<div style="border:' + (isCur ? '2px solid var(--blue)' : '1px solid var(--border)') + ';background:' + (isCur ? '#eff6ff' : '#fff') + ';border-radius:8px;padding:10px;cursor:pointer;transition:all .15s ease" onclick="window.selectModerationDoc(\'' + esc(d.key) + '\')">' +
+      leftHtml += '<div class="moderation-doc-card" data-doc-key="' + esc(d.key) + '" style="border:' + (isCur ? '2px solid var(--blue)' : '1px solid var(--border)') + ';background:' + (isCur ? '#eff6ff' : '#fff') + ';border-radius:8px;padding:10px;cursor:pointer;transition:all .15s ease">' +
         '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">' +
           '<div style="display:flex;align-items:center;gap:6px">' +
             '<span style="font-size:.7rem;font-weight:700;color:var(--text-3)">' + esc(d.code || 'ИД') + '</span>' +
@@ -202,13 +209,13 @@
             (d.comment ? '<br><i>«' + esc(d.comment) + '»</i>' : '') +
           '</div>'
         ) : '') +
-        '<div style="display:flex;justify-content:flex-end;gap:6px;margin-top:8px" onclick="event.stopPropagation()">' +
-          '<button type="button" class="btn btn-xs ' + (st === 'approved' ? 'btn-primary' : 'btn-ghost') + '" ' +
+        '<div style="display:flex;justify-content:flex-end;gap:6px;margin-top:8px">' +
+          '<button type="button" class="btn btn-xs ' + (st === 'approved' ? 'btn-primary' : 'btn-ghost') + '" data-action="approve-doc" data-doc-key="' + esc(d.key) + '" ' +
             (d.available === false
               ? 'disabled aria-disabled="true" style="opacity:.5;cursor:not-allowed;font-size:.72rem;padding:2px 8px;font-weight:700" title="Документ не сформирован или недоступен для одобрения"'
-              : 'onclick="window.setModerationDocStatus(\'' + esc(taskId) + '\',\'' + esc(d.key) + '\',\'approved\')" style="font-size:.72rem;padding:2px 8px;font-weight:700" title="Одобрить документ"') +
+              : 'style="font-size:.72rem;padding:2px 8px;font-weight:700" title="Одобрить документ"') +
           '>✓ Одобрить</button>' +
-          '<button type="button" class="btn btn-xs ' + (st === 'rejected' ? 'btn-danger' : 'btn-ghost') + '" onclick="window.openRejectDocModal(\'' + esc(taskId) + '\',\'' + esc(d.key) + '\',\'' + esc(d.title) + '\')" style="font-size:.72rem;padding:2px 8px;font-weight:700;color:' + (st === 'rejected' ? '#fff' : 'var(--red)') + '" title="Отклонить документ с указанием причины">✗ Отклонить</button>' +
+          '<button type="button" class="btn btn-xs ' + (st === 'rejected' ? 'btn-danger' : 'btn-ghost') + '" data-action="reject-doc" data-doc-key="' + esc(d.key) + '" data-doc-title="' + esc(d.title) + '" style="font-size:.72rem;padding:2px 8px;font-weight:700;color:' + (st === 'rejected' ? '#fff' : 'var(--red)') + '" title="Отклонить документ с указанием причины">✗ Отклонить</button>' +
         '</div>' +
       '</div>';
     });
@@ -217,13 +224,13 @@
 
       // Нижний Экшн-бар
       '<div style="padding:14px;background:#fff;border-top:1.5px solid var(--border);display:flex;flex-direction:column;gap:8px">' +
-        '<button type="button" class="btn btn-sm ' + (hasRejected ? 'btn-danger' : 'btn-ghost') + '" ' +
-          (!hasRejected ? 'disabled style="opacity:.5;cursor:not-allowed"' : 'onclick="window.finalizeIdModeration(\'' + esc(taskId) + '\', \'return_rework\')"') +
+        '<button type="button" class="btn btn-sm ' + (hasRejected ? 'btn-danger' : 'btn-ghost') + '" id="btnFinalizeRework" ' +
+          (!hasRejected ? 'disabled style="opacity:.5;cursor:not-allowed"' : '') +
           ' style="font-weight:700;width:100%;font-size:.82rem;padding:8px">' +
           '↩️ Вернуть подрядчику на доработку' +
         '</button>' +
-        '<button type="button" class="btn btn-sm btn-primary" ' +
-          (!allApproved ? 'disabled style="opacity:.5;cursor:not-allowed;background:#94a3b8"' : 'style="background:#16a34a;font-weight:700;width:100%;font-size:.84rem;padding:9px" onclick="window.finalizeIdModeration(\'' + esc(taskId) + '\', \'send_portal\')"') +
+        '<button type="button" class="btn btn-sm btn-primary" id="btnFinalizePortal" ' +
+          (!allApproved ? 'disabled style="opacity:.5;cursor:not-allowed;background:#94a3b8"' : 'style="background:#16a34a;font-weight:700;width:100%;font-size:.84rem;padding:9px"') +
           '>' +
           '🚀 Одобрить и отправить на Портал поставщиков' +
         '</button>' +
@@ -243,7 +250,7 @@
 
     var kjHeaderNav = '';
     if (activeDoc.key === 'kj') {
-      kjHeaderNav = '<button type="button" class="btn btn-xs btn-ghost" style="color:#93c5fd;border:1px solid #3b82f6" onclick="window.navigateToCardBlock(\'main\', \'portsBlock\')">📋 Открыть КЖ в карточке ↗</button>';
+      kjHeaderNav = '<button type="button" class="btn btn-xs btn-ghost" id="btnHeaderNavKj" style="color:#93c5fd;border:1px solid #3b82f6">📋 Открыть КЖ в карточке ↗</button>';
     }
 
     var rightHtml = '<div style="flex:1;display:flex;flex-direction:column;background:#0f172a;height:100%">' +
@@ -254,8 +261,8 @@
         '</div>' +
         '<div style="display:flex;gap:6px">' +
           kjHeaderNav +
-          '<button type="button" class="btn btn-xs btn-ghost" style="color:#fff;border:1px solid #475569" onclick="window.open(\'' + esc(authFullAlbumUrl) + '\', \'_blank\')">📑 Открыть полный Альбом PDF ↗</button>' +
-          '<button type="button" class="btn btn-xs btn-ghost" style="color:#fff;border:1px solid #475569" onclick="window.downloadAuthFile(\'' + esc(rawFileUrl) + '\', \'' + esc(activeDoc.title || 'document') + '.pdf\')">📥 Скачать</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost" id="btnOpenFullAlbum" style="color:#fff;border:1px solid #475569">📑 Открыть полный Альбом PDF ↗</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost" id="btnDownloadDoc" style="color:#fff;border:1px solid #475569">📥 Скачать</button>' +
         '</div>' +
       '</div>' +
       '<div style="flex:1;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#0f172a">';
@@ -268,8 +275,8 @@
           'Файл для «' + esc(activeDoc.title) + '» пока отсутствует на диске. Чтобы его проверить и одобрить, сформируйте Альбом ИД в PDF или прикрепите соответствующий файл в карточке заявки.' +
         '</div>' +
         '<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">' +
-          '<button type="button" class="btn btn-sm btn-primary" onclick="window.generateAndOpenIdAlbumPdf(\'' + esc(taskId) + '\')" style="font-weight:700">⚡ Сформировать Альбом ИД (.PDF)</button>' +
-          '<button type="button" class="btn btn-sm btn-ghost" onclick="window.loadModerationData(\'' + esc(taskId) + '\')" style="border:1px solid #475569;color:#fff">🔄 Обновить предпросмотр</button>' +
+          '<button type="button" class="btn btn-sm btn-primary" id="btnGenAlbumPdf" style="font-weight:700">⚡ Сформировать Альбом ИД (.PDF)</button>' +
+          '<button type="button" class="btn btn-sm btn-ghost" id="btnRefreshPreview" style="border:1px solid #475569;color:#fff">🔄 Обновить предпросмотр</button>' +
         '</div>' +
       '</div>';
     } else if (isImage) {
@@ -281,6 +288,101 @@
     rightHtml += '</div></div>';
 
     cont.innerHTML = leftHtml + rightHtml;
+
+    // Привязка обработчиков событий (без inline onclick)
+    var btnNavShipments = cont.querySelector('#btnNavShipments');
+    if (btnNavShipments) {
+      btnNavShipments.addEventListener('click', function() {
+        window.navigateToCardBlock('items', 'shipmentsBlock');
+      });
+    }
+
+    var btnChecklistConfig = cont.querySelector('#btnChecklistConfig');
+    if (btnChecklistConfig) {
+      btnChecklistConfig.addEventListener('click', function() {
+        window.openIdChecklistConfigModal(taskId);
+      });
+    }
+
+    cont.querySelectorAll('[data-action="nav-kj"]').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        window.navigateToCardBlock('main', 'portsBlock');
+      });
+    });
+
+    cont.querySelectorAll('.moderation-doc-card').forEach(function(card) {
+      card.addEventListener('click', function() {
+        var key = card.getAttribute('data-doc-key');
+        if (key) window.selectModerationDoc(key);
+      });
+    });
+
+    cont.querySelectorAll('[data-action="approve-doc"]').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var key = btn.getAttribute('data-doc-key');
+        if (key) window.setModerationDocStatus(taskId, key, 'approved');
+      });
+    });
+
+    cont.querySelectorAll('[data-action="reject-doc"]').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var key = btn.getAttribute('data-doc-key');
+        var title = btn.getAttribute('data-doc-title') || key;
+        if (key) window.openRejectDocModal(taskId, key, title);
+      });
+    });
+
+    var btnFinalizeRework = cont.querySelector('#btnFinalizeRework');
+    if (btnFinalizeRework && !btnFinalizeRework.disabled) {
+      btnFinalizeRework.addEventListener('click', function() {
+        window.finalizeIdModeration(taskId, 'return_rework');
+      });
+    }
+
+    var btnFinalizePortal = cont.querySelector('#btnFinalizePortal');
+    if (btnFinalizePortal && !btnFinalizePortal.disabled) {
+      btnFinalizePortal.addEventListener('click', function() {
+        window.finalizeIdModeration(taskId, 'send_portal');
+      });
+    }
+
+    var btnHeaderNavKj = cont.querySelector('#btnHeaderNavKj');
+    if (btnHeaderNavKj) {
+      btnHeaderNavKj.addEventListener('click', function() {
+        window.navigateToCardBlock('main', 'portsBlock');
+      });
+    }
+
+    var btnOpenFullAlbum = cont.querySelector('#btnOpenFullAlbum');
+    if (btnOpenFullAlbum) {
+      btnOpenFullAlbum.addEventListener('click', function() {
+        window.open(authFullAlbumUrl, '_blank');
+      });
+    }
+
+    var btnDownloadDoc = cont.querySelector('#btnDownloadDoc');
+    if (btnDownloadDoc) {
+      btnDownloadDoc.addEventListener('click', function() {
+        window.downloadAuthFile(rawFileUrl, (activeDoc.title || 'document') + '.pdf');
+      });
+    }
+
+    var btnGenAlbumPdf = cont.querySelector('#btnGenAlbumPdf');
+    if (btnGenAlbumPdf) {
+      btnGenAlbumPdf.addEventListener('click', function() {
+        window.generateAndOpenIdAlbumPdf(taskId);
+      });
+    }
+
+    var btnRefreshPreview = cont.querySelector('#btnRefreshPreview');
+    if (btnRefreshPreview) {
+      btnRefreshPreview.addEventListener('click', function() {
+        window.loadModerationData(taskId);
+      });
+    }
 
     var previewFrame = cont.querySelector('iframe');
     if (previewFrame && docs.some(function(d){ return d.available === false; }) && !_previewAvailabilityRefreshed) {
@@ -340,7 +442,7 @@
     modal.innerHTML = '<div style="background:#fff;border-radius:10px;width:100%;max-width:580px;padding:20px;box-shadow:0 16px 48px rgba(0,0,0,0.3);display:flex;flex-direction:column;max-height:90vh">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
         '<div style="font-weight:700;font-size:1.05rem;color:#0f172a">⚙️ Настройка состава комплекта ИД</div>' +
-        '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'modal_id_checklist\').remove()">✕</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" data-action="close-checklist">✕</button>' +
       '</div>' +
       (isFinalized ? (
         '<div style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;padding:8px 12px;border-radius:6px;font-size:.78rem;font-weight:700;margin-bottom:10px">' +
@@ -355,16 +457,22 @@
         itemsHtml +
       '</div>' +
       '<div style="display:flex;justify-content:flex-end;gap:8px">' +
-        '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'modal_id_checklist\').remove()">Отмена</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" data-action="close-checklist">Отмена</button>' +
         (!isFinalized ? '<button type="button" class="btn btn-sm btn-primary" id="btnSaveIdChecklist" style="font-weight:700">Сохранить состав</button>' : '') +
       '</div>' +
     '</div>';
 
     document.body.appendChild(modal);
 
+    modal.querySelectorAll('[data-action="close-checklist"]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        modal.remove();
+      });
+    });
+
     var saveBtn = document.getElementById('btnSaveIdChecklist');
     if (saveBtn) {
-      saveBtn.onclick = function() {
+      saveBtn.addEventListener('click', function() {
         var payload = {};
         modal.querySelectorAll('input[data-checklist-key]').forEach(function(inp) {
           var k = inp.getAttribute('data-checklist-key');
@@ -387,7 +495,7 @@
           saveBtn.innerText = 'Сохранить состав';
           alert('Ошибка обновления состава ИД: ' + (err.message || err));
         });
-      };
+      });
     }
   };
 
@@ -456,39 +564,48 @@
       '</div>' +
 
       '<div style="display:flex;justify-content:flex-end;gap:8px">' +
-        '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'modal_reject_doc\').remove()">Отмена</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" data-action="close-reject-modal">Отмена</button>' +
         '<button type="button" class="btn btn-sm btn-danger" id="btnConfirmDocReject" style="font-weight:700">Подтвердить отклонение</button>' +
       '</div>' +
     '</div>';
 
     document.body.appendChild(modal);
 
-    document.getElementById('btnConfirmDocReject').onclick = function() {
-      var reason = (document.getElementById('rejectReasonSelect').value || '').trim();
-      var comment = (document.getElementById('rejectCommentText').value || '').trim();
-
-      if (!reason) {
-        alert('Пожалуйста, укажите причину отклонения документа');
-        return;
-      }
-
-      window.api('/tasks/' + encodeURIComponent(taskId) + '/id-moderation/status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          docKey: docKey,
-          status: 'rejected',
-          rejectionReason: reason,
-          comment: comment
-        })
-      }).then(function() {
+    modal.querySelectorAll('[data-action="close-reject-modal"]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
         modal.remove();
-        if (typeof showToast === 'function') showToast('Документ отклонен: ' + reason, 'error');
-        loadModerationData(taskId);
-      }).catch(function(err) {
-        alert('Ошибка отклонения: ' + (err.message || err));
       });
-    };
+    });
+
+    var confirmBtn = document.getElementById('btnConfirmDocReject');
+    if (confirmBtn) {
+      confirmBtn.addEventListener('click', function() {
+        var reason = (document.getElementById('rejectReasonSelect').value || '').trim();
+        var comment = (document.getElementById('rejectCommentText').value || '').trim();
+
+        if (!reason) {
+          alert('Пожалуйста, укажите причину отклонения документа');
+          return;
+        }
+
+        window.api('/tasks/' + encodeURIComponent(taskId) + '/id-moderation/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            docKey: docKey,
+            status: 'rejected',
+            rejectionReason: reason,
+            comment: comment
+          })
+        }).then(function() {
+          modal.remove();
+          if (typeof showToast === 'function') showToast('Документ отклонен: ' + reason, 'error');
+          loadModerationData(taskId);
+        }).catch(function(err) {
+          alert('Ошибка отклонения: ' + (err.message || err));
+        });
+      });
+    }
   };
 
   // Финализация модерации (возврат на доработку или отправка на Портал)

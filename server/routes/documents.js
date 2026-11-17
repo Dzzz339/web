@@ -5,7 +5,7 @@ import fs from 'fs';
 import { pool } from '../config/db.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { UPLOADS_DIR, uploadAttachment, fixUtf8Filename } from '../middleware/upload.js';
-import { generateIdPdfAlbum } from '../services/idPdfGenerator.js';
+import { generateIdPdfAlbum, resolveTaskChecklist, getDefaultChecklist, isSfrCustomer } from '../services/idPdfGenerator.js';
 import { generateIdExcelAlbum } from '../services/idExcelGenerator.js';
 import { generateCableJournalExcel, generateFlukeProtocolExcel } from '../services/cableJournalExcelGenerator.js';
 import {
@@ -662,9 +662,12 @@ router.get('/tasks/:taskId/id-album.pdf', authenticateToken, async (req, res) =>
     let fileUrl = docRes.rows[0]?.file_url;
     let diskPath = fileUrl ? path.join(UPLOADS_DIR, fileUrl.replace(/^\/uploads\//, '')) : null;
 
-    if (!diskPath || !fs.existsSync(diskPath)) {
-      // Генерируем альбом на лету
-      const genRes = await generateIdPdfAlbum({ taskId, pool });
+        if (!diskPath || !fs.existsSync(diskPath)) {
+      // Генерируем альбом на лету с учетом чек-листа
+      const taskRes = await pool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
+      const task = taskRes.rows[0];
+      const checklist = task ? resolveTaskChecklist(task) : undefined;
+      const genRes = await generateIdPdfAlbum({ taskId, pool, checklist });
       fileUrl = genRes.fileUrl;
       diskPath = path.join(UPLOADS_DIR, fileUrl.replace(/^\/uploads\//, ''));
     }
@@ -733,7 +736,11 @@ router.get('/tasks/:taskId/fluke-protocol.xlsx', authenticateToken, async (req, 
 router.post('/tasks/:taskId/id-album/generate', authenticateToken, requireRole('admin', 'director', 'manager', 'to_engineer'), async (req, res) => {
   try {
     const { taskId } = req.params;
-    const result = await generateIdPdfAlbum({ taskId, pool });
+    const taskRes = await pool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
+    if (!taskRes.rows.length) return res.status(404).json({ error: 'Задача не найдена' });
+    const task = taskRes.rows[0];
+    const checklist = resolveTaskChecklist(task);
+    const result = await generateIdPdfAlbum({ taskId, pool, checklist });
     res.json(result);
   } catch (err) {
     console.error('Error generating ID album:', err);
@@ -823,7 +830,7 @@ const ID_DOCUMENT_SPECS = [
   {
     key: 'fluke',
     code: 'ИД-07',
-    title: 'Протокол измерений Fluke Networks (100% PASS)',
+    title: 'Протокол измерений параметров кабельных линий',
     category: 'basic',
     mandatory: true,
     page: 7,
@@ -858,57 +865,6 @@ const ID_DOCUMENT_SPECS = [
   }
 ];
 
-function isSfrCustomer(customer) {
-  const custName = (customer || '').toLowerCase();
-  return custName.includes('сфр') || custName.includes('социальн') || custName.includes('пенсион');
-}
-
-function getDefaultChecklist(customer) {
-  const isSfr = isSfrCustomer(customer);
-  return {
-    title: true,
-    album_list: true,
-    aosr: !isSfr,
-    act: !isSfr,
-    act_equip: false,
-    act_mount: false,
-    work_log: false,
-    scheme: true,
-    kj: true,
-    fluke: true,
-    cert: true,
-    manual: false,
-    warranty: false
-  };
-}
-
-function resolveTaskChecklist(task) {
-  const defaults = getDefaultChecklist(task.customer);
-  const raw = task.raw_data || {};
-  const saved = raw.idChecklist || raw.id_checklist || {};
-
-  const merged = { ...defaults };
-  // Mandatory keys always true
-  merged.title = true;
-  merged.album_list = true;
-  merged.scheme = true;
-  merged.kj = true;
-  merged.fluke = true;
-
-  const optKeys = ['aosr', 'act_equip', 'act_mount', 'work_log', 'cert', 'manual', 'warranty'];
-  for (const k of optKeys) {
-    if (typeof saved[k] === 'boolean') {
-      merged[k] = saved[k];
-    }
-  }
-  if (typeof saved.act === 'boolean' && saved.aosr === undefined) {
-    merged.aosr = saved.act;
-  }
-  merged.act = merged.aosr;
-
-  return merged;
-}
-
 function isModerationFileAvailable(fileReference) {
   if (!fileReference || typeof fileReference !== 'string') return false;
   try {
@@ -917,14 +873,16 @@ function isModerationFileAvailable(fileReference) {
     if (fileReference.startsWith('/uploads/') || fileReference.startsWith('uploads/')) {
       const relativePath = fileReference.replace(/^\/uploads\//, '').replace(/^uploads\//, '');
       filePath = path.resolve(rootPath, relativePath);
-    } else if (path.isAbsolute(fileReference) && (fileReference.startsWith(rootPath) || /^[a-zA-Z]:/.test(fileReference))) {
+    } else if (path.isAbsolute(fileReference)) {
       filePath = path.resolve(fileReference);
     } else {
       const relativePath = fileReference.replace(/^\/+/, '');
       filePath = path.resolve(rootPath, relativePath);
     }
     const relativeToRoot = path.relative(rootPath, filePath);
-    if (!relativeToRoot || relativeToRoot.startsWith('..')) return false;
+    if (!relativeToRoot || relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) {
+      return false;
+    }
     return fs.statSync(filePath).isFile();
   } catch {
     return false;
@@ -1022,12 +980,24 @@ router.get('/tasks/:taskId/id-moderation', authenticateToken, async (req, res) =
     const certRecord = docsRes.rows.find(d => d.doc_type === 'cable_certificate' || d.title?.includes('Сертификат'));
     const schemeAtt = findSchemeAttachment(attRes.rows);
 
-    const activeDocs = [];
+        const activeDocs = [];
+
+    let nextPdfPage = 3;
+    const specPages = { title: 1, album_list: 2 };
+    if (checklist.aosr || checklist.act) specPages.aosr = nextPdfPage++;
+    if (checklist.act_equip || checklist.act_mount) {
+      specPages.act_equip = nextPdfPage;
+      specPages.act_mount = nextPdfPage++;
+    }
+    specPages.scheme = nextPdfPage++;
+    specPages.kj = nextPdfPage++;
+    specPages.fluke = nextPdfPage++;
 
     for (const spec of ID_DOCUMENT_SPECS) {
       if (checklist[spec.key] !== true) continue;
 
-      let fileUrl = `/api/tasks/${taskId}/id-album.pdf#page=${spec.page}`;
+      const targetPage = specPages[spec.key] || (spec.alias ? specPages[spec.alias] : null) || 2;
+      let fileUrl = `/api/tasks/${taskId}/id-album.pdf#page=${targetPage}`;
       let fileType = 'pdf';
       let title = spec.title;
 
@@ -1166,8 +1136,13 @@ router.post('/tasks/:taskId/id-moderation/status', authenticateToken, requireRol
       return res.status(400).json({ success: false, error: 'Укажите причину отклонения документа' });
     }
 
-    const taskRes = await pool.query('SELECT raw_data FROM tasks WHERE id = $1', [taskId]);
+    const taskRes = await pool.query('SELECT raw_data, id_moderation_status FROM tasks WHERE id = $1', [taskId]);
     if (!taskRes.rows.length) return res.status(404).json({ error: 'Задача не найдена' });
+    const task = taskRes.rows[0];
+
+    if (task.id_moderation_status === 'approved') {
+      return res.status(409).json({ success: false, error: 'Нельзя изменить статус документа: комплект ИД уже финализирован и отправлен на Портал' });
+    }
 
     if (status === 'approved') {
       const [docsRes, attRes] = await Promise.all([
@@ -1179,7 +1154,6 @@ router.post('/tasks/:taskId/id-moderation/status', authenticateToken, requireRol
       }
     }
 
-    const task = taskRes.rows[0];
     const rawData = task.raw_data || {};
     if (!rawData.id_moderation) rawData.id_moderation = {};
     const modEntry = {
@@ -1208,7 +1182,62 @@ router.post('/tasks/:taskId/id-moderation/finalize', authenticateToken, requireR
     const { taskId } = req.params;
     const { action, notes } = req.body; // 'return_rework' | 'send_portal'
 
+    const taskRes = await pool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
+    if (!taskRes.rows.length) return res.status(404).json({ error: 'Задача не найдена' });
+    const task = taskRes.rows[0];
+
+    const checklist = resolveTaskChecklist(task);
+    const rawData = task.raw_data || {};
+    const rawMeta = rawData.id_moderation || {};
+
+    const [docsRes, attRes] = await Promise.all([
+      pool.query('SELECT * FROM task_documents WHERE task_id = $1 ORDER BY id ASC', [taskId]),
+      pool.query('SELECT * FROM task_attachments WHERE task_id = $1 ORDER BY id ASC', [taskId])
+    ]);
+
+    if (action === 'send_portal') {
+      const activeSpecs = ID_DOCUMENT_SPECS.filter(spec => checklist[spec.key] === true);
+      if (activeSpecs.length === 0) {
+        return res.status(409).json({ error: 'В чек-листе ИД нет активных документов' });
+      }
+
+      for (const spec of activeSpecs) {
+        const explicitMeta = rawMeta[spec.key] || (spec.alias ? rawMeta[spec.alias] : null) || {};
+        const isApproved = (explicitMeta.status === 'approved');
+        const isAvailable = getModerationAvailability(spec.key, docsRes.rows, attRes.rows);
+
+        if (!isApproved) {
+          return res.status(409).json({
+            error: `Нельзя отправить на Портал: документ «${spec.title}» не одобрен (текущий статус: ${explicitMeta.status || 'pending'})`
+          });
+        }
+        if (!isAvailable) {
+          return res.status(409).json({
+            error: `Нельзя отправить на Портал: документ «${spec.title}» недоступен или не сформирован на диске`
+          });
+        }
+      }
+
+      await pool.query(
+        "UPDATE tasks SET status_smr = 'done', stage_num = 4, id_moderation_status = 'approved', id_moderation_notes = $1 WHERE id = $2",
+        [notes || 'Комплект ИД успешно проверен и отправлен на Портал поставщиков', taskId]
+      );
+      return res.json({ success: true, message: 'Комплект ИД одобрен и отправлен на Портал поставщиков', status: 'approved' });
+    }
+
     if (action === 'return_rework') {
+      const activeSpecs = ID_DOCUMENT_SPECS.filter(spec => checklist[spec.key] === true);
+      const hasRejected = activeSpecs.some(spec => {
+        const explicitMeta = rawMeta[spec.key] || (spec.alias ? rawMeta[spec.alias] : null) || {};
+        return explicitMeta.status === 'rejected';
+      });
+
+      if (!hasRejected) {
+        return res.status(400).json({
+          error: 'Для возврата на доработку необходимо отклонить хотя бы один активный документ с указанием причины'
+        });
+      }
+
       await pool.query(
         "UPDATE tasks SET status_smr = 'issues', id_moderation_status = 'rejected', id_moderation_notes = $1 WHERE id = $2",
         [notes || 'ИД возвращена на доработку подрядчику', taskId]
@@ -1216,15 +1245,7 @@ router.post('/tasks/:taskId/id-moderation/finalize', authenticateToken, requireR
       return res.json({ success: true, message: 'Комплект ИД возвращен подрядчику на доработку', status: 'rejected' });
     }
 
-    if (action === 'send_portal') {
-      await pool.query(
-        "UPDATE tasks SET status_smr = 'done', stage_num = 4, id_moderation_status = 'approved', id_moderation_notes = $1 WHERE id = $2",
-        ['Комплект ИД успешно проверен и отправлен на Портал поставщиков', taskId]
-      );
-      return res.json({ success: true, message: 'Комплект ИД одобрен и отправлен на Портал поставщиков', status: 'approved' });
-    }
-
-    res.status(400).json({ error: 'Неизвестное действие finalise: ' + action });
+    res.status(400).json({ error: 'Неизвестное действие finalize: ' + action });
   } catch (err) {
     console.error('Error finalizing ID moderation:', err);
     res.status(500).json({ error: 'Ошибка финализации: ' + err.message });
