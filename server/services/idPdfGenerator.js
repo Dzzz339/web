@@ -236,7 +236,7 @@ export async function generateIdPdfAlbum(opts) {
   if (certAttachments.length === 0 && checklist.cert) {
     const sharedCertRes = await pool.query(`
       SELECT * FROM task_attachments
-      WHERE (type = 'certificate' OR type = 'cert' OR original_name ILIKE '%сертификат%' OR original_name ILIKE '%паспорт%')
+      WHERE task_id IS NULL AND (type = 'certificate' OR type = 'cert' OR original_name ILIKE '%сертификат%' OR original_name ILIKE '%паспорт%')
       ORDER BY id DESC LIMIT 3
     `);
     for (const a of sharedCertRes.rows) {
@@ -275,7 +275,7 @@ export async function generateIdPdfAlbum(opts) {
   const subContractorDirector = contractor.director || sub.contractor_director || '';
   const installerFio = sub.installer_fio || task.assignee || '';
   const completionDate = formatDateRu(task.smr_actual_end_date || task.data_vyhoda);
-  const docDateShort = formatDateShort(task.smr_actual_end_date || task.data_vyhoda || new Date());
+  const docDateShort = formatDateShort(task.smr_actual_end_date || task.data_vyhoda);
   const currentYear = new Date().getFullYear();
 
   // Состав альбома: строим структуру листов
@@ -428,7 +428,7 @@ export async function generateIdPdfAlbum(opts) {
             </div>
 
             <div class="cover-city-year">
-              ${esc(task.city || ownCompany.city || 'г. Москва')}, ${currentYear} г.
+              ${(task.city || ownCompany.city) ? `${esc(task.city || ownCompany.city)}, ` : ''}${currentYear} г.
             </div>
           </div>
         </div>
@@ -498,12 +498,15 @@ export async function generateIdPdfAlbum(opts) {
               </ul>
               <p style="margin:4px 0 2px 0;"><b>произвела осмотр работ, выполненных подрядчиком:</b></p>
               <div style="background:#f8fafc;padding:5px 8px;border:1px solid #cbd5e1;border-radius:3px;font-size:8pt;margin-bottom:6px;">
-                ${esc(task.work_type || 'Монтаж кабельных трасс и оборудования структурированной кабельной системы')}
+                ${esc(task.work_type || '')}
               </div>
-              <p style="margin:2px 0;"><b>1. К освидетельствованию предъявлены работы:</b> Прокладка слаботочных кабельных линий связи в количестве: ${ports.length} шт.; протяженность: ${totalCableLen === null ? '—' : totalCableLen.toFixed(1) + ' м'}.</p>
-              <p style="margin:2px 0;"><b>2. Применены материалы и изделия:</b> ${esc(materials.map(m => m.name).filter(Boolean).join(', ') || 'Кабель витая пара UTP, розетки RJ-45, патч-панели')}.</p>
-              <p style="margin:2px 0;"><b>3. При выполнении работ отсутствуют отступления от требований проектной документации и нормативных документов.</b></p>
-              <p style="margin:2px 0;"><b>4. Решение комиссии:</b> Работы выполнены в соответствии со строительными нормами и требованиями ГОСТ/СП. Разрешается производство последующих отделочных и монтажных работ.</p>
+              <p style="margin:2px 0;"><b>1. К освидетельствованию предъявлены работы:</b> Прокладка слаботочных кабельных линий связи в количестве: ${ports.length} шт.; протяженность: ${totalCableLen === null ? '' : totalCableLen.toFixed(1) + ' м'}.</p>
+              <p style="margin:2px 0;"><b>2. Применены материалы и изделия:</b> ${esc(materials.map(m => m.name).filter(Boolean).join(', '))}.</p>
+              <p style="margin:2px 0;"><b>3. Отступления от требований проектной документации и нормативных документов:</b></p>
+              <div style="border-bottom:1px solid #cbd5e1;height:18px;margin-bottom:4px;"></div>
+              <p style="margin:2px 0;"><b>4. Решение комиссии:</b></p>
+              <div style="border-bottom:1px solid #cbd5e1;height:18px;margin-bottom:4px;"></div>
+              <div style="border-bottom:1px solid #cbd5e1;height:18px;margin-bottom:4px;"></div>
             </div>
 
             <div class="doc-signatures" style="margin-top:auto;margin-bottom:6px;">
@@ -582,7 +585,9 @@ export async function generateIdPdfAlbum(opts) {
               <p><b>Объект:</b> ${esc(objectAddress)}</p>
               <p><b>Дата освидетельствования:</b> ${completionDate}</p>
               <p><b>Комиссия установила:</b></p>
-              <p>Строительная готовность помещений и трасс объекта обеспечивает возможность проведения электромонтажных и слаботочных работ в проектном объеме. Закладные устройства, кабельные каналы и монтажные проемы соответствуют нормативным требованиям.</p>
+              <div style="border-bottom:1px solid #cbd5e1;height:24px;margin-bottom:8px;"></div>
+              <div style="border-bottom:1px solid #cbd5e1;height:24px;margin-bottom:8px;"></div>
+              <div style="border-bottom:1px solid #cbd5e1;height:24px;margin-bottom:8px;"></div>
             </div>
             <div class="doc-signatures" style="margin-top:auto;margin-bottom:6px;">
               <div class="doc-sign-col">
@@ -600,6 +605,8 @@ export async function generateIdPdfAlbum(opts) {
       </div>`;
     } else if (sheetDef.key === 'work_log') {
       // ─── ЖУРНАЛ РАБОТ (A4, frame-short) ─────────────────────────────────────
+      const hasWorkEntry = Boolean(docDateShort || task.work_type);
+      const workLogDesc = task.work_type ? `${task.work_type}${objectAddress ? ' на объекте: ' + objectAddress : ''}` : '';
       sheetsHtml += `
       <div class="sheet sheet-a4">
         <div class="frame-box frame-short">
@@ -618,9 +625,9 @@ export async function generateIdPdfAlbum(opts) {
               <tbody>
                 <tr>
                   <td class="tc">1</td>
-                  <td class="tc">${docDateShort}</td>
-                  <td>Монтаж кабельных трасс, прокладка витой пары, установка розеток СКС на объекте: ${esc(objectAddress)}</td>
-                  <td>${esc(installerFio || subContractor)}</td>
+                  <td class="tc">${hasWorkEntry ? esc(docDateShort) : ''}</td>
+                  <td>${hasWorkEntry ? esc(workLogDesc) : ''}</td>
+                  <td>${hasWorkEntry ? esc(installerFio || subContractor) : ''}</td>
                   <td class="tc"></td>
                 </tr>
               </tbody>
@@ -757,7 +764,6 @@ export async function generateIdPdfAlbum(opts) {
 
             <div style="font-size:8.5pt;margin:4px 0;">
               <b>Заключение по результатам измерений:</b>
-              ${hasTests ? `Протестировано линий: ${testedCount} из ${ports.length}. Линий, соответствующих нормативным требованиям: ${passCount}.` : `Измерения параметров кабельных линий не проводились / данные отсутствуют.`}
             </div>
 
             <div class="doc-signatures" style="margin-top:auto;margin-bottom:4px;">
@@ -788,9 +794,6 @@ export async function generateIdPdfAlbum(opts) {
               </div>
             ` : `
               <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#475569;">
-                <p style="font-size:11pt;max-width:480px;line-height:1.6;">
-                  Настоящий раздел содержит сертификаты соответствия ГОСТ Р и паспорта качества завода-изготовителя на примененную кабельную продукцию и компоненты СКС.
-                </p>
               </div>
             `}
           </div>
@@ -803,9 +806,6 @@ export async function generateIdPdfAlbum(opts) {
         <div class="frame-box frame-none">
           <div class="frame-content" style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#475569;">
             <h2 style="font-size:14pt;margin-bottom:12px;color:#0f172a;">Руководства по эксплуатации оборудования</h2>
-            <p style="font-size:11pt;max-width:480px;line-height:1.6;">
-              Технические описания и инструкции по эксплуатации смонтированного активного и пассивного сетевого оборудования.
-            </p>
           </div>
         </div>
       </div>`;
@@ -816,9 +816,6 @@ export async function generateIdPdfAlbum(opts) {
         <div class="frame-box frame-none">
           <div class="frame-content" style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#475569;">
             <h2 style="font-size:14pt;margin-bottom:12px;color:#0f172a;">Гарантийные обязательства</h2>
-            <p style="font-size:11pt;max-width:480px;line-height:1.6;">
-              Подрядчик гарантирует соответствие смонтированной СКС требованиям стандартов и безотказную работу линий в течение гарантийного периода со дня подписания акта приемки.
-            </p>
           </div>
         </div>
       </div>`;
@@ -1228,6 +1225,7 @@ ${sheetsHtml}
       fileUrl,
       docNumber,
       title,
+      html,
       buffer: pdfBuffer
     };
   } catch (err) {

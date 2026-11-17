@@ -40,27 +40,29 @@ function setCell(ws, address, value) {
 /**
  * Сервис генерации альбома ИД в формате Excel по стандарту ГОСТ (на базе эталона Ультима)
  */
-export async function generateIdExcelAlbum(taskId) {
+export async function generateIdExcelAlbum(taskId, customPool = null) {
   if (!fs.existsSync(TEMPLATE_PATH)) {
     throw new Error('Шаблон ИД не найден на сервере: ' + TEMPLATE_PATH);
   }
 
+  const activePool = customPool || pool;
+
   // 1. Загрузка данных задачи
-  const { rows: taskRows } = await pool.query(`SELECT * FROM tasks WHERE id = $1`, [taskId]);
+  const { rows: taskRows } = await activePool.query(`SELECT * FROM tasks WHERE id = $1`, [taskId]);
   if (taskRows.length === 0) {
     throw new Error(`Задача ${taskId} не найдена`);
   }
   const task = taskRows[0];
 
   // 2. Загрузка портов / линий КЖ
-  const { rows: ports } = await pool.query(`
+  const { rows: ports } = await activePool.query(`
     SELECT * FROM task_ports 
     WHERE task_id = $1 
     ORDER BY COALESCE(NULLIF(regexp_replace(port_number, '[^0-9]', '', 'g'), ''), '9999')::numeric, id ASC
   `, [taskId]);
 
   // 3. Загрузка спецификации материалов и оборудования ТМЦ
-  const { rows: materials } = await pool.query(`
+  const { rows: materials } = await activePool.query(`
     SELECT 
       tm.id,
       tm.pos_num,
