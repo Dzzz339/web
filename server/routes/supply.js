@@ -3009,8 +3009,6 @@ router.post('/tasks/:id/shipments/:shipmentId/rollback', authenticateToken, requ
     };
     rawData.adminRollbacks.push(rollbackVisa);
 
-    await client.query('UPDATE tasks SET raw_data = $1, updated_at = NOW() WHERE id = $2', [JSON.stringify(rawData), taskId]);
-
     if (targetStatus === 'shipped') {
       await client.query(`
         UPDATE material_shipments SET
@@ -3048,6 +3046,20 @@ router.post('/tasks/:id/shipments/:shipmentId/rollback', authenticateToken, requ
         WHERE shipment_id = $1
       `, [shipmentId]);
     }
+
+    // Проверяем, остались ли другие принятые отгрузки по этой заявке
+    const { rows: remainingAccepted } = await client.query(
+      "SELECT id FROM material_shipments WHERE task_id = $1 AND status IN ('accepted', 'accepted_discrepancy') LIMIT 1",
+      [taskId]
+    );
+    if (remainingAccepted.length === 0) {
+      rawData.tmcAccepted = false;
+      delete rawData.tmcAcceptedAt;
+      delete rawData.tmcAcceptedBy;
+      delete rawData.tmcAcceptedUserId;
+    }
+
+    await client.query('UPDATE tasks SET raw_data = $1, updated_at = NOW() WHERE id = $2', [JSON.stringify(rawData), taskId]);
 
     await client.query('COMMIT');
     res.json({ success: true, shipment_id: shipmentId, status: targetStatus, rollbackVisa });

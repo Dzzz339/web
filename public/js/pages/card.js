@@ -3399,7 +3399,7 @@ function refreshTaskItemsList(taskId) {
         var lineSum = qtyVal !== '' ? (Number(qtyVal) * unitPrice) : (Number(it.amount_contractor || it.amount_customer || 0));
         var escTaskId = String(taskId).replace(/'/g, "\\'");
 
-        return '<tr style="border-bottom:1px solid var(--border);font-size:.78rem">' +
+        return '<tr data-item-id="' + it.id + '" style="border-bottom:1px solid var(--border);font-size:.78rem">' +
           '<td style="padding:4px 6px;text-align:center">' +
             '<input type="checkbox" class="task-item-chk" value="' + it.id + '">' +
           '</td>' +
@@ -3790,7 +3790,7 @@ window.duplicateTaskItem = function(taskId, itemId) {
 };
 
 window.duplicateLastTaskItem = function(taskId) {
-  var rows = document.querySelectorAll('#cardItemsList tr[data-item-id]');
+  var rows = document.querySelectorAll('#taskItemsList tr[data-item-id]');
   if (!rows || !rows.length) return alert('Нет строк для копирования');
   var lastRow = rows[rows.length - 1];
   var lastId = lastRow.getAttribute('data-item-id');
@@ -6973,7 +6973,7 @@ function loadCardMaterials(taskId) {
         '<div style="display:flex;align-items:center;gap:6px">' +
           '<span class="badge b-gray" style="font-size:.72rem;font-weight:700">🔒 Закрыто логистом</span>' +
           (['admin', 'director'].includes(String(S.user && S.user.role || '').toLowerCase())
-            ? '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--orange);border:1px solid var(--orange);font-size:.74rem;padding:2px 8px;font-weight:700" onclick="window.adminRollbackLogist(\'' + escHtml(taskId) + '\')">↩️ Откатить (Админ)</button>'
+            ? '<button type="button" class="btn btn-sm btn-ghost" id="btnAdminRollbackLogist" style="color:var(--orange);border:1px solid var(--orange);font-size:.74rem;padding:2px 8px;font-weight:700">↩️ Откатить (Админ)</button>'
             : '') +
         '</div>' +
       '</div>';
@@ -7020,6 +7020,17 @@ function loadCardMaterials(taskId) {
       '</div>';
     }
 
+    function bindRollbackLogistBtn() {
+      var btn = cont.querySelector('#btnAdminRollbackLogist');
+      if (btn) {
+        btn.addEventListener('click', function() {
+          if (typeof window.adminRollbackLogist === 'function') {
+            window.adminRollbackLogist(taskId);
+          }
+        });
+      }
+    }
+
     if (!materials || !materials.length) {
       html += '<div class="t3" style="margin-bottom:12px">Спецификация материалов ещё не рассчитана и не загружена.</div>' +
         '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
@@ -7033,6 +7044,7 @@ function loadCardMaterials(taskId) {
           ) : '') +
         '</div>';
       cont.innerHTML = html;
+      bindRollbackLogistBtn();
       return;
     }
 
@@ -7185,6 +7197,7 @@ function loadCardMaterials(taskId) {
     }
 
     cont.innerHTML = html;
+    bindRollbackLogistBtn();
 
     var btnAcceptLogist = cont.querySelector('#btnAcceptLogistReport');
     if (btnAcceptLogist) {

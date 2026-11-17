@@ -2810,7 +2810,7 @@ function openContractForm(id) {
             <select class="select" id="cf_customer_id" required aria-label="Организация-заказчик договора" style="flex:1">
               ${custOptionsHtml}
             </select>
-            <button type="button" class="btn btn-sm btn-ghost" onclick="window.openNewCustomerOrgModal()" title="Создать организацию-заказчика в справочнике" style="white-space:nowrap; border:1px dashed var(--border)">+ Создать организацию</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="btnOpenNewCustomerOrgModal" title="Создать организацию-заказчика в справочнике" style="white-space:nowrap; border:1px dashed var(--border)">+ Создать организацию</button>
           </div>
         </div>
         <div>
@@ -2941,6 +2941,15 @@ function openContractForm(id) {
 
   modalEl.style.display = 'block';
   modalBackdrop.style.display = 'flex';
+
+  var btnOpenOrg = modalEl.querySelector('#btnOpenNewCustomerOrgModal');
+  if (btnOpenOrg) {
+    btnOpenOrg.addEventListener('click', function() {
+      if (typeof window.openNewCustomerOrgModal === 'function') {
+        window.openNewCustomerOrgModal();
+      }
+    });
+  }
 }
 
 function handleContractFormFilesSelect(input) {
@@ -3103,7 +3112,7 @@ window.openNewCustomerOrgModal = function() {
     <div style="background:#fff;border-radius:10px;width:100%;max-width:720px;max-height:90vh;overflow-y:auto;box-shadow:0 12px 36px rgba(0,0,0,0.25);display:flex;flex-direction:column">
       <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
         <h3 style="margin:0;font-size:1.1rem;color:var(--text)">🏛️ Новая организация-заказчик</h3>
-        <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('new_customer_org_modal').remove()" style="font-size:1.2rem;line-height:1">✕</button>
+        <button type="button" class="btn btn-sm btn-ghost" id="nco_btn_close" style="font-size:1.2rem;line-height:1">✕</button>
       </div>
       <div style="padding:20px;display:flex;flex-direction:column;gap:12px;font-size:.85rem">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -3180,12 +3189,24 @@ window.openNewCustomerOrgModal = function() {
         </div>
       </div>
       <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#f8fafc">
-        <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('new_customer_org_modal').remove()">Отмена</button>
-        <button type="button" class="btn btn-sm btn-primary" onclick="window.saveNewCustomerOrgModal()" style="font-weight:700">💾 Сохранить и выбрать</button>
+        <button type="button" class="btn btn-sm btn-ghost" id="nco_btn_cancel">Отмена</button>
+        <button type="button" class="btn btn-sm btn-primary" id="nco_btn_save" style="font-weight:700">💾 Сохранить и выбрать</button>
       </div>
     </div>
   `;
   document.body.appendChild(modal);
+
+  var btnClose = modal.querySelector('#nco_btn_close');
+  if (btnClose) btnClose.addEventListener('click', function() { modal.remove(); });
+
+  var btnCancel = modal.querySelector('#nco_btn_cancel');
+  if (btnCancel) btnCancel.addEventListener('click', function() { modal.remove(); });
+
+  var btnSave = modal.querySelector('#nco_btn_save');
+  if (btnSave) btnSave.addEventListener('click', function() { window.saveNewCustomerOrgModal(); });
+
+  modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
+
   var firstInp = document.getElementById('nco_name_short');
   if (firstInp) firstInp.focus();
 };
