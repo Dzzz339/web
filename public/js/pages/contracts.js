@@ -441,24 +441,9 @@ function pageContracts() {
       <div id="contract_create_task_modal" class="card" style="width:100%; max-width:780px; max-height:92vh; overflow-y:auto; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); position:relative"></div>
     </div>
 
-    <!-- МОДАЛЬНОЕ ОКНО БЫСТРОГО ПРИОРИТЕТА И ПЛАНА ЗАКРЫТИЯ -->
-    <div id="contract_quick_priority_modal_backdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:10005; align-items:center; justify-content:center; padding:16px" onclick="if(event.target===this) closeContractPriorityQuickModal()">
-      <div id="contract_quick_priority_modal" class="card" style="width:100%; max-width:440px; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); overflow:hidden"></div>
-    </div>
-
-    <!-- МОДАЛЬНОЕ ОКНО БЫСТРОГО ТИПА КОНТРАКТА (ЗАКОН) -->
-    <div id="contract_quick_law_modal_backdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:10005; align-items:center; justify-content:center; padding:16px" onclick="if(event.target===this) closeContractLawTypeQuickModal()">
-      <div id="contract_quick_law_modal" class="card" style="width:100%; max-width:400px; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); overflow:hidden"></div>
-    </div>
-
     <!-- МОДАЛЬНОЕ ОКНО ПРИКРЕПЛЕНИЯ ДОКУМЕНТА К ЧЕК-ЛИСТУ -->
     <div id="contract_checklist_attach_modal_backdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:10006; align-items:center; justify-content:center; padding:16px" onclick="if(event.target===this) closeChecklistAttachmentModal()">
       <div id="contract_checklist_attach_modal" class="card" style="width:100%; max-width:520px; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); overflow:hidden"></div>
-    </div>
-
-    <!-- МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ ПЛАТЕЖА -->
-    <div id="contract_add_payment_modal_backdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:10006; align-items:center; justify-content:center; padding:16px" onclick="if(event.target===this) closeAddContractPaymentModal()">
-      <div id="contract_add_payment_modal" class="card" style="width:100%; max-width:480px; background:#fff; border-radius:12px; box-shadow:0 20px 45px rgba(0,0,0,0.3); overflow:hidden"></div>
     </div>
 
     <!-- МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ МАТЕРИАЛОВ (ПРОВОДНИК / БРАУЗЕР) -->

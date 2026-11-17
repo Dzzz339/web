@@ -671,6 +671,30 @@ export async function calculateSubcontractAmount(pool, { contractorId, contracto
     calculation.transportAmount += kmCost;
   }
 
+  // Дополнительные позиции (extraItems)
+  if (Array.isArray(extraItems) && extraItems.length > 0) {
+    extraItems.forEach((it, idx) => {
+      const name = String(it.work_name || it.name || '').trim();
+      const qty = Number(it.quantity !== undefined ? it.quantity : it.qty);
+      const price = Number(it.unit_price !== undefined ? it.unit_price : it.price);
+      const unit = String(it.unit || 'шт').trim() || 'шт';
+      const code = String(it.work_code || it.code || `extra_${idx + 1}`).trim();
+
+      if (name && Number.isFinite(qty) && qty > 0 && Number.isFinite(price) && price >= 0) {
+        const lineAmount = Math.round(qty * price * 100) / 100;
+        calculation.lines.push({
+          work_code: code,
+          work_name: name,
+          quantity: qty,
+          unit: unit,
+          unit_price: price,
+          amount: lineAmount
+        });
+        calculation.totalWorksAmount += lineAmount;
+      }
+    });
+  }
+
   calculation.totalAmount = calculation.totalWorksAmount + calculation.transportAmount;
 
   return {

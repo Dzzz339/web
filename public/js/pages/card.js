@@ -308,9 +308,6 @@ window.submitDeclineTaskEntry = function(taskId) {
   });
 };
 
-window.acceptTask = function(taskId) { window.approveTaskEntry(taskId); };
-window.declineTask = function(taskId) { window.openDeclineTaskModal(taskId); };
-
 window._takeTaskToStage = function(taskId, stageNum) {
   var stgName = (ID_STAGES[stageNum] ? ID_STAGES[stageNum].name : ('Этап ' + stageNum));
   if (!confirm('Перевести заявку на этап ' + stageNum + ' (' + stgName + ')?')) return;
@@ -1038,6 +1035,7 @@ function exportDoc(type, id, contractorName) {
     })
     .catch(function(e) { alert('Ошибка экспорта: ' + e.message); });
 }
+window.exportDoc = exportDoc;
 
 function exportTask(id) {
   fetch('/api/export/' + encodeURIComponent(id), {
@@ -2052,7 +2050,7 @@ function pageCard() {
     } else {
       canAdvance = false;
       advanceBlockReason = 'Устраните открытые замечания Заказчика (' + openRem + ' шт.)';
-      checklistHtml += '<div class="checklist-item"><span class="checklist-icon fail">✕</span><span style="color:var(--red)">Открыто замечаний Заказчика: <b>' + openRem + ' шт.</b></span><span class="checklist-action-link" onclick="setCardTab(\'remarks\')">Устранить замечания →</span></div>';
+      checklistHtml += '<div class="checklist-item"><span class="checklist-icon fail">✕</span><span style="color:var(--red)">Открыто замечаний Заказчика: <b>' + openRem + ' шт.</b></span><span class="checklist-action-link" onclick="setCardTab(\'files\');setTimeout(function(){var el=document.getElementById(\'remarksBlock\');if(el)el.scrollIntoView({behavior:\'smooth\'});},50)">Устранить замечания →</span></div>';
     }
   } else {
     checklistHtml += '<div class="checklist-item"><span class="checklist-icon ok">✓</span><span>Условия этапа регламента соблюдены</span></div>';
@@ -2786,10 +2784,6 @@ function pageCard() {
       '<button class="btn btn-sm btn-ghost" onclick="addRemarkPrompt(\'' + eid + '\')">+ Замечание</button>' +
     '</div>' +
     '<div id="remarksList" class="t3">Загрузка…</div>' +
-  '</div>';
-
-  var paneRemarks = '<div id="cardTabPane-remarks" class="card-tab-pane" style="display:' + (curTab === 'remarks' ? 'block' : 'none') + '">' +
-    remarksBlock +
   '</div>';
 
   var docsRegistryBlock = '<div class="card p mb" style="border:1.5px solid var(--border)">' +
@@ -6159,22 +6153,8 @@ function uploadCableJournalExcel(file, taskId) {
       }
 
       if (!parsedPorts.length) {
-        var errHtml = '<div style="font-size:.85rem;line-height:1.5">' +
-          '<p style="color:var(--red);font-weight:700">❌ Не удалось распознать структуру кабельного журнала в Excel-файле.</p>' +
-          '<p>Таблица должна содержать обязательные столбцы для корректного импорта:</p>' +
-          '<ul style="margin:8px 0 12px 18px;color:var(--text-2)">' +
-            '<li><b>ПП порт / Номер розетки</b> (например, <i>1, 2, 3</i>)</li>' +
-            '<li><b>Маркировка</b> (например, <i>1.01, 1.02</i> или <i>6.1</i>)</li>' +
-            '<li><b>ПП № / Панель</b> (например, <i>1, 2</i> или <i>ПП-1</i>)</li>' +
-            '<li><b>Длина трассы, м</b> (например, <i>30.7</i>)</li>' +
-          '</ul>' +
-          '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">' +
-            '<button class="btn btn-sm btn-primary" onclick="window.downloadCableJournalTemplate()">📥 Скачать типовой шаблон (.xlsx)</button>' +
-            '<button class="btn btn-sm btn-ghost" onclick="closeModal()">Закрыть</button>' +
-          '</div>' +
-        '</div>';
-        if (typeof openModal === 'function') {
-          openModal('Неверный формат файла КЖ', errHtml);
+        if (typeof showToast === 'function') {
+          showToast('Не удалось распознать строки кабельного журнала в файле. Скачайте типовой шаблон по кнопке «Шаблон Excel» в шапке КЖ.', 'error');
         } else {
           alert('Не удалось распознать строки кабельного журнала в файле. Скачайте типовой шаблон по кнопке «Шаблон Excel» в шапке КЖ.');
         }
@@ -7975,6 +7955,7 @@ function loadCardSubcontracts(taskId) {
       cont.innerHTML = '<div style="color:var(--red)">Ошибка загрузки субподрядов: ' + escHtml(err.message) + '</div>';
     });
 }
+window.loadCardSubcontracts = loadCardSubcontracts;
 
 function openSubcontractModal(taskId, editId) {
   var old = document.getElementById('_subcontract_modal');

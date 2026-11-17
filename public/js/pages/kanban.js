@@ -286,7 +286,7 @@ function pageKanban() {
   var managers = Array.from(new Set(S.tasks.map(function(t){ return (t.manager || '').trim(); }).filter(Boolean))).sort();
   var customers = Array.from(new Set(S.tasks.map(function(t){ return (t.customer || '').trim(); }).filter(Boolean))).sort();
 
-  function mkOpts(arr, cur) {
+  function mkKanbanOpts(arr, cur) {
     return arr.map(function(v) {
       var safe = v.replace(/"/g, '&quot;');
       return '<option value="' + safe + '"' + (cur === v ? ' selected' : '') + '>' + v + '</option>';
@@ -602,9 +602,9 @@ function pageKanban() {
       quickFiltersHtml +
       '<div style="display:flex;flex-wrap:wrap;gap:.4rem;align-items:center">' +
         '<input id="kq" type="text" placeholder="Поиск по ID, адресу, исполнителю..." style="flex:2;min-width:180px" value="' + escHtml(S.kanbanQ || '') + '">' +
-        '<select id="kreg"><option value="">Все регионы (' + regions.length + ')</option>' + mkOpts(regions, reg) + '</select>' +
-        '<select id="kmgr"><option value="">Все менеджеры (' + managers.length + ')</option>' + mkOpts(managers, mgr) + '</select>' +
-        '<select id="kcust"><option value="">Все заказчики (' + customers.length + ')</option>' + mkOpts(customers, cust) + '</select>' +
+        '<select id="kreg"><option value="">Все регионы (' + regions.length + ')</option>' + mkKanbanOpts(regions, reg) + '</select>' +
+        '<select id="kmgr"><option value="">Все менеджеры (' + managers.length + ')</option>' + mkKanbanOpts(managers, mgr) + '</select>' +
+        '<select id="kcust"><option value="">Все заказчики (' + customers.length + ')</option>' + mkKanbanOpts(customers, cust) + '</select>' +
         (q || reg || mgr || cust || quick !== 'all' ? '<button class="btn btn-sm btn-ghost" onclick="clearKanbanFilters()">✕ Сбросить</button>' : '') +
         '<input id="ntask" type="text" placeholder="Быстрая заявка…" style="flex:1;min-width:140px;max-width:200px">' +
         '<button class="btn btn-sm" id="addBtn">+ Добавить</button>' +

@@ -508,14 +508,29 @@ function getTaskFinance(t) {
   var ports = fact > 0 ? fact : inOrder;
   
   var realKm = (t.realDistanceKm != null && t.realDistanceKm > 0) ? Number(t.realDistanceKm) : ((t.real_distance_km != null && t.real_distance_km > 0) ? Number(t.real_distance_km) : null);
-  var rawTransport = Number(t.distanceKm || t.distance_km) || 0;
-  var rate = Number(t.kmRate || t.km_rate) || 70;
+
+  // Явные финансовые источники компенсации дороги / удаленности в рублях
+  var explicitTransport = (t.transportCost != null && t.transportCost !== '') ? Number(t.transportCost) :
+    ((t.transport_cost != null && t.transport_cost !== '') ? Number(t.transport_cost) :
+    ((t.transportAmount != null && t.transportAmount !== '') ? Number(t.transportAmount) :
+    ((t.transport_amount != null && t.transport_amount !== '') ? Number(t.transport_amount) :
+    ((t.distanceCost != null && t.distanceCost !== '') ? Number(t.distanceCost) :
+    ((t.distance_cost != null && t.distance_cost !== '') ? Number(t.distance_cost) : null)))));
+
+  var rawTransport = Number(t.distanceKm != null ? t.distanceKm : t.distance_km) || 0;
   
-  // Определяем реальную сумму компенсации дороги в рублях:
-  var transport = rawTransport;
-  // Если значение rawTransport ошибочно совпадает с расстоянием (например 180 км и 180 руб), рассчитываем реальную сумму компенсации
-  if (realKm && (transport === realKm || transport <= 1000) && realKm <= 1000) {
-    transport = realKm * 2 * rate;
+  // Определяем сумму компенсации дороги в рублях:
+  // Физическое расстояние в километрах (realKm) не является стоимостью и не должно само по себе увеличивать сумму.
+  var transport = 0;
+  if (explicitTransport != null && !isNaN(explicitTransport)) {
+    transport = Math.max(0, explicitTransport);
+  } else if (rawTransport > 0) {
+    // Если rawTransport численно совпадает с расстоянием в км (realKm), это километраж, а не сумма в рублях
+    if (realKm != null && rawTransport === realKm) {
+      transport = 0;
+    } else {
+      transport = rawTransport;
+    }
   }
   
   var extras = Number(t.extras) || 0;

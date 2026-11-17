@@ -121,6 +121,26 @@
       transportAmount += 300;
     }
 
+    if (Array.isArray(params.extraItems) && params.extraItems.length > 0) {
+      params.extraItems.forEach(function(it) {
+        var name = String(it.work_name || it.name || '').trim();
+        var qty = Number(it.quantity !== undefined ? it.quantity : it.qty);
+        var price = Number(it.unit_price !== undefined ? it.unit_price : it.price);
+        var unit = String(it.unit || 'шт').trim() || 'шт';
+        if (name && isFinite(qty) && qty > 0 && isFinite(price) && price >= 0) {
+          var sum = Math.round(qty * price * 100) / 100;
+          lines.push({
+            name: name,
+            qty: qty,
+            unit: unit,
+            price: price,
+            sum: sum
+          });
+          worksAmount += sum;
+        }
+      });
+    }
+
     return {
       totalAmount: worksAmount + transportAmount,
       worksAmount: worksAmount,
@@ -133,8 +153,8 @@
   window._taskSmrSpec = window._taskSmrSpec || {};
   window._taskThirdPartySpec = window._taskThirdPartySpec || {};
 
-  // Функция глобальной загрузки субподрядов карточки
-  window.loadCardSubcontracts = function(taskId, callback) {
+  // Функция глобальной загрузки субподрядов карточки (изолирована для мастера)
+  window.loadSubcontractWizardSubcontracts = function(taskId, callback) {
     if (typeof api !== 'function') return Promise.resolve([]);
     return api('/tasks/' + encodeURIComponent(taskId) + '/subcontracts')
       .then(function(subs) {
@@ -150,8 +170,8 @@
       });
   };
 
-  // Экспорт документов (Заказ-наряд, КС-2, Счет)
-  window.exportDoc = function(type, taskId, contrName) {
+  // Экспорт документов (Заказ-наряд, КС-2, Счет) — изолирован для мастера
+  window.exportSubcontractWizardDoc = function(type, taskId, contrName) {
     var curSub = (window._curCardSubcontracts || [])[0] || null;
     var subId = curSub ? curSub.id : null;
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
@@ -333,7 +353,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     }).then(function(saved) {
-      window.loadCardSubcontracts(taskId, function() {
+      window.loadSubcontractWizardSubcontracts(taskId, function() {
         if (typeof showToast === 'function') {
           showToast('Договор ' + contractNumber + ' (' + ownCompanyName + ') успешно зафиксирован в базе!', 'success');
         }
@@ -1461,7 +1481,7 @@
         '<button type="button" class="btn btn-sm btn-ghost" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="window._openBudgetDistributorModal(\'' + escHtml(taskId) + '\')"') + ' style="font-size:.78rem;font-weight:600;border:1.5px solid var(--border);padding:4px 10px;color:var(--text)" title="Рассчитать цену за единицу от согласованного бюджета">' +
           '🧮 Расчет от общей суммы' +
         '</button>' +
-        '<button type="button" class="btn btn-sm btn-primary" onclick="window.exportDoc(\'app2\', \'' + escHtml(taskId) + '\')" style="font-size:.78rem;font-weight:700;padding:4px 12px;display:inline-flex;align-items:center;gap:5px" title="Сформировать официальное Приложение № 1 (Заказ на объект) к договору субподряда">' +
+        '<button type="button" class="btn btn-sm btn-primary" onclick="window.exportSubcontractWizardDoc(\'app2\', \'' + escHtml(taskId) + '\')" style="font-size:.78rem;font-weight:700;padding:4px 12px;display:inline-flex;align-items:center;gap:5px" title="Сформировать официальное Приложение № 1 (Заказ на объект) к договору субподряда">' +
           '📄 Приложение № 1 (Заказ)' +
         '</button>' +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="window.downloadSubcontractDocx(\'' + escHtml(taskId) + '\')" style="font-size:.78rem;font-weight:700;padding:4px 11px;border:1.5px solid #93c5fd;color:#1d4ed8;display:inline-flex;align-items:center;gap:5px" title="Сформировать официальный Договор субподряда (.docx) с Приложениями № 1 и № 2 по форме ООО «Кабельные Системы» / ООО «К10»">' +
@@ -1472,8 +1492,8 @@
             'Документы ▾' +
           '</button>' +
           '<div id="card_smr_docs_menu_' + escHtml(taskId) + '" style="display:none;position:absolute;left:0;top:100%;margin-top:4px;background:#fff;border:1.5px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.12);z-index:99;min-width:180px;padding:4px 0">' +
-            '<div style="padding:6px 12px;font-size:.78rem;cursor:pointer" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._toggleCardSmrDocsMenu(\'' + escHtml(taskId) + '\'); window.exportDoc(\'act\',\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')">✅ Акт сдачи-приемки (КС-2)</div>' +
-            '<div style="padding:6px 12px;font-size:.78rem;cursor:pointer" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._toggleCardSmrDocsMenu(\'' + escHtml(taskId) + '\'); window.exportDoc(\'invoice\',\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')">💰 Счет на оплату</div>' +
+            '<div style="padding:6px 12px;font-size:.78rem;cursor:pointer" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._toggleCardSmrDocsMenu(\'' + escHtml(taskId) + '\'); window.exportSubcontractWizardDoc(\'act\',\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')">✅ Акт сдачи-приемки (КС-2)</div>' +
+            '<div style="padding:6px 12px;font-size:.78rem;cursor:pointer" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._toggleCardSmrDocsMenu(\'' + escHtml(taskId) + '\'); window.exportSubcontractWizardDoc(\'invoice\',\'' + escHtml(taskId) + '\',\'' + escHtml(contrName) + '\')">💰 Счет на оплату</div>' +
             '<div style="padding:6px 12px;font-size:.78rem;cursor:pointer" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'\'" onclick="window._toggleCardSmrDocsMenu(\'' + escHtml(taskId) + '\'); openAccessLetterModal(\'' + escHtml(taskId) + '\')">🪪 Письмо на допуск</div>' +
           '</div>' +
         '</div>' +

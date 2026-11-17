@@ -828,21 +828,23 @@ router.get('/contractors/:id/previous-subcontracts', authenticateToken, async (r
   }
 });
 
-// 6. Калькулятор субподряда (порты по шкале + км сверх 10км + шкафы)
+// 6. Калькулятор субподряда (порты по шкале + км сверх 10км + шкафы + доп. позиции)
 router.post('/subcontracts/calculate', authenticateToken, async (req, res) => {
   try {
-    const { contractorId, customerTag, ports, portType, distanceKm, cabinetType } = req.body;
-    if (!contractorId) {
+    const { contractorId, customerTag, ports, portType, distanceKm, cabinetType, contractorContractId, extraItems } = req.body;
+    if (!contractorId && !contractorContractId) {
       return res.status(400).json({ error: 'Не указан подрядчик' });
     }
 
     const result = await calculateSubcontractAmount(pool, {
-      contractorId: parseInt(contractorId, 10),
+      contractorId: contractorId ? parseInt(contractorId, 10) : null,
+      contractorContractId: contractorContractId ? parseInt(contractorContractId, 10) : null,
       customerTag: customerTag || null,
       ports: parseInt(ports, 10) || 0,
       portType: portType || 'port_5e',
       distanceKm: parseFloat(distanceKm) || 0,
-      cabinetType: cabinetType || null
+      cabinetType: cabinetType || null,
+      extraItems: Array.isArray(extraItems) ? extraItems : []
     });
 
     res.json(result);

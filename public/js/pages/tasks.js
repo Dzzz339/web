@@ -979,7 +979,7 @@ function pageTasks() {
     });
   }
   
-  function mkOpts(arr,cur){return arr.map(function(v){
+  function mkTasksOpts(arr,cur){return arr.map(function(v){
     var safe=v.replace(/"/g,'&quot;');
     return '<option value="'+safe+'"'+(cur===v?' selected':'')+'>'+v+'</option>';
   }).join('');}
@@ -1127,9 +1127,9 @@ function pageTasks() {
           // Группа 1: География и Заказчик
           '<div style="display:flex;flex-direction:column;gap:8px">' +
             '<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--text-3);letter-spacing:.3px">📍 География и Заказчик</div>' +
-            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Заказчик</label><select id="tcust" style="width:100%"><option value="">Все заказчики</option>' + mkOpts(customers, cust) + '</select></div>' +
-            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Регион</label><select id="treg" style="width:100%"><option value="">Все регионы</option>' + mkOpts(regions, reg) + '</select></div>' +
-            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Менеджер Заказчика</label><select id="tmgr" style="width:100%"><option value="">Все менеджеры Заказчика</option>' + mkOpts(managers, mgr) + '</select></div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Заказчик</label><select id="tcust" style="width:100%"><option value="">Все заказчики</option>' + mkTasksOpts(customers, cust) + '</select></div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Регион</label><select id="treg" style="width:100%"><option value="">Все регионы</option>' + mkTasksOpts(regions, reg) + '</select></div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Менеджер Заказчика</label><select id="tmgr" style="width:100%"><option value="">Все менеджеры Заказчика</option>' + mkTasksOpts(managers, mgr) + '</select></div>' +
           '</div>' +
           // Группа 2: Статусы и Сроки
           '<div style="display:flex;flex-direction:column;gap:8px">' +
@@ -1167,13 +1167,13 @@ function pageTasks() {
                 '<option value="no"' + (ovd==='no'?' selected':'') + '>✓ Без просрочки</option>' +
               '</select>' +
             '</div>' +
-            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Год / Лист импорта</label><select id="tyr" style="width:100%"><option value="">Все годы / листы</option>' + mkOpts(years, yr) + '</select></div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Год / Лист импорта</label><select id="tyr" style="width:100%"><option value="">Все годы / листы</option>' + mkTasksOpts(years, yr) + '</select></div>' +
           '</div>' +
           // Группа 3: Исполнители и Экономика
           '<div style="display:flex;flex-direction:column;gap:8px">' +
             '<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--text-3);letter-spacing:.3px">👤 Исполнители и Экономика</div>' +
-            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Проект-менеджер (ПМ)</label><select id="tpm" style="width:100%"><option value="">Все ПМ</option>' + mkOpts(pms, pm) + '</select></div>' +
-            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Контрагент / Субподрядчик</label><select id="tcontr" style="width:100%"><option value="">Все подрядчики</option>' + mkOpts(contractors, contr) + '</select></div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Проект-менеджер (ПМ)</label><select id="tpm" style="width:100%"><option value="">Все ПМ</option>' + mkTasksOpts(pms, pm) + '</select></div>' +
+            '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Контрагент / Субподрядчик</label><select id="tcontr" style="width:100%"><option value="">Все подрядчики</option>' + mkTasksOpts(contractors, contr) + '</select></div>' +
             '<div><label class="t3" style="font-size:.7rem;display:block;margin-bottom:2px">Удаленность</label>' +
               '<select id="tdist" style="width:100%">' +
                 '<option value="">Удаленность: Все</option>' +
@@ -2107,6 +2107,7 @@ function acceptTask(taskId) {
     renderApp();
   });
 }
+window.acceptTask = acceptTask;
 
 function declineTask(taskId) {
   if (!confirm('Отказаться от заявки? Она станет неназначенной.')) return;
@@ -2119,6 +2120,7 @@ function declineTask(taskId) {
     renderApp();
   });
 }
+window.declineTask = declineTask;
 function acceptTaskFromNotif(taskId) {
   var box = document.getElementById('notif-dropdown');
   if (box) box.style.display = 'none';
