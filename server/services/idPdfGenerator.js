@@ -41,6 +41,16 @@ function formatDateRu(d) {
   return `«${day}» ${m} ${y} г.`;
 }
 
+function formatDateShort(d) {
+  if (!d) return '';
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return String(d);
+  const day = String(dt.getDate()).padStart(2, '0');
+  const month = String(dt.getMonth() + 1).padStart(2, '0');
+  const year = dt.getFullYear();
+  return `${day}.${month}.${year}`;
+}
+
 function esc(str) {
   return String(str === null || str === undefined ? '' : str)
     .replace(/&/g, '&amp;')
@@ -116,16 +126,24 @@ export function resolveTaskChecklist(task) {
 export async function generateIdPdfAlbum(opts) {
   const taskId = typeof opts === 'string' ? opts : opts?.taskId;
   const pool = (typeof opts === 'object' && opts?.pool) ? opts.pool : defaultPool;
+
   // 1. Загрузка данных задачи
   const taskRes = await pool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
   if (!taskRes.rows.length) throw new Error(`Задача ${taskId} не найдена`);
   const task = taskRes.rows[0];
   const checklist = (opts && typeof opts === 'object' && opts.checklist) ? opts.checklist : resolveTaskChecklist(task);
 
-  // 2. Субподряд и монтажники
+  // 2. Договор генподряда (контракт)
+  let contract = {};
+  if (task.contract_id) {
+    const cRes = await pool.query('SELECT * FROM contracts WHERE id = $1', [task.contract_id]);
+    if (cRes.rows.length) contract = cRes.rows[0];
+  }
+
+  // 3. Субподряд и организации
   const subRes = await pool.query(`
-    SELECT s.*, c.name_short AS contractor_name, c.inn AS contractor_inn, c.director AS contractor_director,
-           oc.name_short AS own_name, oc.inn AS own_inn, oc.director AS own_director
+    SELECT s.*, c.name_short AS contractor_name, c.name_full AS contractor_name_full, c.inn AS contractor_inn, c.director AS contractor_director,
+           oc.name_short AS own_name, oc.name_full AS own_name_full, oc.inn AS own_inn, oc.director AS own_director
     FROM task_subcontracts s
     LEFT JOIN contractors c ON s.contractor_id = c.id
     LEFT JOIN own_companies oc ON s.own_company_id = oc.id
@@ -134,11 +152,32 @@ export async function generateIdPdfAlbum(opts) {
   `, [taskId]);
   const sub = subRes.rows[0] || {};
 
-  // 3. Порты (КЖ)
+  // Наша компания
+  let ownCompany = {};
+  const ownId = sub.own_company_id || task.own_company_id || contract.own_company_id;
+  if (ownId) {
+    const ocRes = await pool.query('SELECT * FROM own_companies WHERE id = $1', [ownId]);
+    if (ocRes.rows.length) ownCompany = ocRes.rows[0];
+  }
+
+  // Подрядчик
+  let contractor = {};
+  if (sub.contractor_id) {
+    const crRes = await pool.query('SELECT * FROM contractors WHERE id = $1', [sub.contractor_id]);
+    if (crRes.rows.length) contractor = crRes.rows[0];
+  } else if (task.contractor) {
+    const crRes = await pool.query(
+      'SELECT * FROM contractors WHERE LOWER(TRIM(name_short)) = LOWER(TRIM($1)) OR LOWER(TRIM(name_full)) = LOWER(TRIM($1)) LIMIT 1',
+      [task.contractor.trim()]
+    );
+    if (crRes.rows.length) contractor = crRes.rows[0];
+  }
+
+  // 4. Порты (КЖ)
   const portsRes = await pool.query('SELECT * FROM task_ports WHERE task_id = $1 ORDER BY id ASC', [taskId]);
   const ports = portsRes.rows;
 
-  // 4. Материалы
+  // 5. Материалы
   const matRes = await pool.query(`
     SELECT tm.*, COALESCE(tm.item_name, m.name) AS name, COALESCE(tm.unit, m.unit) AS unit, COALESCE(tm.article, m.code) AS code, COALESCE(tm.price, m.price_default) AS price
     FROM task_materials tm
@@ -148,7 +187,7 @@ export async function generateIdPdfAlbum(opts) {
   `, [taskId]);
   const materials = matRes.rows;
 
-  // 5. Вложения (Исполнительная схема)
+  // 6. Вложения (Исполнительная схема и сертификаты)
   const attRes = await pool.query(`
     SELECT * FROM task_attachments 
     WHERE task_id = $1 
@@ -156,21 +195,65 @@ export async function generateIdPdfAlbum(opts) {
   `, [taskId]);
   
   let schemeBase64 = null;
+  const certAttachments = [];
+
   for (const a of attRes.rows) {
     const nameStr = String(a.original_name || a.file_name || a.file_path || '').toLowerCase();
     const isScheme = (a.type === 'scheme' || a.category === 'scheme' || a.category === 'plan' || nameStr.includes('схем') || nameStr.includes('план'));
+    const isCert = (a.type === 'certificate' || a.category === 'certificate' || a.category === 'cert' || nameStr.includes('сертификат') || nameStr.includes('паспорт'));
     const fullPath = a.file_path ? (path.isAbsolute(a.file_path) ? a.file_path : path.join(UPLOADS_DIR, a.file_path)) : null;
-    if (isScheme && fullPath && fs.existsSync(fullPath)) {
+
+    if (!schemeBase64 && isScheme && fullPath && fs.existsSync(fullPath)) {
       try {
         const ext = path.extname(fullPath).toLowerCase();
         if (['.png', '.jpg', '.jpeg', '.webp'].includes(ext)) {
           const imgBuf = fs.readFileSync(fullPath);
           const mime = ext === '.png' ? 'image/png' : 'image/jpeg';
           schemeBase64 = `data:${mime};base64,${imgBuf.toString('base64')}`;
-          break;
         }
       } catch (e) {
         console.error('Error reading scheme image:', e);
+      }
+    }
+
+    if (isCert && fullPath && fs.existsSync(fullPath)) {
+      try {
+        const ext = path.extname(fullPath).toLowerCase();
+        let base64 = null;
+        if (['.png', '.jpg', '.jpeg', '.webp'].includes(ext)) {
+          const imgBuf = fs.readFileSync(fullPath);
+          const mime = ext === '.png' ? 'image/png' : 'image/jpeg';
+          base64 = `data:${mime};base64,${imgBuf.toString('base64')}`;
+        }
+        certAttachments.push({ ...a, fullPath, base64, ext });
+      } catch (e) {
+        console.error('Error reading cert image:', e);
+      }
+    }
+  }
+
+  // Общий комплект сертификатов на случай, если к конкретной задаче файлы не привязаны
+  if (certAttachments.length === 0 && checklist.cert) {
+    const sharedCertRes = await pool.query(`
+      SELECT * FROM task_attachments
+      WHERE (type = 'certificate' OR type = 'cert' OR original_name ILIKE '%сертификат%' OR original_name ILIKE '%паспорт%')
+      ORDER BY id DESC LIMIT 3
+    `);
+    for (const a of sharedCertRes.rows) {
+      const fullPath = a.file_path ? (path.isAbsolute(a.file_path) ? a.file_path : path.join(UPLOADS_DIR, a.file_path)) : null;
+      if (fullPath && fs.existsSync(fullPath)) {
+        try {
+          const ext = path.extname(fullPath).toLowerCase();
+          let base64 = null;
+          if (['.png', '.jpg', '.jpeg', '.webp'].includes(ext)) {
+            const imgBuf = fs.readFileSync(fullPath);
+            const mime = ext === '.png' ? 'image/png' : 'image/jpeg';
+            base64 = `data:${mime};base64,${imgBuf.toString('base64')}`;
+          }
+          certAttachments.push({ ...a, fullPath, base64, ext });
+        } catch (e) {
+          console.error('Error reading shared cert image:', e);
+        }
       }
     }
   }
@@ -183,282 +266,566 @@ export async function generateIdPdfAlbum(opts) {
   const browserPath = getBrowserPath();
   if (!browserPath) throw new Error('Не найден исполняемый браузер (Edge/Chrome) для Puppeteer');
 
-  const customerName = ['—', '–', '-'].includes(String(task.customer || '').trim()) ? '' : (task.customer || '');
+  const customerName = ['—', '–', '-'].includes(String(task.customer || '').trim()) ? '' : (task.customer || contract.customer || '');
   const objectAddress = task.address || task.vsp || '';
   const edoNum = task.edo_number || task.edoNumber || (task.raw_data && task.raw_data.edoNumber) || '';
-  const genContractor = sub.own_name || '';
-  const genContractorDirector = sub.own_director || '';
-  const subContractor = sub.contractor_name || task.contractor || '';
+  const genContractor = ownCompany.name_full || ownCompany.name_short || sub.own_name || '';
+  const genContractorDirector = ownCompany.director || sub.own_director || '';
+  const subContractor = contractor.name_full || contractor.name_short || sub.contractor_name || task.contractor || '';
+  const subContractorDirector = contractor.director || sub.contractor_director || '';
   const installerFio = sub.installer_fio || task.assignee || '';
   const completionDate = formatDateRu(task.smr_actual_end_date || task.data_vyhoda);
+  const docDateShort = formatDateShort(task.smr_actual_end_date || task.data_vyhoda || new Date());
+  const currentYear = new Date().getFullYear();
 
-  const albumTocEntries = [
-    { key: 'title', title: 'Титульный лист альбома исполнительной документации', sheets: 1, active: true },
-    { key: 'album_list', title: 'Ведомость документов исполнительной документации', sheets: 1, active: true },
-    { key: 'aosr', title: 'Акт освидетельствования скрытых работ (прокладка кабельных трасс СКС)', sheets: 1, active: Boolean(checklist.aosr || checklist.act) },
-    { key: 'act_equip', title: 'Спецификация смонтированного оборудования и израсходованных материалов', sheets: 1, active: Boolean(checklist.act_equip || checklist.act_mount) },
-    { key: 'work_log', title: 'Журнал производства работ и прокладки кабелей', sheets: 1, active: Boolean(checklist.work_log) },
-    { key: 'scheme', title: 'Исполнительная схема трасс СКС и размещения информационных розеток', sheets: 1, active: true },
-    { key: 'kj', title: 'Кабельный журнал и таблица соединений (КЖ)', sheets: 1, active: true },
-    { key: 'fluke', title: 'Протокол измерений параметров кабельных линий', sheets: 1, active: true },
-    { key: 'cert', title: 'Сертификаты соответствия и паспорта качества на кабель и компоненты', sheets: 1, active: Boolean(checklist.cert) },
-    { key: 'manual', title: 'Руководства по эксплуатации и технические паспорта оборудования', sheets: 1, active: Boolean(checklist.manual) },
-    { key: 'warranty', title: 'Гарантийные обязательства производителя и подрядчика', sheets: 1, active: Boolean(checklist.warranty) }
-  ].filter(e => e.active);
+  // Состав альбома: строим структуру листов
+  const sheetDefinitions = [
+    { key: 'title', title: 'Титульный лист альбома исполнительной документации', format: 'A4', frame: 'frame-simple', active: true },
+    { key: 'album_list', title: 'Ведомость документов исполнительной документации', format: 'A4', frame: 'frame-short', active: true },
+    { key: 'aosr', title: 'Акт освидетельствования скрытых работ (прокладка кабельных трасс СКС)', format: 'A4', frame: 'frame-short', active: Boolean(checklist.aosr || checklist.act) },
+    { key: 'act_equip', title: 'Спецификация смонтированного оборудования и израсходованных материалов', format: 'A4', frame: 'frame-short', active: Boolean(checklist.act_equip) },
+    { key: 'act_mount', title: 'Акт готовности объекта к проведению монтажных работ', format: 'A4', frame: 'frame-short', active: Boolean(checklist.act_mount) },
+    { key: 'work_log', title: 'Журнал производства работ и прокладки кабелей', format: 'A4', frame: 'frame-short', active: Boolean(checklist.work_log) },
+    { key: 'scheme', title: 'Исполнительная схема трасс СКС и размещения информационных розеток', format: 'A3', frame: 'frame-full', active: Boolean(checklist.scheme !== false) },
+    { key: 'kj', title: 'Кабельный журнал и таблица соединений (КЖ)', format: 'A3', frame: 'frame-short', active: Boolean(checklist.kj !== false) },
+    { key: 'fluke', title: 'Протокол измерений параметров кабельных линий', format: 'A3', frame: 'frame-short', active: Boolean(checklist.fluke !== false) },
+    { key: 'cert', title: 'Сертификаты соответствия и паспорта качества на кабель и компоненты', format: 'A4', frame: 'frame-none', active: Boolean(checklist.cert) },
+    { key: 'manual', title: 'Руководства по эксплуатации и технические паспорта оборудования', format: 'A4', frame: 'frame-none', active: Boolean(checklist.manual) },
+    { key: 'warranty', title: 'Гарантийные обязательства производителя и подрядчика', format: 'A4', frame: 'frame-none', active: Boolean(checklist.warranty) }
+  ].filter(s => s.active);
 
-  const tocRowsHtml = albumTocEntries.map((entry, idx) => {
+  const totalSheets = sheetDefinitions.length;
+
+  // Формируем таблицу ведомости документов (TOC)
+  const tocRowsHtml = sheetDefinitions.map((entry, idx) => {
     const num = idx + 1;
     const docCode = `ИД-${esc(taskId)}-${String(num).padStart(2, '0')}`;
     return `<tr>
       <td class="text-center">${num}</td>
       <td><b>${docCode}</b></td>
       <td>${esc(entry.title)}</td>
-      <td class="text-center">${entry.sheets}</td>
-      <td>Включен</td>
+      <td class="text-center">1</td>
+      <td></td>
     </tr>`;
   }).join('');
 
-  let pageCounter = 3;
-  let sectionCounter = 2;
-  let sectionsHtml = '';
-
-  if (checklist.aosr || checklist.act) {
-    sectionsHtml += `
-  <!-- АКТ СКРЫТЫХ РАБОТ -->
-  <div class="page-break" style="padding:10px 0">
-    <div class="section-title">
-      <span>${sectionCounter++}. АКТ ОСВИДЕТЕЛЬСТВОВАНИЯ СКРЫТЫХ РАБОТ</span>
-      <span class="section-sub">Лист ${pageCounter++}</span>
-    </div>
-
-    <div style="text-align:center;font-weight:700;font-size:11pt;margin-bottom:12px">
-      АКТ № ${esc(taskId)}/СР<br>
-      освидетельствования скрытых работ по прокладке кабельных трасс СКС
-    </div>
-
-    <div style="font-size:9.5pt;line-height:1.5">
-      <p><b>Объект:</b> ${esc(objectAddress)}</p>
-      <p><b>Дата проведения освидетельствования:</b> ${completionDate}</p>
-      <p><b>Комиссия в составе:</b></p>
-      <ul>
-        <li>Представитель Заказчика: ${esc(customerName)}</li>
-        <li>Представитель Генподрядчика: ${esc(genContractor)} ${esc(genContractorDirector)}</li>
-        <li>Представитель Монтажной организации: ${esc(subContractor)} ${esc(installerFio)}</li>
-      </ul>
-      <p><b>произвела осмотр работ, выполненных подрядчиком:</b></p>
-      <p style="background:#f8fafc;padding:8px 12px;border:1px solid #cbd5e1;border-radius:4px">${esc(task.work_type)}</p>
-      <p><b>1. К освидетельствованию предъявлены работы:</b> Кабельных линий: ${ports.length}; общая протяженность: ${totalCableLen === null ? '' : totalCableLen.toFixed(1) + ' м'}</p>
-      <p><b>2. Работы выполнены в соответствии с:</b></p>
-      <p><b>3. Применены материалы:</b> ${esc(materials.map(m => m.name).filter(Boolean).join(', '))}</p>
-      <p><b>4. Решение комиссии:</b></p>
-    </div>
-
-    <div class="sign-block" style="margin-top:20px">
-      <div class="sign-item">
-        <b>Представитель Заказчика:</b>
-        <div class="sign-line"><span>(подпись)</span><span>/ _________________ /</span></div>
+  // Вспомогательная функция отрисовки краткого штампа
+  function renderShortStamp(sheetNum) {
+    return `
+      <div class="stamp-short">
+        <div class="stamp-short-code">ИД-${esc(taskId)}-СКС</div>
+        <div class="stamp-short-sheet">
+          <div style="font-size:7pt;color:#64748b;">Лист</div>
+          <div style="font-weight:700;font-size:9.5pt;">${sheetNum}</div>
+        </div>
       </div>
-      <div class="sign-item">
-        <b>Представитель Подрядчика:</b>
-        <div class="sign-line"><span>(подпись)</span><span>/ ${esc(installerFio)} /</span></div>
-      </div>
-    </div>
-  </div>`;
+    `;
   }
 
-  if (checklist.act_equip || checklist.act_mount) {
-    sectionsHtml += `
-  <!-- СПЕЦИФИКАЦИЯ ОБОРУДОВАНИЯ И МАТЕРИАЛОВ -->
-  <div class="page-break" style="padding:10px 0">
-    <div class="section-title">
-      <span>${sectionCounter++}. СПЕЦИФИКАЦИЯ СМОНТИРОВАННЫХ МАТЕРИАЛОВ И ОБОРУДОВАНИЯ</span>
-      <span class="section-sub">Лист ${pageCounter++}</span>
-    </div>
-
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th style="width:35px" class="text-center">№</th>
-          <th>Наименование материала / оборудования</th>
-          <th style="width:60px" class="text-center">Ед. изм.</th>
-          <th style="width:80px" class="text-right">План (норма)</th>
-          <th style="width:80px" class="text-right">Факт расход</th>
-          <th style="width:85px" class="text-right">Остаток</th>
-          <th style="width:130px">Поставщик / Склад</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${materials.map((m, idx) => {
-          const plan = numericValue(m.plan_qty);
-          const fact = numericValue(m.fact_qty);
-          const rem = plan !== null && fact !== null ? plan - fact : null;
-          return `<tr>
-            <td class="text-center">${idx + 1}</td>
-            <td><b>${esc(m.name)}</b></td>
-            <td class="text-center">${esc(m.unit)}</td>
-            <td class="text-right">${esc(plan)}</td>
-            <td class="text-right"><b>${esc(fact)}</b></td>
-            <td class="text-right">${esc(rem)}</td>
-            <td>${esc(m.supplier)}</td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table>
-
-    <div class="sign-block" style="margin-top:20px">
-      <div class="sign-item">
-        <b>Ответственный за ТМЦ (Генподрядчик):</b>
-        <div class="sign-line"><span>(подпись)</span><span>/  /</span></div>
+  // Вспомогательная функция отрисовки полного штампа (форма 2)
+  function renderFullStamp(sheetNum) {
+    const orgLabel = genContractor || subContractor || '';
+    return `
+      <div class="stamp-full">
+        <table class="stamp-full-table">
+          <tr>
+            <td style="width:24px;" class="tc">Изм.</td>
+            <td style="width:18px;" class="tc">Кол.</td>
+            <td style="width:24px;" class="tc">Лист</td>
+            <td style="width:30px;" class="tc">№ док.</td>
+            <td style="width:32px;" class="tc">Подп.</td>
+            <td style="width:40px;" class="tc">Дата</td>
+            <td rowspan="3" colspan="3" class="stamp-obj-cell">
+              <div class="stamp-obj-title">${esc(objectAddress)}</div>
+              <div class="stamp-obj-sub">${esc(task.work_type || 'Структурированная кабельная система (СКС)')}</div>
+            </td>
+          </tr>
+          <tr>
+            <td colspan="2">Разраб.</td>
+            <td colspan="2"></td>
+            <td></td>
+            <td class="tc">${esc(docDateShort)}</td>
+          </tr>
+          <tr>
+            <td colspan="2">Пров.</td>
+            <td colspan="2"></td>
+            <td></td>
+            <td class="tc">${esc(docDateShort)}</td>
+          </tr>
+          <tr>
+            <td colspan="6" class="stamp-doc-code">ИД-${esc(taskId)}-СКС</td>
+            <td class="tc" style="width:28px;"><b>Стадия</b><br>И</td>
+            <td class="tc" style="width:30px;"><b>Лист</b><br>${sheetNum}</td>
+            <td class="tc" style="width:35px;"><b>Листов</b><br>${totalSheets}</td>
+          </tr>
+          <tr>
+            <td colspan="6" class="stamp-doc-name">Исполнительная схема трасс СКС и размещения оборудования</td>
+            <td colspan="3" class="tc stamp-org-name">${esc(orgLabel)}</td>
+          </tr>
+        </table>
       </div>
-      <div class="sign-item">
-        <b>Монтажная бригада:</b>
-        <div class="sign-line"><span>(подпись)</span><span>/ ${esc(installerFio)} /</span></div>
-      </div>
-    </div>
-  </div>`;
+    `;
   }
 
-  sectionsHtml += `
-  <!-- ИСПОЛНИТЕЛЬНАЯ СХЕМА -->
-  <div class="page-break" style="padding:10px 0">
-    <div class="section-title">
-      <span>${sectionCounter++}. ИСПОЛНИТЕЛЬНАЯ СХЕМА РАЗМЕЩЕНИЯ ОБОРУДОВАНИЯ И ТРАСС СКС</span>
-      <span class="section-sub">Лист ${pageCounter++}</span>
-    </div>
+  // Генерация HTML отдельных листов
+  let sheetsHtml = '';
+  let currentSheetNum = 0;
 
-    ${schemeBase64 ? `
-      <div style="text-align:center;margin:15px 0">
-        <img src="${schemeBase64}" style="max-width:100%;max-height:480px;border:1.5px solid #cbd5e1;border-radius:6px;object-fit:contain">
-      </div>
-    ` : ''}
+  for (const sheetDef of sheetDefinitions) {
+    currentSheetNum++;
+    const sheetNum = currentSheetNum;
 
-    <div class="sign-block" style="margin-top:25px">
-      <div class="sign-item">
-        <b>Схему составил (Инженер СКС):</b>
-        <div class="sign-line"><span>(подпись)</span><span>/  /</span></div>
-      </div>
-      <div class="sign-item">
-        <b>Схему проверил (Монтажник):</b>
-        <div class="sign-line"><span>(подпись)</span><span>/ ${esc(installerFio)} /</span></div>
-      </div>
-    </div>
-  </div>
+    if (sheetDef.key === 'title') {
+      // ─── ЛИСТ 1. ТИТУЛЬНЫЙ ЛИСТ (A4, frame-simple) ─────────────────────────
+      sheetsHtml += `
+      <div class="sheet sheet-a4">
+        <div class="frame-box frame-simple">
+          <div class="frame-content">
+            <div class="cover-header">
+              <div style="font-weight:700;font-size:12pt;">${esc(customerName)}</div>
+              <div style="font-size:9pt;color:#475569;margin-top:4px;">
+                Генеральный подрядчик: ${esc(genContractor)} · Монтажная организация: ${esc(subContractor)}
+              </div>
+            </div>
 
-  <!-- КАБЕЛЬНЫЙ ЖУРНАЛ (LANDSCAPE) -->
-  <div class="page-landscape">
-    <div class="section-title">
-      <span>${sectionCounter++}. КАБЕЛЬНЫЙ ЖУРНАЛ СКС (КЖ)</span>
-      <span class="section-sub">Лист ${pageCounter++} (Альбомная ориентация)</span>
-    </div>
+            <div class="cover-body">
+              <div class="cover-cipher">ШИФР: СКС-${esc(taskId)}-ИД</div>
+              <div class="cover-title">АЛЬБОМ ИСПОЛНИТЕЛЬНОЙ ДОКУМЕНТАЦИИ</div>
+              <div class="cover-subtitle">Структурированная кабельная система (СКС / ЛВС)</div>
 
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th style="width:30px" class="text-center">№</th>
-          <th style="width:65px">Порт</th>
-          <th style="width:80px">Маркировка</th>
-          <th>Помещение</th>
-          <th style="width:75px">Шкаф</th>
-          <th style="width:55px">Юнит</th>
-          <th style="width:90px">Кросс / Панель</th>
-          <th style="width:75px" class="text-right">Длина, м</th>
-          <th style="width:70px">Обжим</th>
-          <th style="width:90px" class="text-center">Результат</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${ports.map((p, idx) => {
-          const cableLength = numericValue(p.cable_length);
-          return `<tr>
-            <td class="text-center">${idx + 1}</td>
-            <td><b>${esc(p.port_number)}</b></td>
-            <td>${esc(p.marking)}</td>
-            <td>${esc(p.room)}</td>
-            <td>${esc(p.cabinet)}</td>
-            <td>${esc(p.unit)}</td>
-            <td>${esc(p.patch_panel)}</td>
-            <td class="text-right">${esc(cableLength)}</td>
-            <td>${esc(p.crimping)}</td>
-            <td class="text-center">${esc(displayTestStatus(p.testing_status))}</td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-      <tfoot>
-        <tr style="background:#f8fafc;font-weight:700">
-          <td colspan="7" class="text-right">ИТОГО ПО ОБЪЕКТУ:</td>
-          <td class="text-right">${totalCableLen === null ? '' : totalCableLen.toFixed(1) + ' м'}</td>
-          <td colspan="2" class="text-center">${testedCount > 0 ? `Годных: ${passCount} / ${testedCount}` : ''}</td>
-        </tr>
-      </tfoot>
-    </table>
+              <div class="cover-meta">
+                <div><b>Объект:</b> ${esc(objectAddress)}</div>
+                ${task.vsp ? `<div><b>ВСП / Подразделение:</b> ${esc(task.vsp)}</div>` : ''}
+                <div><b>Номер заявки в системе:</b> № ${esc(taskId)}</div>
+                ${contract.contract_number ? `<div><b>Контракт:</b> № ${esc(contract.contract_number)}${contract.contract_date ? ' от ' + formatDateRu(contract.contract_date) : ''}</div>` : ''}
+                ${sub.subcontract_number ? `<div><b>Договор субподряда:</b> № ${esc(sub.subcontract_number)}</div>` : ''}
+                ${edoNum ? `<div><b>Идентификатор в ЭДО:</b> ${esc(edoNum)}</div>` : ''}
+                <div><b>Количество портов (КЖ):</b> ${ports.length} шт.</div>
+                ${completionDate ? `<div><b>Дата завершения монтажа:</b> ${completionDate}</div>` : ''}
+              </div>
+            </div>
 
-    <div class="sign-block" style="margin-top:20px">
-      <div class="sign-item">
-        <b>Ответственный за ведение КЖ:</b>
-        <div class="sign-line"><span>(подпись)</span><span>/ ${esc(installerFio)} /</span></div>
-      </div>
-      <div class="sign-item">
-        <b>Принял технический надзор Заказчика:</b>
-        <div class="sign-line"><span>(подпись)</span><span>/ _________________ /</span></div>
-      </div>
-    </div>
-  </div>
+            <div class="cover-footer">
+              <div class="cover-sign-box">
+                <div><b>Генеральный подрядчик:</b></div>
+                <div style="font-size:9pt;margin-top:2px;">${esc(genContractor)}</div>
+                <div class="cover-sign-line">
+                  <span>(подпись)</span>
+                  <span>/ ${esc(genContractorDirector)} /</span>
+                </div>
+                <div style="font-size:8pt;color:#64748b;margin-top:4px;">М.П.</div>
+              </div>
 
-  <!-- ПРОТОКОЛ ИЗМЕРЕНИЙ FLUKE NETWORKS -->
-  <div class="page-landscape">
-    <div class="section-title">
-      <span>${sectionCounter++}. ПРОТОКОЛ ТЕСТИРОВАНИЯ И ИЗМЕРЕНИЙ ПАРАМЕТРОВ ЛИНИЙ СКС</span>
-      <span class="section-sub">Лист ${pageCounter++}</span>
-    </div>
+              <div class="cover-sign-box">
+                <div><b>Ответственный производитель работ:</b></div>
+                <div style="font-size:9pt;margin-top:2px;">${esc(subContractor)}</div>
+                <div class="cover-sign-line">
+                  <span>(подпись)</span>
+                  <span>/ ${esc(installerFio || subContractorDirector)} /</span>
+                </div>
+                <div style="font-size:8pt;color:#64748b;margin-top:4px;">М.П.</div>
+              </div>
+            </div>
 
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th style="width:30px" class="text-center">№</th>
-          <th style="width:70px">ID Линии</th>
-          <th style="width:85px">Маркировка</th>
-          <th style="width:75px" class="text-right">Длина, м</th>
-          <th style="width:90px" class="text-center">WireMap</th>
-          <th style="width:90px" class="text-right">Затухание (дБ)</th>
-          <th style="width:95px" class="text-right">NEXT (дБ)</th>
-          <th style="width:95px" class="text-right">Return Loss</th>
-          <th style="width:80px" class="text-center">Статус</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${ports.map((p, idx) => {
-          const cableLength = numericValue(p.cable_length);
-          const attenuation = numericValue(p.attenuation ?? p.attenuation_db);
-          const next = numericValue(p.next ?? p.next_db);
-          const returnLoss = numericValue(p.return_loss ?? p.return_loss_db);
-          return `<tr>
-            <td class="text-center">${idx + 1}</td>
-            <td><b>${esc(p.port_number)}</b></td>
-            <td>${esc(p.marking)}</td>
-            <td class="text-right">${esc(cableLength)}</td>
-            <td class="text-center">${esc(p.wiremap ?? p.wire_map)}</td>
-            <td class="text-right">${esc(attenuation)}</td>
-            <td class="text-right">${esc(next)}</td>
-            <td class="text-right">${esc(returnLoss)}</td>
-            <td class="text-center">${esc(displayTestStatus(p.testing_status))}</td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table>
+            <div class="cover-city-year">
+              ${esc(task.city || ownCompany.city || 'г. Москва')}, ${currentYear} г.
+            </div>
+          </div>
+        </div>
+      </div>`;
+    } else if (sheetDef.key === 'album_list') {
+      // ─── ЛИСТ 2. ВЕДОМОСТЬ ДОКУМЕНТОВ ИД (A4, frame-short) ──────────────────
+      sheetsHtml += `
+      <div class="sheet sheet-a4">
+        <div class="frame-box frame-short">
+          <div class="frame-content">
+            <div class="section-heading">1. ВЕДОМОСТЬ ДОКУМЕНТОВ КОМПЛЕКТА ИД</div>
+            <p style="font-size:9pt;color:#334155;margin:0 0 10px 0;">
+              Настоящий комплект исполнительной документации сформирован по результатам завершения строительно-монтажных работ на объекте: <b>${esc(objectAddress)}</b>.
+            </p>
 
-    <div class="sign-block" style="margin-top:20px">
-      <div class="sign-item">
-        <b>Специалист по тестированию:</b>
-        <div class="sign-line"><span>(подпись)</span><span>/  /</span></div>
-      </div>
-      <div class="sign-item">
-        <b>Представитель службы эксплуатации:</b>
-        <div class="sign-line"><span>(подпись)</span><span>/ _________________ /</span></div>
-      </div>
-    </div>
-  </div>`;
+            <table class="grid-table" style="margin-bottom:12px;">
+              <thead>
+                <tr>
+                  <th style="width:35px;" class="tc">№</th>
+                  <th style="width:120px;">Обозначение</th>
+                  <th>Наименование документа</th>
+                  <th style="width:60px;" class="tc">Листов</th>
+                  <th style="width:100px;">Примечание</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tocRowsHtml}
+              </tbody>
+            </table>
 
-  // Генерация HTML альбома
+            <div class="doc-signatures" style="margin-top:auto;margin-bottom:8px;">
+              <div class="doc-sign-col">
+                <b>От Генерального подрядчика:</b><br>
+                <span>${esc(genContractor)}</span>
+                <div class="doc-sign-line"><span>(подпись)</span><span>/ ${esc(genContractorDirector)} /</span></div>
+              </div>
+              <div class="doc-sign-col">
+                <b>От Монтажной организации:</b><br>
+                <span>${esc(subContractor)}</span>
+                <div class="doc-sign-line"><span>(подпись)</span><span>/ ${esc(installerFio || subContractorDirector)} /</span></div>
+              </div>
+            </div>
+          </div>
+          ${renderShortStamp(sheetNum)}
+        </div>
+      </div>`;
+    } else if (sheetDef.key === 'aosr') {
+      // ─── АОСР (A4, frame-short) ─────────────────────────────────────────────
+      sheetsHtml += `
+      <div class="sheet sheet-a4">
+        <div class="frame-box frame-short">
+          <div class="frame-content">
+            <div class="section-heading">АКТ ОСВИДЕТЕЛЬСТВОВАНИЯ СКРЫТЫХ РАБОТ</div>
+            <div style="text-align:center;font-weight:700;font-size:10pt;margin-bottom:8px;">
+              АКТ № ${esc(taskId)}/СР<br>
+              освидетельствования скрытых работ по прокладке кабельных трасс СКС
+            </div>
+
+            <div style="font-size:8.5pt;line-height:1.45;flex:1;">
+              <p style="margin:2px 0;"><b>Объект:</b> ${esc(objectAddress)}</p>
+              <p style="margin:2px 0;"><b>Дата проведения освидетельствования:</b> ${completionDate}</p>
+              <p style="margin:4px 0 2px 0;"><b>Комиссия в составе представителей:</b></p>
+              <ul style="margin:2px 0 6px 16px;padding:0;">
+                <li>Заказчика: ${esc(customerName)} _________________</li>
+                <li>Генподрядчика: ${esc(genContractor)} / ${esc(genContractorDirector)} /</li>
+                <li>Монтажной организации: ${esc(subContractor)} / ${esc(installerFio || subContractorDirector)} /</li>
+              </ul>
+              <p style="margin:4px 0 2px 0;"><b>произвела осмотр работ, выполненных подрядчиком:</b></p>
+              <div style="background:#f8fafc;padding:5px 8px;border:1px solid #cbd5e1;border-radius:3px;font-size:8pt;margin-bottom:6px;">
+                ${esc(task.work_type || 'Монтаж кабельных трасс и оборудования структурированной кабельной системы')}
+              </div>
+              <p style="margin:2px 0;"><b>1. К освидетельствованию предъявлены работы:</b> Прокладка слаботочных кабельных линий связи в количестве: ${ports.length} шт.; протяженность: ${totalCableLen === null ? '—' : totalCableLen.toFixed(1) + ' м'}.</p>
+              <p style="margin:2px 0;"><b>2. Применены материалы и изделия:</b> ${esc(materials.map(m => m.name).filter(Boolean).join(', ') || 'Кабель витая пара UTP, розетки RJ-45, патч-панели')}.</p>
+              <p style="margin:2px 0;"><b>3. При выполнении работ отсутствуют отступления от требований проектной документации и нормативных документов.</b></p>
+              <p style="margin:2px 0;"><b>4. Решение комиссии:</b> Работы выполнены в соответствии со строительными нормами и требованиями ГОСТ/СП. Разрешается производство последующих отделочных и монтажных работ.</p>
+            </div>
+
+            <div class="doc-signatures" style="margin-top:auto;margin-bottom:6px;">
+              <div class="doc-sign-col">
+                <b>Представитель Заказчика:</b>
+                <div class="doc-sign-line"><span>(подпись)</span><span>/ _________________ /</span></div>
+              </div>
+              <div class="doc-sign-col">
+                <b>Представитель Подрядчика:</b>
+                <div class="doc-sign-line"><span>(подпись)</span><span>/ ${esc(installerFio || subContractorDirector)} /</span></div>
+              </div>
+            </div>
+          </div>
+          ${renderShortStamp(sheetNum)}
+        </div>
+      </div>`;
+    } else if (sheetDef.key === 'act_equip') {
+      // ─── СПЕЦИФИКАЦИЯ ОБОРУДОВАНИЯ (A4, frame-short) ────────────────────────
+      sheetsHtml += `
+      <div class="sheet sheet-a4">
+        <div class="frame-box frame-short">
+          <div class="frame-content">
+            <div class="section-heading">СПЕЦИФИКАЦИЯ СМОНТИРОВАННОГО ОБОРУДОВАНИЯ И МАТЕРИАЛОВ</div>
+            <table class="grid-table" style="margin-bottom:8px;">
+              <thead>
+                <tr>
+                  <th style="width:30px;" class="tc">№</th>
+                  <th>Наименование материала / оборудования</th>
+                  <th style="width:50px;" class="tc">Ед.</th>
+                  <th style="width:65px;" class="tr">План</th>
+                  <th style="width:65px;" class="tr">Факт</th>
+                  <th style="width:65px;" class="tr">Остаток</th>
+                  <th style="width:110px;">Поставщик</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${materials.map((m, idx) => {
+                  const plan = numericValue(m.plan_qty);
+                  const fact = numericValue(m.fact_qty);
+                  const rem = plan !== null && fact !== null ? plan - fact : null;
+                  return `<tr>
+                    <td class="tc">${idx + 1}</td>
+                    <td><b>${esc(m.name)}</b></td>
+                    <td class="tc">${esc(m.unit)}</td>
+                    <td class="tr">${esc(plan)}</td>
+                    <td class="tr"><b>${esc(fact)}</b></td>
+                    <td class="tr">${esc(rem)}</td>
+                    <td>${esc(m.supplier)}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+
+            <div class="doc-signatures" style="margin-top:auto;margin-bottom:6px;">
+              <div class="doc-sign-col">
+                <b>Ответственный за ТМЦ:</b>
+                <div class="doc-sign-line"><span>(подпись)</span><span>/ _________________ /</span></div>
+              </div>
+              <div class="doc-sign-col">
+                <b>Монтажная бригада:</b>
+                <div class="doc-sign-line"><span>(подпись)</span><span>/ ${esc(installerFio || subContractorDirector)} /</span></div>
+              </div>
+            </div>
+          </div>
+          ${renderShortStamp(sheetNum)}
+        </div>
+      </div>`;
+    } else if (sheetDef.key === 'act_mount') {
+      // ─── АКТ ГОТОВНОСТИ К МОНТАЖУ (A4, frame-short) ─────────────────────────
+      sheetsHtml += `
+      <div class="sheet sheet-a4">
+        <div class="frame-box frame-short">
+          <div class="frame-content">
+            <div class="section-heading">АКТ ГОТОВНОСТИ ОБЪЕКТА К ПРОВЕДЕНИЮ МОНТАЖНЫХ РАБОТ</div>
+            <div style="font-size:9pt;line-height:1.5;flex:1;">
+              <p><b>Объект:</b> ${esc(objectAddress)}</p>
+              <p><b>Дата освидетельствования:</b> ${completionDate}</p>
+              <p><b>Комиссия установила:</b></p>
+              <p>Строительная готовность помещений и трасс объекта обеспечивает возможность проведения электромонтажных и слаботочных работ в проектном объеме. Закладные устройства, кабельные каналы и монтажные проемы соответствуют нормативным требованиям.</p>
+            </div>
+            <div class="doc-signatures" style="margin-top:auto;margin-bottom:6px;">
+              <div class="doc-sign-col">
+                <b>Ответственный за объект (Заказчик):</b>
+                <div class="doc-sign-line"><span>(подпись)</span><span>/ _________________ /</span></div>
+              </div>
+              <div class="doc-sign-col">
+                <b>Руководитель монтажных работ (Подрядчик):</b>
+                <div class="doc-sign-line"><span>(подпись)</span><span>/ ${esc(installerFio || subContractorDirector)} /</span></div>
+              </div>
+            </div>
+          </div>
+          ${renderShortStamp(sheetNum)}
+        </div>
+      </div>`;
+    } else if (sheetDef.key === 'work_log') {
+      // ─── ЖУРНАЛ РАБОТ (A4, frame-short) ─────────────────────────────────────
+      sheetsHtml += `
+      <div class="sheet sheet-a4">
+        <div class="frame-box frame-short">
+          <div class="frame-content">
+            <div class="section-heading">ЖУРНАЛ ПРОИЗВОДСТВА РАБОТ И ПРОКЛАДКИ КАБЕЛЕЙ</div>
+            <table class="grid-table" style="margin-bottom:8px;">
+              <thead>
+                <tr>
+                  <th style="width:30px;" class="tc">№</th>
+                  <th style="width:75px;" class="tc">Дата</th>
+                  <th>Краткое описание выполненных работ</th>
+                  <th style="width:110px;">Исполнитель</th>
+                  <th style="width:70px;" class="tc">Подпись</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="tc">1</td>
+                  <td class="tc">${docDateShort}</td>
+                  <td>Монтаж кабельных трасс, прокладка витой пары, установка розеток СКС на объекте: ${esc(objectAddress)}</td>
+                  <td>${esc(installerFio || subContractor)}</td>
+                  <td class="tc"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          ${renderShortStamp(sheetNum)}
+        </div>
+      </div>`;
+    } else if (sheetDef.key === 'scheme') {
+      // ─── ИСПОЛНИТЕЛЬНАЯ СХЕМА (A3 landscape, frame-full) ───────────────────
+      sheetsHtml += `
+      <div class="sheet sheet-a3">
+        <div class="frame-box frame-full">
+          <div class="frame-content">
+            <div class="section-heading-landscape">ИСПОЛНИТЕЛЬНАЯ СХЕМА РАЗМЕЩЕНИЯ ОБОРУДОВАНИЯ И ТРАСС СКС</div>
+            <div class="scheme-canvas">
+              ${schemeBase64 ? `
+                <img src="${schemeBase64}" class="scheme-image" alt="Исполнительная схема">
+              ` : `
+                <div class="scheme-placeholder">
+                  <div style="font-weight:700;font-size:13pt;margin-bottom:6px;">[ Место для размещения исполнительной схемы ]</div>
+                  <div style="font-size:10pt;">Исполнительная схема трасс СКС, размещения шкафов и информационных розеток</div>
+                </div>
+              `}
+            </div>
+          </div>
+          ${renderFullStamp(sheetNum)}
+        </div>
+      </div>`;
+    } else if (sheetDef.key === 'kj') {
+      // ─── КАБЕЛЬНЫЙ ЖУРНАЛ (A3 landscape, frame-short) ───────────────────────
+      sheetsHtml += `
+      <div class="sheet sheet-a3">
+        <div class="frame-box frame-short">
+          <div class="frame-content">
+            <div class="section-heading-landscape">КАБЕЛЬНЫЙ ЖУРНАЛ СКС (КЖ)</div>
+            <table class="grid-table" style="font-size:8pt;margin-bottom:6px;">
+              <thead>
+                <tr>
+                  <th style="width:28px;" class="tc">№</th>
+                  <th style="width:55px;">Порт</th>
+                  <th style="width:75px;">Маркировка</th>
+                  <th>Помещение (РМ)</th>
+                  <th style="width:70px;">Шкаф</th>
+                  <th style="width:45px;" class="tc">Юнит</th>
+                  <th style="width:85px;">Патч-панель</th>
+                  <th style="width:75px;" class="tc">Марка кабеля</th>
+                  <th style="width:65px;" class="tr">Длина, м</th>
+                  <th style="width:65px;" class="tc">Обжим</th>
+                  <th style="width:75px;" class="tc">Статус</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${ports.map((p, idx) => {
+                  const cableLength = numericValue(p.cable_length);
+                  return `<tr>
+                    <td class="tc">${idx + 1}</td>
+                    <td><b>${esc(p.port_number)}</b></td>
+                    <td>${esc(p.marking)}</td>
+                    <td>${esc(p.room)}</td>
+                    <td>${esc(p.cabinet)}</td>
+                    <td class="tc">${esc(p.unit)}</td>
+                    <td>${esc(p.patch_panel)}</td>
+                    <td class="tc">${esc(p.cable_mark)}</td>
+                    <td class="tr">${cableLength !== null ? esc(cableLength) : ''}</td>
+                    <td class="tc">${esc(p.crimping)}</td>
+                    <td class="tc">${esc(displayTestStatus(p.testing_status))}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+              ${ports.length > 0 ? `
+              <tfoot>
+                <tr style="background:#f8fafc;font-weight:700;">
+                  <td colspan="8" class="tr">ИТОГО ПО ОБЪЕКТУ:</td>
+                  <td class="tr">${totalCableLen !== null ? totalCableLen.toFixed(1) + ' м' : ''}</td>
+                  <td colspan="2" class="tc">${testedCount > 0 ? `Годных: ${passCount} / ${testedCount}` : ''}</td>
+                </tr>
+              </tfoot>` : ''}
+            </table>
+
+            <div class="doc-signatures" style="margin-top:auto;margin-bottom:4px;">
+              <div class="doc-sign-col">
+                <b>Ответственный за ведение КЖ:</b>
+                <div class="doc-sign-line"><span>(подпись)</span><span>/ ${esc(installerFio || subContractorDirector)} /</span></div>
+              </div>
+              <div class="doc-sign-col">
+                <b>Принял технический надзор Заказчика:</b>
+                <div class="doc-sign-line"><span>(подпись)</span><span>/ _________________ /</span></div>
+              </div>
+            </div>
+          </div>
+          ${renderShortStamp(sheetNum)}
+        </div>
+      </div>`;
+    } else if (sheetDef.key === 'fluke') {
+      // ─── ПРОТОКОЛ ИЗМЕРЕНИЙ (A3 landscape, frame-short) ────────────────────
+      const hasTests = testedCount > 0;
+      sheetsHtml += `
+      <div class="sheet sheet-a3">
+        <div class="frame-box frame-short">
+          <div class="frame-content">
+            <div class="section-heading-landscape">ПРОТОКОЛ ИЗМЕРЕНИЙ ПАРАМЕТРОВ КАБЕЛЬНЫХ ЛИНИЙ СКС</div>
+            <table class="grid-table" style="font-size:8pt;margin-bottom:6px;">
+              <thead>
+                <tr>
+                  <th style="width:28px;" class="tc">№</th>
+                  <th style="width:110px;">ID Линии / Порт</th>
+                  <th>Точка А (Кросс / Панель / Порт)</th>
+                  <th>Точка Б (Рабочее место / Маркировка)</th>
+                  <th style="width:85px;" class="tc">Кабель</th>
+                  <th style="width:65px;" class="tr">Длина, м</th>
+                  <th style="width:85px;" class="tc">WireMap</th>
+                  <th style="width:80px;" class="tc">Результат</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${ports.map((p, idx) => {
+                  const cableLength = numericValue(p.cable_length);
+                  const pointA = [p.cabinet, p.patch_panel, p.port_number].filter(Boolean).join(' / ');
+                  const pointB = [p.room, p.outlet_marking || p.marking].filter(Boolean).join(', ');
+                  return `<tr>
+                    <td class="tc">${idx + 1}</td>
+                    <td><b>${esc(p.port_number || p.marking)}</b></td>
+                    <td>${esc(pointA)}</td>
+                    <td>${esc(pointB)}</td>
+                    <td class="tc">${esc(p.cable_mark)}</td>
+                    <td class="tr">${cableLength !== null ? esc(cableLength) : ''}</td>
+                    <td class="tc">${esc(p.wiremap ?? p.wire_map ?? p.crimping)}</td>
+                    <td class="tc">${esc(displayTestStatus(p.testing_status))}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+
+            <div style="font-size:8.5pt;margin:4px 0;">
+              <b>Заключение по результатам измерений:</b>
+              ${hasTests ? `Протестировано линий: ${testedCount} из ${ports.length}. Линий, соответствующих нормативным требованиям: ${passCount}.` : `Измерения параметров кабельных линий не проводились / данные отсутствуют.`}
+            </div>
+
+            <div class="doc-signatures" style="margin-top:auto;margin-bottom:4px;">
+              <div class="doc-sign-col">
+                <b>Специалист по тестированию:</b>
+                <div class="doc-sign-line"><span>(подпись)</span><span>/ _________________ /</span></div>
+              </div>
+              <div class="doc-sign-col">
+                <b>Представитель службы эксплуатации:</b>
+                <div class="doc-sign-line"><span>(подпись)</span><span>/ _________________ /</span></div>
+              </div>
+            </div>
+          </div>
+          ${renderShortStamp(sheetNum)}
+        </div>
+      </div>`;
+    } else if (sheetDef.key === 'cert') {
+      // ─── СЕРТИФИКАТЫ (A4, frame-none) ───────────────────────────────────────
+      const certImgs = certAttachments.filter(a => a.base64);
+      sheetsHtml += `
+      <div class="sheet sheet-a4">
+        <div class="frame-box frame-none">
+          <div class="frame-content">
+            <h2 style="text-align:center;font-size:14pt;margin-top:0;margin-bottom:12px;">Сертификаты соответствия и паспорта качества</h2>
+            ${certImgs.length > 0 ? `
+              <div style="text-align:center;flex:1;display:flex;align-items:center;justify-content:center;">
+                <img src="${certImgs[0].base64}" style="max-width:100%;max-height:240mm;object-fit:contain;border:1px solid #cbd5e1;">
+              </div>
+            ` : `
+              <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#475569;">
+                <p style="font-size:11pt;max-width:480px;line-height:1.6;">
+                  Настоящий раздел содержит сертификаты соответствия ГОСТ Р и паспорта качества завода-изготовителя на примененную кабельную продукцию и компоненты СКС.
+                </p>
+              </div>
+            `}
+          </div>
+        </div>
+      </div>`;
+    } else if (sheetDef.key === 'manual') {
+      // ─── РУКОВОДСТВО ПО ЭКСПЛУАТАЦИИ (A4, frame-none) ──────────────────────
+      sheetsHtml += `
+      <div class="sheet sheet-a4">
+        <div class="frame-box frame-none">
+          <div class="frame-content" style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#475569;">
+            <h2 style="font-size:14pt;margin-bottom:12px;color:#0f172a;">Руководства по эксплуатации оборудования</h2>
+            <p style="font-size:11pt;max-width:480px;line-height:1.6;">
+              Технические описания и инструкции по эксплуатации смонтированного активного и пассивного сетевого оборудования.
+            </p>
+          </div>
+        </div>
+      </div>`;
+    } else if (sheetDef.key === 'warranty') {
+      // ─── ГАРАНТИЙНЫЕ ОБЯЗАТЕЛЬСТВА (A4, frame-none) ─────────────────────────
+      sheetsHtml += `
+      <div class="sheet sheet-a4">
+        <div class="frame-box frame-none">
+          <div class="frame-content" style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#475569;">
+            <h2 style="font-size:14pt;margin-bottom:12px;color:#0f172a;">Гарантийные обязательства</h2>
+            <p style="font-size:11pt;max-width:480px;line-height:1.6;">
+              Подрядчик гарантирует соответствие смонтированной СКС требованиям стандартов и безотказную работу линий в течение гарантийного периода со дня подписания акта приемки.
+            </p>
+          </div>
+        </div>
+      </div>`;
+    }
+  }
+
+  // Общий HTML-документ альбома
   const html = `<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -466,241 +833,344 @@ export async function generateIdPdfAlbum(opts) {
   <title>Альбом ИД — Заявка № ${esc(taskId)}</title>
   <style>
     @page {
+      margin: 0;
+    }
+    @page a4-portrait {
       size: A4 portrait;
-      margin: 15mm 15mm 15mm 15mm;
+      margin: 0;
     }
-    @page landscape-page {
-      size: A4 landscape;
-      margin: 12mm 12mm 12mm 12mm;
+    @page a3-landscape {
+      size: A3 landscape;
+      margin: 0;
     }
+
     * { box-sizing: border-box; }
     body {
       font-family: 'Segoe UI', Arial, Helvetica, sans-serif;
-      color: #1e293b;
+      color: #000;
       margin: 0;
       padding: 0;
-      font-size: 11pt;
-      line-height: 1.4;
+      font-size: 9pt;
+      line-height: 1.35;
       background: #fff;
     }
-    .page-break { page-break-after: always; }
-    .page-landscape {
-      page: landscape-page;
+
+    .sheet {
       page-break-after: always;
+      position: relative;
+      overflow: hidden;
+      background: #fff;
     }
 
-    /* Титульный лист */
-    .cover-container {
-      height: 98vh;
+    .sheet-a4 {
+      page: a4-portrait;
+      width: 210mm;
+      height: 297mm;
+      padding: 5mm 5mm 5mm 20mm;
+    }
+
+    .sheet-a3 {
+      page: a3-landscape;
+      width: 420mm;
+      height: 297mm;
+      padding: 5mm 5mm 5mm 20mm;
+    }
+
+    /* Рамки ГОСТ */
+    .frame-box {
+      width: 100%;
+      height: 100%;
+      border: 1.5px solid #000;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .frame-simple .frame-content {
+      flex: 1;
+      padding: 10mm;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      border: 3px double #0f172a;
-      padding: 30px;
+    }
+
+    .frame-short .frame-content {
+      flex: 1;
+      padding: 6mm 6mm 2mm 6mm;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .frame-full .frame-content {
+      flex: 1;
+      padding: 6mm 6mm 2mm 6mm;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .frame-none {
+      border: none !important;
+    }
+    .frame-none .frame-content {
+      flex: 1;
+      padding: 10mm;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Краткий штамп 185x15 мм */
+    .stamp-short {
+      height: 15mm;
+      width: 185mm;
+      margin-left: auto;
+      border-top: 1.5px solid #000;
+      border-left: 1.5px solid #000;
+      display: flex;
+      flex-shrink: 0;
+    }
+    .stamp-short-code {
+      flex: 1;
+      border-right: 1px solid #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 10pt;
+    }
+    .stamp-short-sheet {
+      width: 35mm;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
       text-align: center;
     }
-    .cover-header {
-      font-size: 13pt;
+
+    /* Полный штамп 185x55 мм (форма 2) */
+    .stamp-full {
+      height: 55mm;
+      width: 185mm;
+      margin-left: auto;
+      border-top: 1.5px solid #000;
+      border-left: 1.5px solid #000;
+      flex-shrink: 0;
+      font-size: 7pt;
+    }
+    .stamp-full-table {
+      width: 100%;
+      height: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    .stamp-full-table td {
+      border: 1px solid #000;
+      padding: 1px 3px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .stamp-obj-cell {
+      text-align: center;
+      vertical-align: middle;
+      white-space: normal !important;
+      padding: 4px !important;
+    }
+    .stamp-obj-title {
       font-weight: 700;
-      letter-spacing: .5px;
-      text-transform: uppercase;
-      color: #0f172a;
-      border-bottom: 2px solid #0f172a;
-      padding-bottom: 15px;
+      font-size: 8pt;
+      line-height: 1.2;
     }
-    .cover-title-box {
-      margin: 60px 0;
+    .stamp-obj-sub {
+      font-size: 7pt;
+      color: #334155;
+      margin-top: 2px;
     }
-    .cover-cipher {
-      font-size: 12pt;
+    .stamp-doc-code {
+      font-weight: 700;
+      font-size: 8.5pt;
+      text-align: center;
+      background: #fafafa;
+    }
+    .stamp-doc-name {
+      font-size: 7.5pt;
+      text-align: center;
       font-weight: 600;
-      color: #2563eb;
-      margin-bottom: 12px;
     }
-    .cover-main-title {
-      font-size: 24pt;
-      font-weight: 800;
-      letter-spacing: .8px;
-      margin-bottom: 10px;
-      color: #0f172a;
-    }
-    .cover-sub-title {
-      font-size: 14pt;
-      font-weight: 600;
-      color: #475569;
-      margin-bottom: 25px;
-    }
-    .cover-object-box {
-      background: #f8fafc;
-      border: 1px solid #cbd5e1;
-      border-radius: 6px;
-      padding: 16px;
-      font-size: 11.5pt;
-      text-align: left;
-      line-height: 1.6;
-    }
-    .cover-footer {
-      border-top: 1px solid #cbd5e1;
-      padding-top: 20px;
-      display: flex;
-      justify-content: space-between;
-      text-align: left;
-      font-size: 10pt;
+    .stamp-org-name {
+      font-weight: 700;
+      font-size: 8pt;
     }
 
-    /* Общие стили разделов */
-    .section-title {
-      font-size: 14pt;
-      font-weight: 800;
-      color: #0f172a;
-      border-bottom: 2px solid #2563eb;
-      padding-bottom: 6px;
+    /* Заголовки разделов */
+    .section-heading {
+      font-size: 11pt;
+      font-weight: 700;
+      color: #000;
+      border-bottom: 1.5px solid #000;
+      padding-bottom: 4px;
       margin-top: 0;
-      margin-bottom: 14px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: .3px;
     }
-    .section-sub {
-      font-size: 9pt;
-      font-weight: 600;
-      color: #64748b;
+    .section-heading-landscape {
+      font-size: 12pt;
+      font-weight: 700;
+      color: #000;
+      border-bottom: 1.5px solid #000;
+      padding-bottom: 4px;
+      margin-top: 0;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: .4px;
     }
-    table.data-table {
+
+    /* Таблицы данных */
+    table.grid-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 9.5pt;
-      margin-bottom: 16px;
+      font-size: 8.5pt;
+      border: 1px solid #000;
     }
-    table.data-table th, table.data-table td {
-      border: 1px solid #cbd5e1;
-      padding: 6px 8px;
+    table.grid-table th, table.grid-table td {
+      border: 1px solid #000;
+      padding: 3px 5px;
     }
-    table.data-table th {
+    table.grid-table th {
       background: #f1f5f9;
-      color: #0f172a;
+      color: #000;
       font-weight: 700;
       text-align: left;
     }
-    .text-center { text-align: center; }
-    .text-right { text-align: right; }
-    .badge-pass {
-      background: #dcfce7;
-      color: #166534;
-      font-weight: 700;
-      padding: 2px 6px;
-      border-radius: 4px;
-      display: inline-block;
-    }
+    .tc { text-align: center; }
+    .tr { text-align: right; }
 
-    /* Подписи */
-    .sign-block {
-      margin-top: 30px;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 30px;
-      font-size: 10pt;
-    }
-    .sign-item {
-      line-height: 1.6;
-    }
-    .sign-line {
-      border-bottom: 1px solid #000;
-      margin-top: 25px;
+    /* Блоки подписей */
+    .doc-signatures {
       display: flex;
       justify-content: space-between;
-      font-size: 8pt;
+      gap: 20px;
+      font-size: 8.5pt;
+    }
+    .doc-sign-col {
+      width: 48%;
+      line-height: 1.4;
+    }
+    .doc-sign-line {
+      border-bottom: 1px solid #000;
+      margin-top: 14px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 7pt;
       color: #64748b;
+    }
+
+    /* Титульный лист стили */
+    .cover-header {
+      border-bottom: 1.5px solid #000;
+      padding-bottom: 10px;
+      text-align: center;
+    }
+    .cover-body {
+      margin: 20px 0;
+      text-align: center;
+    }
+    .cover-cipher {
+      font-size: 11pt;
+      font-weight: 700;
+      margin-bottom: 8px;
+      letter-spacing: .5px;
+    }
+    .cover-title {
+      font-size: 20pt;
+      font-weight: 800;
+      letter-spacing: .6px;
+      margin-bottom: 6px;
+    }
+    .cover-subtitle {
+      font-size: 12pt;
+      font-weight: 600;
+      color: #334155;
+      margin-bottom: 25px;
+    }
+    .cover-meta {
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      padding: 12px 16px;
+      font-size: 9.5pt;
+      text-align: left;
+      line-height: 1.6;
+      max-width: 650px;
+      margin: 0 auto;
+    }
+    .cover-footer {
+      border-top: 1px solid #000;
+      padding-top: 12px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 9pt;
+      text-align: left;
+    }
+    .cover-sign-box {
+      width: 46%;
+    }
+    .cover-sign-line {
+      border-bottom: 1px solid #000;
+      margin-top: 16px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 7.5pt;
+      color: #64748b;
+    }
+    .cover-city-year {
+      text-align: center;
+      font-size: 9.5pt;
+      font-weight: 600;
+      margin-top: 10px;
+    }
+
+    /* Исполнительная схема */
+    .scheme-canvas {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      padding: 4mm;
+    }
+    .scheme-image {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      border: 1px solid #cbd5e1;
+    }
+    .scheme-placeholder {
+      width: 100%;
+      height: 100%;
+      border: 2px dashed #94a3b8;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #64748b;
+      text-align: center;
+      padding: 20px;
     }
   </style>
 </head>
 <body>
 
-  <!-- ЛИСТ 1. ТИТУЛЬНЫЙ ЛИСТ -->
-  <div class="cover-container page-break">
-    <div class="cover-header">
-      <div>${esc(customerName)}</div>
-      <div style="font-size:10pt;font-weight:400;color:#64748b;margin-top:4px">Генеральный подрядчик: ${esc(genContractor)} · Монтажная организация: ${esc(subContractor)}</div>
-    </div>
-
-    <div class="cover-title-box">
-      <div class="cover-cipher">ШИФР: СКС-${esc(taskId)}-ИД</div>
-      <div class="cover-main-title">АЛЬБОМ ИСПОЛНИТЕЛЬНОЙ ДОКУМЕНТАЦИИ</div>
-      <div class="cover-sub-title">Структурированная кабельная система (СКС / ЛВС)</div>
-
-      <div class="cover-object-box">
-        <div><b>Объект:</b> ${esc(objectAddress)}</div>
-        <div><b>ВСП / Подразделение:</b> ${esc(task.vsp)}</div>
-        <div><b>Номер заявки в системе:</b> № ${esc(taskId)}</div>
-        <div><b>Идентификатор в ЭДО:</b> ${esc(edoNum)}</div>
-        <div><b>Количество смонтированных портов:</b> ${ports.length} шт.</div>
-        <div><b>Дата завершения монтажа:</b> ${completionDate}</div>
-      </div>
-    </div>
-
-    <div class="cover-footer">
-      <div style="position:relative">
-        <div><b>Генеральный подрядчик (${esc(genContractor)}):</b></div>
-        <div style="margin-top:20px;border-bottom:1px solid #000;width:220px"></div>
-        <div style="font-size:8pt;color:#64748b">/ ${esc(genContractorDirector)} /</div>
-      </div>
-      <div>
-        <div><b>Ответственный производитель работ:</b></div>
-        <div style="margin-top:20px;border-bottom:1px solid #000;width:220px"></div>
-        <div style="font-size:8pt;color:#64748b">/ ${esc(installerFio)} /</div>
-      </div>
-      <div style="text-align:right">
-        <div>${esc(task.city)}</div>
-        <div></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ЛИСТ 2. ВЕДОМОСТЬ ДОКУМЕНТОВ ИД -->
-  <div class="page-break" style="padding:10px 0">
-    <div class="section-title">
-      <span>1. ВЕДОМОСТЬ ДОКУМЕНТОВ КОМПЛЕКТА ИД</span>
-      <span class="section-sub">Лист 2</span>
-    </div>
-    <p style="font-size:10pt;color:#475569;margin-bottom:14px">
-      Настоящий комплект исполнительной документации сформирован по результатам завершения строительно-монтажных работ на объекте: <b>${esc(objectAddress)}</b>.
-    </p>
-
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th style="width:40px" class="text-center">№</th>
-          <th style="width:120px">Обозначение</th>
-          <th>Наименование документа</th>
-          <th style="width:70px" class="text-center">Листов</th>
-          <th style="width:140px">Статус проверки</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${tocRowsHtml}
-      </tbody>
-    </table>
-
-    <div class="sign-block">
-      <div class="sign-item">
-        <b>От Генерального подрядчика:</b><br>
-        ${esc(genContractor)}<br>
-        <div class="sign-line"><span>(подпись / печать)</span><span>/ ${esc(genContractorDirector)} /</span></div>
-      </div>
-      <div class="sign-item">
-        <b>От Монтажной организации:</b><br>
-        ${esc(subContractor)}<br>
-        <div class="sign-line"><span>(подпись)</span><span>/ ${esc(installerFio)} /</span></div>
-      </div>
-    </div>
-  </div>
-
-  ${sectionsHtml}
+${sheetsHtml}
 
 </body>
 </html>`;
 
-  // 6. Запуск Puppeteer и рендеринг PDF
+  // 7. Запуск Puppeteer и рендеринг PDF
   const browser = await puppeteer.launch({
     executablePath: browserPath,
     headless: 'new',
@@ -720,7 +1190,7 @@ export async function generateIdPdfAlbum(opts) {
 
     await browser.close();
 
-    // 7. Сохранение файла на диск и регистрация в task_documents
+    // 8. Сохранение файла на диск и регистрация в task_documents
     const docsDir = path.join(UPLOADS_DIR, 'documents');
     if (!fs.existsSync(docsDir)) fs.mkdirSync(docsDir, { recursive: true });
 

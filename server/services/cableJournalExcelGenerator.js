@@ -9,11 +9,12 @@ const XLSX = xlsxPkg.default || xlsxPkg;
  */
 
 // 1. Генерация Кабельного журнала по эталону KZh.xlsx
-export async function generateCableJournalExcel(taskId) {
-  const { rows: taskRows } = await pool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
+export async function generateCableJournalExcel(taskId, customPool = null) {
+  const activePool = customPool || pool;
+  const { rows: taskRows } = await activePool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
   const task = taskRows[0] || { id: taskId };
 
-  const { rows: ports } = await pool.query(`
+  const { rows: ports } = await activePool.query(`
     SELECT * FROM task_ports
     WHERE task_id = $1
     ORDER BY id ASC
@@ -87,11 +88,12 @@ export async function generateCableJournalExcel(taskId) {
 }
 
 // 2. Генерация официального Протокола испытаний Fluke MS2-100
-export async function generateFlukeProtocolExcel(taskId) {
-  const { rows: taskRows } = await pool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
+export async function generateFlukeProtocolExcel(taskId, customPool = null) {
+  const activePool = customPool || pool;
+  const { rows: taskRows } = await activePool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
   const task = taskRows[0] || { id: taskId };
 
-  const { rows: ports } = await pool.query(`
+  const { rows: ports } = await activePool.query(`
     SELECT * FROM task_ports
     WHERE task_id = $1
     ORDER BY id ASC
@@ -100,7 +102,7 @@ export async function generateFlukeProtocolExcel(taskId) {
   const wsData = [];
 
   // Шапка протокола
-  wsData.push(['ПРОТОКОЛ ПРИЕМО-СДАТОЧНЫХ ИСПЫТАНИЙ СТРУКТУРИРОВАННОЙ КАБЕЛЬНОЙ СИСТЕМЫ (СКС)']);
+  wsData.push(['ПРОТОКОЛ ИЗМЕРЕНИЙ ПАРАМЕТРОВ КАБЕЛЬНЫХ ЛИНИЙ СКС']);
   wsData.push([`Объект: ${task.title || task.address || ''}`]);
   wsData.push([`Заказчик: ${task.customer || ''} | Договор / Заказ-наряд №: ${task.id}`]);
   wsData.push([]);
@@ -157,6 +159,8 @@ export async function generateFlukeProtocolExcel(taskId) {
     { wch: 22 }   // Оператор
   ];
 
-  XLSX.utils.book_append_sheet(wb, ws, 'Протокол Fluke');
+  XLSX.utils.book_append_sheet(wb, ws, 'Протокол измерений');
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
+
+export const generateMeasurementProtocolExcel = generateFlukeProtocolExcel;

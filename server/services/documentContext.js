@@ -494,7 +494,7 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
       id: subcontract?.id || '',
       number: subcontract?.subcontract_number || docNumber,
       status: subcontract?.status || '',
-      ports_count: String(subcontract?.ports_count ?? task?.fact ?? task?.in_order ?? ''),
+      ports_count: String(subcontract?.ports_count ?? (task?.fact !== null && task?.fact !== undefined && task?.fact !== '' ? task.fact : '')),
       distance_km: String(subcontract?.distance_km ?? task?.distance_km ?? '')
     },
 
@@ -543,7 +543,21 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
         total,
         total_formatted: formatMoney(total)
       };
-    })
+    }),
+
+    ports: ports.map((p, idx) => ({
+      num: idx + 1,
+      port_number: p.port_number || '',
+      marking: p.marking || '',
+      room: p.room || '',
+      cabinet: p.cabinet || '',
+      unit: p.unit || '',
+      patch_panel: p.patch_panel || '',
+      cable_mark: p.cable_mark || '',
+      cable_length: numberOrNull(p.cable_length),
+      testing_status: p.testing_status || '',
+      wiremap: p.wiremap || p.wire_map || p.crimping || ''
+    }))
   };
 
   // Создаем плоские русскоязычные псевдонимы (для удобства составления шаблонов в UI)
@@ -653,7 +667,9 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
     блок_подписей: renderSignaturesBlockHtml(ctx.our_company, ctx.contractor),
 
     // Закрывающие документы и ИД
-    порты_факт: String(task?.fact ?? task?.in_order ?? ''),
+    порты_факт: (task?.fact !== null && task?.fact !== undefined && task?.fact !== '') ? String(task.fact) : '',
+    число_портов_кж: String(ports.length),
+    число_портов_факт: (task?.fact !== null && task?.fact !== undefined && task?.fact !== '') ? String(task.fact) : '',
     номер_и_дата_контракта: contract?.contract_number ?
       `Государственный контракт № ${contract.contract_number}${contract.contract_date ? ' от ' + formatDateRu(contract.contract_date) : ''}` : '',
     ответственный_фио: ctx.specialists[0]?.full_name || '',
