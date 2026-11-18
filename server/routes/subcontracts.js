@@ -86,7 +86,10 @@ router.post('/tasks/:taskId/subcontracts', authenticateToken, requireRole('admin
       comment,
       own_company_id,
       contractor_contract_id,
-      price_list_id
+      price_list_id,
+      ports_count,
+      distance_km,
+      calculation_details
     } = req.body;
 
     price_agreed = price_agreed !== undefined && price_agreed !== null ? Math.max(0, Number(price_agreed) || 0) : null;
@@ -142,9 +145,10 @@ router.post('/tasks/:taskId/subcontracts', authenticateToken, requireRole('admin
       INSERT INTO task_subcontracts (
         task_id, contractor_id, contractor_name, work_type, price_agreed, deadline,
         specialist_id, installer_fio, installer_phone, installer_passport,
-        auto_number, comment, own_company_id, contractor_contract_id, price_list_id, status
+        auto_number, comment, own_company_id, contractor_contract_id, price_list_id,
+        ports_count, distance_km, calculation_details, status
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'assigned')
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 'assigned')
       RETURNING *
     `, [
       taskId,
@@ -161,12 +165,15 @@ router.post('/tasks/:taskId/subcontracts', authenticateToken, requireRole('admin
       comment || null,
       own_company_id || null,
       contractor_contract_id || null,
-      price_list_id || null
+      price_list_id || null,
+      ports_count !== undefined && ports_count !== null ? Number(ports_count) : 0,
+      distance_km !== undefined && distance_km !== null ? Number(distance_km) : 0,
+      calculation_details ? JSON.stringify(calculation_details) : '{}'
     ]);
 
-    // Синхронизируем поле contractor в самой задаче
-    if (contractor_name) {
-      await pool.query('UPDATE tasks SET contractor = $1 WHERE id = $2', [contractor_name, taskId]);
+    // Синхронизируем поле contractor и contractor_id в самой задаче
+    if (contractor_name || contractor_id) {
+      await pool.query('UPDATE tasks SET contractor = COALESCE($1, contractor), contractor_id = COALESCE($2, contractor_id) WHERE id = $3', [contractor_name || null, contractor_id || null, taskId]);
     }
 
     if (contractor_contract_id) {

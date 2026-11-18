@@ -825,6 +825,7 @@ function renderUsersView(container) {
         </td>
         <td style="padding: 10px 12px">
           <div style="font-weight:600">${escHtml(u.full_name || '—')}</div>
+          ${u.specialist_id ? `<span class="badge b-blue" style="font-size:.68rem;padding:1px 5px;margin-top:2px;display:inline-block">Специалист #${u.specialist_id}</span>` : ''}
           ${passInfo}
         </td>
         <td style="padding: 10px 12px">${escHtml(u.phone || '—')}</td>
@@ -850,13 +851,17 @@ function renderUsersView(container) {
         <input id="nu_full" type="text" placeholder="ФИО (как в паспорте)">
         <input id="nu_phone" type="text" placeholder="Телефон для связи">
         <input id="nu_email" type="email" placeholder="Email для писем">
-        <select id="nu_role">
+        <select class="select" id="nu_role">
           ${STOCK_ROLE_LIST.map(function(r) { return '<option value="' + r.code + '">' + r.icon + ' ' + r.name + ' (' + r.description + ')</option>'; }).join('')}
         </select>
         <input id="nu_regions" type="text" placeholder="Закрепленные регионы (для Менеджера)">
-        <select id="nu_contractor">
+        <select class="select" id="nu_contractor">
           <option value="">— Без контрагента (Штатный) —</option>
           ${(S.contractors || []).map(function(c) { return '<option value="' + c.id + '">' + escHtml(c.name_short) + '</option>'; }).join('')}
+        </select>
+        <select class="select" id="nu_specialist">
+          <option value="">— Привязать специалиста (монтажника) —</option>
+          ${(S.specialists || []).map(function(s) { return '<option value="' + s.id + '">' + escHtml(s.full_name) + (s.contractor_name ? ' (' + escHtml(s.contractor_name) + ')' : '') + '</option>'; }).join('')}
         </select>
       </div>
       <div style="text-align:right">
@@ -908,6 +913,9 @@ function editUser(id) {
     { key: 'role',     label: 'Роль в системе (8 ролей)', type: 'select', value: user.role || 'installer', options:
         STOCK_ROLE_LIST.map(function(r) { return { value: r.code, label: r.icon + ' ' + r.name + ' — ' + r.description }; })
     },
+    { key: 'specialistId', label: 'Связанный специалист (из базы людей)', type: 'select', value: user.specialist_id || '', options:
+        [{ value: '', label: '— Без привязки к специалисту —' }].concat((S.specialists || []).map(function(s) { return { value: s.id, label: s.full_name + (s.contractor_name ? ' (' + s.contractor_name + ')' : '') }; }))
+    },
     { key: 'assignedRegions', label: 'Закрепленные регионы (для Менеджера)', value: user.assigned_regions || '', placeholder: 'Москва, Тюмень, Санкт-Петербург' },
     { key: 'contractorId', label: 'Привязка к контрагенту', type: 'select', value: user.contractor_id || '', options:
         [{ value: '', label: '— Без контрагента (Штатный) —' }].concat((S.contractors || []).map(function(c) { return { value: c.id, label: c.name_short }; }))
@@ -942,7 +950,8 @@ function addUser() {
     email:    document.getElementById('nu_email').value.trim(),
     role:     document.getElementById('nu_role').value,
     assignedRegions: document.getElementById('nu_regions') ? document.getElementById('nu_regions').value.trim() : null,
-    contractorId: document.getElementById('nu_contractor').value || null
+    contractorId: document.getElementById('nu_contractor').value || null,
+    specialistId: document.getElementById('nu_specialist') ? (document.getElementById('nu_specialist').value || null) : null
   };
   if(!data.username || !data.password) return alert('Заполните логин и пароль');
 

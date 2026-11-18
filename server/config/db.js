@@ -61,6 +61,7 @@ export async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contractors_name ON contractors(name_short)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS contractor_id INTEGER REFERENCES contractors(id) ON DELETE SET NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_contractor_id ON users(contractor_id)`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS specialists (
@@ -81,7 +82,11 @@ export async function initDB() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_specialists_name ON specialists(full_name)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_specialists_contractor ON specialists(contractor_id)`);
+  await pool.query(`ALTER TABLE specialists ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_specialists_user_id ON specialists(user_id)`);
   await pool.query(`ALTER TABLE specialists ADD COLUMN IF NOT EXISTS auto_number TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS specialist_id INTEGER REFERENCES specialists(id) ON DELETE SET NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_specialist_id ON users(specialist_id)`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tasks (
@@ -561,6 +566,12 @@ export async function initDB() {
   await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS date_finish DATE`);
   await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS contractor_name TEXT`);
   await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS contractor_inn TEXT`);
+  await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS own_company_id INTEGER REFERENCES own_companies(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS contractor_contract_id INTEGER REFERENCES contractor_contracts(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS price_list_id INTEGER REFERENCES contractor_price_lists(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS calculation_details JSONB DEFAULT '{}'`);
+  await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS ports_count INTEGER DEFAULT 0`);
+  await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS distance_km NUMERIC DEFAULT 0`);
 
   // Реестр сформированных и прикрепленных документов
   await pool.query(`
@@ -1328,6 +1339,9 @@ export async function seedMaterialsAndWarehouses() {
 
     console.log('[DB] Безопасные витрины данных v_ai_* успешно инициализированы');
 
+    // EXT-3: Идемпотентная авто-сшивка существующих пользователей и специалистов по ФИО
+    await syncExistingUsersAndSpecialists(pool);
+
     try {
       const { syncSubcontractsForTasks } = await import('../scripts/sync_task_subcontracts.js');
       await syncSubcontractsForTasks(pool);
@@ -1339,5 +1353,58 @@ export async function seedMaterialsAndWarehouses() {
     }
   } catch (err) {
     console.error('[DB] Ошибка сидирования материалов/складов:', err);
+  }
+}
+
+export async function syncExistingUsersAndSpecialists(dbPool = pool) {
+  try {
+    const { rows: matches } = await dbPool.query(`
+      SELECT u.id AS u_id, s.id AS s_id,
+             u.full_name AS u_full_name, s.full_name AS s_full_name,
+             u.contractor_id AS u_contractor_id, s.contractor_id AS s_contractor_id,
+             u.phone AS u_phone, s.phone AS s_phone,
+             u.passport_series_number AS u_pass_num, s.passport_series_number AS s_pass_num,
+             u.passport_issued_by AS u_pass_issued, s.passport_issued_by AS s_pass_issued,
+             u.passport_code AS u_pass_code, s.passport_code AS s_pass_code
+      FROM users u
+      JOIN specialists s ON (
+        (u.specialist_id IS NOT NULL AND u.specialist_id = s.id) OR
+        (s.user_id IS NOT NULL AND s.user_id = u.id) OR
+        (LOWER(TRIM(u.full_name)) = LOWER(TRIM(s.full_name)))
+      )
+      WHERE u.full_name IS NOT NULL AND TRIM(u.full_name) != ''
+    `);
+
+    for (const r of matches) {
+      const mergedContractorId = r.u_contractor_id || r.s_contractor_id || null;
+      const mergedPhone = (r.u_phone && r.u_phone.trim()) || (r.s_phone && r.s_phone.trim()) || null;
+      const mergedPassNum = (r.u_pass_num && r.u_pass_num.trim()) || (r.s_pass_num && r.s_pass_num.trim()) || null;
+      const mergedPassIssued = (r.u_pass_issued && r.u_pass_issued.trim()) || (r.s_pass_issued && r.s_pass_issued.trim()) || null;
+      const mergedPassCode = (r.u_pass_code && r.u_pass_code.trim()) || (r.s_pass_code && r.s_pass_code.trim()) || null;
+
+      await dbPool.query(`
+        UPDATE users SET
+          specialist_id = $1,
+          contractor_id = COALESCE(contractor_id, $2),
+          phone = COALESCE(NULLIF(phone, ''), $3),
+          passport_series_number = COALESCE(NULLIF(passport_series_number, ''), $4),
+          passport_issued_by = COALESCE(NULLIF(passport_issued_by, ''), $5),
+          passport_code = COALESCE(NULLIF(passport_code, ''), $6)
+        WHERE id = $7
+      `, [r.s_id, mergedContractorId, mergedPhone, mergedPassNum, mergedPassIssued, mergedPassCode, r.u_id]);
+
+      await dbPool.query(`
+        UPDATE specialists SET
+          user_id = $1,
+          contractor_id = COALESCE(contractor_id, $2),
+          phone = COALESCE(NULLIF(phone, ''), $3),
+          passport_series_number = COALESCE(NULLIF(passport_series_number, ''), $4),
+          passport_issued_by = COALESCE(NULLIF(passport_issued_by, ''), $5),
+          passport_code = COALESCE(NULLIF(passport_code, ''), $6)
+        WHERE id = $7
+      `, [r.u_id, mergedContractorId, mergedPhone, mergedPassNum, mergedPassIssued, mergedPassCode, r.s_id]);
+    }
+  } catch (err) {
+    console.error('[DB] Ошибка авто-сшивки пользователей и специалистов:', err.message);
   }
 }

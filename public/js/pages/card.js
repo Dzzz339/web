@@ -1135,6 +1135,7 @@ function openCard(id) {
   refreshRemarksList(id);
   refreshTaskItemsList(id);
   loadCardMaterials(id);
+  if (window.loadCardSubcontracts) window.loadCardSubcontracts(id);
   if (window.loadCardShipments) window.loadCardShipments(id);
   if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(id);
   if (window.renderSmrChecklist) window.renderSmrChecklist(id);
@@ -1958,6 +1959,8 @@ function pageCard() {
       '</div>'
     : '';
 
+  var isWorker = S.user && ['worker', 'installer', 'contractor', 'subcontractor', 'foreman', 'master'].includes(String(S.user.role || '').toLowerCase());
+
   var curStg = ID_STAGES[curStageNum] || ID_STAGES[0];
   var nextStepDef = curStageNum < 9 ? ID_STEPS[curStageNum] : null;
 
@@ -2125,7 +2128,6 @@ function pageCard() {
     '</div>';
   })();
 
-  var isWorker = S.user && (S.user.role === 'worker' || S.user.role === 'installer' || S.user.role === 'contractor');
   var tabsNav = '<div class="card-tabs-nav">' +
     '<button type="button" class="card-tab-btn ' + (curTab === 'main' ? 'active' : '') + '" data-tab="main" onclick="setCardTab(\'main\')" style="padding:5px 12px;font-size:.82rem">' +
       '🏛️ Информация' +
@@ -2420,7 +2422,7 @@ function pageCard() {
         '</div>' +
 
         '<!-- 2. Параметры заказа по договору (Вход) -->' +
-        customerInflowCard +
+        (isWorker ? '' : customerInflowCard) +
 
         '<!-- 3. Файлы ТЗ договора и материалы заявки (Пункты 14, 15) -->' +
         attachmentsBlock +
@@ -2463,8 +2465,10 @@ function pageCard() {
       '<div style="background:#eff6ff;padding:4px 10px;border-radius:6px;border:1px solid #bfdbfe">' +
         'ИТОГО ТМЦ + доставка: <b id="cardSummaryTotalWithDelivery" style="font-size:1.15rem;font-weight:800;color:#1e40af">0 ₽</b>' +
       '</div>' +
-      '<div>В т.ч. для Заказчика: <b id="cardSummaryCust" style="color:var(--text-2)">0 ₽</b></div>' +
-      '<div>Маржа по ТМЦ: <b id="cardSummaryMargin" style="color:var(--green)">0 ₽</b></div>' +
+      (!isWorker ? (
+        '<div>В т.ч. для Заказчика: <b id="cardSummaryCust" style="color:var(--text-2)">0 ₽</b></div>' +
+        '<div>Маржа по ТМЦ: <b id="cardSummaryMargin" style="color:var(--green)">0 ₽</b></div>'
+      ) : '') +
     '</div>' +
     '<div id="materialsGroupActionBar" style="display:none;background:#f8fafc;border:1.5px solid #cbd5e1;border-radius:8px;padding:8px 12px;margin-bottom:.75rem;align-items:center;gap:10px;flex-wrap:wrap">' +
       '<span style="font-weight:700;font-size:.8rem;color:var(--text)">Выбрано: <span id="batchSelectedCount">0</span> поз.</span>' +
@@ -2590,6 +2594,14 @@ function pageCard() {
     var stageTitle = (ID_STAGES[curStage] && ID_STAGES[curStage].name) || ('Этап ' + curStage);
     var kjPortsCount = (window._curTaskPorts && window._curTaskPorts[t.id] !== undefined) ? window._curTaskPorts[t.id] : (window._curPortsCount || 0);
     var hasPortsDesync = (kjPortsCount > 0 && curFact !== null && Number(curFact) !== Number(kjPortsCount));
+    var multiSubs = Array.isArray(window._curCardSubcontracts) ? window._curCardSubcontracts : [];
+    var multiSubsPortsSum = multiSubs.reduce(function(acc, s){ return acc + (Number(s.ports_count) || 0); }, 0);
+    if (multiSubs.length > 1 && multiSubsPortsSum > 0) {
+      var targetPorts = kjPortsCount > 0 ? kjPortsCount : (Number(t.inOrder ?? t.ports ?? 0) || 0);
+      if (targetPorts > 0 && (multiSubsPortsSum === targetPorts || (curFact !== null && Number(curFact) === multiSubsPortsSum))) {
+        hasPortsDesync = false;
+      }
+    }
 
     return '<div class="card p mb" id="smrClosingBlock" style="border:1.5px solid var(--border);border-radius:8px;background:var(--surface,#fff);margin-bottom:1rem">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;padding-bottom:.5rem;border-bottom:1.5px solid var(--border);flex-wrap:wrap;gap:8px">' +
@@ -2776,7 +2788,7 @@ function pageCard() {
 
   var paneItems = '<div id="cardTabPane-items" class="card-tab-pane" style="display:' + (curTab === 'items' ? 'block' : 'none') + '">' +
     '<div id="cardSmrCalculatorBlock" style="margin-bottom:1rem"></div>' +
-    '<div id="cardSubcontractsContainer" style="display:none"></div>' +
+    subcontractsBlock +
     quickIdWidget +
     itemsBlock +
     shipmentsBlock +
@@ -2851,6 +2863,7 @@ function pageCard() {
   '</div>';
 
   var paneFinance = (function() {
+    if (isWorker) return '';
     var curC = (S.contracts || []).find(function(x){ 
       var cid = (t.contract_id != null ? t.contract_id : t.contractId) || curContractId;
       return String(x.id) === String(cid); 
@@ -3189,7 +3202,7 @@ function pageCard() {
                 '<td style="padding:5px 8px;font-size:.78rem;font-weight:700;color:var(--green);text-align:right">' + fmtMoney(payAmt) + '</td>' +
                 '<td style="padding:5px 8px;font-size:.78rem;font-weight:700;color:' + (remAmt === 0 ? 'var(--green)' : 'var(--orange-dark)') + ';text-align:right">' + fmtMoney(remAmt) + '</td>' +
                 '<td style="padding:5px 8px;text-align:center">' +
-                  '<button type="button" class="btn btn-xs btn-ghost" onclick="window.removeContractorSettlement(\'' + eid + '\', ' + idx + ')" style="color:var(--red);padding:1px 5px" title="Удалить запись">✕</button>' +
+                  '<button type="button" class="btn btn-xs btn-ghost btn-remove-contractor-settlement" data-task-id="' + eid + '" data-settlement-idx="' + idx + '" style="color:var(--red);padding:1px 5px" title="Удалить запись">✕</button>' +
                 '</td>' +
               '</tr>';
             }).join('') : '<tr><td colspan="6" style="text-align:center;padding:10px;font-size:.76rem;color:var(--text-3)">Счета и оплаты подрядчика пока не зафиксированы. Нажмите «+ Добавить счёт / оплату».</td></tr>';
@@ -3209,7 +3222,7 @@ function pageCard() {
                   '<div class="sec-title" style="margin:0;font-size:.88rem">💼 Взаиморасчёты с подрядчиком (счета и оплаты)</div>' +
                   '<div style="font-size:.73rem;color:var(--text-3)">Фиксация счетов исполнителя, авансов и окончательных расчетов</div>' +
                 '</div>' +
-                '<button type="button" class="btn btn-sm btn-primary" onclick="window.openAddContractorSettlementModal(\'' + eid + '\')" style="font-size:.74rem;padding:3px 8px">+ Добавить счёт / оплату</button>' +
+                '<button type="button" class="btn btn-sm btn-primary" id="btnOpenAddSettlementModal" data-task-id="' + eid + '" style="font-size:.74rem;padding:3px 8px">+ Добавить счёт / оплату</button>' +
               '</div>' +
               '<div style="overflow-x:auto;border:1px solid var(--border);border-radius:6px">' +
                 '<table style="width:100%;border-collapse:collapse;font-size:.78rem">' +
@@ -8147,11 +8160,16 @@ function renderSmrChecklist(taskId) {
   var totalCableLen = (window._curTaskTotalCableLen && window._curTaskTotalCableLen[taskId] !== undefined)
     ? Number(window._curTaskTotalCableLen[taskId]) || 0
     : 0;
-  var hasVolumeSync = isFactSet && (portsCount > 0) && (portsCount === factValNum);
+  var multiSubs = Array.isArray(window._curCardSubcontracts) ? window._curCardSubcontracts : [];
+  var multiSubsPortsSum = multiSubs.reduce(function(acc, s){ return acc + (Number(s.ports_count) || 0); }, 0);
+  var isMultiSubMatched = (multiSubs.length > 1 && multiSubsPortsSum > 0 && (multiSubsPortsSum === portsCount || (inOrderVal > 0 && multiSubsPortsSum === inOrderVal)));
+  var hasVolumeSync = (isFactSet && (portsCount > 0) && (portsCount === factValNum)) || isMultiSubMatched;
   var checkKj = Boolean(hasVolumeSync && totalCableLen > 0);
 
   var kjDesc = '';
-  if (!portsCount) {
+  if (isMultiSubMatched) {
+    kjDesc = portsCount + ' линий в КЖ (Распределено по субподрядчикам: ' + multiSubs.map(function(s){ return (s.ports_count || 0); }).join(' + ') + ' = ' + multiSubsPortsSum + ' портов)';
+  } else if (!portsCount) {
     kjDesc = 'КЖ не заполнен монтажником (0 линий)';
   } else if (!isFactSet) {
     kjDesc = portsCount + ' линий в КЖ' + (factValNum === null
@@ -8339,7 +8357,20 @@ function loadCardSubcontracts(taskId) {
         return;
       }
 
-      var html = '<div style="display:flex;flex-direction:column;gap:10px">';
+      var totalAssignedPorts = subs.reduce(function(acc, s){ return acc + (Number(s.ports_count) || 0); }, 0);
+      var curTask = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); }) || {};
+      var totalTaskPorts = Number(curTask.inOrder || curTask.ports || curTask.fact || 0);
+
+      var multiSubBanner = '';
+      if (subs.length > 1) {
+        var portsSplitStr = subs.map(function(s){ return Number(s.ports_count) || 0; }).join(' + ');
+        multiSubBanner = '<div style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:.82rem;color:#1e40af;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">' +
+          '<span>👥 <b>Распределено по субподрядчикам:</b> ' + portsSplitStr + ' = <b>' + totalAssignedPorts + '</b>' + (totalTaskPorts > 0 ? ' из <b>' + totalTaskPorts + '</b> портов' : ' портов') + '</span>' +
+          (totalTaskPorts > 0 && totalAssignedPorts === totalTaskPorts ? '<span class="badge b-green" style="font-size:.72rem">✓ 100% распределено</span>' : '') +
+        '</div>';
+      }
+
+      var html = multiSubBanner + '<div style="display:flex;flex-direction:column;gap:10px">';
       subs.forEach(function(sub) {
         var statusMap = {
           assigned: { label: 'Назначен', cls: 'b-pink' },
@@ -8374,7 +8405,9 @@ function loadCardSubcontracts(taskId) {
 
           '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:8px;background:var(--bg);padding:8px 10px;border-radius:6px;font-size:.8rem;margin-bottom:10px">' +
             '<div>Вид работ: <b>' + escHtml(sub.work_type) + '</b></div>' +
+            '<div>Объем портов: <b style="color:var(--text)">' + (sub.ports_count != null ? (sub.ports_count + ' шт.') : '—') + '</b></div>' +
             '<div>Сумма субподряда: <b style="color:var(--blue)">' + priceStr + '</b></div>' +
+            (sub.distance_km ? '<div>Удалённость: <b>' + escHtml(sub.distance_km) + ' км</b></div>' : '') +
             (sub.own_company_name ? '<div>Генподрядчик: <b style="color:var(--primary)">' + escHtml(sub.own_company_name) + '</b></div>' : '') +
             (sub.contract_number ? '<div>Договор: <b>' + escHtml(sub.contract_number) + (sub.contract_date ? (' от ' + escHtml(sub.contract_date.slice(0,10).split('-').reverse().join('.'))) : '') + '</b></div>' : '') +
             '<div>Срок (дедлайн): <b>' + deadlineStr + '</b></div>' +
@@ -9864,7 +9897,7 @@ window.openAddContractorSettlementModal = function(taskId) {
     '<div class="card" style="width:100%;max-width:480px;background:#fff;border-radius:12px;box-shadow:0 20px 40px rgba(0,0,0,0.25);overflow:hidden;animation:fadeIn 0.15s ease">' +
       '<div style="background:#f8fafc;padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">' +
         '<div style="font-weight:700;font-size:1rem;color:var(--text)">+ Взаиморасчёт с подрядчиком: ' + escHtml(t.id) + '</div>' +
-        '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_add_settlement_modal\').remove()">✕</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" id="_settle_btn_close">✕</button>' +
       '</div>' +
       '<div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">' +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
@@ -9904,14 +9937,37 @@ window.openAddContractorSettlementModal = function(taskId) {
           '<input type="text" id="_settle_notes" placeholder="Акт №... / СМР по объекту" style="width:100%;padding:5px 8px;font-size:.82rem">' +
         '</div>' +
         '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px">' +
-          '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_add_settlement_modal\').remove()">Отмена</button>' +
-          '<button type="button" class="btn btn-sm btn-primary" onclick="window.saveContractorSettlement(\'' + escHtml(taskId) + '\')">✓ Сохранить</button>' +
+          '<button type="button" class="btn btn-sm btn-ghost" id="_settle_btn_cancel">Отмена</button>' +
+          '<button type="button" class="btn btn-sm btn-primary" id="_settle_btn_save">✓ Сохранить</button>' +
         '</div>' +
       '</div>' +
     '</div>';
 
   document.body.appendChild(m);
+
+  var closeBtn = m.querySelector('#_settle_btn_close');
+  if (closeBtn) closeBtn.addEventListener('click', function(){ m.remove(); });
+  var cancelBtn = m.querySelector('#_settle_btn_cancel');
+  if (cancelBtn) cancelBtn.addEventListener('click', function(){ m.remove(); });
+  var saveBtn = m.querySelector('#_settle_btn_save');
+  if (saveBtn) saveBtn.addEventListener('click', function(){ window.saveContractorSettlement(taskId); });
 };
+
+if (!window._contractorSettlementsListenerAttached) {
+  window._contractorSettlementsListenerAttached = true;
+  document.addEventListener('click', function(e) {
+    var addBtn = e.target.closest('#btnOpenAddSettlementModal');
+    if (addBtn && addBtn.dataset.taskId) {
+      window.openAddContractorSettlementModal(addBtn.dataset.taskId);
+      return;
+    }
+    var remBtn = e.target.closest('.btn-remove-contractor-settlement');
+    if (remBtn && remBtn.dataset.taskId && remBtn.dataset.settlementIdx !== undefined) {
+      window.removeContractorSettlement(remBtn.dataset.taskId, parseInt(remBtn.dataset.settlementIdx, 10));
+      return;
+    }
+  });
+}
 
 window.saveContractorSettlement = function(taskId) {
   var invNum = (document.getElementById('_settle_inv_num').value || '').trim();

@@ -104,23 +104,21 @@ router.get('/specialists', authenticateToken, async (req, res) => {
 // POST /api/specialists - Create or update specialist (avoiding duplicates)
 router.post('/specialists', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
   try {
-    const {
-      specialist_id,
-      specialistId,
-      full_name,
-      phone,
-      passport_series_number,
-      passport_issued_by,
-      passport_issue_date,
-      passport_code,
-      passport_raw,
-      auto_number,
-      organization,
-      position,
-      contractor_id,
-      employment_type,
-      acting_basis
-    } = req.body;
+    const full_name = req.body.full_name || req.body.fullName;
+    const phone = req.body.phone;
+    const passport_series_number = req.body.passport_series_number || req.body.passportSeriesNumber;
+    const passport_issued_by = req.body.passport_issued_by || req.body.passportIssuedBy;
+    const passport_issue_date = req.body.passport_issue_date || req.body.passportIssueDate;
+    const passport_code = req.body.passport_code || req.body.passportCode;
+    const passport_raw = req.body.passport_raw || req.body.passportRaw;
+    const auto_number = req.body.auto_number || req.body.autoNumber;
+    const organization = req.body.organization;
+    const position = req.body.position;
+    const contractor_id = req.body.contractor_id || req.body.contractorId;
+    const employment_type = req.body.employment_type || req.body.employmentType;
+    const acting_basis = req.body.acting_basis || req.body.actingBasis;
+    const specialist_id = req.body.specialist_id || req.body.specialistId;
+    const specialistId = req.body.specialistId;
 
     if (!full_name || !full_name.trim()) {
       return res.status(400).json({ error: 'ФИО специалиста обязательно' });
@@ -172,6 +170,7 @@ router.post('/specialists', authenticateToken, requireRole('admin', 'director', 
           targetId
         ]
       );
+      if (rows.length) await syncSpecialistToUser(rows[0]);
       return res.json(rows[0]);
     }
 
@@ -196,31 +195,73 @@ router.post('/specialists', authenticateToken, requireRole('admin', 'director', 
         acting_basis || null
       ]
     );
+    if (rows.length) await syncSpecialistToUser(rows[0]);
     res.status(201).json(rows[0]);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
+// Helper for two-way sync Specialist -> User
+async function syncSpecialistToUser(spec) {
+  if (!spec || !spec.id) return;
+  const targetName = (spec.full_name || '').trim();
+  if (!targetName) return;
+
+  try {
+    const { rows: uRows } = await pool.query(`
+      SELECT id FROM users
+      WHERE specialist_id = $1 OR (specialist_id IS NULL AND LOWER(TRIM(full_name)) = LOWER(TRIM($2)))
+      ORDER BY id ASC LIMIT 1
+    `, [spec.id, targetName]);
+
+    if (uRows.length) {
+      const uId = uRows[0].id;
+      await pool.query(`
+        UPDATE users SET
+          specialist_id = $1,
+          full_name = COALESCE(NULLIF($2, ''), full_name),
+          phone = COALESCE(NULLIF($3, ''), phone),
+          contractor_id = COALESCE($4, contractor_id),
+          passport_series_number = COALESCE(NULLIF($5, ''), passport_series_number),
+          passport_issued_by = COALESCE(NULLIF($6, ''), passport_issued_by),
+          passport_code = COALESCE(NULLIF($7, ''), passport_code)
+        WHERE id = $8
+      `, [
+        spec.id,
+        spec.full_name,
+        spec.phone || null,
+        spec.contractor_id || null,
+        spec.passport_series_number || null,
+        spec.passport_issued_by || null,
+        spec.passport_code || null,
+        uId
+      ]);
+
+      await pool.query('UPDATE specialists SET user_id = $1 WHERE id = $2', [uId, spec.id]);
+    }
+  } catch (err) {
+    console.error('Error in syncSpecialistToUser:', err.message);
+  }
+}
+
 // PUT /api/specialists/:id - Update specialist
 router.put('/specialists/:id', authenticateToken, requireRole('admin', 'director', 'manager', 'logistics'), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const {
-      full_name,
-      phone,
-      passport_series_number,
-      passport_issued_by,
-      passport_issue_date,
-      passport_code,
-      passport_raw,
-      auto_number,
-      organization,
-      position,
-      contractor_id,
-      employment_type,
-      acting_basis
-    } = req.body;
+    const full_name = req.body.full_name || req.body.fullName;
+    const phone = req.body.phone;
+    const passport_series_number = req.body.passport_series_number || req.body.passportSeriesNumber;
+    const passport_issued_by = req.body.passport_issued_by || req.body.passportIssuedBy;
+    const passport_issue_date = req.body.passport_issue_date || req.body.passportIssueDate;
+    const passport_code = req.body.passport_code || req.body.passportCode;
+    const passport_raw = req.body.passport_raw || req.body.passportRaw;
+    const auto_number = req.body.auto_number || req.body.autoNumber;
+    const organization = req.body.organization;
+    const position = req.body.position;
+    const contractor_id = req.body.contractor_id || req.body.contractorId;
+    const employment_type = req.body.employment_type || req.body.employmentType;
+    const acting_basis = req.body.acting_basis || req.body.actingBasis;
 
     const { rows } = await pool.query(
       `UPDATE specialists
@@ -258,6 +299,7 @@ router.put('/specialists/:id', authenticateToken, requireRole('admin', 'director
     );
 
     if (rows.length === 0) return res.status(404).json({ error: 'Специалист не найден' });
+    await syncSpecialistToUser(rows[0]);
     res.json(rows[0]);
   } catch (e) {
     res.status(500).json({ error: e.message });

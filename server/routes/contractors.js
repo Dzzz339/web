@@ -171,6 +171,39 @@ router.post('/contractors/:id/specialists', authenticateToken, async (req, res) 
       resultRow = rows[0];
     }
 
+    if (resultRow && resultRow.id) {
+      const targetName = (resultRow.full_name || '').trim();
+      const { rows: uRows } = await pool.query(`
+        SELECT id FROM users
+        WHERE specialist_id = $1 OR (specialist_id IS NULL AND LOWER(TRIM(full_name)) = LOWER(TRIM($2)))
+        ORDER BY id ASC LIMIT 1
+      `, [resultRow.id, targetName]);
+      if (uRows.length) {
+        const uId = uRows[0].id;
+        await pool.query(`
+          UPDATE users SET
+            specialist_id = $1,
+            contractor_id = COALESCE($2, contractor_id),
+            phone = COALESCE(NULLIF($3, ''), phone),
+            passport_series_number = COALESCE(NULLIF($4, ''), passport_series_number),
+            passport_issued_by = COALESCE(NULLIF($5, ''), passport_issued_by),
+            passport_code = COALESCE(NULLIF($6, ''), passport_code),
+            full_name = COALESCE(NULLIF($7, ''), full_name)
+          WHERE id = $8
+        `, [
+          resultRow.id,
+          contractorId,
+          resultRow.phone || null,
+          resultRow.passport_series_number || null,
+          resultRow.passport_issued_by || null,
+          resultRow.passport_code || null,
+          targetName,
+          uId
+        ]);
+        await pool.query('UPDATE specialists SET user_id = $1 WHERE id = $2', [uId, resultRow.id]);
+      }
+    }
+
     res.json(resultRow);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

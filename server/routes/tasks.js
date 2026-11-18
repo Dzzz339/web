@@ -59,9 +59,10 @@ router.get('/tasks', authenticateToken, async (req, res) => {
     let params = [];
 
     const role = String(req.user?.role || '').toLowerCase();
-    const isWorker = role === 'worker' || role === 'installer' || role === 'contractor';
+    const WORKER_ROLES = ['worker', 'installer', 'contractor', 'subcontractor', 'foreman', 'master'];
+    const isWorker = WORKER_ROLES.includes(role);
 
-    // Если зашел рабочий / монтажник / подрядчик, показываем только ЕГО задачи (по ФИО, логину, названию подрядчика или субподряду)
+    // Если зашел рабочий / монтажник / подрядчик, показываем только ЕГО задачи (по ФИО, логину, организации-подрядчику или субподряду)
     if (isWorker) {
       query += ` WHERE (
         t.assignee = $1 OR 
@@ -69,6 +70,11 @@ router.get('/tasks', authenticateToken, async (req, res) => {
         ($1 <> '' AND t.contractor ILIKE '%' || $1 || '%') OR
         ($2 <> '' AND t.contractor ILIKE '%' || $2 || '%') OR
         ($3::integer IS NOT NULL AND t.contractor_id = $3::integer) OR
+        ($3::integer IS NOT NULL AND EXISTS (
+          SELECT 1 FROM contractors c WHERE c.id = $3::integer AND (
+            t.contractor ILIKE '%' || c.name_short || '%' OR t.contractor ILIKE '%' || c.name_full || '%'
+          )
+        )) OR
         EXISTS (
           SELECT 1 FROM task_subcontracts sub 
           WHERE sub.task_id = t.id AND (
@@ -76,12 +82,12 @@ router.get('/tasks', authenticateToken, async (req, res) => {
             ($2 <> '' AND sub.installer_fio ILIKE '%' || $2 || '%') OR
             ($3::integer IS NOT NULL AND sub.contractor_id = $3::integer) OR
             (sub.specialist_id IS NOT NULL AND sub.specialist_id IN (
-              SELECT id FROM specialists WHERE ($1 <> '' AND full_name ILIKE '%' || $1 || '%') OR ($2 <> '' AND full_name ILIKE '%' || $2 || '%')
+              SELECT id FROM specialists WHERE ($1 <> '' AND full_name ILIKE '%' || $1 || '%') OR ($2 <> '' AND full_name ILIKE '%' || $2 || '%') OR user_id = $4
             ))
           )
         )
       )`;
-      params.push(req.user.fullName || '', req.user.username || '', req.user.contractorId || null);
+      params.push(req.user.fullName || '', req.user.username || '', req.user.contractorId || null, req.user.id || null);
     }
 
     query += ' ORDER BY t.created_at';
@@ -95,6 +101,7 @@ router.get('/tasks', authenticateToken, async (req, res) => {
         task.tmc = 0;
         task.extras = 0;
         task.pricePerUnit = 0;
+        task.price_per_unit = 0;
         task.kmRate = 0;
       }
       return task;
@@ -117,33 +124,40 @@ router.get('/tasks/:id', authenticateToken, async (req, res) => {
 
     const task = rowToTask(rows[0]);
     const role = String(req.user?.role || '').toLowerCase();
-    const isWorker = role === 'worker' || role === 'installer' || role === 'contractor';
+    const WORKER_ROLES = ['worker', 'installer', 'contractor', 'subcontractor', 'foreman', 'master'];
+    const isWorker = WORKER_ROLES.includes(role);
 
-    // Защита от BOLA/IDOR: монтажник может просматривать только свою назначенную задачу
+    // Защита от BOLA/IDOR: монтажник/подрядчик может просматривать только свою назначенную задачу
     if (isWorker) {
+      const uCId = (req.user.contractorId != null) ? parseInt(req.user.contractorId) : ((req.user.contractor_id != null) ? parseInt(req.user.contractor_id) : null);
       const isDirectlyAssigned = (
         (task.assignee && (task.assignee === req.user.fullName || task.assignee === req.user.username)) ||
-        (task.contractor && (task.contractor === req.user.fullName || task.contractor === req.user.username))
+        (task.contractor && (task.contractor === req.user.fullName || task.contractor === req.user.username)) ||
+        (task.contractor && req.user.contractorName && task.contractor === req.user.contractorName) ||
+        (uCId && (Number(task.contractor_id) === uCId || Number(task.contractorId) === uCId))
       );
       if (!isDirectlyAssigned) {
         const { rows: subRows } = await pool.query(
-          `SELECT 1 FROM task_subcontracts 
-           WHERE task_id = $1 AND (
-             installer_fio ILIKE $2 OR installer_fio ILIKE $3 OR
-             (specialist_id IS NOT NULL AND specialist_id IN (
-               SELECT id FROM specialists WHERE full_name ILIKE $2 OR full_name ILIKE $3
+          `SELECT 1 FROM task_subcontracts sub
+           WHERE sub.task_id = $1 AND (
+             ($2 <> '' AND sub.installer_fio ILIKE $2) OR
+             ($3 <> '' AND sub.installer_fio ILIKE $3) OR
+             ($4::integer IS NOT NULL AND sub.contractor_id = $4::integer) OR
+             (sub.specialist_id IS NOT NULL AND sub.specialist_id IN (
+               SELECT id FROM specialists WHERE ($2 <> '' AND full_name ILIKE $2) OR ($3 <> '' AND full_name ILIKE $3) OR user_id = $5
              ))
            ) LIMIT 1`,
-          [task.id, req.user.fullName || '', req.user.username || '']
+          [task.id, req.user.fullName || '', req.user.username || '', uCId, req.user.id || null]
         );
-        if (!subRows.length && task.assignee) {
-          return res.status(403).json({ error: 'Доступ ограничен: данная заявка назначена другому специалисту' });
+        if (!subRows.length && (task.assignee || task.contractor || task.contractor_id)) {
+          return res.status(403).json({ error: 'Доступ ограничен: данная заявка назначена другому исполнителю' });
         }
       }
       task.amount = 0;
       task.tmc = 0;
       task.extras = 0;
       task.pricePerUnit = 0;
+      task.price_per_unit = 0;
       task.kmRate = 0;
     }
 
@@ -1111,6 +1125,11 @@ router.post('/tasks/batch-action', authenticateToken, requireRole('admin', 'dire
       } else if (action === 'assign_contractor') {
         const contrName = (contractor_name || contractor) ? String(contractor_name || contractor).trim() : '';
         if (!contrName) throw new Error('Не указано имя субподрядчика');
+        let targetCId = contractor_id ? parseInt(contractor_id) : null;
+        if (!targetCId && contrName) {
+          const { rows: cMatch } = await client.query('SELECT id FROM contractors WHERE LOWER(TRIM(name_short)) = LOWER(TRIM($1)) OR LOWER(TRIM(name_full)) = LOWER(TRIM($1)) LIMIT 1', [contrName]);
+          if (cMatch.length) targetCId = cMatch[0].id;
+        }
         hist.push({
           date: nowRu,
           author: authorName,
@@ -1121,10 +1140,11 @@ router.post('/tasks/batch-action', authenticateToken, requireRole('admin', 'dire
         await client.query(`
           UPDATE tasks
           SET contractor = $2,
-              history = $3::jsonb,
+              contractor_id = $3,
+              history = $4::jsonb,
               updated_at = NOW()
           WHERE id = $1
-        `, [tid, contrName, JSON.stringify(hist.slice(-500))]);
+        `, [tid, contrName, targetCId, JSON.stringify(hist.slice(-500))]);
         updatedCount++;
       } else if (action === 'clear_contractor') {
         hist.push({
@@ -1137,6 +1157,7 @@ router.post('/tasks/batch-action', authenticateToken, requireRole('admin', 'dire
         await client.query(`
           UPDATE tasks
           SET contractor = NULL,
+              contractor_id = NULL,
               history = $2::jsonb,
               updated_at = NOW()
           WHERE id = $1

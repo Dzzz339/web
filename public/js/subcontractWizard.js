@@ -1475,7 +1475,7 @@
     box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">' +
       '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
         priceListPickerHtml +
-        '<button type="button" class="btn btn-sm btn-ghost" onclick="window.addNewSubcontractToTask(\'' + escHtml(taskId) + '\')" style="color:var(--blue);border:1.5px dashed #93c5fd;font-weight:700;font-size:.78rem;padding:4px 10px;display:inline-flex;align-items:center;gap:5px" title="Добавить второго исполнителя на объект (Спецработы / ВОЛС / СМР)">+ Добавить второго исполнителя на объект</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" id="btnAddSecondContractorTop_' + escHtml(taskId) + '" data-task-id="' + escHtml(taskId) + '" style="color:var(--blue);border:1.5px dashed #93c5fd;font-weight:700;font-size:.78rem;padding:4px 10px;display:inline-flex;align-items:center;gap:5px" title="Добавить второго исполнителя на объект (Спецработы / ВОЛС / СМР)">+ Добавить второго исполнителя на объект</button>' +
         '<button type="button" class="btn btn-sm btn-ghost" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="window._addCustomCardSmrLine(\'' + escHtml(taskId) + '\')"') + ' style="font-size:.78rem;font-weight:600;border:1.5px dashed var(--border);padding:4px 10px">' +
           '+ Произвольная работа' +
         '</button>' +
@@ -1683,7 +1683,7 @@
 
     // Кнопка добавления второго/следующего исполнителя СМР (1 ко многим)
     '<div style="margin-bottom:14px;display:flex;justify-content:flex-end">' +
-      '<button type="button" class="btn btn-sm btn-ghost" onclick="window.addNewSubcontractToTask(\'' + escHtml(taskId) + '\')" style="color:var(--blue);border:1.5px dashed #93c5fd;font-weight:700;font-size:.78rem;padding:6px 14px;display:inline-flex;align-items:center;gap:6px">' +
+      '<button type="button" class="btn btn-sm btn-ghost" id="btnAddSecondContractorBottom_' + escHtml(taskId) + '" data-task-id="' + escHtml(taskId) + '" style="color:var(--blue);border:1.5px dashed #93c5fd;font-weight:700;font-size:.78rem;padding:6px 14px;display:inline-flex;align-items:center;gap:6px">' +
         '<span>➕ Добавить второго исполнителя на объект (Спецработы / ВОЛС / СМР)</span>' +
       '</button>' +
     '</div>' +
@@ -1721,6 +1721,19 @@
         '</button>' +
       '</div>' +
     '</div>';
+
+    var topAddSecondBtn = box.querySelector('#btnAddSecondContractorTop_' + escHtml(taskId));
+    if (topAddSecondBtn) {
+      topAddSecondBtn.addEventListener('click', function() {
+        window.addNewSubcontractToTask(taskId);
+      });
+    }
+    var bottomAddSecondBtn = box.querySelector('#btnAddSecondContractorBottom_' + escHtml(taskId));
+    if (bottomAddSecondBtn) {
+      bottomAddSecondBtn.addEventListener('click', function() {
+        window.addNewSubcontractToTask(taskId);
+      });
+    }
   };
 
   // Мгновенный пересчет сумм и финансового баланса без перерисовки DOM (сохраняет фокус ввода)
