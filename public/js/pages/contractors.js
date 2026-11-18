@@ -1473,7 +1473,7 @@ function openAddInstallerModal(contractorId, contractorName) {
           return api('/specialists?q=' + encodeURIComponent(q) + '&limit=15');
         },
         renderItem: function(s) {
-          var cName = s.contractor_name || s.organization || 'ООО "Ультима"';
+          var cName = s.contractor_name || s.organization || 'не указана';
           var hasPass = s.passport_series_number || s.passport_raw;
           var passText = s.passport_series_number ? ('🪪 Паспорт: ' + s.passport_series_number) : (hasPass ? '🪪 Паспорт заполнен' : '⚠️ Паспорт не заполнен');
           var phone = s.phone || 'Нет тел.';
@@ -1498,7 +1498,7 @@ function openAddInstallerModal(contractorId, contractorName) {
         },
         getValue: function(s) { return s.full_name; },
         badgeText: function(s) {
-          var cName = s.contractor_name || s.organization || 'ООО "Ультима"';
+          var cName = s.contractor_name || s.organization || 'не указана';
           var accBadge = s.user_username
             ? '<span class="badge b-green" style="font-size:.72rem;margin-left:6px">🔑 Есть доступ в ЛК (логин: ' + escHtml(s.user_username) + ')</span>'
             : '<span class="badge b-gray" style="font-size:.72rem;margin-left:6px">⚪ Нет учётной записи ЛК</span>';

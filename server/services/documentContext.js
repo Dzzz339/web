@@ -635,6 +635,7 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
       number: contract?.contract_number || '',
       date: contract?.contract_date ? formatDateRu(contract.contract_date) : '',
       title: contract?.title || '',
+      subject: contract?.subject || '',
       purchase_id: contract?.purchase_id || task?.purchase_id || '',
       law_type: contract?.contract_law_type || ''
     },
@@ -792,8 +793,8 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
     дата_договора_субподряда: linkedContractorContract.contract_date ? formatDateRu(linkedContractorContract.contract_date) : (contractor.contract_date ? formatDateRu(contractor.contract_date) : ''),
     дата_договора_субподряда_прописью: linkedContractorContract.contract_date ? formatDateRuWords(linkedContractorContract.contract_date) : (contractor.contract_date ? formatDateRuWords(contractor.contract_date) : ''),
     номер_заявки_к_договору: String(orderNum),
-    предмет_контракта: task?.work_type || 'Монтаж СКС и пусконаладочные работы',
-    предмет_и_адрес_объекта: `${task?.work_type || 'Монтаж СКС и пусконаладочные работы'} по адресу: ${ctx.task.address || ''}`,
+    предмет_контракта: (contract && contract.subject) || task?.work_type || subcontract?.work_type || 'Монтаж СКС и пусконаладочные работы',
+    предмет_и_адрес_объекта: `${(contract && contract.subject) || task?.work_type || subcontract?.work_type || 'Монтаж СКС и пусконаладочные работы'} по адресу: ${ctx.task.address || ''}`,
     общая_сумма_заявки_числом: totalAmount === null ? '' : formatMoneyNum(totalAmount),
     общая_сумма_заявки_прописью: totalAmountWordsOnly,
     текст_ндс: vatTextRu,

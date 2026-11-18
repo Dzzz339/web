@@ -1852,39 +1852,39 @@
           '</div>' +
           '<div>' +
             '<label style="display:block;font-size:.74rem;color:#1e3a8a;margin-bottom:2px;font-weight:600">Срок оплаты (календ. дней)</label>' +
-            '<input type="number" id="sub_order_payment_days_' + escHtml(taskId) + '" value="' + pDays + '" ' + (isWorkerLocked ? 'disabled ' : '') + 'style="width:100%;padding:4px 8px;border:1px solid #93c5fd;border-radius:6px;font-size:.82rem;background:#fff" oninput="window._updateSubOrderFinalLabels(\'" + escHtml(taskId) + "\')">' +
+            '<input type="number" id="sub_order_payment_days_' + escHtml(taskId) + '" value="' + pDays + '" ' + (isWorkerLocked ? 'disabled ' : '') + 'style="width:100%;padding:4px 8px;border:1px solid #93c5fd;border-radius:6px;font-size:.82rem;background:#fff">' +
           '</div>' +
         '</div>' +
         '<div style="border-top:1px dashed #bfdbfe;padding-top:10px;display:flex;flex-direction:column;gap:8px">' +
           '<div style="font-size:.78rem;font-weight:700;color:#1e3a8a">Условия оплаты:</div>' +
           '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
             '<label style="display:flex;align-items:center;gap:6px;font-size:.8rem;font-weight:600;color:#1e3a8a;min-width:110px;cursor:pointer">' +
-              '<input type="checkbox" id="sub_order_has_advance_' + escHtml(taskId) + '" ' + (hasAdv ? 'checked ' : '') + (isWorkerLocked ? 'disabled ' : '') + 'onchange="window._onSubOrderAdvanceToggle(\'" + escHtml(taskId) + "\', this.checked)">' +
+              '<input type="checkbox" id="sub_order_has_advance_' + escHtml(taskId) + '" ' + (hasAdv ? 'checked ' : '') + (isWorkerLocked ? 'disabled ' : '') + '>' +
               '<span>Аванс</span>' +
             '</label>' +
             '<div id="sub_order_advance_box_' + escHtml(taskId) + '" style="display:' + (hasAdv ? 'flex' : 'none') + ';align-items:center;gap:8px">' +
               '<div style="display:flex;align-items:center;gap:3px">' +
-                '<input type="number" id="sub_order_advance_pct_' + escHtml(taskId) + '" value="' + advPct + '" ' + (isWorkerLocked ? 'disabled ' : '') + 'style="width:55px;padding:3px 6px;border:1px solid #93c5fd;border-radius:4px;font-size:.8rem;text-align:right" oninput="window._onSubOrderAdvancePctInput(\'" + escHtml(taskId) + "\', this.value)">' +
+                '<input type="number" id="sub_order_advance_pct_' + escHtml(taskId) + '" value="' + advPct + '" ' + (isWorkerLocked ? 'disabled ' : '') + 'style="width:55px;padding:3px 6px;border:1px solid #93c5fd;border-radius:4px;font-size:.8rem;text-align:right">' +
                 '<span style="font-size:.76rem;color:#1e3a8a">%</span>' +
               '</div>' +
               '<div style="display:flex;align-items:center;gap:3px">' +
-                '<input type="number" id="sub_order_advance_amount_' + escHtml(taskId) + '" value="' + advAmt + '" ' + (isWorkerLocked ? 'disabled ' : '') + 'style="width:110px;padding:3px 6px;border:1px solid #93c5fd;border-radius:4px;font-size:.8rem;text-align:right;font-weight:700" oninput="window._onSubOrderAdvanceAmountInput(\'" + escHtml(taskId) + "\', this.value)">' +
+                '<input type="number" id="sub_order_advance_amount_' + escHtml(taskId) + '" value="' + advAmt + '" ' + (isWorkerLocked ? 'disabled ' : '') + 'style="width:110px;padding:3px 6px;border:1px solid #93c5fd;border-radius:4px;font-size:.8rem;text-align:right;font-weight:700">' +
                 '<span style="font-size:.76rem;color:#1e3a8a">₽</span>' +
               '</div>' +
             '</div>' +
           '</div>' +
           '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
             '<label style="display:flex;align-items:center;gap:6px;font-size:.8rem;font-weight:600;color:#1e3a8a;min-width:110px;cursor:pointer">' +
-              '<input type="checkbox" id="sub_order_has_interim_' + escHtml(taskId) + '" ' + (hasInt ? 'checked ' : '') + (isWorkerLocked ? 'disabled ' : '') + 'onchange="window._onSubOrderInterimToggle(\'" + escHtml(taskId) + "\', this.checked)">' +
+              '<input type="checkbox" id="sub_order_has_interim_' + escHtml(taskId) + '" ' + (hasInt ? 'checked ' : '') + (isWorkerLocked ? 'disabled ' : '') + '>' +
               '<span>Промежуточный</span>' +
             '</label>' +
             '<div id="sub_order_interim_box_' + escHtml(taskId) + '" style="display:' + (hasInt ? 'flex' : 'none') + ';align-items:center;gap:8px">' +
               '<div style="display:flex;align-items:center;gap:3px">' +
-                '<input type="number" id="sub_order_interim_pct_' + escHtml(taskId) + '" value="' + intPct + '" ' + (isWorkerLocked ? 'disabled ' : '') + 'style="width:55px;padding:3px 6px;border:1px solid #93c5fd;border-radius:4px;font-size:.8rem;text-align:right" oninput="window._onSubOrderInterimPctInput(\'" + escHtml(taskId) + "\', this.value)">' +
+                '<input type="number" id="sub_order_interim_pct_' + escHtml(taskId) + '" value="' + intPct + '" ' + (isWorkerLocked ? 'disabled ' : '') + 'style="width:55px;padding:3px 6px;border:1px solid #93c5fd;border-radius:4px;font-size:.8rem;text-align:right">' +
                 '<span style="font-size:.76rem;color:#1e3a8a">%</span>' +
               '</div>' +
               '<div style="display:flex;align-items:center;gap:3px">' +
-                '<input type="number" id="sub_order_interim_amount_' + escHtml(taskId) + '" value="' + intAmt + '" ' + (isWorkerLocked ? 'disabled ' : '') + 'style="width:110px;padding:3px 6px;border:1px solid #93c5fd;border-radius:4px;font-size:.8rem;text-align:right;font-weight:700" oninput="window._onSubOrderInterimAmountInput(\'" + escHtml(taskId) + "\', this.value)">' +
+                '<input type="number" id="sub_order_interim_amount_' + escHtml(taskId) + '" value="' + intAmt + '" ' + (isWorkerLocked ? 'disabled ' : '') + 'style="width:110px;padding:3px 6px;border:1px solid #93c5fd;border-radius:4px;font-size:.8rem;text-align:right;font-weight:700">' +
                 '<span style="font-size:.76rem;color:#1e3a8a">₽</span>' +
               '</div>' +
             '</div>' +
@@ -1941,6 +1941,50 @@
     if (bottomAddSecondBtn) {
       bottomAddSecondBtn.addEventListener('click', function() {
         window.addNewSubcontractToTask(taskId);
+      });
+    }
+
+    // Слушатели параметров Заявки и условий оплаты (к Договору субподряда)
+    var payDaysInp = box.querySelector('#sub_order_payment_days_' + escHtml(taskId));
+    if (payDaysInp) {
+      payDaysInp.addEventListener('input', function() {
+        window._updateSubOrderFinalLabels(taskId);
+      });
+    }
+    var hasAdvChk = box.querySelector('#sub_order_has_advance_' + escHtml(taskId));
+    if (hasAdvChk) {
+      hasAdvChk.addEventListener('change', function() {
+        window._onSubOrderAdvanceToggle(taskId, this.checked);
+      });
+    }
+    var advPctInp = box.querySelector('#sub_order_advance_pct_' + escHtml(taskId));
+    if (advPctInp) {
+      advPctInp.addEventListener('input', function() {
+        window._onSubOrderAdvancePctInput(taskId, this.value);
+      });
+    }
+    var advAmtInp = box.querySelector('#sub_order_advance_amount_' + escHtml(taskId));
+    if (advAmtInp) {
+      advAmtInp.addEventListener('input', function() {
+        window._onSubOrderAdvanceAmountInput(taskId, this.value);
+      });
+    }
+    var hasIntChk = box.querySelector('#sub_order_has_interim_' + escHtml(taskId));
+    if (hasIntChk) {
+      hasIntChk.addEventListener('change', function() {
+        window._onSubOrderInterimToggle(taskId, this.checked);
+      });
+    }
+    var intPctInp = box.querySelector('#sub_order_interim_pct_' + escHtml(taskId));
+    if (intPctInp) {
+      intPctInp.addEventListener('input', function() {
+        window._onSubOrderInterimPctInput(taskId, this.value);
+      });
+    }
+    var intAmtInp = box.querySelector('#sub_order_interim_amount_' + escHtml(taskId));
+    if (intAmtInp) {
+      intAmtInp.addEventListener('input', function() {
+        window._onSubOrderInterimAmountInput(taskId, this.value);
       });
     }
   };
@@ -2684,7 +2728,7 @@
           var dStr = c.contract_date ? String(c.contract_date).slice(0, 10).split('-').reverse().join('.') : 'б/д';
 
           html += '<div style="border:1.5px solid #cbd5e1;background:#f8fafc;border-radius:6px;padding:8px 10px;display:flex;align-items:flex-start;gap:8px">' +
-            '<input type="radio" name="wiz_contract_choice" id="wiz_ct_' + c.id + '" value="' + c.id + '"' + isChecked + ' onchange="window._wizOnContractChoiceChange(\'" + c.id + "\')" style="margin-top:3px;cursor:pointer">' +
+            '<input type="radio" name="wiz_contract_choice" id="wiz_ct_' + c.id + '" value="' + c.id + '"' + isChecked + ' style="margin-top:3px;cursor:pointer">' +
             '<div style="flex:1">' +
               '<label for="wiz_ct_' + c.id + '" style="font-weight:700;font-size:.85rem;color:var(--text);cursor:pointer;display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
                 '<span>№ ' + escHtml(c.contract_number || 'б/н') + ' от ' + dStr + '</span>' +
@@ -2706,7 +2750,7 @@
       var isNewChecked = contracts.length === 0 ? ' checked' : '';
       html += '<div style="border:1.5px solid var(--border);background:#fafaf9;border-radius:6px;padding:8px 10px">' +
         '<div style="display:flex;align-items:flex-start;gap:8px">' +
-          '<input type="radio" name="wiz_contract_choice" id="wiz_ct_new" value="new"' + isNewChecked + ' onchange="window._wizOnContractChoiceChange(\'new\')" style="margin-top:3px;cursor:pointer">' +
+          '<input type="radio" name="wiz_contract_choice" id="wiz_ct_new" value="new"' + isNewChecked + ' style="margin-top:3px;cursor:pointer">' +
           '<div style="flex:1">' +
             '<label for="wiz_ct_new" style="font-weight:700;font-size:.85rem;color:var(--text);cursor:pointer">' +
               '➕ Заключить новый договор подряда' +
@@ -2748,6 +2792,13 @@
 
       html += '</div>';
       bodyEl.innerHTML = html;
+
+      var contractRadios = bodyEl.querySelectorAll('input[name="wiz_contract_choice"]');
+      contractRadios.forEach(function(r) {
+        r.addEventListener('change', function() {
+          window._wizOnContractChoiceChange(this.value);
+        });
+      });
     });
   };
 

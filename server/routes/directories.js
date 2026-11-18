@@ -179,7 +179,7 @@ router.post('/specialists', authenticateToken, requireRole('admin', 'director', 
       const cRes = await pool.query('SELECT name_short FROM contractors WHERE id = $1', [contractor_id]);
       if (cRes.rows.length) finalOrg = cRes.rows[0].name_short;
     }
-    if (!finalOrg) finalOrg = 'ООО "Ультима"';
+    if (!finalOrg) finalOrg = null;
 
     const { rows } = await pool.query(
       `INSERT INTO specialists

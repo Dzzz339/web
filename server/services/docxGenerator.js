@@ -244,6 +244,7 @@ function buildWorkItemsTable(items, totalPrice) {
 export async function generateSubcontractOrder({
   task,
   subcontract = {},
+  contract = {},
   contractor = {},
   generalContractor = DEFAULT_GENERAL_CONTRACTOR,
   orderNumber = null,
@@ -260,7 +261,7 @@ export async function generateSubcontractOrder({
   const contractDateVal = linkedContract.contract_date || contractor.contract_date;
   const contractDateStr = contractDateVal ? formatDateRu(contractDateVal) : '«___» ________ 202_ г.';
 
-  const workType = task.work_type || subcontract.work_type || 'Монтаж СКС и пусконаладочные работы';
+  const workType = (contract && contract.subject) || task.work_type || subcontract.work_type || 'Монтаж СКС и пусконаладочные работы';
   const objectAddress = task.address || 'по месту нахождения объекта';
   const dirTitle = generalContractor.director_title || 'Директор';
 

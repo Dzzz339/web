@@ -260,6 +260,19 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
         if (cRes.rows.length) linkedContract = cRes.rows[0];
       }
 
+      let customerContract = null;
+      if (task.contract_id) {
+        const cRes = await pool.query('SELECT * FROM contracts WHERE id = $1', [task.contract_id]);
+        if (cRes.rows.length) customerContract = cRes.rows[0];
+      } else if (subcontract && subcontract.contractor_contract_id) {
+        const ccParent = await pool.query(`
+          SELECT c.* FROM contractor_contracts cc
+          JOIN contracts c ON c.id = cc.parent_contract_id
+          WHERE cc.id = $1
+        `, [subcontract.contractor_contract_id]);
+        if (ccParent.rows.length) customerContract = ccParent.rows[0];
+      }
+
       const contractNumber = linkedContract.contract_number || contractor.contract_number || 'б/н';
       const contractDateRu = linkedContract.contract_date ? formatDateRu(linkedContract.contract_date) : (contractor.contract_date ? formatDateRu(contractor.contract_date) : 'б/д');
 
@@ -268,6 +281,7 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
       buffer = await generateSubcontractOrder({
         task,
         subcontract: subcontract || {},
+        contract: customerContract || {},
         contractor,
         generalContractor,
         orderNumber: docNumber,
