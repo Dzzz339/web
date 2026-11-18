@@ -1,4 +1,5 @@
 import express from 'express';
+import bcrypt from 'bcryptjs';
 import { pool } from '../config/db.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { syncContractorsFromPOA } from '../services/directoriesImporter.js';
@@ -14,7 +15,7 @@ router.get('/contractors', authenticateToken, async (req, res) => {
   try {
     const { type } = req.query;
     let query = `
-      SELECT c.*, 
+      SELECT c.*,
         oc.vat_rate AS own_vat_rate, oc.tax_system AS own_tax_system, oc.code AS own_company_code,
         (SELECT COUNT(*) FROM specialists s WHERE s.contractor_id = c.id) AS specialists_count,
         (SELECT COUNT(*) FROM contractor_contracts cc WHERE cc.contractor_id = c.id) AS subcontracts_count
@@ -43,7 +44,10 @@ router.get('/contractors', authenticateToken, async (req, res) => {
 router.get('/contractors/:id/specialists', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT s.*, 
+      SELECT s.*,
+        u.id AS user_id,
+        u.username AS user_username,
+        u.role AS user_role,
         COALESCE(
           json_agg(json_build_object(
             'id', p.id,
@@ -53,9 +57,10 @@ router.get('/contractors/:id/specialists', authenticateToken, async (req, res) =
           )) FILTER (WHERE p.id IS NOT NULL), '[]'
         ) AS active_poas
       FROM specialists s
+      LEFT JOIN users u ON u.specialist_id = s.id OR u.id = s.user_id
       LEFT JOIN powers_of_attorney p ON p.specialist_id = s.id AND (p.valid_until IS NULL OR p.valid_until >= CURRENT_DATE)
       WHERE s.contractor_id = $1
-      GROUP BY s.id
+      GROUP BY s.id, u.id, u.username, u.role
       ORDER BY s.full_name ASC
     `, [req.params.id]);
     res.json(rows);
@@ -70,21 +75,21 @@ router.post('/contractors/:id/specialists', authenticateToken, async (req, res) 
   }
   try {
     const contractorId = parseInt(req.params.id);
-    const { 
-      specialistId, 
-      fullName, 
-      phone, 
-      passportRaw, 
-      passportSeriesNumber, 
-      passportIssuedBy, 
-      passportIssueDate, 
-      passportCode, 
+    const {
+      specialistId,
+      fullName,
+      phone,
+      passportRaw,
+      passportSeriesNumber,
+      passportIssuedBy,
+      passportIssueDate,
+      passportCode,
       position,
       autoNumber,
       employmentType,
       actingBasis
     } = req.body;
-    
+
     if (!fullName && !specialistId) {
       return res.status(400).json({ error: 'ФИО специалиста обязательно' });
     }
@@ -111,7 +116,7 @@ router.post('/contractors/:id/specialists', authenticateToken, async (req, res) 
     if (targetId) {
       // Обновляем существующего специалиста ("красим" под нового подрядчика)
       const { rows } = await pool.query(`
-        UPDATE specialists 
+        UPDATE specialists
         SET contractor_id = $1,
             organization = COALESCE($2, organization),
             full_name = COALESCE(NULLIF($3, ''), full_name),
@@ -204,6 +209,32 @@ router.post('/contractors/:id/specialists', authenticateToken, async (req, res) 
       }
     }
 
+    // Создание или привязка логина в ЛК (если запрошено)
+    if ((req.body.createLogin || req.body.username) && req.body.username) {
+      const uname = String(req.body.username).trim();
+      const rawPass = req.body.password || 'password123';
+      const hash = await bcrypt.hash(rawPass, 10);
+      const specFinalId = resultRow.id;
+
+      const { rows: existUsers } = await pool.query('SELECT id FROM users WHERE username = $1', [uname]);
+      let uId;
+      if (existUsers.length > 0) {
+        uId = existUsers[0].id;
+        await pool.query('UPDATE users SET specialist_id = $1, contractor_id = $2 WHERE id = $3', [specFinalId, contractorId, uId]);
+      } else {
+        const { rows: newU } = await pool.query(`
+          INSERT INTO users (username, password_hash, role, full_name, phone, contractor_id, specialist_id)
+          VALUES ($1, $2, 'installer', $3, $4, $5, $6)
+          RETURNING id
+        `, [uname, hash, (fullName ? fullName.trim() : null) || resultRow.full_name, phone || resultRow.phone, contractorId, specFinalId]);
+        uId = newU[0].id;
+      }
+      await pool.query('UPDATE specialists SET user_id = $1 WHERE id = $2', [uId, specFinalId]);
+      resultRow.user_id = uId;
+      resultRow.user_username = uname;
+      resultRow.created_user = { id: uId, username: uname };
+    }
+
     res.json(resultRow);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -212,7 +243,7 @@ router.post('/contractors/:id/specialists', authenticateToken, async (req, res) 
 router.get('/contractors/:id', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT c.*, 
+      SELECT c.*,
         oc.vat_rate AS own_vat_rate, oc.tax_system AS own_tax_system, oc.code AS own_company_code,
         (SELECT COUNT(*) FROM specialists s WHERE s.contractor_id = c.id) AS specialists_count,
         (SELECT COUNT(*) FROM contractor_contracts cc WHERE cc.contractor_id = c.id) AS subcontracts_count
@@ -235,22 +266,22 @@ router.post('/contractors', authenticateToken, async (req, res) => {
     const d = req.body;
     const { rows } = await pool.query(`
       INSERT INTO contractors (
-        inn, kpp, ogrn, name_short, name_full, legal_form, address_legal, address_postal, director, 
+        inn, kpp, ogrn, name_short, name_full, legal_form, address_legal, address_postal, director,
         signer_name, signer_position, acting_basis, bank_name, bik, account_corr, account_pay, phone, email, type,
         contract_number, contract_date, curator_name, curator_phone, curator_email, comment, is_own, tax_system
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, 
+        $1, $2, $3, $4, $5, $6, $7, $8, $9,
         $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
         $20, $21, $22, $23, $24, $25, $26, $27
       )
       RETURNING *
     `, [
-      (d.inn && d.inn.trim()) ? d.inn.trim() : null, d.kpp || null, d.ogrn || null, d.name_short, d.name_full || null, d.legal_form || null, 
+      (d.inn && d.inn.trim()) ? d.inn.trim() : null, d.kpp || null, d.ogrn || null, d.name_short, d.name_full || null, d.legal_form || null,
       d.address_legal || null, d.address_postal || d.address_actual || null, d.director || null,
       d.signer_name || d.director || null, d.signer_position || 'Директор', d.acting_basis || 'Устава',
       d.bank_name || d.bank || null, d.bik || null, d.account_corr || d.ks || null, d.account_pay || d.rs || null, d.phone || null, d.email || null,
       d.type || 'subcontractor',
-      d.contract_number || null, d.contract_date || null, d.curator_name || null, d.curator_phone || null, d.curator_email || null, 
+      d.contract_number || null, d.contract_date || null, d.curator_name || null, d.curator_phone || null, d.curator_email || null,
       d.comment || null, d.is_own === true || d.is_own === 'true',
       d.tax_system || d.taxSystem || 'usn'
     ]);
@@ -326,7 +357,7 @@ router.delete('/contractors/:id', authenticateToken, async (req, res) => {
 router.get('/dadata/party', authenticateToken, async (req, res) => {
   const inn = req.query.inn;
   if (!inn || !process.env.DADATA_API_KEY) return res.json(null);
-  
+
   try {
     const response = await fetch("https://suggestions.dadata.ru/suggestions/api/4_1/rs/findById/party", {
       method: "POST",
@@ -339,7 +370,7 @@ router.get('/dadata/party', authenticateToken, async (req, res) => {
     });
 
     if (!response.ok) throw new Error(await response.text());
-    
+
     const result = await response.json();
     if (result && result.suggestions && result.suggestions[0]) {
       const s = result.suggestions[0].data;
@@ -377,7 +408,7 @@ router.get('/dadata/party', authenticateToken, async (req, res) => {
 router.get('/dadata/bank', authenticateToken, async (req, res) => {
   const bik = req.query.bik;
   if (!bik || !process.env.DADATA_API_KEY) return res.json(null);
-  
+
   try {
     const response = await fetch("https://suggestions.dadata.ru/suggestions/api/4_1/rs/findById/bank", {
       method: "POST",
@@ -390,7 +421,7 @@ router.get('/dadata/bank', authenticateToken, async (req, res) => {
     });
 
     if (!response.ok) throw new Error(await response.text());
-    
+
     const result = await response.json();
     if (result && result.suggestions && result.suggestions[0]) {
       const s = result.suggestions[0].data;

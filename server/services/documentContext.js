@@ -1,3 +1,37 @@
+
+export function formatDaysWordsRu(num, grammaticalCase = 'nom') {
+  const n = parseInt(num, 10) || 0;
+  const nomUnits = ['', 'один', 'два', 'три', 'четыре', 'пять', 'шесть', 'семь', 'восемь', 'девять'];
+  const nomTeens = ['десять', 'одиннадцать', 'двенадцать', 'тринадцать', 'четырнадцать', 'пятнадцать', 'шестнадцать', 'семнадцать', 'восемнадцать', 'девятнадцать'];
+  const nomTens = ['', '', 'двадцать', 'тридцать', 'сорок', 'пятьдесят', 'шестьдесят', 'семьдесят', 'восемьдесят', 'девяносто'];
+
+  const genUnits = ['', 'одного', 'двух', 'трех', 'четырех', 'пяти', 'шести', 'семи', 'восьми', 'девяти'];
+  const genTeens = ['десяти', 'одиннадцати', 'двенадцати', 'тринадцати', 'четырнадцати', 'пятнадцати', 'шестнадцати', 'семнадцати', 'восемнадцати', 'девятнадцати'];
+  const genTens = ['', '', 'двадцати', 'тридцати', 'сорока', 'пятидесяти', 'шестидесяти', 'семидесяти', 'восьмидесяти', 'девяноста'];
+
+  let res = '';
+  if (grammaticalCase === 'gen') {
+    if (n < 10) res = genUnits[n] || '';
+    else if (n < 20) res = genTeens[n - 10];
+    else if (n < 100) {
+      const t = Math.floor(n / 10);
+      const u = n % 10;
+      res = genTens[t] + (u ? ' ' + genUnits[u] : '');
+    } else res = String(n);
+    return res.trim();
+  } else {
+    if (n < 10) res = nomUnits[n] || '';
+    else if (n < 20) res = nomTeens[n - 10];
+    else if (n < 100) {
+      const t = Math.floor(n / 10);
+      const u = n % 10;
+      res = nomTens[t] + (u ? ' ' + nomUnits[u] : '');
+    } else res = String(n);
+    res = res.trim();
+    return res ? (res.charAt(0).toUpperCase() + res.slice(1)) : '';
+  }
+}
+
 // server/services/documentContext.js
 // Единый движок контекста данных и шаблонизации документов Stockeasy
 import { formatSumWordsRu } from './docxGenerator.js';
@@ -59,11 +93,27 @@ function explicitCalculationLines(subcontract = {}, task = {}) {
     };
   };
 
+  const lines = [];
   if (Array.isArray(details.lines) && details.lines.length > 0) {
-    return details.lines.map(normalizeLine);
+    details.lines.forEach(l => lines.push(normalizeLine(l)));
   }
 
-  const lines = [];
+  // Дополнительно: строки сторонних исполнителей / доп. работ субподряда
+  if (Array.isArray(details.third_party_lines) && details.third_party_lines.length > 0) {
+    details.third_party_lines.forEach(tp => {
+      const amt = numberOrNull(tp.amount ?? tp.total);
+      if (amt !== null && amt > 0) {
+        lines.push({
+          title: tp.title || tp.name || 'Дополнительные работы/услуги',
+          unit: tp.unit || 'усл.',
+          qty: numberOrNull(tp.qty ?? tp.count) || 1,
+          price: amt,
+          total: amt
+        });
+      }
+    });
+  }
+
   let rawData = task.raw_data || task.rawData || {};
   if (typeof rawData === 'string') {
     try { rawData = JSON.parse(rawData); } catch { rawData = {}; }
@@ -76,8 +126,8 @@ function explicitCalculationLines(subcontract = {}, task = {}) {
       const amount = numberOrNull(item.amount);
       lines.push({
         title: item.title || '',
-        unit: item.unit || '',
-        qty: numberOrNull(item.qty ?? item.count),
+        unit: item.unit || 'усл.',
+        qty: numberOrNull(item.qty ?? item.count) || 1,
         price: amount,
         total: amount
       });
@@ -85,9 +135,9 @@ function explicitCalculationLines(subcontract = {}, task = {}) {
   } else if (numberOrNull(details.extraExpenses) !== null) {
     const amount = numberOrNull(details.extraExpenses);
     lines.push({
-      title: details.extraExpensesComment || '',
-      unit: details.extraExpensesUnit || '',
-      qty: numberOrNull(details.extraExpensesQty),
+      title: details.extraExpensesComment || 'Дополнительные согласованные монтажные работы',
+      unit: details.extraExpensesUnit || 'усл.',
+      qty: numberOrNull(details.extraExpensesQty) || 1,
       price: amount,
       total: amount
     });
@@ -155,7 +205,7 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
   // 0. Загрузка договора субподряда (если открыт из реестра договоров субподряда)
   if (subcontractContractId) {
     const ccRes = await pool.query(`
-      SELECT 
+      SELECT
         cc.*,
         COALESCE(pc.internal_number, pc.contract_number) AS parent_contract_number,
         pc.contract_date AS parent_contract_date,
@@ -215,9 +265,9 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
   }
 
   // 4. Загрузка нашей организации (Генподрядчик / Исполнитель)
-  let ownId = (subcontractContract && subcontractContract.own_company_id) || 
-              (subcontract && subcontract.own_company_id) || 
-              (task && task.own_company_id) || 
+  let ownId = (subcontractContract && subcontractContract.own_company_id) ||
+              (subcontract && subcontract.own_company_id) ||
+              (task && task.own_company_id) ||
               (contract && contract.own_company_id);
   if (!ownId && contract && contract.our_entity_name) {
     const ent = String(contract.our_entity_name).toLowerCase();
@@ -240,7 +290,7 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
   }
 
   // 5. Загрузка подрядчика
-  let contractorId = (subcontractContract && subcontractContract.contractor_id) || 
+  let contractorId = (subcontractContract && subcontractContract.contractor_id) ||
                      (subcontract && subcontract.contractor_id);
   if (contractorId) {
     const cRes = await pool.query('SELECT * FROM contractors WHERE id = $1', [contractorId]);
@@ -267,6 +317,12 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
     const ccRes = await pool.query('SELECT * FROM contractor_contracts WHERE contractor_id = $1 ORDER BY id DESC LIMIT 1', [contractor.id]);
     if (ccRes.rows.length) linkedContractorContract = ccRes.rows[0];
   }
+  if (!linkedContractorContract.id && contractor.id) {
+    const cRes = await pool.query('SELECT * FROM contracts WHERE customer_id = $1 ORDER BY id DESC LIMIT 1', [contractor.id]);
+    if (cRes.rows.length) {
+      linkedContractorContract = cRes.rows[0];
+    }
+  }
 
   // 6. Материалы и порты (если есть задача)
   if (taskId) {
@@ -291,13 +347,15 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
   // 7. Только явно сохранённые расчетные строки и фактические дополнительные расходы
   calculationLines = explicitCalculationLines(subcontract || {}, task || {});
 
-  // 8. Финансовые итоги
+  // 8. Финансовые итоги и параметры Заявки (Заказ-наряда) к договору субподряда
   let totalAmount = null;
   const agreedAmount = numberOrNull(subcontract?.price_agreed);
   const unitPrice = numberOrNull(task?.price_per_unit);
   const taskAmount = numberOrNull(task?.amount);
   const lineTotals = calculationLines.map((item) => numberOrNull(item.total)).filter((value) => value !== null);
-  if (agreedAmount !== null) {
+
+  // Общая сумма Заявки: согласованная цена или сумма по строкам калькулятора
+  if (agreedAmount !== null && agreedAmount > 0) {
     totalAmount = agreedAmount;
   } else if (lineTotals.length > 0) {
     totalAmount = lineTotals.reduce((acc, value) => acc + value, 0);
@@ -306,6 +364,98 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
   } else if (taskAmount !== null && taskAmount !== 0) {
     totalAmount = taskAmount;
   }
+
+  // Параметры Заявки / Заказ-наряда
+  const subDetails = (subcontract && subcontract.calculation_details) || {};
+  const orderParams = customData.order_params || customData.orderParams || subDetails.order_params || (task && task.raw_data && task.raw_data.orderParams) || {};
+  const appendixNum = parseInt(orderParams.appendix_num, 10) || 2;
+  const orderNum = parseInt(orderParams.order_num, 10) || (subcontract ? subcontract.id : 1);
+  const workDays = parseInt(orderParams.work_days, 10) || 5;
+  const paymentDays = parseInt(orderParams.payment_days, 10) || 15;
+  const hasAdvance = Boolean(orderParams.has_advance);
+  const advancePct = parseFloat(orderParams.advance_pct) || (hasAdvance ? 45 : 0);
+  const advanceAmount = orderParams.advance_amount !== undefined && orderParams.advance_amount !== null
+    ? parseFloat(orderParams.advance_amount)
+    : (hasAdvance && totalAmount ? Math.round(totalAmount * (advancePct / 100)) : 0);
+  const advanceDays = parseInt(orderParams.advance_days, 10) || 3;
+  const hasInterim = Boolean(orderParams.has_interim);
+  const interimPct = parseFloat(orderParams.interim_pct) || 0;
+  const interimAmount = parseFloat(orderParams.interim_amount) || 0;
+  const finalPct = Math.max(0, 100 - advancePct - interimPct);
+  const finalAmount = Math.max(0, (totalAmount || 0) - advanceAmount - interimAmount);
+
+  function getSumWordsOnly(val) {
+    if (!val) return 'ноль';
+    const full = formatSumWordsRu(val);
+    const m = full.match(/\(([^)]+)\)/);
+    return m ? m[1].trim() : full;
+  }
+
+  const workDaysWords = formatDaysWordsRu(workDays, 'nom');
+  const paymentDaysWords = formatDaysWordsRu(paymentDays, 'gen');
+  const totalAmountWordsOnly = getSumWordsOnly(totalAmount);
+  const advanceAmountWordsOnly = getSumWordsOnly(advanceAmount);
+  const finalAmountWordsOnly = getSumWordsOnly(finalAmount);
+
+  function formatMoneyNum(val) {
+    const num = Number(val || 0);
+    return num.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  let paymentClauseText = '';
+  if (hasAdvance && advanceAmount > 0) {
+    paymentClauseText = `Оплата производится путем перечисления денежных средств: авансовый платеж в размере ${advancePct}% от суммы Заявки (${formatMoneyNum(advanceAmount)} (${advanceAmountWordsOnly}) рублей 00 копеек) перечисляется в течение ${advanceDays} банковских дней с момента подписания Заявки; окончательный расчет в размере ${finalPct}% (${formatMoneyNum(finalAmount)} (${finalAmountWordsOnly}) рублей 00 копеек) производится в течение ${paymentDays} (${paymentDaysWords}) календарных дней после приемки выполненных работ и подписания двустороннего акта сдачи-приемки.`;
+  } else {
+    paymentClauseText = `Оплата производится путем перечисления денежных средств в размере 100% от указанной в п. 2 суммы (${formatMoneyNum(totalAmount || 0)} (${totalAmountWordsOnly}) рублей 00 копеек) в течение ${paymentDays} (${paymentDaysWords}) календарных дней после приемки выполненных работ и подписания двустороннего акта сдачи-приемки.`;
+  }
+
+  const vatMode = customData.vat_text || (subDetails.tax_details && subDetails.tax_details.mode) || linkedContractorContract.vat_text || '';
+  let vatTextRu = 'НДС не облагается';
+  if (vatMode.includes('20') || vatMode === 'osno_20') {
+    const vatSum = totalAmount ? Math.round(totalAmount * (20 / 120) * 100) / 100 : 0;
+    vatTextRu = `в т.ч. НДС 20% (${formatMoneyNum(vatSum)} руб.)`;
+  } else if (vatMode.includes('5') || vatMode === 'usn_5') {
+    const vatSum = totalAmount ? Math.round(totalAmount * (5 / 105) * 100) / 100 : 0;
+    vatTextRu = `в т.ч. НДС 5% (${formatMoneyNum(vatSum)} руб.)`;
+  } else if (vatMode.includes('7') || vatMode === 'usn_7') {
+    const vatSum = totalAmount ? Math.round(totalAmount * (7 / 107) * 100) / 100 : 0;
+    vatTextRu = `в т.ч. НДС 7% (${formatMoneyNum(vatSum)} руб.)`;
+  }
+
+  // Таблица работ в HTML
+  let worksTableRowsHtml = calculationLines.map((it, idx) => {
+    const qty = it.qty !== undefined ? it.qty : 1;
+    const price = it.price !== undefined ? it.price : it.total;
+    const total = it.total !== undefined ? it.total : (qty * price);
+    return `<tr>
+      <td style="border:1px solid #000;padding:4px 6px;text-align:center">${idx + 1}</td>
+      <td style="border:1px solid #000;padding:4px 6px">${it.name || it.title || 'Работы по объекту'}</td>
+      <td style="border:1px solid #000;padding:4px 6px;text-align:center">${it.unit || 'шт'}</td>
+      <td style="border:1px solid #000;padding:4px 6px;text-align:center">${qty}</td>
+      <td style="border:1px solid #000;padding:4px 6px;text-align:right">${formatMoneyNum(price)}</td>
+      <td style="border:1px solid #000;padding:4px 6px;text-align:right">${formatMoneyNum(total)}</td>
+    </tr>`;
+  }).join('');
+
+  const worksTableHtml = `<table style="width:100%;border-collapse:collapse;border:1px solid #000;font-size:12px;margin:8px 0">
+    <thead>
+      <tr style="background:#f3f4f6;font-weight:700">
+        <th style="border:1px solid #000;padding:4px 6px;width:35px;text-align:center">№</th>
+        <th style="border:1px solid #000;padding:4px 6px;text-align:left">Наименование работ / затрат</th>
+        <th style="border:1px solid #000;padding:4px 6px;width:55px;text-align:center">Ед. изм.</th>
+        <th style="border:1px solid #000;padding:4px 6px;width:55px;text-align:center">Кол-во</th>
+        <th style="border:1px solid #000;padding:4px 6px;width:85px;text-align:right">Цена, руб.</th>
+        <th style="border:1px solid #000;padding:4px 6px;width:95px;text-align:right">Стоимость, руб.</th>
+      </tr>
+    </thead>
+    <tbody>${worksTableRowsHtml}</tbody>
+    <tfoot>
+      <tr style="font-weight:700;background:#f9fafb">
+        <td colspan="5" style="border:1px solid #000;padding:5px 6px;text-align:right">Итого:</td>
+        <td style="border:1px solid #000;padding:5px 6px;text-align:right">${formatMoneyNum(totalAmount || 0)}</td>
+      </tr>
+    </tfoot>
+  </table>`;
 
   // 9. Специалисты
   let specialists = [];
@@ -636,6 +786,28 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
     телефон_монтажника: ctx.specialists[0]?.phone || '',
     госномер_авто: ctx.specialists[0]?.auto || '',
 
+    // Переменные для Заявки (Приложения) к Договору субподряда (Заказчик Алексей)
+    номер_приложения: String(appendixNum),
+    номер_договора_субподряда: linkedContractorContract.contract_number || contractor.contract_number || 'б/н',
+    дата_договора_субподряда: linkedContractorContract.contract_date ? formatDateRu(linkedContractorContract.contract_date) : (contractor.contract_date ? formatDateRu(contractor.contract_date) : ''),
+    дата_договора_субподряда_прописью: linkedContractorContract.contract_date ? formatDateRuWords(linkedContractorContract.contract_date) : (contractor.contract_date ? formatDateRuWords(contractor.contract_date) : ''),
+    номер_заявки_к_договору: String(orderNum),
+    предмет_контракта: task?.work_type || 'Монтаж СКС и пусконаладочные работы',
+    предмет_и_адрес_объекта: `${task?.work_type || 'Монтаж СКС и пусконаладочные работы'} по адресу: ${ctx.task.address || ''}`,
+    общая_сумма_заявки_числом: totalAmount === null ? '' : formatMoneyNum(totalAmount),
+    общая_сумма_заявки_прописью: totalAmountWordsOnly,
+    текст_ндс: vatTextRu,
+    срок_выполнения_дней: String(workDays),
+    срок_выполнения_дней_прописью: workDaysWords,
+    срок_оплаты_дней: String(paymentDays),
+    срок_оплаты_дней_прописью: paymentDaysWords,
+    текст_пункта_оплаты: paymentClauseText,
+    таблица_работ_html: worksTableHtml,
+    таблица_работ: worksTableHtml,
+    сумма_аванса_числом: advanceAmount > 0 ? formatMoneyNum(advanceAmount) : '',
+    сумма_аванса_прописью: advanceAmount > 0 ? advanceAmountWordsOnly : '',
+    процент_аванса: String(advancePct),
+
     // Переменные для доверенностей (форма М-2 и стандартные)
     номер_доверенности: poa?.number || ctx.doc_number,
     дата_выдачи: poa?.issue_date ? formatDateRu(poa.issue_date) : ctx.doc_date,
@@ -682,6 +854,9 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
     таблица_линий_пси: renderProtocolPsiTableHtml(ports),
     таблица_ip_адресации: renderIpAddressingTableHtml(materials)
   };
+
+  // Копируем все плоские переменные в корень ctx для прямого доступа
+  Object.assign(ctx, ctx.плоские_переменные);
 
   return ctx;
 }

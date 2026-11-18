@@ -5,11 +5,11 @@ import { fileURLToPath } from 'url';
 import { pool } from '../config/db.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { uploadAttachment } from '../middleware/upload.js';
-import { 
-  runFullImport, 
-  importSpecialistsFromFile, 
-  importPowersOfAttorneyFromXlsx, 
-  syncContractorsFromPOA, 
+import {
+  runFullImport,
+  importSpecialistsFromFile,
+  importPowersOfAttorneyFromXlsx,
+  syncContractorsFromPOA,
   execPython,
   generateAccessLetterDocxPureJs
 } from '../services/directoriesImporter.js';
@@ -29,7 +29,7 @@ router.get('/specialists', authenticateToken, async (req, res) => {
     const onlyWithPassport = req.query.withPassport === 'true';
 
     let query = `
-      SELECT 
+      SELECT
         s.*,
         c.name_short AS contractor_name,
         COALESCE(poa.active_poa_count, 0) AS active_poa_count,
@@ -37,7 +37,7 @@ router.get('/specialists', authenticateToken, async (req, res) => {
       FROM specialists s
       LEFT JOIN contractors c ON c.id = s.contractor_id
       LEFT JOIN (
-        SELECT 
+        SELECT
           specialist_id,
           COUNT(*) FILTER (WHERE status = 'active' OR (valid_until >= CURRENT_DATE)) AS active_poa_count,
           jsonb_agg(
@@ -174,8 +174,15 @@ router.post('/specialists', authenticateToken, requireRole('admin', 'director', 
       return res.json(rows[0]);
     }
 
+    let finalOrg = organization;
+    if (!finalOrg && contractor_id) {
+      const cRes = await pool.query('SELECT name_short FROM contractors WHERE id = $1', [contractor_id]);
+      if (cRes.rows.length) finalOrg = cRes.rows[0].name_short;
+    }
+    if (!finalOrg) finalOrg = 'ООО "Ультима"';
+
     const { rows } = await pool.query(
-      `INSERT INTO specialists 
+      `INSERT INTO specialists
        (full_name, phone, passport_series_number, passport_issued_by, passport_issue_date, passport_code, passport_raw, organization, position, contractor_id, auto_number, employment_type, acting_basis)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING *`,
@@ -187,7 +194,7 @@ router.post('/specialists', authenticateToken, requireRole('admin', 'director', 
         passport_issue_date || null,
         passport_code || null,
         passport_raw || null,
-        organization || 'ООО "Ультима"',
+        finalOrg,
         position || 'Монтажник СКС',
         contractor_id || null,
         auto_number || null,
@@ -326,7 +333,7 @@ router.get('/powers-of-attorney', authenticateToken, async (req, res) => {
     const contractorId = req.query.contractorId ? parseInt(req.query.contractorId) : null;
 
     let query = `
-      SELECT 
+      SELECT
         p.*,
         s.full_name AS specialist_name,
         s.phone AS specialist_phone,
@@ -468,6 +475,15 @@ router.post('/powers-of-attorney', authenticateToken, async (req, res) => {
       }
     }
 
+    // Защита: организация доверителя (наше юрлицо) не должна перезаписывать организацию специалиста
+    let effectiveSpecialistId = specialist_id || null;
+    if (!effectiveSpecialistId && person_name) {
+      const spCheck = await pool.query('SELECT id, organization, contractor_id FROM specialists WHERE LOWER(TRIM(full_name)) = LOWER(TRIM($1)) LIMIT 1', [person_name.trim()]);
+      if (spCheck.rows.length) {
+        effectiveSpecialistId = spCheck.rows[0].id;
+      }
+    }
+
     const { rows } = await pool.query(
       `INSERT INTO powers_of_attorney
        (number, issue_date, valid_until, person_name, specialist_id, contractor_name, organization, status, scan_url, document_id)
@@ -478,7 +494,7 @@ router.post('/powers-of-attorney', authenticateToken, async (req, res) => {
         issue_date || null,
         valid_until || null,
         person_name.trim(),
-        specialist_id || null,
+        effectiveSpecialistId || null,
         contractor_name || null,
         organization || 'ООО "Ультима"',
         status,

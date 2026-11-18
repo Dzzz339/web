@@ -63,12 +63,12 @@ function pageContractors() {
     <!-- СТРОКА ПОИСКА ОРГАНИЗАЦИЙ (НЕ ПЕРЕСОЗДАЕТСЯ ПРИ ВВОДЕ, ФОКУС НЕ ТЕРЯЕТСЯ) -->
     <div class="card p mb" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap">
       <div style="position:relative; flex:1; min-width:280px">
-        <input type="text" id="contractor_search_input" value="${escHtml(S.contractorSearch || '')}" 
-               placeholder="${getContractorSearchPlaceholder(S.contractorActiveTab)}" 
+        <input type="text" id="contractor_search_input" value="${escHtml(S.contractorSearch || '')}"
+               placeholder="${getContractorSearchPlaceholder(S.contractorActiveTab)}"
                style="width:100%; padding:9px 12px; border:1px solid var(--border); border-radius:8px; font-size:.88rem"
                oninput="onContractorSearch(this.value)">
-        <button id="contractor_search_clear_btn" onclick="clearContractorSearch()" 
-                style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; color:var(--text-3); font-size:1.1rem; display:${S.contractorSearch ? 'block' : 'none'}" 
+        <button id="contractor_search_clear_btn" onclick="clearContractorSearch()"
+                style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; color:var(--text-3); font-size:1.1rem; display:${S.contractorSearch ? 'block' : 'none'}"
                 title="Очистить поиск">&times;</button>
       </div>
       <div id="contractor_count_badge" style="font-size:.82rem; color:var(--text-3)">Организаций в базе: <b>0</b></div>
@@ -182,10 +182,10 @@ function renderContractorsView() {
   // Обновляем бейдж с количеством и плейсхолдер
   var countBadge = document.getElementById('contractor_count_badge');
   if (countBadge) {
-    var titles = { 
-      customer: 'Заказчиков', 
-      supplier: 'Поставщиков', 
-      logistics: 'Транспортных компаний', 
+    var titles = {
+      customer: 'Заказчиков',
+      supplier: 'Поставщиков',
+      logistics: 'Транспортных компаний',
       subcontractor: 'Подрядчиков СМР',
       other_expense: 'Прочих контрагентов',
       own: 'Собственных юрлиц'
@@ -228,7 +228,7 @@ function copyContractorRequisites(id) {
   if (c.ogrn) lines.push('ОГРН/ОГРНИП: ' + c.ogrn);
   if (c.address_legal) lines.push('Юридический адрес: ' + c.address_legal);
   if (c.address_postal) lines.push('Почтовый / фактический адрес: ' + c.address_postal);
-  
+
   var dirStr = c.director || c.signer_name || '—';
   var posStr = c.signer_position || 'Директор';
   var basisStr = c.acting_basis || 'Устава';
@@ -268,8 +268,8 @@ window.copyContractorRequisites = copyContractorRequisites;
 
 function renderCustomersTable(container, list) {
   var rows = list.map(function(c) {
-    var contractInfo = c.contract_number 
-      ? `<div style="font-weight:700; color:var(--orange)">№ ${escHtml(c.contract_number)}</div>` 
+    var contractInfo = c.contract_number
+      ? `<div style="font-weight:700; color:var(--orange)">№ ${escHtml(c.contract_number)}</div>`
       : '<span style="color:var(--text-3)">Не указан</span>';
     if (c.contract_date) {
       contractInfo += `<div style="font-size:.73rem; color:var(--text-3)">от ${new Date(c.contract_date).toLocaleDateString('ru')}</div>`;
@@ -478,15 +478,15 @@ function renderLogisticsTable(container, list) {
 function renderSubcontractorsTable(container, list) {
   var rows = list.map(function(c) {
     var specCount = Number(c.specialists_count || 0);
-    var specBadge = specCount > 0 
+    var specBadge = specCount > 0
       ? `<span class="badge b-blue" style="cursor:pointer; font-weight:700" onclick="viewContractorDetails(${c.id})">👷 ${specCount} монтажников</span>`
       : `<span class="badge b-gray" style="cursor:pointer" onclick="openAddInstallerModal(${c.id}, '${escHtml(c.name_short)}')">+ Привязать монтажника</span>`;
 
     var subcontractsForC = (S.subContracts || []).filter(function(sc) { return sc.contractor_id === c.id; });
     var contractInfo = subcontractsForC.length > 0
       ? `<button type="button" class="btn btn-xs" style="font-weight:700;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:3px 8px;cursor:pointer" onclick="openSubcontractsForContractor(${c.id})" title="Открыть договоры субподряда с этой организацией">📑 Договоры (${subcontractsForC.length} шт.)</button>`
-      : (c.contract_number 
-          ? `<div style="font-weight:600; font-size:.82rem">Договор № ${escHtml(c.contract_number)}</div>` 
+      : (c.contract_number
+          ? `<div style="font-weight:600; font-size:.82rem">Договор № ${escHtml(c.contract_number)}</div>`
           : '<span style="color:var(--text-3); font-size:.78rem">Нет договоров</span>');
 
     return `
@@ -713,43 +713,43 @@ function clearContractorSearch() {
 
 function renderContractorAddForm(container, curTab) {
   var labels = {
-    customer: { 
-      title: '🏛️ Добавить нового Заказчика', 
+    customer: {
+      title: '🏛️ Добавить нового Заказчика',
       typeText: 'Заказчик наших услуг (Корпоративные заказчики, ОСФР и др.)',
       contractTitle: 'Генеральный договор',
       curatorPlaceholder: 'ФИО куратора Заказчика',
       btn: '+ Сохранить Заказчика'
     },
-    supplier: { 
-      title: '📦 Добавить Поставщика материалов', 
+    supplier: {
+      title: '📦 Добавить Поставщика материалов',
       typeText: 'Поставщик кабеля, оборудования, расходных материалов и ТМЦ',
       contractTitle: 'Договор поставки',
       curatorPlaceholder: 'Менеджер отдела продаж поставщика',
       btn: '+ Сохранить Поставщика'
     },
-    logistics: { 
-      title: '🚚 Добавить Транспортную компанию / Логистику (ТК)', 
+    logistics: {
+      title: '🚚 Добавить Транспортную компанию / Логистику (ТК)',
       typeText: 'Транспортная компания (Деловые Линии, СДЭК, ПЭК, Витэка и др.) для доставки грузов и оборудования',
       contractTitle: 'Договор экспедирования / перевозки',
       curatorPlaceholder: 'Диспетчер / Контакт на терминале ТК',
       btn: '+ Сохранить ТК / Логистику'
     },
-    subcontractor: { 
-      title: '👷 Добавить Подрядчика СМР', 
+    subcontractor: {
+      title: '👷 Добавить Подрядчика СМР',
       typeText: 'Монтажная организация или ИП для выполнения работ в полях',
       contractTitle: 'Договор субподряда',
       curatorPlaceholder: 'Главный инженер / Бригадир',
       btn: '+ Сохранить Подрядчика'
     },
-    other_expense: { 
-      title: '🛠️ Добавить Контрагента (ДОПы / Аренда)', 
+    other_expense: {
+      title: '🛠️ Добавить Контрагента (ДОПы / Аренда)',
       typeText: 'Поставщик спецтехники (автовышка, бурение), аренды инструмента, ДОП-услуг',
       contractTitle: 'Договор / Счет / Заказ',
       curatorPlaceholder: 'Диспетчер / Менеджер',
       btn: '+ Сохранить Контрагента'
     },
-    own: { 
-      title: '🏛️ Добавить Собственное юридическое лицо группы', 
+    own: {
+      title: '🏛️ Добавить Собственное юридическое лицо группы',
       typeText: 'Юридическое лицо нашей группы («Мы») для выставления счетов и договоров',
       contractTitle: 'Внутренний приказ / Устав',
       curatorPlaceholder: 'Ответственное лицо',
@@ -765,7 +765,7 @@ function renderContractorAddForm(container, curTab) {
     <!-- Блок быстрого поиска по названию / ИНН через DaData -->
     <div style="position:relative; margin-bottom:1.25rem">
       <label style="display:block; font-size:.78rem; font-weight:700; margin-bottom:4px">⚡ Быстрый поиск по названию или ИНН (DaData)</label>
-      <input id="nc_search_input" type="text" placeholder="Начните вводить название компании или ИНН..." 
+      <input id="nc_search_input" type="text" placeholder="Начните вводить название компании или ИНН..."
              style="width:100%; font-weight:600; padding:9px 12px; border:1.5px solid var(--orange); border-radius:8px"
              oninput="onContractorSearchInput(this.value, 'nc')">
       <div id="nc_suggestions_box" style="display:none; position:absolute; top:100%; left:0; right:0; background:#fff; border:1.5px solid var(--orange); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.15); z-index:100; max-height:240px; overflow-y:auto; margin-top:4px"></div>
@@ -995,7 +995,7 @@ function editContractor(id) {
               <span id="ec_inn_status" style="font-size:.72rem; color:#c2410c">10 или 12 цифр ИНН</span>
             </div>
             <div style="display:flex;gap:8px">
-              <input id="ec_search_input" type="text" placeholder="Введите название компании или ИНН..." 
+              <input id="ec_search_input" type="text" placeholder="Введите название компании или ИНН..."
                      style="flex:1; font-weight:600; padding:8px 12px; border:1.5px solid var(--orange); border-radius:8px; font-size:.86rem; background:#fff"
                      oninput="onContractorSearchInput(this.value, 'ec')">
               <button type="button" class="btn btn-sm" style="background:var(--orange);color:#fff;font-weight:700;white-space:nowrap" onclick="onInnDirectInput(document.getElementById('ec_inn').value, 'ec')">🔍 Найти в ФНС</button>
@@ -1244,6 +1244,9 @@ function viewContractorDetails(contractorId) {
         <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border);font-size:.85rem">
           <div>
             <b>${escHtml(s.full_name)}</b> <span class="t3" style="font-size:.75rem">(${escHtml(s.position || 'Монтажник')})</span>
+            ${s.user_username
+              ? `<span class="badge b-green" style="font-size:.7rem;margin-left:6px" title="Есть аккаунт ЛК">🔑 Есть доступ в ЛК (логин: ${escHtml(s.user_username)})</span>`
+              : '<span class="badge b-gray" style="font-size:.7rem;margin-left:6px" title="Нет учетной записи">⚪ Нет учётной записи ЛК</span>'}
             ${passSnippet}
           </div>
           <div style="text-align:right">
@@ -1255,8 +1258,8 @@ function viewContractorDetails(contractorId) {
 
     var contractsHtml = contracts.length ? contracts.map(function(ct) {
       var dStr = ct.contract_date ? new Date(ct.contract_date).toLocaleDateString('ru') : '—';
-      var plBadge = ct.price_list_name 
-        ? `<button type="button" class="btn btn-sm btn-ghost" style="color:var(--blue);font-size:.75rem;padding:2px 8px" onclick="viewContractPriceList(${ct.id}, '${escHtml(ct.contract_number).replace(/'/g, "\\'")}')">📋 Прайс: ${escHtml(ct.price_list_name)}</button>` 
+      var plBadge = ct.price_list_name
+        ? `<button type="button" class="btn btn-sm btn-ghost" style="color:var(--blue);font-size:.75rem;padding:2px 8px" onclick="viewContractPriceList(${ct.id}, '${escHtml(ct.contract_number).replace(/'/g, "\\'")}')">📋 Прайс: ${escHtml(ct.price_list_name)}</button>`
         : '<span class="t3" style="font-size:.72rem">Без прайса</span>';
       return `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border);font-size:.85rem">
@@ -1458,12 +1461,12 @@ function openAddContractorContractModal(contractorId, contractorName) {
 
 function openAddInstallerModal(contractorId, contractorName) {
   showModal('👷 Новый монтажник в штат «' + contractorName + '»', [
-    { 
-      key: 'fullName', 
-      label: 'ФИО монтажника (полностью)', 
+    {
+      key: 'fullName',
+      label: 'ФИО монтажника (полностью)',
       required: true,
       placeholder: 'Начните вводить ФИО (например: Иванов Иван)...',
-      hint: '💡 При вводе ФИО система ищет специалистов в базе и автоматически заполнит телефон и паспортные данные',
+      hint: '💡 При вводе ФИО система ищет специалистов в базе и автоматически подгружает статус учётной записи ЛК, телефон и паспорт',
       autocomplete: {
         minChars: 2,
         search: function(q) {
@@ -1474,10 +1477,17 @@ function openAddInstallerModal(contractorId, contractorName) {
           var hasPass = s.passport_series_number || s.passport_raw;
           var passText = s.passport_series_number ? ('🪪 Паспорт: ' + s.passport_series_number) : (hasPass ? '🪪 Паспорт заполнен' : '⚠️ Паспорт не заполнен');
           var phone = s.phone || 'Нет тел.';
+          var accBadge = s.user_username
+            ? '<span class="badge b-green" style="font-size:.66rem">🔑 ЛК: ' + escHtml(s.user_username) + '</span>'
+            : '<span class="badge b-gray" style="font-size:.66rem">⚪ Нет ЛК</span>';
+
           return `
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px">
               <strong style="color:var(--text); font-size:.85rem">${escHtml(s.full_name)}</strong>
-              <span class="badge b-gray" style="font-size:.68rem">${escHtml(s.position || 'Монтажник')}</span>
+              <div style="display:flex;gap:4px;align-items:center">
+                ${accBadge}
+                <span class="badge b-gray" style="font-size:.68rem">${escHtml(s.position || 'Монтажник')}</span>
+              </div>
             </div>
             <div style="font-size:.75rem; color:var(--text-3); display:flex; gap:10px; align-items:center; flex-wrap:wrap">
               <span>📞 ${escHtml(phone)}</span>
@@ -1489,7 +1499,10 @@ function openAddInstallerModal(contractorId, contractorName) {
         getValue: function(s) { return s.full_name; },
         badgeText: function(s) {
           var cName = s.contractor_name || s.organization || 'ООО "Ультима"';
-          return `✓ Найден в базе (#${s.id}): <b>${escHtml(s.full_name)}</b> · Будет прикреплен к «${escHtml(contractorName)}» (ранее: ${escHtml(cName)})`;
+          var accBadge = s.user_username
+            ? '<span class="badge b-green" style="font-size:.72rem;margin-left:6px">🔑 Есть доступ в ЛК (логин: ' + escHtml(s.user_username) + ')</span>'
+            : '<span class="badge b-gray" style="font-size:.72rem;margin-left:6px">⚪ Нет учётной записи ЛК</span>';
+          return '✓ Найден в базе (#' + s.id + '): <b>' + escHtml(s.full_name) + '</b> ' + accBadge + ' · Будет прикреплен к «' + escHtml(contractorName) + '» (ранее: ' + escHtml(cName) + ')';
         },
         onSelect: function(s, inputs, modal) {
           modal._extraData.specialistId = s.id;
@@ -1500,12 +1513,28 @@ function openAddInstallerModal(contractorId, contractorName) {
           if (inputs.actingBasis && s.acting_basis) inputs.actingBasis.value = s.acting_basis;
           if (inputs.passportSeriesNumber && s.passport_series_number) inputs.passportSeriesNumber.value = s.passport_series_number;
           if (inputs.passportRaw && s.passport_raw) inputs.passportRaw.value = s.passport_raw;
+          if (s.user_username && inputs.username) {
+            inputs.username.value = s.user_username;
+            if (inputs.accountAction) inputs.accountAction.value = 'none';
+          }
         },
         onClear: function(inputs, modal) {
           delete modal._extraData.specialistId;
         }
       }
     },
+    {
+      key: 'accountAction',
+      label: 'Учётная запись личного кабинета (ЛК)',
+      type: 'select',
+      value: 'none',
+      options: [
+        { value: 'none', label: '⚪ Без создания учётной записи' },
+        { value: 'create', label: '🔑 Создать логин для входа в личный кабинет исполнителя' }
+      ]
+    },
+    { key: 'username', label: 'Логин для входа в ЛК', placeholder: 'например: ivanov_ii' },
+    { key: 'password', label: 'Пароль для входа в ЛК', placeholder: 'пароль (по умолчанию: 123456)' },
     { key: 'employmentType', label: 'Форма занятости / Статус', type: 'select', value: 'subcontractor_worker', options: [
         { value: 'subcontractor_worker', label: '👷 Монтажник субподрядчика' },
         { value: 'self_employed', label: '💼 Самозанятый (СЗ)' },
@@ -1532,13 +1561,19 @@ function openAddInstallerModal(contractorId, contractorName) {
         autoNumber: d.autoNumber,
         actingBasis: d.actingBasis,
         passportSeriesNumber: d.passportSeriesNumber,
-        passportRaw: d.passportRaw
+        passportRaw: d.passportRaw,
+        createLogin: d.accountAction === 'create',
+        username: d.username,
+        password: d.password
       })
     }).then(function(res) {
       if (res && res.error) return alert(res.error);
-      var msg = d.specialistId ? 
+      var msg = d.specialistId ?
         ('✅ Монтажник успешно прикреплен к подрядчику «' + contractorName + '»!') :
         ('✅ Монтажник создан и прикреплен к «' + contractorName + '»!');
+      if (res && res.created_user) {
+        msg += '\n🔑 Создана учётная запись ЛК: ' + res.created_user.username;
+      }
       alert(msg);
       viewContractorDetails(contractorId);
       api('/contractors').then(list => { S.contractors = list; renderApp(); });
@@ -1576,9 +1611,9 @@ function onContractorSearchInput(val, prefix) {
       var itemsHtml = list.map(function(item) {
         var safeJson = encodeURIComponent(JSON.stringify(item));
         return `
-          <div onclick="selectContractorSuggestion('${safeJson}','${prefix}')" 
-               style="padding:10px 14px; border-bottom:1px solid #f4f4f5; cursor:pointer; transition:background .12s" 
-               onmouseover="this.style.background='var(--orange-bg)'" 
+          <div onclick="selectContractorSuggestion('${safeJson}','${prefix}')"
+               style="padding:10px 14px; border-bottom:1px solid #f4f4f5; cursor:pointer; transition:background .12s"
+               onmouseover="this.style.background='var(--orange-bg)'"
                onmouseout="this.style.background='#fff'">
             <div style="font-weight:600; font-size:.85rem; color:var(--text)">${item.name_short}</div>
             <div style="font-size:.75rem; color:var(--text-3); margin-top:2px">
@@ -1618,14 +1653,14 @@ function selectContractorSuggestion(encodedJson, prefix) {
   if (statusEl && data.inn) statusEl.innerHTML = '<span style="color:var(--green)">✓ Заполнено из DaData</span>';
 
   [
-    prefix+'_inn', prefix+'_kpp', prefix+'_ogrn', prefix+'_legal_form', 
+    prefix+'_inn', prefix+'_kpp', prefix+'_ogrn', prefix+'_legal_form',
     prefix+'_name_short', prefix+'_name_full', prefix+'_address', prefix+'_address_postal',
     prefix+'_director', prefix+'_signer_position', prefix+'_acting_basis'
   ].forEach(function(id) {
     var el = document.getElementById(id);
-    if (el && el.value) { 
-      el.style.background = '#e8f5e9'; 
-      setTimeout(function(){ el.style.background='#fff'; }, 1500); 
+    if (el && el.value) {
+      el.style.background = '#e8f5e9';
+      setTimeout(function(){ el.style.background='#fff'; }, 1500);
     }
   });
 }

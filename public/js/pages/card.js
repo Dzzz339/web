@@ -140,7 +140,7 @@ window.editCardTechLink = function(taskId) {
       '<span>📁 Ссылка на Облако ТЗ / Яндекс.Диск</span>' +
     '</h3>' +
     '<div style="font-size:.82rem;color:var(--text-3);margin-bottom:14px">Укажите ссылку на папку с технической документацией и проектом объекта для субподрядчика:</div>' +
-    
+
     '<!-- Блок автоматического создания папки в Seafile -->' +
     '<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px;padding:12px 14px;margin-bottom:16px">' +
       '<div style="font-weight:700;color:#166534;font-size:.85rem;margin-bottom:3px;display:flex;align-items:center;gap:6px">' +
@@ -156,7 +156,7 @@ window.editCardTechLink = function(taskId) {
 
     '<div style="font-size:.8rem;font-weight:600;margin-bottom:4px;color:var(--text-2)">Или вставьте прямую ссылку вручную:</div>' +
     '<input type="url" id="_tech_link_inp" value="' + escHtml(curLink) + '" placeholder="https://cloud.stockeasy.ru/d/... или https://disk.yandex.ru/d/..." style="width:100%;padding:9px 12px;font-size:.88rem;border:1.5px solid var(--border);border-radius:6px;box-sizing:border-box;margin-bottom:18px">' +
-    
+
     '<div style="display:flex;justify-content:space-between;align-items:center">' +
       '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_tech_link_modal\').remove()">Отмена</button>' +
       '<button type="button" id="_tech_link_save_btn" class="btn btn-sm btn-primary" style="padding:7px 18px;font-weight:700">💾 Сохранить ссылку</button>' +
@@ -1259,8 +1259,8 @@ function pageCard() {
     return '<option value="' + escHtml(u.full_name) + '"' + (curAssignee === u.full_name ? ' selected' : '') + '>#' + u.id + ' — ' + escHtml(u.full_name) + ' (' + roleLabel + phoneLabel + ')</option>';
   }).join('');
 
-  var curContractId = Object.prototype.hasOwnProperty.call(S.cardDraft, 'contract_id') 
-    ? S.cardDraft.contract_id 
+  var curContractId = Object.prototype.hasOwnProperty.call(S.cardDraft, 'contract_id')
+    ? S.cardDraft.contract_id
     : (t.contract_id != null ? t.contract_id : t.contractId);
 
   var linkedPreContract = curContractId ? (S.contracts || []).find(function(c){ return String(c.id) === String(curContractId); }) : null;
@@ -1452,8 +1452,8 @@ function pageCard() {
       } else if (key === 'contract_id') {
         var curC = (S.contracts || []).find(function(x){ return String(x.id) === String(val || curContractId); });
         var cleanNum = curC ? cleanContractNumber(curC.contract_number) : '';
-        displayVal = curC 
-          ? ((curC.internal_number ? ('[Вн. ' + escHtml(curC.internal_number) + '] ') : '') + (cleanNum ? ('№ ' + escHtml(cleanNum) + ' · ') : '') + escHtml(curC.customer_name || curC.name_short || '—')) 
+        displayVal = curC
+          ? ((curC.internal_number ? ('[Вн. ' + escHtml(curC.internal_number) + '] ') : '') + (cleanNum ? ('№ ' + escHtml(cleanNum) + ' · ') : '') + escHtml(curC.customer_name || curC.name_short || '—'))
           : '—';
       } else if (key === 'status') {
         displayVal = stBadge(val);
@@ -1763,16 +1763,16 @@ function pageCard() {
 
   var mapQueries = [
     // 1. Самый точный поиск: Страна + Регион + Полный адрес
-    'Россия, ' + mapRegion + ', ' + cleanAddr(mapAddress),           
-    
+    'Россия, ' + mapRegion + ', ' + cleanAddr(mapAddress),
+
     // 2. Если полный адрес сложный, ищем: Страна + Регион + Улица/Дом
-    'Россия, ' + mapRegion + ', ' + cleanAddr(lastParts),            
-    
+    'Россия, ' + mapRegion + ', ' + cleanAddr(lastParts),
+
     // 3. Запасной вариант (если в Excel регион написан с ошибкой): просто адрес
-    'Россия, ' + cleanAddr(mapAddress),                              
-    
+    'Россия, ' + cleanAddr(mapAddress),
+
     // 4. Крайний случай: если ничего не нашли, просто ткнуть в центр региона
-    'Россия, ' + mapRegion                                           
+    'Россия, ' + mapRegion
   ].filter(function(q, i, arr){ return arr.indexOf(q) === i; });
 
   var mapId = 'leafmap' + Date.now();
@@ -2214,9 +2214,9 @@ function pageCard() {
     (cleanPhone ? '<a href="tel:' + cleanPhone + '" class="quick-contact-btn call-btn">📞 Позвонить (' + escHtml(phoneMatch[0]) + ')</a>' : '') +
   '</div>';
 
-  var curContract = (S.contracts || []).find(function(x){ 
+  var curContract = (S.contracts || []).find(function(x){
     var cid = (t.contract_id != null ? t.contract_id : t.contractId) || curContractId;
-    return String(x.id) === String(cid); 
+    return String(x.id) === String(cid);
   });
   var ownCompanies = Array.isArray(S.ownCompanies) ? S.ownCompanies : [];
   var curOwnCompanyId = t.own_company_id || (curContract && curContract.own_company_id) || null;
@@ -2404,7 +2404,7 @@ function pageCard() {
             field('Обследование', 'obsledovanie', 'text', true) +
             field('Доступ', 'dostup', 'text', true) +
           '</div>' +
-          (isWorker ? '' : 
+          (isWorker ? '' :
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;padding-top:6px;border-top:1px dashed var(--border)">' +
               field('Внутренний комментарий', 'comment', 'textarea', true) +
               field('Комментарий Заказчика', 'excelComment', 'textarea', true) +
@@ -2818,7 +2818,7 @@ function pageCard() {
         '<div style="font-size:.78rem;color:var(--text-3);margin-top:2px">Управленческий учет: Заявка (Прил. №2), Акты выполненных работ, Счета, Отчеты монтажника (ТМЦ), Допуски на объект и Альбом ИД</div>' +
       '</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-        '<button type="button" class="btn btn-sm btn-primary" onclick="generateTaskDoc(\'' + eid + '\', \'order_subcontract\')" title="Заказ-наряд на работы — неотъемлемая часть договора субподряда (Приложение № 1)">📄 Заказ-наряд (Прил. №1)</button>' +
+        '<button type="button" class="btn btn-sm btn-primary" onclick="generateTaskDoc(\'' + eid + '\', \'order_subcontract\')" title="Сформировать Приложение № 2 (Заявка на выполнение работ) к Договору субподряда">📄 Приложение № 2 / Заявка (Заказ)</button>' +
         '<button type="button" class="btn btn-sm btn-ghost" style="border:1.5px solid #2563eb;color:#1d4ed8;font-weight:700" onclick="window.downloadAuthFile(\'/api/tasks/\' + encodeURIComponent(\'' + eid + '\') + \'/materials/export-excel\', \'' + eid + '_Приложение_2_Спецификация_ТМЦ.xlsx\')" title="Скачать спецификацию оборудования и материалов (Приложение № 2) в Excel">📊 Спецификация ТМЦ (Прил. №2)</button>' +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'completion_act\')" title="Акт выполненных работ к заказу на работы («Сдал/Принял»)">🤝 Акт вып. работ</button>' +
         '<button type="button" class="btn btn-sm btn-ghost" onclick="generateTaskDoc(\'' + eid + '\', \'invoice\')" title="Сформировать счёт на оплату">💰 Счёт</button>' +
@@ -2864,9 +2864,9 @@ function pageCard() {
 
   var paneFinance = (function() {
     if (isWorker) return '';
-    var curC = (S.contracts || []).find(function(x){ 
+    var curC = (S.contracts || []).find(function(x){
       var cid = (t.contract_id != null ? t.contract_id : t.contractId) || curContractId;
-      return String(x.id) === String(cid); 
+      return String(x.id) === String(cid);
     });
     var curContractTitle = curC
       ? ((curC.contract_number ? ('Договор № ' + escHtml(curC.contract_number)) : ('Контракт #' + curC.id)) +
@@ -2914,11 +2914,11 @@ function pageCard() {
 
     // Формула Алексея для субподряда: Сумма = (ед * факт + уд + доп)
     var subRate = (t.rawData && t.rawData.subRate != null) ? Number(t.rawData.subRate) : (curSub && curSub.price_agreed && effectivePorts > 0 ? Math.round(curSub.price_agreed / effectivePorts) : 500);
-    var subDist = (t.rawData && t.rawData.subDist != null) 
-      ? Number(t.rawData.subDist) 
+    var subDist = (t.rawData && t.rawData.subDist != null)
+      ? Number(t.rawData.subDist)
       : (transportSubcontract > 0 ? transportSubcontract : (distanceVal > 0 ? Math.round(distanceVal * 0.5) : 0));
-    var subExtras = (t.rawData && t.rawData.subExtras != null) 
-      ? Number(t.rawData.subExtras) 
+    var subExtras = (t.rawData && t.rawData.subExtras != null)
+      ? Number(t.rawData.subExtras)
       : (dopSubcontract > 0 ? dopSubcontract : 0);
 
     var subWorkCost = Math.round(subRate * effectivePorts);
@@ -2956,10 +2956,10 @@ function pageCard() {
     // Список сопутствующих расходов
     var expensesListHtml = extraExpenses.length ? extraExpenses.map(function(exp, idx) {
       var isDop = exp.category === 'dop';
-      var catBadge = isDop 
+      var catBadge = isDop
         ? '<span class="badge" style="background:#ffedd5;color:#9a3412;font-size:.7rem;font-weight:600">🛠️ ДОПы</span>'
         : '<span class="badge" style="background:#e0f2fe;color:#0369a1;font-size:.7rem;font-weight:600">🚚 ТК/Транспорт</span>';
-      
+
       var isThroughSub = exp.payer_mode === 'through_contractor';
       var payerBadge = isThroughSub
         ? '<span class="badge b-green" style="font-size:.68rem" title="В смету субподрядчику (компенсация)">👷 В смету монтажнику</span>'
@@ -6785,10 +6785,10 @@ function saveCard(silent) {
   delete data._tmcTaskId;
 
   var hasFieldDraft = Object.keys(data).length > 0;
-  if (!hasFieldDraft && !isSmrDirty && !isTmcDirty) { 
-    S.cardConfirmOpen = false; 
-    if (!silent) renderApp(); 
-    return Promise.resolve(); 
+  if (!hasFieldDraft && !isSmrDirty && !isTmcDirty) {
+    S.cardConfirmOpen = false;
+    if (!silent) renderApp();
+    return Promise.resolve();
   }
 
   var now = new Date().toLocaleString('ru');
@@ -6890,13 +6890,13 @@ function saveCard(silent) {
         window.refreshCardHistory(t.id);
       }
     })
-    .catch(function(e){ 
+    .catch(function(e){
       console.error('Ошибка сохранения карточки:', e);
       if (saveInd) {
         saveInd.textContent = '⚠️ Ошибка сохранения';
         saveInd.style.color = '#dc2626';
       }
-      if (!silent) alert('Ошибка сохранения: ' + e.message); 
+      if (!silent) alert('Ошибка сохранения: ' + e.message);
     });
 }
 window.saveCard = saveCard;
@@ -6951,16 +6951,16 @@ window.deleteTaskPrompt = deleteTaskPrompt;
 
 function openAccessLetterModal(taskId) {
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); }) || { id: taskId };
-  
+
   var p = S.specialists ? Promise.resolve(S.specialists) : api('/specialists').then(function(specs){ S.specialists = specs; return specs; });
-  
+
   p.then(function(specialists) {
     var existing = document.getElementById('_access_letter_modal');
     if (existing) existing.remove();
 
     var defaultContractor = t.contractor || 'ООО "К10"';
     var defaultResponsible = '8(923) 102-40-42, ПМ – Чайка Алексей Николаевич';
-    
+
     var parts = [];
     if (t.customer) parts.push('Заказчик: ' + t.customer);
     if (t.address) parts.push(t.address);
@@ -6975,7 +6975,7 @@ function openAccessLetterModal(taskId) {
     var modal = document.createElement('div');
     modal.id = '_access_letter_modal';
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(2px)';
-    
+
     modal.innerHTML = `
       <div style="background:#fff;border-radius:14px;padding:1.5rem;width:100%;max-width:640px;box-shadow:0 12px 48px rgba(0,0,0,.25);max-height:92vh;display:flex;flex-direction:column">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
@@ -8152,7 +8152,7 @@ function renderSmrChecklist(taskId) {
   var portsCount = (window._curTaskPorts && window._curTaskPorts[taskId] !== undefined) ? window._curTaskPorts[taskId] : 0;
   var factValNum = (factVal !== null && factVal !== undefined && factVal !== '') ? Number(factVal) : null;
   var isFactSet = (factValNum !== null && !isNaN(factValNum) && factValNum > 0);
-  
+
   // КЖ считается выполненным ТОЛЬКО если:
   // 1. Указан факт монтажа (> 0)
   // 2. В кабельном журнале заведено ровно столько линий, сколько смонтировано фактически
@@ -8242,7 +8242,7 @@ function renderSmrChecklist(taskId) {
   var bannerBg = allPassed ? '#f0fdf4' : '#fffbeb';
   var bannerBorder = allPassed ? '#86efac' : '#fde68a';
   var bannerColor = allPassed ? '#166534' : '#92400e';
-  var bannerTitle = allPassed 
+  var bannerTitle = allPassed
     ? '✅ Чек-лист готовности монтажника успешно пройден (' + passedCount + ' из ' + items.length + ')'
     : '📋 Чек-лист готовности монтажника к закрытию СМР (' + passedCount + ' из ' + items.length + ' выполнено)';
   var bannerSubtitle = allPassed
@@ -8274,7 +8274,7 @@ function renderSmrChecklist(taskId) {
         '<div style="font-weight:700;font-size:.86rem;color:' + bannerColor + '">' + bannerTitle + '</div>' +
         '<div style="font-size:.74rem;color:' + bannerColor + ';opacity:.9">' + bannerSubtitle + '</div>' +
       '</div>' +
-      (allPassed 
+      (allPassed
         ? '<span class="badge b-green" style="font-weight:700;font-size:.75rem;padding:3px 8px">Готов к сдаче в ИД</span>'
         : '<span class="badge b-orange" style="font-weight:700;font-size:.75rem;padding:3px 8px">Осталось: ' + (items.length - passedCount) + '</span>'
       ) +
@@ -8419,7 +8419,7 @@ function loadCardSubcontracts(taskId) {
           '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
             '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
               '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'subcontract_agreement\')" title="Открыть Договор субподряда в редакторе Stockeasy">🤝 Договор</button>' +
-              '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'order_subcontract\')" title="Открыть Заказ-наряд на работы (Приложение №1) в редакторе Stockeasy">📄 Заказ-наряд (Прил. 1)</button>' +
+              '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'order_subcontract\')" title="Открыть Приложение № 2 (Заявку на работы) в редакторе Stockeasy">📄 Приложение № 2 / Заявка (Заказ)</button>' +
               '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'completion_act\')" title="Открыть Акт сдачи-приемки («Сдал/Принял») в редакторе Stockeasy">🤝 Акт «Сдал/Принял»</button>' +
               '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'invoice\')" title="Открыть Счет от подрядчика в редакторе Stockeasy">💰 Счет</button>' +
               '<button class="btn btn-sm btn-ghost" onclick="generateSubcontractDoc(\'' + escHtml(taskId) + '\', ' + sub.id + ', \'tmc_act\')" title="Открыть Акт расхода ТМЦ в редакторе Stockeasy">📦 Акт ТМЦ</button>' +
@@ -9091,10 +9091,10 @@ function saveSubcontract(taskId, editId) {
         t.macroStatus = 'assigned';
         t.stageNum = 1;
       }
-      api('/tasks/' + encodeURIComponent(taskId), { 
-        method: 'PUT', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ contractor: targetContr, status: 'progress', macroStatus: t.macroStatus, stageNum: t.stageNum }) 
+      api('/tasks/' + encodeURIComponent(taskId), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contractor: targetContr, status: 'progress', macroStatus: t.macroStatus, stageNum: t.stageNum })
       });
     }
     loadCardSubcontracts(taskId);
@@ -9135,6 +9135,30 @@ function deleteSubcontract(taskId, subId) {
 }
 
 window.generateTaskDoc = function(taskId, docType, optSubcontractId) {
+  var isWorker = typeof S !== 'undefined' && S.user && ['worker', 'installer', 'contractor', 'subcontractor', 'foreman', 'master'].includes(String(S.user.role || '').toLowerCase());
+  var targetTask = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); }) || {};
+  var targetSub = (window._curCardSubcontracts || []).find(function(s){ return String(s.task_id) === String(taskId); }) || null;
+  var ordParams = (targetSub && targetSub.calculation_details && targetSub.calculation_details.order_params) ||
+                  (targetTask.raw_data && targetTask.raw_data.orderParams) ||
+                  (targetTask.rawData && targetTask.rawData.orderParams) || {};
+
+  var isKjAndIdReady = Boolean(
+    targetTask.id_status === 'done' || targetTask.id_status === 'approved' ||
+    targetTask.status === 'review' || targetTask.status === 'done' ||
+    (targetTask.rawData && targetTask.rawData.idReady) ||
+    (targetTask.raw_data && targetTask.raw_data.idReady)
+  );
+
+  if (isWorker) {
+    if (docType === 'completion_act' && !isKjAndIdReady) {
+      alert('⚠️ Акт выполненных работ доступен для исполнителя только после завершения Кабельного журнала и сдачи комплекта ИД.');
+      return;
+    }
+    if (docType === 'invoice' && !isKjAndIdReady && !ordParams.has_advance) {
+      alert('⚠️ Окончательный счет доступен только после завершения Кабельного журнала и сдачи ИД (по Заявке аванс не предусмотрен).');
+      return;
+    }
+  }
   // Проверяем, есть ли уже созданный черновик этого документа в реестре задачи
   var existingDoc = null;
   if (Array.isArray(window._cardDocsCache)) {
@@ -9163,7 +9187,7 @@ window.generateTaskDoc = function(taskId, docType, optSubcontractId) {
   }
 
   var docTitles = {
-    order_subcontract: 'Заказ-наряд на работы [Прил. №1]',
+    order_subcontract: 'Приложение № 2 / Заявка (Заказ)',
     completion_act: 'Акт вып. работ [к заказу]',
     invoice: 'Счет на оплату',
     permit_letter: 'Письмо на допуск на объект',
@@ -9246,7 +9270,7 @@ function loadCardDocuments(taskId) {
         // Badges for doc_type
         var typeBadge = '<span class="badge b-gray" style="font-size:.68rem">' + escHtml(d.doc_type || 'Документ') + '</span>';
         if (d.doc_type === 'subcontract_agreement') typeBadge = '<span class="badge b-blue" style="font-size:.68rem">🤝 Договор субподряда</span>';
-        else if (d.doc_type === 'order_subcontract') typeBadge = '<span class="badge b-blue" style="font-size:.68rem">📄 Заказ-наряд [Прил. №1]</span>';
+        else if (d.doc_type === 'order_subcontract') typeBadge = '<span class="badge b-blue" style="font-size:.68rem">📄 Приложение № 2 / Заявка</span>';
         else if (d.doc_type === 'tmc_spec' || d.doc_type === 'material_spec') typeBadge = '<span class="badge b-orange" style="font-size:.68rem">📦 Спецификация ТМЦ [Прил. №2]</span>';
         else if (d.doc_type === 'completion_act') typeBadge = '<span class="badge b-green" style="font-size:.68rem">Акт вып. работ</span>';
         else if (d.doc_type === 'invoice') typeBadge = '<span class="badge b-yellow" style="font-size:.68rem">Счет на оплату</span>';

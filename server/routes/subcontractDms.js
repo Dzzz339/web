@@ -14,7 +14,7 @@ const router = express.Router();
 router.get('/own-companies', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT * FROM own_companies 
+      SELECT * FROM own_companies
       ORDER BY is_default DESC, name_short ASC
     `);
     res.json(rows);
@@ -28,8 +28,49 @@ router.get('/own-companies', authenticateToken, async (req, res) => {
 router.get('/contractors/:id/contracts', authenticateToken, async (req, res) => {
   try {
     const contractorId = parseInt(req.params.id, 10);
+    if (!contractorId) return res.json([]);
+
+    // Автоматическая подтяжка рамочных договоров из таблицы contracts (если договор был заведен в общем разделе "Договоры")
+    const { rows: generalContracts } = await pool.query(`
+      SELECT c.*
+      FROM contracts c
+      WHERE c.customer_id = $1
+         OR c.customer_name IN (
+           SELECT name_short FROM contractors WHERE id = $1
+           UNION
+           SELECT name_full FROM contractors WHERE id = $1
+         )
+    `, [contractorId]);
+
+    for (const gc of generalContracts) {
+      const cNum = gc.contract_number || gc.internal_number || `ДГ-${gc.id}`;
+      const { rows: exist } = await pool.query(`
+        SELECT id FROM contractor_contracts
+        WHERE contractor_id = $1 AND (parent_contract_id = $2 OR contract_number = $3)
+        LIMIT 1
+      `, [contractorId, gc.id, cNum]);
+
+      if (exist.length === 0) {
+        await pool.query(`
+          INSERT INTO contractor_contracts (
+            contractor_id, own_company_id, contract_number, contract_date,
+            title, subject, parent_contract_id, status
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `, [
+          contractorId,
+          gc.own_company_id || null,
+          cNum,
+          gc.contract_date || new Date(),
+          gc.contract_type_summary || gc.subject || `Договор подряда № ${cNum}`,
+          gc.subject || gc.contract_type_summary || 'Монтаж СКС и слаботочных систем',
+          gc.id,
+          gc.status || 'active'
+        ]);
+      }
+    }
+
     const { rows } = await pool.query(`
-      SELECT 
+      SELECT
         cc.*,
         oc.name_short AS own_company_name,
         oc.inn AS own_company_inn,
@@ -43,8 +84,8 @@ router.get('/contractors/:id/contracts', authenticateToken, async (req, res) => 
       LEFT JOIN own_companies oc ON cc.own_company_id = oc.id
       LEFT JOIN contracts pc ON cc.parent_contract_id = pc.id
       LEFT JOIN contractor_price_lists pl ON pl.contract_id = cc.id AND pl.is_active = true
-      WHERE cc.contractor_id = $1
-      ORDER BY (cc.status = 'active') DESC, cc.id DESC
+      WHERE cc.contractor_id = $1 AND cc.status IN ('active', 'created', 'signed')
+      ORDER BY (cc.status = 'active') DESC, (cc.status = 'signed') DESC, cc.id DESC
     `, [contractorId]);
     res.json(rows);
   } catch (err) {
@@ -136,7 +177,7 @@ router.post('/contractors/:id/contracts', authenticateToken, async (req, res) =>
           INSERT INTO price_list_items (
             price_list_id, work_code, work_name, unit, price_tier_1, price_tier_2, tier_threshold, is_variable_cost, comment, sort_order
           )
-          SELECT 
+          SELECT
             $1, work_code, work_name, unit, price_tier_1, price_tier_2, tier_threshold, is_variable_cost, comment, sort_order
           FROM price_list_items
           WHERE price_list_id = $2
@@ -182,7 +223,7 @@ router.get('/contractor-contracts/:contractId/price-list', authenticateToken, as
 router.get('/subcontract-contracts', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT 
+      SELECT
         cc.*,
         c.name_short AS contractor_name,
         c.inn AS contractor_inn,
@@ -294,7 +335,7 @@ router.post('/subcontract-contracts', authenticateToken, async (req, res) => {
 
     // Возвращаем контракт с обогащенными полями
     const enriched = await pool.query(`
-      SELECT 
+      SELECT
         cc.*,
         c.name_short AS contractor_name,
         c.inn AS contractor_inn,
@@ -351,7 +392,7 @@ router.put('/subcontract-contracts/:id', authenticateToken, async (req, res) => 
 
     // Если договор согласован, передан, подписан или расторгнут — редактирование основных реквизитов закрыто (кроме админа)
     if (!isCreated && userRole !== 'admin') {
-      const hasRestrictedChanges = 
+      const hasRestrictedChanges =
         (contract_number !== undefined && contract_number !== current.contract_number) ||
         (contractor_id !== undefined && Number(contractor_id) !== Number(current.contractor_id)) ||
         (own_company_id !== undefined && Number(own_company_id) !== Number(current.own_company_id)) ||
@@ -409,7 +450,7 @@ router.put('/subcontract-contracts/:id', authenticateToken, async (req, res) => 
     if (!rows.length) return res.status(404).json({ error: 'Договор не найден' });
 
     const enriched = await pool.query(`
-      SELECT 
+      SELECT
         cc.*,
         c.name_short AS contractor_name,
         c.inn AS contractor_inn,
@@ -569,7 +610,7 @@ router.get('/subcontract-contracts/:id/docx', authenticateToken, async (req, res
 router.get('/subcontract-pricelists', authenticateToken, async (req, res) => {
   try {
     const { rows: plRows } = await pool.query(`
-      SELECT 
+      SELECT
         pl.*,
         cc.contract_number,
         cc.contract_date,
@@ -793,7 +834,7 @@ router.get('/contractors/:id/previous-subcontracts', authenticateToken, async (r
   try {
     const contractorId = parseInt(req.params.id, 10);
     const { rows } = await pool.query(`
-      SELECT 
+      SELECT
         s.id,
         s.task_id,
         s.work_type,
@@ -875,7 +916,8 @@ router.post('/tasks/:taskId/subcontract-wizard', authenticateToken, async (req, 
       calculation_details,
       ports_count,
       distance_km,
-      comment
+      comment,
+      order_locked
     } = req.body;
 
     if (!contractor_id && !contractor_name) {
@@ -891,11 +933,23 @@ router.post('/tasks/:taskId/subcontract-wizard', authenticateToken, async (req, 
     }
 
     // Проверяем, есть ли уже субподряд для этой задачи и этого подрядчика
-    const existingSub = await pool.query(`
-      SELECT id FROM task_subcontracts 
-      WHERE task_id = $1 AND (contractor_id = $2 OR contractor_name = $3)
-      LIMIT 1
-    `, [taskId, cId, cName]);
+    let existingSub = null;
+    if (req.body.subcontract_id) {
+      existingSub = await pool.query('SELECT id FROM task_subcontracts WHERE id = $1', [req.body.subcontract_id]);
+    }
+    if (!existingSub || !existingSub.rows.length) {
+      existingSub = await pool.query(`
+        SELECT id FROM task_subcontracts
+        WHERE task_id = $1 AND (contractor_id = $2 OR contractor_name = $3)
+        LIMIT 1
+      `, [taskId, cId, cName]);
+    }
+
+    let calcObj = calculation_details !== undefined ? calculation_details : null;
+    if (req.body.order_params) {
+      calcObj = calcObj || {};
+      calcObj.order_params = req.body.order_params;
+    }
 
     let subcontractId;
     if (existingSub.rows.length) {
@@ -915,34 +969,38 @@ router.post('/tasks/:taskId/subcontract-wizard', authenticateToken, async (req, 
           installer_phone = $11,
           installer_passport = $12,
           auto_number = $13,
-          calculation_details = $14,
+          calculation_details = CASE WHEN $14::jsonb IS NOT NULL THEN $14::jsonb ELSE calculation_details END,
           ports_count = $15,
           distance_km = $16,
           comment = COALESCE($17, comment),
+          order_locked = CASE WHEN $18::boolean IS NOT NULL THEN $18::boolean ELSE order_locked END,
           updated_at = NOW()
-        WHERE id = $18
+        WHERE id = $19
       `, [
         cId, cName, own_company_id || null, contractor_contract_id || null, price_list_id || null,
         work_type, price_agreed || 0, deadline || null, specialist_id || null,
         installer_fio || '', installer_phone || '', installer_passport || '', auto_number || '',
-        calculation_details ? JSON.stringify(calculation_details) : '{}',
-        ports_count || 0, distance_km || 0, comment || '', subcontractId
+        calcObj !== null ? JSON.stringify(calcObj) : null,
+        ports_count || 0, distance_km || 0, comment || '',
+        order_locked !== undefined ? !!order_locked : null,
+        subcontractId
       ]);
     } else {
       const insRes = await pool.query(`
         INSERT INTO task_subcontracts (
           task_id, contractor_id, contractor_name, own_company_id, contractor_contract_id, price_list_id,
           work_type, price_agreed, deadline, specialist_id, installer_fio, installer_phone, installer_passport,
-          auto_number, calculation_details, ports_count, distance_km, comment
+          auto_number, calculation_details, ports_count, distance_km, comment, order_locked
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
         RETURNING id
       `, [
         taskId, cId, cName, own_company_id || null, contractor_contract_id || null, price_list_id || null,
         work_type || 'Монтаж СКС', price_agreed || 0, deadline || null, specialist_id || null,
         installer_fio || '', installer_phone || '', installer_passport || '', auto_number || '',
-        calculation_details ? JSON.stringify(calculation_details) : '{}',
-        ports_count || 0, distance_km || 0, comment || ''
+        calcObj ? JSON.stringify(calcObj) : '{}',
+        ports_count || 0, distance_km || 0, comment || '',
+        order_locked !== undefined ? !!order_locked : false
       ]);
       subcontractId = insRes.rows[0].id;
     }
@@ -955,7 +1013,7 @@ router.post('/tasks/:taskId/subcontract-wizard', authenticateToken, async (req, 
     }
 
     // Синхронизируем подрядчика, собственное юрлицо и историю в таблице tasks
-    const curTaskRes = await pool.query('SELECT history, contractor, amount FROM tasks WHERE id = $1', [taskId]);
+    const curTaskRes = await pool.query('SELECT history, contractor, amount, raw_data FROM tasks WHERE id = $1', [taskId]);
     let tHist = (curTaskRes.rows[0] && Array.isArray(curTaskRes.rows[0].history)) ? [...curTaskRes.rows[0].history] : [];
     const nowRu = new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
     const authorName = (req.user && (req.user.fullName || req.user.username)) || 'Система';
@@ -968,22 +1026,33 @@ router.post('/tasks/:taskId/subcontract-wizard', authenticateToken, async (req, 
       new: `${cName} (Согласовано по смете: ${Math.round(price_agreed || 0).toLocaleString('ru-RU')} ₽)`
     });
 
+    let updatedRawData = curTaskRes.rows[0]?.raw_data || {};
+    if (typeof updatedRawData === 'string') {
+      try { updatedRawData = JSON.parse(updatedRawData); } catch {}
+    }
+    const incomingOrderParams = (calcObj && calcObj.order_params) || req.body.order_params || (calculation_details && calculation_details.order_params);
+    if (incomingOrderParams) {
+      updatedRawData.orderParams = incomingOrderParams;
+    }
+
     await pool.query(`
       UPDATE tasks SET
         contractor = $1,
+        contractor_id = COALESCE($6, contractor_id),
         own_company_id = COALESCE($2, own_company_id),
         amount = CASE WHEN (amount IS NULL OR amount = 0) THEN $3 ELSE amount END,
         status = CASE WHEN status IN ('pending', 'new', 'cancelled') THEN 'progress' ELSE status END,
         macro_status = CASE WHEN (macro_status IS NULL OR macro_status = 'new') THEN 'assigned' ELSE macro_status END,
         stage_num = CASE WHEN (stage_num IS NULL OR stage_num = 0) THEN 1 ELSE stage_num END,
+        raw_data = $7::jsonb,
         history = $5::jsonb,
         updated_at = NOW()
       WHERE id = $4
-    `, [cName, own_company_id || null, price_agreed || 0, taskId, JSON.stringify(tHist.slice(-500))]);
+    `, [cName, own_company_id || null, price_agreed || 0, taskId, JSON.stringify(tHist.slice(-500)), cId || null, JSON.stringify(updatedRawData)]);
 
     // Возвращаем полный объект субподряда
     const fullRes = await pool.query(`
-      SELECT 
+      SELECT
         s.*,
         oc.name_short AS own_company_name,
         cc.contract_number,
@@ -1110,7 +1179,7 @@ export async function performTariffAudit({ taskId, region, address, workType, po
   else if (wtLower.includes('шкаф') || wtLower.includes('стойк')) category = 'Шкафы';
 
   const smrTariffRes = await pool.query(`
-    SELECT * FROM customer_tariffs 
+    SELECT * FROM customer_tariffs
     WHERE region = $1 AND work_category = $2 AND tier_range = $3
     LIMIT 1
   `, [sberRegion, category, tier]);
@@ -1261,7 +1330,7 @@ router.get('/customer-tariffs', authenticateToken, async (req, res) => {
 router.get('/customer-tariffs/regions', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT 
+      SELECT
         region,
         min(contract_agreement_number) AS contract_agreement_number,
         min(contract_title) AS contract_title,
@@ -1331,7 +1400,7 @@ router.post('/customer-tariffs/generate-subcontract-price', authenticateToken, a
 
     // Получаем тарифы Сбера для указанного региона
     const tariffsRes = await pool.query(`
-      SELECT * FROM customer_tariffs 
+      SELECT * FROM customer_tariffs
       WHERE region = $1 AND is_remote_location = false
       ORDER BY id ASC
     `, [region]);

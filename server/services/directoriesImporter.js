@@ -232,7 +232,7 @@ export async function importSpecialistsFromDocx(docxPath) {
       inserted++;
     } else {
       await pool.query(
-        `UPDATE specialists 
+        `UPDATE specialists
          SET phone = COALESCE(NULLIF($1, ''), phone),
              passport_raw = COALESCE(NULLIF($2, ''), passport_raw),
              passport_series_number = COALESCE(NULLIF($3, ''), passport_series_number),
@@ -407,7 +407,7 @@ export async function importPowersOfAttorneyFromXlsx(xlsxPath) {
           `INSERT INTO specialists (full_name, organization, position)
            VALUES ($1, $2, 'Подотчетное лицо')
            RETURNING id`,
-          [rawPerson, rawOrg || 'ООО "Ультима"']
+          [rawPerson, rawContr || 'Самостоятельный специалист']
         );
         specialistId = newSpec.rows[0].id;
       }
@@ -420,7 +420,7 @@ export async function importPowersOfAttorneyFromXlsx(xlsxPath) {
 
     if (check.rows.length === 0) {
       await pool.query(
-        `INSERT INTO powers_of_attorney 
+        `INSERT INTO powers_of_attorney
          (number, issue_date, valid_until, person_name, specialist_id, contractor_name, organization, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [rawNumber, issueDate, validUntil, rawPerson, specialistId, rawContr, rawOrg, status]
@@ -519,7 +519,7 @@ export async function linkArchiveDocuments() {
 
       if (attCheck.rows.length === 0) {
         await pool.query(
-          `INSERT INTO task_attachments 
+          `INSERT INTO task_attachments
            (task_id, type, file_path, original_name, mime_type, size_bytes, comment)
            VALUES ($1, $2, $3, $4, $5, $6, 'Импортировано из архива 12.06.2026')`,
           [taskId, type, relPath, file, mime, stat.size]
@@ -655,7 +655,7 @@ export async function syncContractorsFromPOA() {
     let contractorId;
     if (check.rows.length === 0) {
       const insRes = await pool.query(
-        `INSERT INTO contractors 
+        `INSERT INTO contractors
          (inn, kpp, name_short, name_full, address_legal, director, type, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')
          RETURNING id`,
@@ -681,8 +681,8 @@ export async function syncContractorsFromPOA() {
 
     // Link powers_of_attorney rows to this contractor_id
     await pool.query(
-      `UPDATE powers_of_attorney 
-       SET contractor_id = $1 
+      `UPDATE powers_of_attorney
+       SET contractor_id = $1
        WHERE TRIM(contractor_name) = $2 OR contractor_name ILIKE $3`,
       [contractorId, rawName, `%${nameShort}%`]
     );

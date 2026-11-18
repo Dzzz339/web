@@ -28,8 +28,8 @@ export async function initDB() {
       id            SERIAL PRIMARY KEY,
       username      TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
-      role          TEXT NOT NULL DEFAULT 'worker', 
-      full_name     TEXT,                           
+      role          TEXT NOT NULL DEFAULT 'worker',
+      full_name     TEXT,
       created_at    TIMESTAMPTZ DEFAULT NOW()
     )
   `);
@@ -219,7 +219,7 @@ export async function initDB() {
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status_payment_customer TEXT DEFAULT 'pending'`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS id_moderation_status TEXT DEFAULT 'pending'`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS id_moderation_notes TEXT`);
-  
+
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_status_smr ON tasks(status_smr)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_status_supply ON tasks(status_supply)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_status_id ON tasks(status_id)`);
@@ -248,7 +248,7 @@ export async function initDB() {
   await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS signer_name TEXT`);
   await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS signer_position TEXT DEFAULT 'Директор'`);
   await pool.query(`ALTER TABLE contractors ADD COLUMN IF NOT EXISTS is_own BOOLEAN DEFAULT false`);
-  
+
   // Инициализация собственных юрлиц группы (own_companies) и инфраструктуры субподрядов
   try {
     await initSubcontractDms(pool);
@@ -269,68 +269,68 @@ export async function initDB() {
 
   // Классификация и нормализация типов контрагентов (Заказчики, Поставщики, Подрядчики СМР, Логистика, Прочие)
   await pool.query(`
-    UPDATE contractors SET type = 'customer' 
-    WHERE inn IN ('7707083893', '2901004169') 
-       OR name_short ILIKE '%сбербанк%' 
-       OR name_short ILIKE '%осфр%' 
-       OR name_short ILIKE '%пенсионный%' 
+    UPDATE contractors SET type = 'customer'
+    WHERE inn IN ('7707083893', '2901004169')
+       OR name_short ILIKE '%сбербанк%'
+       OR name_short ILIKE '%осфр%'
+       OR name_short ILIKE '%пенсионный%'
        OR name_short ILIKE '%социальный фонд%';
   `);
 
   await pool.query(`
-    UPDATE contractors SET type = 'supplier' 
-    WHERE name_short ILIKE '%электротехмонтаж%' 
-       OR name_short ILIKE '%этм%' 
-       OR name_short ILIKE '%русский свет%' 
-       OR name_short ILIKE '%дкс%' 
+    UPDATE contractors SET type = 'supplier'
+    WHERE name_short ILIKE '%электротехмонтаж%'
+       OR name_short ILIKE '%этм%'
+       OR name_short ILIKE '%русский свет%'
+       OR name_short ILIKE '%дкс%'
        OR name_short ILIKE '%рубеж%'
        OR name_short ILIKE '%телеком-снаб%'
        OR name_short ILIKE '%кабельторг%';
   `);
 
   await pool.query(`
-    UPDATE contractors SET type = 'logistics' 
-    WHERE name_short ILIKE '%деловые линии%' 
-       OR name_short ILIKE '%сдэк%' 
-       OR name_short ILIKE '%пэк%' 
-       OR name_short ILIKE '%витэка%' 
-       OR name_short ILIKE '%энергия%' 
-       OR name_short ILIKE '%байкал%' 
-       OR name_short ILIKE '%желдор%' 
-       OR name_short ILIKE '%транспортн%' 
+    UPDATE contractors SET type = 'logistics'
+    WHERE name_short ILIKE '%деловые линии%'
+       OR name_short ILIKE '%сдэк%'
+       OR name_short ILIKE '%пэк%'
+       OR name_short ILIKE '%витэка%'
+       OR name_short ILIKE '%энергия%'
+       OR name_short ILIKE '%байкал%'
+       OR name_short ILIKE '%желдор%'
+       OR name_short ILIKE '%транспортн%'
        OR name_short ILIKE '%логистик%'
        OR name_short ILIKE '%возовоз%'
        OR name_short ILIKE '%грузовоз%';
   `);
 
   await pool.query(`
-    UPDATE contractors SET type = 'other_expense' 
-    WHERE name_short ILIKE '%аренда%' 
-       OR name_short ILIKE '%вышк%' 
-       OR name_short ILIKE '%бурен%' 
-       OR name_short ILIKE '%спецтехник%' 
+    UPDATE contractors SET type = 'other_expense'
+    WHERE name_short ILIKE '%аренда%'
+       OR name_short ILIKE '%вышк%'
+       OR name_short ILIKE '%бурен%'
+       OR name_short ILIKE '%спецтехник%'
        OR name_short ILIKE '%манипулятор%'
        OR name_short ILIKE '%инструмент%';
   `);
 
   await pool.query(`
-    UPDATE contractors SET type = 'subcontractor' 
+    UPDATE contractors SET type = 'subcontractor'
     WHERE (type = 'executor' OR type = 'internal' OR type IS NULL) AND is_own IS NOT TRUE;
   `);
 
   // Синхронизация собственных юрлиц (ООО «К10», ООО «Кабельные Системы», ООО «Ультима») в справочник организаций
   await pool.query(`
     INSERT INTO contractors (
-      inn, kpp, ogrn, name_short, name_full, legal_form, address_legal, address_postal, director, 
-      signer_name, signer_position, acting_basis, bank_name, bik, account_corr, account_pay, phone, email, 
+      inn, kpp, ogrn, name_short, name_full, legal_form, address_legal, address_postal, director,
+      signer_name, signer_position, acting_basis, bank_name, bik, account_corr, account_pay, phone, email,
       type, is_own, own_company_id, status
     )
-    SELECT 
+    SELECT
       oc.inn, oc.kpp, oc.ogrn, oc.name_short, oc.name_full, 'ООО', oc.address_legal, oc.address_postal, oc.director,
       oc.director, oc.director_title, 'Устава', oc.bank_name, oc.bik, oc.account_corr, oc.account_pay, oc.phone, oc.email,
       'own', true, oc.id, 'active'
     FROM own_companies oc
-    ON CONFLICT (inn) DO UPDATE SET 
+    ON CONFLICT (inn) DO UPDATE SET
       is_own = true,
       own_company_id = EXCLUDED.own_company_id,
       type = 'own',
@@ -443,13 +443,13 @@ export async function initDB() {
     console.error('[DB] Subcontract DMS post-contracts init error:', dmsErr.message);
   }
   await pool.query(`
-    UPDATE contracts c SET own_company_id = oc.id 
-    FROM own_companies oc 
+    UPDATE contracts c SET own_company_id = oc.id
+    FROM own_companies oc
     WHERE c.own_company_id IS NULL AND (
-      oc.name_short = c.our_entity_name 
-      OR oc.name_full = c.our_entity_name 
-      OR (c.our_entity_name ILIKE '%К10%' AND oc.code = 'K10') 
-      OR (c.our_entity_name ILIKE '%Кабельные%' AND oc.code = 'KS') 
+      oc.name_short = c.our_entity_name
+      OR oc.name_full = c.our_entity_name
+      OR (c.our_entity_name ILIKE '%К10%' AND oc.code = 'K10')
+      OR (c.our_entity_name ILIKE '%Кабельные%' AND oc.code = 'KS')
       OR (c.our_entity_name ILIKE '%Ультима%' AND oc.code = 'ULTIMA')
     )
   `);
@@ -560,7 +560,7 @@ export async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_subcontracts_task_id ON task_subcontracts(task_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_subcontracts_contractor_id ON task_subcontracts(contractor_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_task_subcontracts_status ON task_subcontracts(status)`);
-  
+
   // Добавляем новые колонки в существующую таблицу через ALTER (для безопасного обновления)
   await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS date_start DATE`);
   await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS date_finish DATE`);
@@ -572,6 +572,7 @@ export async function initDB() {
   await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS calculation_details JSONB DEFAULT '{}'`);
   await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS ports_count INTEGER DEFAULT 0`);
   await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS distance_km NUMERIC DEFAULT 0`);
+  await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS order_locked BOOLEAN DEFAULT false`);
 
   // Реестр сформированных и прикрепленных документов
   await pool.query(`
@@ -1199,11 +1200,11 @@ export async function initDB() {
 
     // Исправление рассинхрона: если подрядчик или ПМ назначен, задача не может быть в 'pending' ("Не распределено")
     await pool.query(`
-      UPDATE tasks 
+      UPDATE tasks
       SET status = 'progress',
           macro_status = CASE WHEN macro_status IS NULL OR macro_status = 'new' THEN 'assigned' ELSE macro_status END,
           stage_num = CASE WHEN stage_num IS NULL OR stage_num = 0 THEN 1 ELSE stage_num END
-      WHERE status = 'pending' 
+      WHERE status = 'pending'
         AND (
           (contractor IS NOT NULL AND TRIM(contractor) != '')
           OR (assignee IS NOT NULL AND TRIM(assignee) != '')
@@ -1318,9 +1319,9 @@ export async function seedMaterialsAndWarehouses() {
 
     await pool.query(`
       CREATE OR REPLACE VIEW v_ai_stock AS
-      SELECT m.id AS material_id, m.code AS material_code, m.name AS material_name, 
+      SELECT m.id AS material_id, m.code AS material_code, m.name AS material_name,
              m.category, m.unit, w.name AS warehouse_name, w.type AS warehouse_type,
-             COALESCE(sb.quantity, 0) AS total_quantity, 
+             COALESCE(sb.quantity, 0) AS total_quantity,
              COALESCE(sb.reserved_qty, 0) AS reserved_qty,
              (COALESCE(sb.quantity, 0) - COALESCE(sb.reserved_qty, 0)) AS free_stock
       FROM stock_balances sb

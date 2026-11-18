@@ -246,19 +246,115 @@ export async function generateSubcontractOrder({
   subcontract = {},
   contractor = {},
   generalContractor = DEFAULT_GENERAL_CONTRACTOR,
-  orderNumber = null
+  orderNumber = null,
+  appendixNum = 2,
+  linkedContract = {},
+  orderParams = {}
 }) {
-  const docNum = orderNumber || subcontract.id || `ЗН-${task.id || '001'}`;
-  const contractNum = contractor.contract_number || 'ГК-2026/СБ';
-  const workType = subcontract.work_type || task.work_type || 'Монтаж СКС и пусконаладочные работы';
-  const price = Number(subcontract.price_agreed || task.price_per_unit || task.amount || 0);
-  const docCity = getDocCity(generalContractor, task);
+  const subDetails = (subcontract && subcontract.calculation_details) || {};
+  const params = Object.assign({}, subDetails.order_params || {}, (task && task.raw_data && task.raw_data.orderParams) || {}, orderParams);
+
+  const appNum = params.appendix_num || appendixNum || 2;
+  const docNum = orderNumber || params.order_num || subcontract.id || '1';
+  const contractNum = linkedContract.contract_number || contractor.contract_number || 'б/н';
+  const contractDateVal = linkedContract.contract_date || contractor.contract_date;
+  const contractDateStr = contractDateVal ? formatDateRu(contractDateVal) : '«___» ________ 202_ г.';
+
+  const workType = task.work_type || subcontract.work_type || 'Монтаж СКС и пусконаладочные работы';
+  const objectAddress = task.address || 'по месту нахождения объекта';
   const dirTitle = generalContractor.director_title || 'Директор';
 
-  // Развернутая спецификация работ из сметы калькулятора субподряда:
+  // Развернутая спецификация работ и доп. расходов
   const items = parseCalculationItems(subcontract, task);
   const calcTotal = items.reduce((sum, it) => sum + Number(it.total || 0), 0);
-  const effectivePrice = price > 0 ? price : calcTotal;
+  const price = Number(subcontract.price_agreed || 0);
+  const effectivePrice = calcTotal > 0 ? calcTotal : (price > 0 ? price : Number(task.amount || 0));
+
+  // Сроки и оплата
+  const workDays = parseInt(params.work_days, 10) || 5;
+  const paymentDays = parseInt(params.payment_days, 10) || 15;
+  const hasAdvance = Boolean(params.has_advance);
+  const advancePct = parseFloat(params.advance_pct) || (hasAdvance ? 45 : 0);
+  const advanceAmount = params.advance_amount !== undefined && params.advance_amount !== null
+    ? parseFloat(params.advance_amount)
+    : (hasAdvance && effectivePrice ? Math.round(effectivePrice * (advancePct / 100)) : 0);
+  const advanceDays = parseInt(params.advance_days, 10) || 3;
+  const hasInterim = Boolean(params.has_interim);
+  const interimPct = parseFloat(params.interim_pct) || 0;
+  const interimAmount = parseFloat(params.interim_amount) || 0;
+  const finalPct = Math.max(0, 100 - advancePct - interimPct);
+  const finalAmount = Math.max(0, effectivePrice - advanceAmount - interimAmount);
+
+  function getSumWordsOnly(val) {
+    if (!val) return 'ноль';
+    const full = formatSumWordsRu(val);
+    const m = full.match(/\(([^)]+)\)/);
+    return m ? m[1].trim() : full;
+  }
+
+  function formatDaysWordsRuLocal(num, grammaticalCase = 'nom') {
+    const n = parseInt(num, 10) || 0;
+    const nomUnits = ['', 'один', 'два', 'три', 'четыре', 'пять', 'шесть', 'семь', 'восемь', 'девять'];
+    const nomTeens = ['десять', 'одиннадцать', 'двенадцать', 'тринадцать', 'четырнадцать', 'пятнадцать', 'шестнадцать', 'семнадцать', 'восемнадцать', 'девятнадцать'];
+    const nomTens = ['', '', 'двадцать', 'тридцать', 'сорок', 'пятьдесят', 'шестьдесят', 'семьдесят', 'восемьдесят', 'девяносто'];
+
+    const genUnits = ['', 'одного', 'двух', 'трех', 'четырех', 'пяти', 'шести', 'семи', 'восьми', 'девяти'];
+    const genTeens = ['десяти', 'одиннадцати', 'двенадцати', 'тринадцати', 'четырнадцати', 'пятнадцати', 'шестнадцати', 'семнадцати', 'восемнадцати', 'девятнадцати'];
+    const genTens = ['', '', 'двадцати', 'тридцати', 'сорока', 'пятидесяти', 'шестидесяти', 'семидесяти', 'восьмидесяти', 'девяноста'];
+
+    if (grammaticalCase === 'gen') {
+      let res = '';
+      if (n < 10) res = genUnits[n] || '';
+      else if (n < 20) res = genTeens[n - 10];
+      else if (n < 100) {
+        const t = Math.floor(n / 10);
+        const u = n % 10;
+        res = genTens[t] + (u ? ' ' + genUnits[u] : '');
+      } else res = String(n);
+      return res.trim();
+    } else {
+      let res = '';
+      if (n < 10) res = nomUnits[n] || '';
+      else if (n < 20) res = nomTeens[n - 10];
+      else if (n < 100) {
+        const t = Math.floor(n / 10);
+        const u = n % 10;
+        res = nomTens[t] + (u ? ' ' + nomUnits[u] : '');
+      } else res = String(n);
+      res = res.trim();
+      return res ? (res.charAt(0).toUpperCase() + res.slice(1)) : '';
+    }
+  }
+
+  const workDaysWords = formatDaysWordsRuLocal(workDays, 'nom');
+  const paymentDaysWords = formatDaysWordsRuLocal(paymentDays, 'gen');
+  const totalWordsOnly = getSumWordsOnly(effectivePrice);
+  const advanceWordsOnly = getSumWordsOnly(advanceAmount);
+  const finalWordsOnly = getSumWordsOnly(finalAmount);
+
+  let paymentClauseText = '';
+  if (hasAdvance && advanceAmount > 0) {
+    paymentClauseText = `6. Оплата производится путем перечисления денежных средств: авансовый платеж в размере ${advancePct}% от суммы Заявки (${formatMoneyNum(advanceAmount)} (${advanceWordsOnly}) рублей 00 копеек) перечисляется в течение ${advanceDays} банковских дней с момента подписания Заявки; окончательный расчет в размере ${finalPct}% (${formatMoneyNum(finalAmount)} (${finalWordsOnly}) рублей 00 копеек) производится в течение ${paymentDays} (${paymentDaysWords}) календарных дней после приемки выполненных работ и подписания двустороннего акта сдачи-приемки.`;
+  } else {
+    paymentClauseText = `6. Оплата производится путем перечисления денежных средств в размере 100% от указанной в п. 2 суммы (${formatMoneyNum(effectivePrice)} (${totalWordsOnly}) рублей 00 копеек) в течение ${paymentDays} (${paymentDaysWords}) календарных дней после приемки выполненных работ и подписания двустороннего акта сдачи-приемки.`;
+  }
+
+  const vatMode = (subDetails.tax_details && subDetails.tax_details.mode) || linkedContract.vat_text || '';
+  let vatText = 'НДС не облагается';
+  if (vatMode.includes('20') || vatMode === 'osno_20') {
+    const vatSum = effectivePrice ? Math.round(effectivePrice * (20 / 120) * 100) / 100 : 0;
+    vatText = `в т.ч. НДС 20% (${formatMoneyNum(vatSum)} руб.)`;
+  } else if (vatMode.includes('5') || vatMode === 'usn_5') {
+    const vatSum = effectivePrice ? Math.round(effectivePrice * (5 / 105) * 100) / 100 : 0;
+    vatText = `в т.ч. НДС 5% (${formatMoneyNum(vatSum)} руб.)`;
+  } else if (vatMode.includes('7') || vatMode === 'usn_7') {
+    const vatSum = effectivePrice ? Math.round(effectivePrice * (7 / 107) * 100) / 100 : 0;
+    vatText = `в т.ч. НДС 7% (${formatMoneyNum(vatSum)} руб.)`;
+  }
+
+  const genComp = generalContractor;
+  const subShortName = contractor.name_full || contractor.name_short || 'Субподрядчик';
+  const subDirector = contractor.director || 'Руководитель';
 
   const doc = new Document({
     sections: [{
@@ -271,167 +367,124 @@ export async function generateSubcontractOrder({
         new Paragraph({
           alignment: AlignmentType.RIGHT,
           children: [
-            new TextRun({ text: 'Приложение № 1 (Заявка на выполнение работ)', bold: true, size: 20 }),
-            new TextRun({ text: `\nк Договору субподряда № ${contractNum}`, size: 18, italics: true }),
-            new TextRun({ text: `\nот ${formatDateRu(contractor.contract_date || contractor.created_at || new Date())}`, size: 18, italics: true })
-          ]
+            new TextRun({ text: `Приложение № ${appNum}`, bold: true, size: 20 }),
+            new TextRun({ text: `\nк Договору субподряда № ${contractNum}`, size: 18 }),
+            new TextRun({ text: `\nот ${contractDateStr}`, size: 18 })
+          ],
+          spacing: { after: 200 }
         }),
-        new Paragraph({ text: '', spacing: { after: 150 } }),
 
         new Paragraph({
           alignment: AlignmentType.CENTER,
           children: [
-            new TextRun({ text: `ЗАКАЗ-НАРЯД № ${docNum}`, bold: true, size: 26 }),
-            new TextRun({ text: `\nна выполнение строительно-монтажных и пусконаладочных работ`, bold: true, size: 21 })
-          ],
-          spacing: { after: 250 }
-        }),
-
-        new Paragraph({
-          children: [
-            new TextRun({ text: docCity, bold: true, size: 20 }),
-            new TextRun({ text: '\t\t\t\t\t\t\t\t' }),
-            new TextRun({ text: formatDateRu(subcontract.assigned_date || new Date()), bold: true, size: 20 })
-          ],
-          spacing: { after: 250 }
-        }),
-
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: `1. Генподрядчик: ${generalContractor.name_full}, ИНН ${generalContractor.inn}, ОГРН ${generalContractor.ogrn || '—'}, в лице ${dirTitle}а ${generalContractor.director}.`,
-              size: 20
-            })
-          ],
-          spacing: { after: 120 }
-        }),
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: `2. Субподрядчик: ${contractor.name_full || contractor.name_short || 'ИП / Подрядчик'}, ИНН ${contractor.inn || '—'}, Адрес: ${contractor.address_legal || '—'}.`,
-              size: 20
-            })
+            new TextRun({ text: `Заявка № ${docNum}`, bold: true, size: 26 })
           ],
           spacing: { after: 200 }
         }),
 
         new Paragraph({
           children: [
-            new TextRun({ text: '3. Характеристики объекта и задание на СМР:', bold: true, size: 20 })
+            new TextRun({
+              text: `${genComp.name_full || genComp.name_short}, именуемое в дальнейшем «Генеральный подрядчик», в лице ${dirTitle}а ${genComp.director}, действующего(-ей) на основании Устава, с одной стороны, и ${subShortName}, именуемый(-ое) в дальнейшем «Субподрядчик», в лице ${subDirector}, с другой стороны, вместе именуемые «Стороны», утвердили настоящую Заявку о нижеследующем:`,
+              size: 20
+            })
+          ],
+          spacing: { after: 150 }
+        }),
+
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: `1. Стороны согласовали следующий перечень и стоимость работ на объектах: ${workType} по адресу: ${objectAddress}`,
+              bold: true,
+              size: 20
+            })
           ],
           spacing: { after: 120 }
         }),
 
-        // Таблица параметров объекта
-        new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [
-            new TableRow({
-              children: [
-                new TableCell({
-                  width: { size: 30, type: WidthType.PERCENTAGE },
-                  borders: CELL_BORDERS_ALL,
-                  margins: CELL_PADDING,
-                  children: [new Paragraph({ text: 'Номер заявки Заказчика:', bold: true, size: 19 })]
-                }),
-                new TableCell({
-                  width: { size: 70, type: WidthType.PERCENTAGE },
-                  borders: CELL_BORDERS_ALL,
-                  margins: CELL_PADDING,
-                  children: [new Paragraph({ text: `${task.id || '—'} (ВСП: ${task.vsp || '—'}, ГОСБ: ${task.gosb || '—'})`, size: 19 })]
-                })
-              ]
-            }),
-            new TableRow({
-              children: [
-                new TableCell({
-                  borders: CELL_BORDERS_ALL,
-                  margins: CELL_PADDING,
-                  children: [new Paragraph({ text: 'Заказчик объекта:', bold: true, size: 19 })]
-                }),
-                new TableCell({
-                  borders: CELL_BORDERS_ALL,
-                  margins: CELL_PADDING,
-                  children: [new Paragraph({ text: `${task.customer || 'ПАО Сбербанк'}`, size: 19 })]
-                })
-              ]
-            }),
-            new TableRow({
-              children: [
-                new TableCell({
-                  borders: CELL_BORDERS_ALL,
-                  margins: CELL_PADDING,
-                  children: [new Paragraph({ text: 'Адрес объекта:', bold: true, size: 19 })]
-                }),
-                new TableCell({
-                  borders: CELL_BORDERS_ALL,
-                  margins: CELL_PADDING,
-                  children: [new Paragraph({ text: `${task.address || '—'}`, size: 19 })]
-                })
-              ]
-            }),
-            new TableRow({
-              children: [
-                new TableCell({
-                  borders: CELL_BORDERS_ALL,
-                  margins: CELL_PADDING,
-                  children: [new Paragraph({ text: 'Сроки выполнения СМР:', bold: true, size: 19 })]
-                }),
-                new TableCell({
-                  borders: CELL_BORDERS_ALL,
-                  margins: CELL_PADDING,
-                  children: [new Paragraph({
-                    text: `Начало: ${formatDateRu(task.data_vyhoda || subcontract.assigned_date || task.date_vnesen || new Date())}. Окончание (дедлайн): ${formatDateRu(subcontract.deadline || task.deadline)}.`,
-                    size: 19
-                  })]
-                })
-              ]
-            }),
-            new TableRow({
-              children: [
-                new TableCell({
-                  borders: CELL_BORDERS_ALL,
-                  margins: CELL_PADDING,
-                  children: [new Paragraph({ text: 'Ответственный монтажник:', bold: true, size: 19 })]
-                }),
-                new TableCell({
-                  borders: CELL_BORDERS_ALL,
-                  margins: CELL_PADDING,
-                  children: [new Paragraph({
-                    text: `${subcontract.installer_fio || 'Назначается Подрядчиком'} (тел. ${subcontract.installer_phone || contractor.phone || '—'})`,
-                    size: 19
-                  })]
-                })
-              ]
-            })
-          ]
-        }),
+        // Таблица детализированной сметы работ и доп. расходов
+        buildWorkItemsTable(items, effectivePrice),
 
         new Paragraph({ text: '', spacing: { after: 150 } }),
         new Paragraph({
           children: [
-            new TextRun({ text: '4. Спецификация работ и расчет стоимости:', bold: true, size: 20 })
+            new TextRun({
+              text: `2. Общая сумма согласно настоящей Заявки, включая все непредвиденные, транспортные расходы, расходы на проживание, питание составляет ${formatMoneyNum(effectivePrice)} (${totalWordsOnly}) рублей 00 копеек, ${vatText}.`,
+              size: 20
+            })
           ],
-          spacing: { after: 120 }
+          spacing: { after: 100 }
         }),
 
-        // Таблица детализированной сметы
-        buildWorkItemsTable(items, effectivePrice),
-
-        new Paragraph({ text: '', spacing: { after: 200 } }),
         new Paragraph({
           children: [
             new TextRun({
-              text: '5. Требования к качеству и исполнительной документации:\n',
-              bold: true,
+              text: `3. Срок выполнения Работ: ${workDays} (${workDaysWords}) рабочих дней с момента подписания настоящей Заявки.`,
               size: 20
-            }),
-            new TextRun({
-              text: 'Работы выполняются строго в соответствии со стандартами ГОСТ Р 53246-2008 и регламентом Заказчика. По окончании работ Субподрядчик передает Генподрядчику: фотоотчет (маркировка, трассы, розетки, коммутационный шкаф), заполненный кабельный журнал, протокол измерений линий связи Fluke Networks (Cat.5e PASS) и подписанный Акт расхода ТМЦ.',
-              size: 19
             })
           ],
-          spacing: { after: 300 }
+          spacing: { after: 100 }
+        }),
+
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: '4. Субподрядчик выполняет работы на объекте из материалов Генерального подрядчика, которые принимает по отгрузочным накладным (акту передачи ТМЦ), и по окончании работ предоставляет полный отчет по израсходованным материалам. Неиспользованные материалы подлежат возврату Генеральному подрядчику.',
+              size: 20
+            })
+          ],
+          spacing: { after: 100 }
+        }),
+
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: '5. Стоимость работ по данной Заявке на период действия договора является фиксированной и не подлежит изменению без письменного согласия Генерального подрядчика.',
+              size: 20
+            })
+          ],
+          spacing: { after: 100 }
+        }),
+
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: paymentClauseText,
+              size: 20
+            })
+          ],
+          spacing: { after: 100 }
+        }),
+
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: '7. Гарантийные обязательства на выполняемые работы составляют 12 (двенадцать) месяцев с момента подписания акта сдачи-приемки.',
+              size: 20
+            })
+          ],
+          spacing: { after: 100 }
+        }),
+
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: '8. Настоящая Заявка составлена в двух экземплярах, имеющих одинаковую юридическую силу, по одному для каждой из Сторон. В случае разногласий между условиями Договора и настоящей Заявки преимущественную силу имеют условия Заявки.',
+              size: 20
+            })
+          ],
+          spacing: { after: 100 }
+        }),
+
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: '9. Настоящая Заявка вступает в силу с момента ее подписания Сторонами и действует до полного исполнения Сторонами своих обязательств.',
+              size: 20
+            })
+          ],
+          spacing: { after: 200 }
         }),
 
         // Подписи сторон
@@ -445,9 +498,11 @@ export async function generateSubcontractOrder({
                   borders: { top: BORDER_SOLID },
                   margins: CELL_PADDING,
                   children: [
-                    new Paragraph({ text: 'ОТ ГЕНПОДРЯДЧИКА:', bold: true, size: 19 }),
-                    new Paragraph({ text: `${generalContractor.name_short}`, size: 18 }),
-                    new Paragraph({ text: `${dirTitle}: _________________ / ${generalContractor.director} /`, size: 18 }),
+                    new Paragraph({ text: 'ГЕНЕРАЛЬНЫЙ ПОДРЯДЧИК:', bold: true, size: 19 }),
+                    new Paragraph({ text: `${genComp.name_full || genComp.name_short}`, size: 18 }),
+                    new Paragraph({ text: `ИНН/КПП: ${genComp.inn} / ${genComp.kpp || '—'}`, size: 17 }),
+                    new Paragraph({ text: `Адрес: ${genComp.address_legal || '—'}`, size: 17 }),
+                    new Paragraph({ text: `\n${dirTitle}: _________________ / ${genComp.director} /`, size: 18 }),
                     new Paragraph({ text: 'М.П.', size: 16, italics: true })
                   ]
                 }),
@@ -456,9 +511,11 @@ export async function generateSubcontractOrder({
                   borders: { top: BORDER_SOLID },
                   margins: CELL_PADDING,
                   children: [
-                    new Paragraph({ text: 'ОТ СУБПОДРЯДЧИКА:', bold: true, size: 19 }),
-                    new Paragraph({ text: `${contractor.name_short || 'Субподрядчик'}`, size: 18 }),
-                    new Paragraph({ text: `Руководитель: _________________ / ${contractor.director || subcontract.installer_fio || 'Руководитель'} /`, size: 18 }),
+                    new Paragraph({ text: 'СУБПОДРЯДЧИК:', bold: true, size: 19 }),
+                    new Paragraph({ text: `${contractor.name_full || contractor.name_short || 'Субподрядчик'}`, size: 18 }),
+                    new Paragraph({ text: `ИНН/КПП: ${contractor.inn || '—'} / ${contractor.kpp || '—'}`, size: 17 }),
+                    new Paragraph({ text: `Адрес: ${contractor.address_legal || '—'}`, size: 17 }),
+                    new Paragraph({ text: `\nРуководитель: _________________ / ${subDirector} /`, size: 18 }),
                     new Paragraph({ text: 'М.П.', size: 16, italics: true })
                   ]
                 })
@@ -473,10 +530,6 @@ export async function generateSubcontractOrder({
   return await Packer.toBuffer(doc);
 }
 
-/**
- * 2. Генерация Письма на допуск на объект (Сбербанк и любые Заказчики)
- * Адаптирует шапку: если не Сбер (ОСФР, ОБИ и др.), корректно формирует адресата без привязки к ВСП Сбера
- */
 export async function generatePermitLetter({
   task,
   specialists = [],

@@ -83,7 +83,7 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
     let subRes = null;
     if (subcontract_id) {
       subRes = await pool.query(`
-        SELECT s.*, 
+        SELECT s.*,
           c.name_short, c.name_full, c.inn, c.address_legal, c.director, c.phone, c.bank_name, c.bik, c.account_pay, c.account_corr,
           cc.contract_number AS linked_contract_number, cc.contract_date AS linked_contract_date, cc.title AS linked_contract_title,
           oc.id AS own_id, oc.name_short AS own_name_short, oc.name_full AS own_name_full, oc.inn AS own_inn, oc.kpp AS own_kpp,
@@ -97,7 +97,7 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
       `, [subcontract_id]);
     } else {
       subRes = await pool.query(`
-        SELECT s.*, 
+        SELECT s.*,
           c.name_short, c.name_full, c.inn, c.address_legal, c.director, c.phone, c.bank_name, c.bik, c.account_pay, c.account_corr,
           cc.contract_number AS linked_contract_number, cc.contract_date AS linked_contract_date, cc.title AS linked_contract_title,
           oc.id AS own_id, oc.name_short AS own_name_short, oc.name_full AS own_name_full, oc.inn AS own_inn, oc.kpp AS own_kpp,
@@ -151,7 +151,7 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
     // Если подрядчик все еще не найден, но указан в task.contractor:
     if (!contractor.name_short && task.contractor) {
       const cRes = await pool.query(`
-        SELECT * FROM contractors 
+        SELECT * FROM contractors
         WHERE LOWER(TRIM(name_short)) = LOWER(TRIM($1)) OR LOWER(TRIM(name_full)) = LOWER(TRIM($1))
         LIMIT 1
       `, [task.contractor.trim()]);
@@ -170,7 +170,7 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
           account_corr: c.account_corr
         };
         const ccRes = await pool.query(`
-          SELECT * FROM contractor_contracts 
+          SELECT * FROM contractor_contracts
           WHERE contractor_id = $1 OR contract_number ILIKE $2
           ORDER BY id DESC LIMIT 1
         `, [c.id, `%${c.name_short.split(' ').slice(-1)[0]}%`]);
@@ -241,14 +241,39 @@ router.post('/tasks/:taskId/documents/generate', authenticateToken, requireRole(
     const timestamp = Date.now();
 
     if (doc_type === 'order_subcontract') {
-      docNumber = `ЗН-${task.id}-${subcontract ? subcontract.id : '1'}`;
-      title = `Приложение № 1 (Заказ-наряд на объект) № ${docNumber}`;
+      const subDetails = (subcontract && subcontract.calculation_details) || {};
+      const orderParams = subDetails.order_params || (task && task.raw_data && task.raw_data.orderParams) || {};
+      const appendixNum = parseInt(orderParams.appendix_num, 10) || 2;
+      const orderNum = parseInt(orderParams.order_num, 10) || (subcontract ? subcontract.id : 1);
+
+      let linkedContract = {};
+      if (subcontract && subcontract.contractor_contract_id) {
+        const ccRes = await pool.query('SELECT * FROM contractor_contracts WHERE id = $1', [subcontract.contractor_contract_id]);
+        if (ccRes.rows.length) linkedContract = ccRes.rows[0];
+      }
+      if (!linkedContract.id && contractor.id) {
+        const ccRes = await pool.query('SELECT * FROM contractor_contracts WHERE contractor_id = $1 ORDER BY id DESC LIMIT 1', [contractor.id]);
+        if (ccRes.rows.length) linkedContract = ccRes.rows[0];
+      }
+      if (!linkedContract.id && contractor.id) {
+        const cRes = await pool.query('SELECT * FROM contracts WHERE customer_id = $1 ORDER BY id DESC LIMIT 1', [contractor.id]);
+        if (cRes.rows.length) linkedContract = cRes.rows[0];
+      }
+
+      const contractNumber = linkedContract.contract_number || contractor.contract_number || 'б/н';
+      const contractDateRu = linkedContract.contract_date ? formatDateRu(linkedContract.contract_date) : (contractor.contract_date ? formatDateRu(contractor.contract_date) : 'б/д');
+
+      docNumber = String(orderNum);
+      title = `Приложение № ${appendixNum} к Договору субподряда № ${contractNumber} от ${contractDateRu} — Заявка № ${orderNum}`;
       buffer = await generateSubcontractOrder({
         task,
         subcontract: subcontract || {},
         contractor,
         generalContractor,
-        orderNumber: docNumber
+        orderNumber: docNumber,
+        appendixNum,
+        linkedContract,
+        orderParams
       });
 
     } else if (doc_type === 'contract' || doc_type === 'subcontract_agreement') {
@@ -1611,8 +1636,21 @@ router.post('/documents/render', authenticateToken, async (req, res) => {
     // 5. Подставляем переменные в HTML
     const renderedHtml = renderTemplateHtml(template.template_html, context);
 
-    const docNumber = existingDoc?.doc_number || context.doc_number;
-    const title = existingDoc?.title || `${template.name} № ${docNumber}`;
+    const isOrderSubcontract = template.code === 'order_subcontract';
+    const flatVars = context.плоские_переменные || context;
+    const docNumber = (!force_fresh && existingDoc?.doc_number) ? existingDoc.doc_number : (isOrderSubcontract ? (flatVars.номер_заявки_к_договору || context.doc_number) : context.doc_number);
+    let title = (!force_fresh && existingDoc?.title) ? existingDoc.title : null;
+    if (!title) {
+      if (isOrderSubcontract) {
+        const appNum = flatVars.номер_приложения || context.номер_приложения || '2';
+        const cNum = flatVars.номер_договора_субподряда || context.номер_договора_субподряда || 'б/н';
+        const cDate = flatVars.дата_договора_субподряда || context.дата_договора_субподряда || 'б/д';
+        const ordNum = docNumber || '1';
+        title = `Приложение № ${appNum} к Договору субподряда № ${cNum} от ${cDate} — Заявка № ${ordNum}`;
+      } else {
+        title = `${template.name} № ${docNumber}`;
+      }
+    }
     const finalHtml = (existingDoc && existingDoc.content_html && !force_fresh) ? existingDoc.content_html : renderedHtml;
 
     res.json({
@@ -1842,7 +1880,7 @@ router.get('/contracts/:contractId/documents', authenticateToken, async (req, re
       FROM task_documents d
       LEFT JOIN users u ON d.created_by = u.id
       LEFT JOIN tasks t ON d.task_id = t.id
-      WHERE d.contract_id = $1 
+      WHERE d.contract_id = $1
          OR d.task_id IN (SELECT id FROM tasks WHERE contract_id = $1)
       ORDER BY d.created_at DESC
     `;

@@ -1026,6 +1026,117 @@
     window._renderCardSmrTable(taskId);
   };
 
+
+  window._getSubOrderTotalAmount = function(taskId) {
+    var spec = (window._taskSmrSpec && window._taskSmrSpec[taskId]) || [];
+    var thirdParty = (window._taskThirdPartySpec && window._taskThirdPartySpec[taskId]) || [];
+    var totalSubAmount = 0;
+    spec.forEach(function(l) {
+      totalSubAmount += Math.round((Number(l.qty) || 0) * (Number(l.price) || 0) * 100) / 100;
+    });
+    var totalThirdPartyAmount = 0;
+    thirdParty.forEach(function(tp) {
+      totalThirdPartyAmount += Math.round(Number(tp.amount) || 0);
+    });
+    var taxCfg = window._getTaskSmrTaxConfig(taskId);
+    var taxCalc = window._calculateSmrTaxes(totalSubAmount, taxCfg.mode, taxCfg.included, taskId);
+    return Math.round((taxCalc.totalWithTax + totalThirdPartyAmount) * 100) / 100;
+  };
+
+  window._updateSubOrderFinalLabels = function(taskId) {
+    var total = window._getSubOrderTotalAmount(taskId);
+    var hasAdv = Boolean(document.getElementById('sub_order_has_advance_' + taskId)?.checked);
+    var advPct = hasAdv ? (parseFloat(document.getElementById('sub_order_advance_pct_' + taskId)?.value) || 0) : 0;
+    var advAmt = hasAdv ? (parseFloat(document.getElementById('sub_order_advance_amount_' + taskId)?.value) || 0) : 0;
+
+    var hasInt = Boolean(document.getElementById('sub_order_has_interim_' + taskId)?.checked);
+    var intPct = hasInt ? (parseFloat(document.getElementById('sub_order_interim_pct_' + taskId)?.value) || 0) : 0;
+    var intAmt = hasInt ? (parseFloat(document.getElementById('sub_order_interim_amount_' + taskId)?.value) || 0) : 0;
+
+    var finalPct = Math.max(0, 100 - advPct - intPct);
+    var finalAmt = Math.max(0, total - advAmt - intAmt);
+
+    var payDays = document.getElementById('sub_order_payment_days_' + taskId)?.value || '15';
+
+    var elTotal = document.getElementById('sub_order_total_display_' + taskId);
+    if (elTotal) elTotal.textContent = window.fmtMoneyPrecise(total);
+
+    var elPct = document.getElementById('sub_order_final_pct_label_' + taskId);
+    if (elPct) elPct.textContent = finalPct + '%';
+
+    var elDays = document.getElementById('sub_order_payment_days_label_' + taskId);
+    if (elDays) elDays.textContent = payDays;
+
+    var elAmt = document.getElementById('sub_order_final_amount_label_' + taskId);
+    if (elAmt) elAmt.textContent = window.fmtMoneyPrecise(finalAmt);
+  };
+
+  window._onSubOrderAdvanceToggle = function(taskId, checked) {
+    var box = document.getElementById('sub_order_advance_box_' + taskId);
+    if (box) box.style.display = checked ? 'flex' : 'none';
+    if (checked) {
+      var pctInp = document.getElementById('sub_order_advance_pct_' + taskId);
+      var amtInp = document.getElementById('sub_order_advance_amount_' + taskId);
+      var pct = pctInp ? (parseFloat(pctInp.value) || 45) : 45;
+      if (pctInp) pctInp.value = pct;
+      var total = window._getSubOrderTotalAmount(taskId);
+      if (amtInp) amtInp.value = Math.round(total * (pct / 100));
+    }
+    window._updateSubOrderFinalLabels(taskId);
+    if (typeof window._markSmrDirty === 'function') window._markSmrDirty(taskId);
+  };
+
+  window._onSubOrderAdvancePctInput = function(taskId, val) {
+    var pct = parseFloat(val) || 0;
+    var total = window._getSubOrderTotalAmount(taskId);
+    var amtInp = document.getElementById('sub_order_advance_amount_' + taskId);
+    if (amtInp) amtInp.value = Math.round(total * (pct / 100));
+    window._updateSubOrderFinalLabels(taskId);
+    if (typeof window._markSmrDirty === 'function') window._markSmrDirty(taskId);
+  };
+
+  window._onSubOrderAdvanceAmountInput = function(taskId, val) {
+    var amt = parseFloat(val) || 0;
+    var total = window._getSubOrderTotalAmount(taskId);
+    var pctInp = document.getElementById('sub_order_advance_pct_' + taskId);
+    if (pctInp && total > 0) pctInp.value = Math.round((amt / total) * 100);
+    window._updateSubOrderFinalLabels(taskId);
+    if (typeof window._markSmrDirty === 'function') window._markSmrDirty(taskId);
+  };
+
+  window._onSubOrderInterimToggle = function(taskId, checked) {
+    var box = document.getElementById('sub_order_interim_box_' + taskId);
+    if (box) box.style.display = checked ? 'flex' : 'none';
+    if (checked) {
+      var pctInp = document.getElementById('sub_order_interim_pct_' + taskId);
+      var amtInp = document.getElementById('sub_order_interim_amount_' + taskId);
+      var pct = pctInp ? (parseFloat(pctInp.value) || 20) : 20;
+      if (pctInp) pctInp.value = pct;
+      var total = window._getSubOrderTotalAmount(taskId);
+      if (amtInp) amtInp.value = Math.round(total * (pct / 100));
+    }
+    window._updateSubOrderFinalLabels(taskId);
+    if (typeof window._markSmrDirty === 'function') window._markSmrDirty(taskId);
+  };
+
+  window._onSubOrderInterimPctInput = function(taskId, val) {
+    var pct = parseFloat(val) || 0;
+    var total = window._getSubOrderTotalAmount(taskId);
+    var amtInp = document.getElementById('sub_order_interim_amount_' + taskId);
+    if (amtInp) amtInp.value = Math.round(total * (pct / 100));
+    window._updateSubOrderFinalLabels(taskId);
+    if (typeof window._markSmrDirty === 'function') window._markSmrDirty(taskId);
+  };
+
+  window._onSubOrderInterimAmountInput = function(taskId, val) {
+    var amt = parseFloat(val) || 0;
+    var total = window._getSubOrderTotalAmount(taskId);
+    var pctInp = document.getElementById('sub_order_interim_pct_' + taskId);
+    if (pctInp && total > 0) pctInp.value = Math.round((amt / total) * 100);
+    window._updateSubOrderFinalLabels(taskId);
+    if (typeof window._markSmrDirty === 'function') window._markSmrDirty(taskId);
+  };
+
   window.renderCardSmrCalculator = function(taskId) {
     var cont = document.getElementById('cardSmrCalculatorBlock');
     if (!cont) return;
@@ -1035,12 +1146,17 @@
 
     // Проверка статуса входного контроля заявки
     var isAccepted = (
-      t.assignmentStatus === 'accepted' || 
-      t.assignment_status === 'accepted' || 
-      (t.stage_num !== undefined && t.stage_num !== null && Number(t.stage_num) > 0) || 
-      (t.status && t.status !== 'new' && t.status !== 'created') || 
+      t.assignmentStatus === 'accepted' ||
+      t.assignment_status === 'accepted' ||
+      (t.stage_num !== undefined && t.stage_num !== null && Number(t.stage_num) > 0) ||
+      (t.status && t.status !== 'new' && t.status !== 'created') ||
       (t.contractor && String(t.contractor).trim().length > 0)
     );
+
+    var isWorker = typeof S !== 'undefined' && S.user && ['worker', 'installer', 'contractor', 'subcontractor', 'foreman', 'master'].includes(String(S.user.role || '').toLowerCase());
+    var curSubForLock = (window._curCardSubcontracts || []).find(function(s){ return String(s.task_id) === String(taskId); }) || null;
+    var isOrderLocked = Boolean(curSubForLock && (curSubForLock.order_locked || curSubForLock.status === 'in_progress' || t.status === 'progress' || t.status === 'in_progress'));
+    var isWorkerLocked = Boolean(isWorker && isOrderLocked);
 
     var curSub = (window._curCardSubcontracts || []).find(function(s){ return String(s.task_id) === String(taskId); }) || null;
     var taskContr = (t.contractor && t.contractor.trim()) || (S.cardDraft && S.cardDraft.contractor ? S.cardDraft.contractor.trim() : '');
@@ -1297,10 +1413,10 @@
     var t = (S.tasks || []).find(function(x) { return String(x.id) === String(taskId); }) || {};
     window._curWizTask = t;
     var isAccepted = (
-      t.assignmentStatus === 'accepted' || 
-      t.assignment_status === 'accepted' || 
-      (t.stage_num !== undefined && t.stage_num !== null && Number(t.stage_num) > 0) || 
-      (t.status && t.status !== 'new' && t.status !== 'created') || 
+      t.assignmentStatus === 'accepted' ||
+      t.assignment_status === 'accepted' ||
+      (t.stage_num !== undefined && t.stage_num !== null && Number(t.stage_num) > 0) ||
+      (t.status && t.status !== 'new' && t.status !== 'created') ||
       (t.contractor && String(t.contractor).trim().length > 0)
     );
 
@@ -1310,6 +1426,9 @@
     var curOwnId = t.own_company_id || (t.customer && t.customer.toLowerCase().includes('сбер') ? 2 : 1);
     var ownList = S.ownCompanies || [];
     var curSub = (window._curCardSubcontracts || []).find(function(s){ return String(s.task_id) === String(taskId); }) || null;
+    var isWorker = typeof S !== 'undefined' && S.user && ['worker', 'installer', 'contractor', 'subcontractor', 'foreman', 'master'].includes(String(S.user.role || '').toLowerCase());
+    var isOrderLocked = Boolean(curSub && (curSub.order_locked || curSub.status === 'in_progress' || t.status === 'progress' || t.status === 'in_progress'));
+    var isWorkerLocked = Boolean(isWorker && isOrderLocked);
     var contrName = (t.contractor && t.contractor.trim()) || (curSub && curSub.contractor_name) || '';
 
     var contrObj = contrName ? (S.contractors || []).find(function(c){
@@ -1352,23 +1471,23 @@
       return '<tr style="border-bottom:1px solid var(--border);font-size:.82rem">' +
         '<td style="padding:6px 8px;font-weight:600;color:var(--text-3);text-align:center">' + (idx + 1) + '</td>' +
         '<td style="padding:6px 8px">' +
-          '<input type="text" value="' + escHtml(l.name || '') + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:100%;min-width:240px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;font-weight:600;font-size:.82rem" placeholder="Наименование работы / позиции" oninput="window._updateCardSmrLine(\'' + escHtml(taskId) + '\', ' + idx + ', \'name\', this.value)">' +
+          '<input type="text" value="' + escHtml(l.name || '') + '" ' + ((!isAccepted || isWorkerLocked) ? 'disabled ' : '') + 'style="width:100%;min-width:240px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;font-weight:600;font-size:.82rem" placeholder="Наименование работы / позиции" oninput="window._updateCardSmrLine(\'' + escHtml(taskId) + '\', ' + idx + ', \'name\', this.value)">' +
         '</td>' +
         '<td style="padding:6px 8px;text-align:center;color:var(--text-2)">' +
-          '<input type="text" value="' + escHtml(l.unit || 'шт') + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:48px;padding:3px 4px;border:1px solid var(--border);border-radius:4px;text-align:center;font-size:.8rem" oninput="window._updateCardSmrLine(\'' + escHtml(taskId) + '\', ' + idx + ', \'unit\', this.value)">' +
+          '<input type="text" value="' + escHtml(l.unit || 'шт') + '" ' + ((!isAccepted || isWorkerLocked) ? 'disabled ' : '') + 'style="width:48px;padding:3px 4px;border:1px solid var(--border);border-radius:4px;text-align:center;font-size:.8rem" oninput="window._updateCardSmrLine(\'' + escHtml(taskId) + '\', ' + idx + ', \'unit\', this.value)">' +
         '</td>' +
         '<td style="padding:6px 8px;text-align:center">' +
-          '<input type="text" id="smr_row_qty_inp_' + escHtml(taskId) + '_' + idx + '" value="' + l.qty + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:65px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:center;font-weight:700" onchange="window._onSmrCellExprChange(\'' + escHtml(taskId) + '\', ' + idx + ', \'qty\', this)" onkeydown="if(event.key===\'Enter\'){this.blur();}">' +
+          '<input type="text" id="smr_row_qty_inp_' + escHtml(taskId) + '_' + idx + '" value="' + l.qty + '" ' + ((!isAccepted || isWorkerLocked) ? 'disabled ' : '') + 'style="width:65px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:center;font-weight:700" onchange="window._onSmrCellExprChange(\'' + escHtml(taskId) + '\', ' + idx + ', \'qty\', this)" onkeydown="if(event.key===\'Enter\'){this.blur();}">' +
         '</td>' +
         '<td style="padding:6px 8px;text-align:right">' +
           '<div style="display:flex;align-items:center;justify-content:flex-end;gap:3px">' +
-            '<input type="text" id="smr_row_price_inp_' + escHtml(taskId) + '_' + idx + '" value="' + l.price + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:80px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:right;font-weight:600" onchange="window._onSmrCellExprChange(\'' + escHtml(taskId) + '\', ' + idx + ', \'price\', this)" onkeydown="if(event.key===\'Enter\'){this.blur();}">' +
+            '<input type="text" id="smr_row_price_inp_' + escHtml(taskId) + '_' + idx + '" value="' + l.price + '" ' + ((!isAccepted || isWorkerLocked) ? 'disabled ' : '') + 'style="width:80px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:right;font-weight:600" onchange="window._onSmrCellExprChange(\'' + escHtml(taskId) + '\', ' + idx + ', \'price\', this)" onkeydown="if(event.key===\'Enter\'){this.blur();}">' +
             (!isAccepted ? '' : ('<button type="button" class="btn btn-xs btn-ghost" style="padding:2px 4px;font-size:.72rem;color:var(--text-3)" title="Рассчитать цену от согласованной суммы" onclick="window._openBudgetDistributorModal(\'' + escHtml(taskId) + '\', ' + idx + ')">🧮</button>')) +
           '</div>' +
         '</td>' +
         '<td id="smr_row_sum_' + escHtml(taskId) + '_' + idx + '" style="padding:6px 8px;text-align:right;font-weight:700;color:var(--text)">' + window.fmtMoneyPrecise(rowSum) + '</td>' +
         '<td style="padding:6px 8px;text-align:center">' +
-          (!isAccepted ? '' : ('<button type="button" class="btn btn-sm btn-ghost" onclick="window._removeCardSmrLine(\'' + escHtml(taskId) + '\', ' + idx + ')" style="padding:1px 6px;color:var(--red);font-size:.8rem" title="Удалить позицию">✕</button>')) +
+          ((!isAccepted || isWorkerLocked) ? '' : ('<button type="button" class="btn btn-sm btn-ghost" onclick="window._removeCardSmrLine(\'' + escHtml(taskId) + '\', ' + idx + ')" style="padding:1px 6px;color:var(--red);font-size:.8rem" title="Удалить позицию">✕</button>')) +
         '</td>' +
       '</tr>';
     }).join('');
@@ -1390,22 +1509,22 @@
       return '<tr style="border-bottom:1px solid #e9d5ff;font-size:.82rem">' +
         '<td style="padding:6px 8px;font-weight:600;color:#7e22ce;text-align:center">' + (tpIdx + 1) + '</td>' +
         '<td style="padding:6px 8px">' +
-          '<input type="text" value="' + escHtml(tp.name || '') + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:100%;padding:3px 6px;border:1px solid #d8b4fe;border-radius:4px;font-weight:600;font-size:.8rem" placeholder="Статья расхода (проезд, проживание...)" oninput="window._updateThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ', \'name\', this.value)">' +
+          '<input type="text" value="' + escHtml(tp.name || '') + '" ' + ((!isAccepted || isWorkerLocked) ? 'disabled ' : '') + 'style="width:100%;padding:3px 6px;border:1px solid #d8b4fe;border-radius:4px;font-weight:600;font-size:.8rem" placeholder="Статья расхода (проезд, проживание...)" oninput="window._updateThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ', \'name\', this.value)">' +
         '</td>' +
         '<td style="padding:6px 8px">' +
-          '<input type="text" value="' + escHtml(tp.performer || '') + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:100%;padding:3px 6px;border:1px solid #d8b4fe;border-radius:4px;font-size:.8rem" placeholder="Получатель / Исполнитель" oninput="window._updateThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ', \'performer\', this.value)">' +
+          '<input type="text" value="' + escHtml(tp.performer || '') + '" ' + ((!isAccepted || isWorkerLocked) ? 'disabled ' : '') + 'style="width:100%;padding:3px 6px;border:1px solid #d8b4fe;border-radius:4px;font-size:.8rem" placeholder="Получатель / Исполнитель" oninput="window._updateThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ', \'performer\', this.value)">' +
         '</td>' +
         '<td style="padding:6px 8px;text-align:center">' +
-          '<select ' + (!isAccepted ? 'disabled ' : '') + 'style="padding:3px 6px;border:1px solid #d8b4fe;border-radius:4px;font-size:.76rem;background:#fff" onchange="window._updateThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ', \'payment_type\', this.value)">' +
+          '<select ' + ((!isAccepted || isWorkerLocked) ? 'disabled ' : '') + 'style="padding:3px 6px;border:1px solid #d8b4fe;border-radius:4px;font-size:.76rem;background:#fff" onchange="window._updateThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ', \'payment_type\', this.value)">' +
             '<option value="through_contractor"' + (!isDirect ? ' selected' : '') + '>Подрядчик СМР (в смете)</option>' +
             '<option value="direct"' + (isDirect ? ' selected' : '') + '>Генподрядчик напрямую («Мы»)</option>' +
           '</select>' +
         '</td>' +
         '<td id="tp_row_sum_' + escHtml(taskId) + '_' + tpIdx + '" style="padding:6px 8px;text-align:right">' +
-          '<input type="number" min="0" step="any" value="' + (tp.amount || 0) + '" ' + (!isAccepted ? 'disabled ' : '') + 'style="width:90px;padding:3px 6px;border:1px solid #d8b4fe;border-radius:4px;text-align:right;font-weight:700;color:#581c87" oninput="window._updateThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ', \'amount\', this.value)">' +
+          '<input type="number" min="0" step="any" value="' + (tp.amount || 0) + '" ' + ((!isAccepted || isWorkerLocked) ? 'disabled ' : '') + 'style="width:90px;padding:3px 6px;border:1px solid #d8b4fe;border-radius:4px;text-align:right;font-weight:700;color:#581c87" oninput="window._updateThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ', \'amount\', this.value)">' +
         '</td>' +
         '<td style="padding:6px 8px;text-align:center">' +
-          (!isAccepted ? '' : ('<button type="button" class="btn btn-sm btn-ghost" onclick="window._removeThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ')" style="padding:1px 6px;color:var(--red);font-size:.8rem" title="Удалить расход">✕</button>')) +
+          ((!isAccepted || isWorkerLocked) ? '' : ('<button type="button" class="btn btn-sm btn-ghost" onclick="window._removeThirdPartyLine(\'' + escHtml(taskId) + '\', ' + tpIdx + ')" style="padding:1px 6px;color:var(--red);font-size:.8rem" title="Удалить расход">✕</button>')) +
         '</td>' +
       '</tr>';
     }).join('');
@@ -1568,7 +1687,7 @@
         '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">' +
           '<div style="display:flex;align-items:center;gap:6px">' +
             '<span style="font-size:.78rem;font-weight:600;color:var(--text-2)">Режим:</span>' +
-            '<select id="smr_tax_mode_' + escHtml(taskId) + '" ' + (!isAccepted ? 'disabled ' : '') + 'onchange="window._onSmrTaxModeChange(\'' + escHtml(taskId) + '\', this.value)" style="padding:4px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.82rem;font-weight:700;background:#fff;color:var(--text)">' +
+            '<select id="smr_tax_mode_' + escHtml(taskId) + '" ' + ((!isAccepted || isWorkerLocked) ? 'disabled ' : '') + 'onchange="window._onSmrTaxModeChange(\'' + escHtml(taskId) + '\', this.value)" style="padding:4px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.82rem;font-weight:700;background:#fff;color:var(--text)">' +
               taxOptions.map(function(opt){
                 return '<option value="' + opt.v + '"' + (curTaxMode === opt.v ? ' selected' : '') + '>' + opt.l + '</option>';
               }).join('') +
@@ -1687,6 +1806,96 @@
         '<span>➕ Добавить второго исполнителя на объект (Спецработы / ВОЛС / СМР)</span>' +
       '</button>' +
     '</div>' +
+
+
+    // Компактный блок параметров Заявки и условий оплаты (Приложение к Договору субподряда)
+    (function() {
+      var ordParams = (curSub && curSub.calculation_details && curSub.calculation_details.order_params) ||
+                      (t.raw_data && t.raw_data.orderParams) ||
+                      (t.rawData && t.rawData.orderParams) || {};
+      var appNum = ordParams.appendix_num !== undefined ? ordParams.appendix_num : 2;
+      var ordNum = ordParams.order_num !== undefined ? ordParams.order_num : (curSub ? (curSub.id || 1) : 1);
+      var wDays = ordParams.work_days !== undefined ? ordParams.work_days : 5;
+      var pDays = ordParams.payment_days !== undefined ? ordParams.payment_days : 15;
+      var hasAdv = Boolean(ordParams.has_advance);
+      var advPct = ordParams.advance_pct !== undefined ? ordParams.advance_pct : 45;
+      var totOrdAmt = Math.round((taxCalc.totalWithTax + totalThirdPartyAmount) * 100) / 100;
+      var advAmt = ordParams.advance_amount !== undefined ? ordParams.advance_amount : (hasAdv ? Math.round(totOrdAmt * (advPct / 100)) : 0);
+      var hasInt = Boolean(ordParams.has_interim);
+      var intPct = ordParams.interim_pct !== undefined ? ordParams.interim_pct : 0;
+      var intAmt = ordParams.interim_amount !== undefined ? ordParams.interim_amount : 0;
+      var finPct = Math.max(0, 100 - (hasAdv ? advPct : 0) - (hasInt ? intPct : 0));
+      var finAmt = Math.max(0, totOrdAmt - (hasAdv ? advAmt : 0) - (hasInt ? intAmt : 0));
+
+      return (isWorkerLocked ? (
+        '<div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:8px;padding:8px 12px;margin-bottom:12px;display:flex;align-items:center;gap:8px;color:#991b1b;font-size:.82rem;font-weight:700">' +
+          '<span>🔒 Заказ в работе. Изменение расценок, сметы СМР и доп. расходов заблокировано для исполнителя.</span>' +
+        '</div>'
+      ) : '') +
+      '<div style="border:1.5px solid #93c5fd;border-radius:8px;background:#f0f9ff;padding:12px;margin-bottom:14px">' +
+        '<div style="font-weight:700;font-size:.88rem;color:#1e40af;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
+          '<span>📋 Параметры Заявки и условия оплаты (к Договору субподряда)</span>' +
+          '<span style="font-size:.84rem;color:#1d4ed8;background:#dbeafe;padding:3px 8px;border-radius:6px">Общая сумма Заявки: <b id="sub_order_total_display_' + escHtml(taskId) + '">' + window.fmtMoneyPrecise(totOrdAmt) + '</b></span>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:10px;margin-bottom:10px">' +
+          '<div>' +
+            '<label style="display:block;font-size:.74rem;color:#1e3a8a;margin-bottom:2px;font-weight:600">Приложение №</label>' +
+            '<input type="number" id="sub_order_appendix_num_' + escHtml(taskId) + '" value="' + appNum + '" ' + (isWorkerLocked ? 'disabled ' : '') + 'style="width:100%;padding:4px 8px;border:1px solid #93c5fd;border-radius:6px;font-size:.82rem;background:#fff">' +
+          '</div>' +
+          '<div>' +
+            '<label style="display:block;font-size:.74rem;color:#1e3a8a;margin-bottom:2px;font-weight:600">Заявка №</label>' +
+            '<input type="number" id="sub_order_order_num_' + escHtml(taskId) + '" value="' + ordNum + '" ' + (isWorkerLocked ? 'disabled ' : '') + 'style="width:100%;padding:4px 8px;border:1px solid #93c5fd;border-radius:6px;font-size:.82rem;background:#fff">' +
+          '</div>' +
+          '<div>' +
+            '<label style="display:block;font-size:.74rem;color:#1e3a8a;margin-bottom:2px;font-weight:600">Срок работ (раб. дней)</label>' +
+            '<input type="number" id="sub_order_work_days_' + escHtml(taskId) + '" value="' + wDays + '" ' + (isWorkerLocked ? 'disabled ' : '') + 'style="width:100%;padding:4px 8px;border:1px solid #93c5fd;border-radius:6px;font-size:.82rem;background:#fff">' +
+          '</div>' +
+          '<div>' +
+            '<label style="display:block;font-size:.74rem;color:#1e3a8a;margin-bottom:2px;font-weight:600">Срок оплаты (календ. дней)</label>' +
+            '<input type="number" id="sub_order_payment_days_' + escHtml(taskId) + '" value="' + pDays + '" ' + (isWorkerLocked ? 'disabled ' : '') + 'style="width:100%;padding:4px 8px;border:1px solid #93c5fd;border-radius:6px;font-size:.82rem;background:#fff" oninput="window._updateSubOrderFinalLabels(\'" + escHtml(taskId) + "\')">' +
+          '</div>' +
+        '</div>' +
+        '<div style="border-top:1px dashed #bfdbfe;padding-top:10px;display:flex;flex-direction:column;gap:8px">' +
+          '<div style="font-size:.78rem;font-weight:700;color:#1e3a8a">Условия оплаты:</div>' +
+          '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+            '<label style="display:flex;align-items:center;gap:6px;font-size:.8rem;font-weight:600;color:#1e3a8a;min-width:110px;cursor:pointer">' +
+              '<input type="checkbox" id="sub_order_has_advance_' + escHtml(taskId) + '" ' + (hasAdv ? 'checked ' : '') + (isWorkerLocked ? 'disabled ' : '') + 'onchange="window._onSubOrderAdvanceToggle(\'" + escHtml(taskId) + "\', this.checked)">' +
+              '<span>Аванс</span>' +
+            '</label>' +
+            '<div id="sub_order_advance_box_' + escHtml(taskId) + '" style="display:' + (hasAdv ? 'flex' : 'none') + ';align-items:center;gap:8px">' +
+              '<div style="display:flex;align-items:center;gap:3px">' +
+                '<input type="number" id="sub_order_advance_pct_' + escHtml(taskId) + '" value="' + advPct + '" ' + (isWorkerLocked ? 'disabled ' : '') + 'style="width:55px;padding:3px 6px;border:1px solid #93c5fd;border-radius:4px;font-size:.8rem;text-align:right" oninput="window._onSubOrderAdvancePctInput(\'" + escHtml(taskId) + "\', this.value)">' +
+                '<span style="font-size:.76rem;color:#1e3a8a">%</span>' +
+              '</div>' +
+              '<div style="display:flex;align-items:center;gap:3px">' +
+                '<input type="number" id="sub_order_advance_amount_' + escHtml(taskId) + '" value="' + advAmt + '" ' + (isWorkerLocked ? 'disabled ' : '') + 'style="width:110px;padding:3px 6px;border:1px solid #93c5fd;border-radius:4px;font-size:.8rem;text-align:right;font-weight:700" oninput="window._onSubOrderAdvanceAmountInput(\'" + escHtml(taskId) + "\', this.value)">' +
+                '<span style="font-size:.76rem;color:#1e3a8a">₽</span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+            '<label style="display:flex;align-items:center;gap:6px;font-size:.8rem;font-weight:600;color:#1e3a8a;min-width:110px;cursor:pointer">' +
+              '<input type="checkbox" id="sub_order_has_interim_' + escHtml(taskId) + '" ' + (hasInt ? 'checked ' : '') + (isWorkerLocked ? 'disabled ' : '') + 'onchange="window._onSubOrderInterimToggle(\'" + escHtml(taskId) + "\', this.checked)">' +
+              '<span>Промежуточный</span>' +
+            '</label>' +
+            '<div id="sub_order_interim_box_' + escHtml(taskId) + '" style="display:' + (hasInt ? 'flex' : 'none') + ';align-items:center;gap:8px">' +
+              '<div style="display:flex;align-items:center;gap:3px">' +
+                '<input type="number" id="sub_order_interim_pct_' + escHtml(taskId) + '" value="' + intPct + '" ' + (isWorkerLocked ? 'disabled ' : '') + 'style="width:55px;padding:3px 6px;border:1px solid #93c5fd;border-radius:4px;font-size:.8rem;text-align:right" oninput="window._onSubOrderInterimPctInput(\'" + escHtml(taskId) + "\', this.value)">' +
+                '<span style="font-size:.76rem;color:#1e3a8a">%</span>' +
+              '</div>' +
+              '<div style="display:flex;align-items:center;gap:3px">' +
+                '<input type="number" id="sub_order_interim_amount_' + escHtml(taskId) + '" value="' + intAmt + '" ' + (isWorkerLocked ? 'disabled ' : '') + 'style="width:110px;padding:3px 6px;border:1px solid #93c5fd;border-radius:4px;font-size:.8rem;text-align:right;font-weight:700" oninput="window._onSubOrderInterimAmountInput(\'" + escHtml(taskId) + "\', this.value)">' +
+                '<span style="font-size:.76rem;color:#1e3a8a">₽</span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid #bfdbfe;padding-top:6px;font-size:.8rem;color:#1e3a8a">' +
+            '<div><b>Окончательный расчет:</b> <span id="sub_order_final_pct_label_' + escHtml(taskId) + '">' + finPct + '%</span> в течение <span id="sub_order_payment_days_label_' + escHtml(taskId) + '">' + pDays + '</span> дн. после приемки работ</div>' +
+            '<div><b id="sub_order_final_amount_label_' + escHtml(taskId) + '" style="color:#1d4ed8;font-size:.88rem">' + window.fmtMoneyPrecise(finAmt) + '</b></div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    })() +
 
     // Финансовый баланс по заявке (терминология: Заказчик → Генподрядчик («Мы») → Подрядчик СМР + Доп. расходы)
     '<div style="background:#f8fafc;border:1.5px solid var(--border);border-radius:8px;padding:12px 16px">' +
@@ -1826,7 +2035,7 @@
 
     var elRoundBox = document.getElementById('smr_round_box_' + taskId);
     if (elRoundBox) {
-      elRoundBox.innerHTML = 
+      elRoundBox.innerHTML =
         '<div style="display:flex;align-items:center;gap:6px">' +
           '<span style="font-size:1rem">🪙</span>' +
           '<span style="font-size:.78rem;font-weight:700;color:var(--text)">Округлить до целых рублей?</span>' +
@@ -1835,6 +2044,10 @@
           '<button type="button" class="btn btn-xs ' + (!taxCalc.isRounded ? 'btn-primary' : 'btn-ghost') + '" onclick="window._setSmrRounding(\'' + escHtml(taskId) + '\', false)" style="padding:2px 14px;font-size:.76rem;font-weight:600" title="' + window.fmtMoneyPrecise(taxCalc.unroundedTotal) + '">Нет</button>' +
           '<button type="button" class="btn btn-xs ' + (taxCalc.isRounded ? 'btn-primary' : 'btn-ghost') + '" onclick="window._setSmrRounding(\'' + escHtml(taskId) + '\', true)" style="padding:2px 14px;font-size:.76rem;font-weight:600" title="' + window.fmtMoney(Math.round(taxCalc.unroundedTotal)) + '">Да</button>' +
         '</div>';
+    }
+
+    if (typeof window._updateSubOrderFinalLabels === 'function') {
+      window._updateSubOrderFinalLabels(taskId);
     }
 
 
@@ -2093,6 +2306,34 @@
       if (l.name && l.name.toLowerCase().includes('порт')) ports += (Number(l.qty) || 0);
     });
 
+    var appendixNumEl = document.getElementById('sub_order_appendix_num_' + taskId);
+    var orderNumEl = document.getElementById('sub_order_order_num_' + taskId);
+    var workDaysEl = document.getElementById('sub_order_work_days_' + taskId);
+    var paymentDaysEl = document.getElementById('sub_order_payment_days_' + taskId);
+    var hasAdvanceEl = document.getElementById('sub_order_has_advance_' + taskId);
+    var advancePctEl = document.getElementById('sub_order_advance_pct_' + taskId);
+    var advanceAmountEl = document.getElementById('sub_order_advance_amount_' + taskId);
+    var hasInterimEl = document.getElementById('sub_order_has_interim_' + taskId);
+    var interimPctEl = document.getElementById('sub_order_interim_pct_' + taskId);
+    var interimAmountEl = document.getElementById('sub_order_interim_amount_' + taskId);
+
+    var existingOrderParams = (curSub && curSub.calculation_details && curSub.calculation_details.order_params) ||
+                              (t.raw_data && t.raw_data.orderParams) ||
+                              (t.rawData && t.rawData.orderParams) || {};
+
+    var orderParams = {
+      appendix_num: appendixNumEl ? parseInt(appendixNumEl.value, 10) || 2 : (existingOrderParams.appendix_num || 2),
+      order_num: orderNumEl ? parseInt(orderNumEl.value, 10) || 1 : (existingOrderParams.order_num || (curSub ? curSub.id : 1)),
+      work_days: workDaysEl ? parseInt(workDaysEl.value, 10) || 5 : (existingOrderParams.work_days || 5),
+      payment_days: paymentDaysEl ? parseInt(paymentDaysEl.value, 10) || 15 : (existingOrderParams.payment_days || 15),
+      has_advance: hasAdvanceEl ? !!hasAdvanceEl.checked : Boolean(existingOrderParams.has_advance),
+      advance_pct: advancePctEl ? parseFloat(advancePctEl.value) || 0 : (existingOrderParams.advance_pct || 0),
+      advance_amount: advanceAmountEl ? parseFloat(advanceAmountEl.value) || 0 : (existingOrderParams.advance_amount || 0),
+      has_interim: hasInterimEl ? !!hasInterimEl.checked : Boolean(existingOrderParams.has_interim),
+      interim_pct: interimPctEl ? parseFloat(interimPctEl.value) || 0 : (existingOrderParams.interim_pct || 0),
+      interim_amount: interimAmountEl ? parseFloat(interimAmountEl.value) || 0 : (existingOrderParams.interim_amount || 0)
+    };
+
     var payload = {
       subcontract_id: curSub ? curSub.id : null,
       contractor_id: (curSub && curSub.contractor_id) || (cObj ? cObj.id : null),
@@ -2100,15 +2341,17 @@
       own_company_id: ownId,
       contractor_contract_id: (curSub && curSub.contractor_contract_id) || null,
       price_list_id: (curSub && curSub.price_list_id) || null,
-      agreement_number: (curSub && curSub.agreement_number) || 'Приложение № 1 (Соглашение о договорной цене)',
+      agreement_number: (curSub && curSub.agreement_number) || 'Приложение № ' + orderParams.appendix_num + ' (Заявка № ' + orderParams.order_num + ')',
       agreement_date: (curSub && curSub.agreement_date) || new Date().toISOString().slice(0, 10),
       work_type: t.work_type || 'Монтаж СКС',
       price_agreed: taxCalc.totalWithTax,
       deadline: t.deadline || null,
-      calculation_details: { 
+      order_params: orderParams,
+      calculation_details: {
         lines: spec,
         third_party_lines: thirdParty,
-        tax_details: taxCalc
+        tax_details: taxCalc,
+        order_params: orderParams
       },
       ports_count: ports || parseInt(t.in_order ?? t.inOrder ?? 0, 10) || 0,
       distance_km: parseFloat(t.distance_km || 0)
@@ -2396,149 +2639,121 @@
       window._curWizContracts = contracts;
       window._curWizPrevSubs = prevSubs;
 
-      var validContracts = contracts.filter(function(c) {
-        return c.status === 'active' || c.status === 'created';
-      });
-      if (!validContracts.length) validContracts = contracts;
+      var defOwnId = t.own_company_id || (t.contract && t.contract.own_company_id) || (isSber ? 2 : 1);
 
-      var bestContract = null;
-      if (isSber) {
-        bestContract = validContracts.find(function(c){ return (c.status === 'active') && (c.customer_tag || '').toLowerCase().includes('сбер') && c.price_items_count > 0; }) ||
-                       validContracts.find(function(c){ return (c.customer_tag || '').toLowerCase().includes('сбер') && c.price_items_count > 0; });
-      }
-      if (!bestContract) {
-        bestContract = validContracts.find(function(c){ return (c.status === 'active') && c.price_items_count > 0; }) ||
-                       validContracts.find(function(c){ return c.price_items_count > 0; }) ||
-                       validContracts.find(function(c){ return c.status === 'active'; }) ||
-                       validContracts[0] || null;
-      }
-
-      var defaultPorts = parseInt(t.in_order ?? t.inOrder ?? 0, 10) || 0;
-      var defaultKm = parseFloat(t.distance_km || 0) || 0;
-
-      var html = '<div style="display:flex;flex-direction:column;gap:12px">';
-
-      // СЦЕНАРИЙ А: Есть рамочный договор с прайс-листом (Сбербанк, К10)
-      if (bestContract && bestContract.price_items_count > 0) {
-        html += '<div style="border:1.5px solid #86efac;background:#f0fdf4;border-radius:8px;padding:12px">' +
-          '<div style="display:flex;align-items:flex-start;gap:8px">' +
-            '<input type="radio" name="wiz_mode" id="wiz_mode_price" value="price" checked onchange="window._wizToggleMode(\'price\',\'' + escHtml(taskId) + '\')" style="margin-top:3px">' +
-            '<div style="flex:1">' +
-              '<label for="wiz_mode_price" style="font-weight:700;font-size:.88rem;color:#166534;cursor:pointer">' +
-                '✓ Действующий рамочный договор: ' + escHtml(bestContract.contract_number) + ' с ' + escHtml(bestContract.own_company_name || 'ООО "К10"') +
-              '</label>' +
-              '<div style="font-size:.76rem;color:#15803d;margin-top:2px">' +
-                'Предмет: ' + escHtml(bestContract.subject || 'СКС и телекоммуникации') + ' • Территория: ' + escHtml(bestContract.territory || 'Регион') +
-              '</div>' +
-              '<div style="font-size:.76rem;color:#166534;margin-top:4px;font-weight:600">' +
-                '📊 Прайс-лист активен (' + bestContract.price_items_count + ' позиций с дифференцированной шкалой цен)' +
-              '</div>' +
-            '</div>' +
-          '</div>' +
-        '</div>';
-      }
-
-      // СЦЕНАРИЙ Б: Предыдущие разовые подряды (например, Казанка -> Юргинское)
-      if (prevSubs.length > 0) {
-        var p0 = prevSubs[0];
-        var prevPrice = Number(p0.price_agreed || 0);
-        html += '<div style="border:1.5px solid #93c5fd;background:#eff6ff;border-radius:8px;padding:12px">' +
-          '<div style="display:flex;align-items:flex-start;gap:8px">' +
-            '<input type="radio" name="wiz_mode" id="wiz_mode_copy" value="copy" ' + (!bestContract ? 'checked' : '') + ' onchange="window._wizToggleMode(\'copy\',\'' + escHtml(taskId) + '\')" style="margin-top:3px">' +
-            '<div style="flex:1">' +
-              '<label for="wiz_mode_copy" style="font-weight:700;font-size:.88rem;color:#1e40af;cursor:pointer">' +
-                '📋 Скопировать условия предыдущего подряда: ' + escHtml(p0.address || p0.region || 'Предыдущий объект') + ' (' + fmtMoney(prevPrice) + ')' +
-              '</label>' +
-              '<div style="font-size:.76rem;color:#1d4ed8;margin-top:2px">' +
-                'Договор с: <b>' + escHtml(p0.own_company_name || 'ООО "Кабельные Системы"') + '</b> • Номер: ' + escHtml(p0.contract_number || '01/07/26-Т') +
-              '</div>' +
-              '<div id="wiz_copy_inputs" style="display:' + (!bestContract ? 'grid' : 'none') + ';grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">' +
-                '<div>' +
-                  '<label style="display:block;font-size:.74rem;color:#1e3a8a;margin-bottom:2px">Согласованная сумма для нового объекта (₽) *</label>' +
-                  '<input type="number" id="wiz_custom_price" value="' + (prevPrice || 50000) + '" style="width:100%;padding:6px 8px;border:1.5px solid #93c5fd;border-radius:6px;font-size:.85rem;font-weight:700" oninput="window._wizUpdateSummary()">' +
-                '</div>' +
-                '<div>' +
-                  '<label style="display:block;font-size:.74rem;color:#1e3a8a;margin-bottom:2px">Собственное юрлицо</label>' +
-                  '<select id="wiz_copy_own_company" style="width:100%;padding:6px 8px;border:1.5px solid #93c5fd;border-radius:6px;font-size:.82rem">' +
-                    (S.ownCompanies || []).map(function(oc) {
-                      var isSel = (p0.own_company_id === oc.id || oc.code === 'KS') ? ' selected' : '';
-                      return '<option value="' + oc.id + '"' + isSel + '>' + escHtml(oc.name_short) + '</option>';
-                    }).join('') +
-                  '</select>' +
-                '</div>' +
-              '</div>' +
-            '</div>' +
-          '</div>' +
-        '</div>';
-      }
-
-      // СЦЕНАРИЙ В: Новый договор или кастомные условия
-      html += '<div style="border:1.5px solid var(--border);background:#fafaf9;border-radius:8px;padding:12px">' +
-        '<div style="display:flex;align-items:flex-start;gap:8px">' +
-          '<input type="radio" name="wiz_mode" id="wiz_mode_new" value="new" ' + (!bestContract && !prevSubs.length ? 'checked' : '') + ' onchange="window._wizToggleMode(\'new\',\'' + escHtml(taskId) + '\')" style="margin-top:3px">' +
-          '<div style="flex:1">' +
-            '<label for="wiz_mode_new" style="font-weight:700;font-size:.85rem;color:var(--text);cursor:pointer">' +
-              '➕ Заключить новый договор подряда' +
-            '</label>' +
-            '<div id="wiz_new_contract_fields" style="display:' + (!bestContract && !prevSubs.length ? 'block' : 'none') + ';margin-top:8px">' +
-              '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">' +
-                '<div>' +
-                  '<label style="display:block;font-size:.74rem;color:var(--text-3);margin-bottom:2px">Собственное юрлицо *</label>' +
-                  '<select id="wiz_new_own_company" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
-                    (S.ownCompanies || []).map(function(oc) {
-                      return '<option value="' + oc.id + '">' + escHtml(oc.name_short) + ' (' + (oc.vat_mode === 'with_vat' ? 'с НДС' : 'без НДС') + ')</option>';
-                    }).join('') +
-                  '</select>' +
-                '</div>' +
-                '<div>' +
-                  '<label style="display:block;font-size:.74rem;color:var(--text-3);margin-bottom:2px">Номер договора *</label>' +
-                  '<input type="text" id="wiz_new_num" placeholder="№ 01/..." style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
-                '</div>' +
-              '</div>' +
-              '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
-                '<div>' +
-                  '<label style="display:block;font-size:.74rem;color:var(--text-3);margin-bottom:2px">Дата договора</label>' +
-                  '<input type="date" id="wiz_new_date" value="' + new Date().toISOString().slice(0, 10) + '" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
-                '</div>' +
-                '<div>' +
-                  '<label style="display:block;font-size:.74rem;color:var(--text-3);margin-bottom:2px">Ссылка на скан (бухгалтерия)</label>' +
-                  '<input type="text" id="wiz_new_scan" placeholder="https://cloud... или диск" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
-                '</div>' +
-              '</div>' +
-            '</div>' +
-          '</div>' +
-        '</div>' +
-      '</div>';
-
-      // Сумма по Заказ-наряду (из сметы заявки или договорная)
+      // Рассчитываем текущую сметную стоимость с вкладки Исполнение / СМР
       var existingSmrTotal = 0;
       if (window._taskSmrSpec && window._taskSmrSpec[taskId]) {
         window._taskSmrSpec[taskId].forEach(function(x){ existingSmrTotal += (Number(x.qty)||1)*(Number(x.price)||0); });
       }
-      if (!existingSmrTotal && curTask && curTask.rawData && curTask.rawData.subTotal) {
-        existingSmrTotal = Number(curTask.rawData.subTotal) || 0;
+      if (window._taskThirdPartySpec && window._taskThirdPartySpec[taskId]) {
+        window._taskThirdPartySpec[taskId].forEach(function(tp){ existingSmrTotal += Number(tp.amount)||0; });
+      }
+      if (!existingSmrTotal && t.rawData && t.rawData.subTotal) {
+        existingSmrTotal = Number(t.rawData.subTotal) || 0;
       }
 
-      html += '<div id="wiz_calc_params_box" style="border:1px solid var(--border);border-radius:8px;padding:12px;background:#f8fafc;margin-top:4px">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">' +
-          '<div>' +
-            '<div style="font-weight:700;font-size:.84rem;color:var(--text)">Сумма Заказ-наряда к договору подряда:</div>' +
-            '<div class="t3" style="font-size:.73rem">Определяется сметой работ на вкладке «Исполнение» или договорной суммой</div>' +
-          '</div>' +
-          '<div style="display:flex;align-items:center;gap:8px">' +
-            '<input type="number" id="wiz_manual_total" value="' + (existingSmrTotal || '') + '" placeholder="' + (existingSmrTotal ? existingSmrTotal : '0') + '" style="width:160px;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.9rem;font-weight:700;text-align:right" oninput="window._wizUpdateSummary(\'manual_total\')">' +
-            '<span style="font-weight:700;color:var(--text-2);font-size:.9rem">₽</span>' +
+      var html = '<div style="display:flex;flex-direction:column;gap:12px">';
+
+      // 1. Выбор Собственного юрлица («Генподрядчик (Мы)»)
+      html += '<div style="background:#f8fafc;border:1.5px solid var(--border);border-radius:8px;padding:10px 12px">' +
+        '<label style="display:block;font-size:.78rem;font-weight:700;color:var(--text);margin-bottom:4px">Генподрядчик (Мы) *</label>' +
+        '<select class="select" id="wiz_own_company_id" style="width:100%">' +
+          (S.ownCompanies || []).map(function(oc) {
+            var isSel = (oc.id === defOwnId) ? ' selected' : '';
+            return '<option value="' + oc.id + '"' + isSel + '>' + escHtml(oc.name_short) + ' (' + (oc.vat_mode === 'with_vat' ? 'с НДС' : 'без НДС') + ')</option>';
+          }).join('') +
+        '</select>' +
+      '</div>';
+
+      // 2. Список ВСЕХ договоров субподряда
+      html += '<div style="background:#fff;border:1.5px solid var(--border);border-radius:8px;padding:12px">' +
+        '<div style="font-weight:700;font-size:.84rem;color:var(--text);margin-bottom:8px">Рамочные договоры подрядчика в системе:</div>';
+
+      if (contracts.length > 0) {
+        html += '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px">';
+        contracts.forEach(function(c, cIdx) {
+          var isChecked = cIdx === 0 ? ' checked' : '';
+          var statusBadge = c.status === 'active'
+            ? '<span class="badge b-green" style="font-size:.68rem">🟢 Действует</span>'
+            : (c.status === 'signed' ? '<span class="badge b-blue" style="font-size:.68rem">🔵 Подписан</span>' : '<span class="badge b-gray" style="font-size:.68rem">⚡ Создан</span>');
+          var plBadge = c.price_items_count > 0
+            ? '<span class="badge b-blue" style="font-size:.68rem">📊 Прайс-лист (' + c.price_items_count + ' поз.)</span>'
+            : '';
+
+          var dStr = c.contract_date ? String(c.contract_date).slice(0, 10).split('-').reverse().join('.') : 'б/д';
+
+          html += '<div style="border:1.5px solid #cbd5e1;background:#f8fafc;border-radius:6px;padding:8px 10px;display:flex;align-items:flex-start;gap:8px">' +
+            '<input type="radio" name="wiz_contract_choice" id="wiz_ct_' + c.id + '" value="' + c.id + '"' + isChecked + ' onchange="window._wizOnContractChoiceChange(\'" + c.id + "\')" style="margin-top:3px;cursor:pointer">' +
+            '<div style="flex:1">' +
+              '<label for="wiz_ct_' + c.id + '" style="font-weight:700;font-size:.85rem;color:var(--text);cursor:pointer;display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+                '<span>№ ' + escHtml(c.contract_number || 'б/н') + ' от ' + dStr + '</span>' +
+                statusBadge + plBadge +
+              '</label>' +
+              '<div style="font-size:.76rem;color:var(--text-3);margin-top:2px">' +
+                'Генподрядчик: <b>' + escHtml(c.own_company_name || 'Генподрядчик') + '</b>' +
+                (c.subject ? (' • ' + escHtml(c.subject)) : '') +
+              '</div>' +
+            '</div>' +
+          '</div>';
+        });
+        html += '</div>';
+      } else {
+        html += '<div style="color:var(--text-3);font-size:.8rem;padding:6px 0;margin-bottom:8px">У данного подрядчика пока нет зарегистрированных рамочных договоров.</div>';
+      }
+
+      // Вариант заключения нового договора
+      var isNewChecked = contracts.length === 0 ? ' checked' : '';
+      html += '<div style="border:1.5px solid var(--border);background:#fafaf9;border-radius:6px;padding:8px 10px">' +
+        '<div style="display:flex;align-items:flex-start;gap:8px">' +
+          '<input type="radio" name="wiz_contract_choice" id="wiz_ct_new" value="new"' + isNewChecked + ' onchange="window._wizOnContractChoiceChange(\'new\')" style="margin-top:3px;cursor:pointer">' +
+          '<div style="flex:1">' +
+            '<label for="wiz_ct_new" style="font-weight:700;font-size:.85rem;color:var(--text);cursor:pointer">' +
+              '➕ Заключить новый договор подряда' +
+            '</label>' +
+            '<div id="wiz_new_contract_fields" style="display:' + (contracts.length === 0 ? 'block' : 'none') + ';margin-top:8px">' +
+              '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">' +
+                '<div>' +
+                  '<label style="display:block;font-size:.74rem;color:var(--text-3);margin-bottom:2px">Номер договора *</label>' +
+                  '<input type="text" id="wiz_new_num" placeholder="№ 01/..." style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+                '</div>' +
+                '<div>' +
+                  '<label style="display:block;font-size:.74rem;color:var(--text-3);margin-bottom:2px">Дата договора</label>' +
+                  '<input type="date" id="wiz_new_date" value="' + new Date().toISOString().slice(0, 10) + '" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+                '</div>' +
+              '</div>' +
+              '<div>' +
+                '<label style="display:block;font-size:.74rem;color:var(--text-3);margin-bottom:2px">Ссылка на скан договора</label>' +
+                '<input type="text" id="wiz_new_scan" placeholder="https://cloud... или диск" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.82rem">' +
+              '</div>' +
+            '</div>' +
           '</div>' +
         '</div>' +
-        '<div id="wiz_calc_summary" style="font-weight:700;font-size:.88rem;color:var(--blue);text-align:right;margin-top:8px">Итого к начислению: ' + (existingSmrTotal ? fmtMoney(existingSmrTotal) : '0 ₽') + '</div>' +
+      '</div>';
+
+      html += '</div>';
+
+      // 3. Компактная плашка только для чтения с текущей расчетной суммой из вкладки «Исполнение / СМР»
+      html += '<div style="border:1.5px solid #bfdbfe;border-radius:8px;padding:10px 14px;background:#eff6ff;margin-top:4px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+          '<div>' +
+            '<div style="font-weight:700;font-size:.84rem;color:#1e40af">Текущая расчетная сумма работ по объекту:</div>' +
+            '<div style="font-size:.73rem;color:#2563eb">Смета работ и условия оплаты формируются на вкладке «Исполнение / СМР»</div>' +
+          '</div>' +
+          '<div style="font-size:1.05rem;font-weight:800;color:#1d4ed8">' +
+            fmtMoney(existingSmrTotal || 0) +
+          '</div>' +
+        '</div>' +
       '</div>';
 
       html += '</div>';
       bodyEl.innerHTML = html;
-
-      window._wizBestContract = bestContract;
-      window._wizUpdateSummary();
     });
+  };
+
+  window._wizOnContractChoiceChange = function(val) {
+    var newBox = document.getElementById('wiz_new_contract_fields');
+    if (newBox) newBox.style.display = (val === 'new') ? 'block' : 'none';
   };
 
   window._wizToggleMode = function(mode, taskId) {
@@ -2624,35 +2839,20 @@
     });
 
     var finalPrice = calcRes.totalAmount;
-    var ownCompanyId = null;
+    var ownCompanyId = document.getElementById('wiz_own_company_id') ? parseInt(document.getElementById('wiz_own_company_id').value, 10) : null;
     var contractId = null;
-    var priceListId = null;
+    var priceListId = calcRes.priceListId;
     var calcDetails = calcRes;
 
-    if (mode === 'copy') {
-      var customP = document.getElementById('wiz_custom_price') ? parseFloat(document.getElementById('wiz_custom_price').value) : 0;
-      finalPrice = customP || 50000;
-      ownCompanyId = document.getElementById('wiz_copy_own_company') ? parseInt(document.getElementById('wiz_copy_own_company').value, 10) : null;
-      var prev0 = (window._curWizPrevSubs && window._curWizPrevSubs[0]) || {};
-      contractId = prev0.contractor_contract_id || null;
-      calcDetails = {
-        mode: 'copy_template',
-        sourceAddress: prev0.address || 'Предыдущий подряд',
-        sourcePrice: prev0.price_agreed || 0,
-        agreedPrice: finalPrice
-      };
-    } else if (mode === 'price') {
-      var bestC = window._wizBestContract;
-      if (bestC) {
-        contractId = bestC.id;
-        ownCompanyId = bestC.own_company_id;
-        priceListId = bestC.price_list_id || calcRes.priceListId;
-      } else {
-        priceListId = calcRes.priceListId;
+    var selectedChoice = document.querySelector('input[name="wiz_contract_choice"]:checked');
+    var choiceVal = selectedChoice ? selectedChoice.value : null;
+    if (choiceVal && choiceVal !== 'new') {
+      contractId = parseInt(choiceVal, 10);
+      var chosenC = (window._curWizContracts || []).find(function(c){ return String(c.id) === String(choiceVal); });
+      if (chosenC) {
+        if (chosenC.price_list_id) priceListId = chosenC.price_list_id;
+        if (!ownCompanyId && chosenC.own_company_id) ownCompanyId = chosenC.own_company_id;
       }
-    } else if (mode === 'new') {
-      ownCompanyId = document.getElementById('wiz_new_own_company') ? parseInt(document.getElementById('wiz_new_own_company').value, 10) : null;
-      priceListId = calcRes.priceListId;
     }
 
     if (!priceListId && calcRes.priceListId) {
@@ -2919,7 +3119,7 @@ window.previewSubcontractAgreementDocx = function(taskId) {
 
   if (typeof window.openDocumentEditor === 'function') {
     window.openDocumentEditor({
-      templateCode: 'subcontract_agreement',
+      templateCode: 'order_subcontract',
       taskId: taskId,
       subcontractId: subId,
       onSaved: function() {
@@ -2941,7 +3141,7 @@ window.previewSubcontractAgreementDocx = function(taskId) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      doc_type: 'subcontract_agreement',
+      doc_type: 'order_subcontract',
       subcontract_id: subId,
       contractor_name: cName || undefined
     })
