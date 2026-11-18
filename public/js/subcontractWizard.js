@@ -1475,6 +1475,7 @@
     box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">' +
       '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
         priceListPickerHtml +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="window.addNewSubcontractToTask(\'' + escHtml(taskId) + '\')" style="color:var(--blue);border:1.5px dashed #93c5fd;font-weight:700;font-size:.78rem;padding:4px 10px;display:inline-flex;align-items:center;gap:5px" title="Добавить второго исполнителя на объект (Спецработы / ВОЛС / СМР)">+ Добавить второго исполнителя на объект</button>' +
         '<button type="button" class="btn btn-sm btn-ghost" ' + (!isAccepted ? 'disabled style="opacity:.6;cursor:not-allowed"' : 'onclick="window._addCustomCardSmrLine(\'' + escHtml(taskId) + '\')"') + ' style="font-size:.78rem;font-weight:600;border:1.5px dashed var(--border);padding:4px 10px">' +
           '+ Произвольная работа' +
         '</button>' +
@@ -1580,24 +1581,32 @@
         '</div>' +
       '</div>' +
 
-      // Карточки итогов по активному режиму
-      '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:10px;align-items:center">' +
-        '<div style="background:#fff;padding:8px 12px;border:1px solid var(--border);border-radius:6px">' +
-          '<div style="font-size:.72rem;color:var(--text-3);font-weight:600;text-transform:uppercase">Сумма без налога</div>' +
-          '<div id="smr_tax_sum_without_' + escHtml(taskId) + '" style="font-size:1.05rem;font-weight:700;color:var(--text);margin-top:2px">' + window.fmtMoneyPrecise(taxCalc.sumWithoutTax) + '</div>' +
-          '<div id="smr_tax_sub_label_' + escHtml(taskId) + '" style="font-size:.68rem;color:var(--text-3)">' + taxCalc.baseNote + '</div>' +
+      // Компактный блок из 3 строк (вместо громоздких карточек по скринам 10-11)
+      '<div style="background:#fff;border:1px solid var(--border);border-radius:6px;padding:8px 14px;display:flex;flex-direction:column;gap:6px">' +
+        // Строка 1: Итого по работам
+        '<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f1f5f9;padding-bottom:4px">' +
+          '<div style="font-size:.8rem;color:var(--text-2);font-weight:600">Итого по работам:</div>' +
+          '<div style="text-align:right">' +
+            '<span id="smr_tax_sum_without_' + escHtml(taskId) + '" style="font-size:.95rem;font-weight:700;color:var(--text)">' + window.fmtMoneyPrecise(taxCalc.sumWithoutTax) + '</span>' +
+            '<span id="smr_tax_sub_label_' + escHtml(taskId) + '" style="font-size:.68rem;color:var(--text-3);margin-left:6px">(' + taxCalc.baseNote + ')</span>' +
+          '</div>' +
         '</div>' +
-
-        '<div style="background:#fff;padding:8px 12px;border:1px solid var(--border);border-radius:6px">' +
-          '<div id="smr_tax_vat_title_' + escHtml(taskId) + '" style="font-size:.72rem;color:var(--text-3);font-weight:600;text-transform:uppercase">' + taxCalc.taxTitle + '</div>' +
-          '<div id="smr_tax_vat_amount_' + escHtml(taskId) + '" style="font-size:1.05rem;font-weight:700;color:#7c3aed;margin-top:2px">' + (taxCalc.taxAmount > 0 ? window.fmtMoneyPrecise(taxCalc.taxAmount) : 'Без налога (0 ₽)') + '</div>' +
-          '<div id="smr_tax_vat_note_' + escHtml(taskId) + '" style="font-size:.68rem;color:var(--text-3)">' + taxCalc.taxRateNote + '</div>' +
+        // Строка 2: Налог в цене (да/нет)
+        '<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f1f5f9;padding-bottom:4px">' +
+          '<div style="font-size:.8rem;color:var(--text-2);font-weight:600">Налог в цене (да/нет):</div>' +
+          '<div style="text-align:right;font-size:.85rem">' +
+            '<span id="smr_tax_vat_title_' + escHtml(taskId) + '" style="font-weight:600;color:var(--text-3);margin-right:6px">' + (isTaxIncluded ? 'Да' : 'Нет') + ' · ' + taxCalc.taxTitle + '</span>' +
+            '<span id="smr_tax_vat_amount_' + escHtml(taskId) + '" style="font-weight:700;color:#7c3aed">' + (taxCalc.taxAmount > 0 ? window.fmtMoneyPrecise(taxCalc.taxAmount) : '0 ₽') + '</span>' +
+            '<span id="smr_tax_vat_note_' + escHtml(taskId) + '" style="font-size:.68rem;color:var(--text-3);margin-left:6px">' + taxCalc.taxRateNote + '</span>' +
+          '</div>' +
         '</div>' +
-
-        '<div style="background:#f8fafc;padding:8px 12px;border:1.5px solid #cbd5e1;border-radius:6px">' +
-          '<div style="font-size:.72rem;color:var(--text-2);font-weight:700;text-transform:uppercase">ИТОГО К ВЫПЛАТЕ ПО РАБОТАМ</div>' +
-          '<div id="smr_tax_total_with_' + escHtml(taskId) + '" style="font-size:1.05rem;font-weight:800;color:var(--primary);margin-top:2px">' + window.fmtMoneyPrecise(taxCalc.totalWithTax) + '</div>' +
-          '<div style="font-size:.68rem;color:var(--text-3)">с учетом налога / к перечислению</div>' +
+        // Строка 3: Итого к выплате
+        '<div style="display:flex;justify-content:space-between;align-items:center;padding-top:2px">' +
+          '<div style="font-size:.82rem;font-weight:700;color:var(--primary);text-transform:uppercase">Итого к выплате:</div>' +
+          '<div style="text-align:right">' +
+            '<span id="smr_tax_total_with_' + escHtml(taskId) + '" style="font-size:1.1rem;font-weight:800;color:var(--primary)">' + window.fmtMoneyPrecise(taxCalc.totalWithTax) + '</span>' +
+            '<span style="font-size:.68rem;color:var(--text-3);margin-left:6px">(с учетом налога / к перечислению)</span>' +
+          '</div>' +
         '</div>' +
       '</div>' +
 
@@ -1755,7 +1764,7 @@
     if (elTaxWithout) elTaxWithout.textContent = window.fmtMoneyPrecise(taxCalc.sumWithoutTax);
 
     var elTaxVatTitle = document.getElementById('smr_tax_vat_title_' + taskId);
-    if (elTaxVatTitle) elTaxVatTitle.textContent = taxCalc.taxTitle;
+    if (elTaxVatTitle) elTaxVatTitle.textContent = (taxCfg.included ? 'Да' : 'Нет') + ' · ' + taxCalc.taxTitle;
 
     var elTaxVatAmount = document.getElementById('smr_tax_vat_amount_' + taskId);
     if (elTaxVatAmount) elTaxVatAmount.textContent = taxCalc.taxAmount > 0 ? window.fmtMoneyPrecise(taxCalc.taxAmount) : 'Без налога (0 ₽)';

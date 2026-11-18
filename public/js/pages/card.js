@@ -1701,11 +1701,11 @@ function pageCard() {
       var curAmount = parseFloat(Object.prototype.hasOwnProperty.call(S.cardDraft, 'amount') ? S.cardDraft.amount : t.amount) || 0;
       var curPorts = parseFloat(Object.prototype.hasOwnProperty.call(S.cardDraft, 'inOrder') ? S.cardDraft.inOrder : (t.inOrder || t.ports || t.fact)) || 0;
       var calcPrice = (curAmount > 0 && curPorts > 0) ? Math.round(curAmount / curPorts) : 0;
-      var curVal = (val !== '' && val != null) ? val : (calcPrice > 0 ? calcPrice : '');
+      var curVal = (calcPrice > 0) ? calcPrice : ((val !== '' && val != null) ? val : '');
 
       inp = '<div style="display:flex;gap:4px;align-items:center;width:100%">' +
         '<input type="number" name="pricePerUnit" data-key="pricePerUnit" value="' + String(curVal).replace(/"/g,'&quot;') + '" placeholder="0" style="flex:1">' +
-        (calcPrice > 0 ? ('<button type="button" class="btn btn-sm btn-ghost" onclick="window.recalcCardUnitPrice(\'' + escHtml(t.id) + '\')" title="Пересчитать по формуле: ' + curAmount + ' ÷ ' + curPorts + ' = ' + calcPrice + ' ₽" style="padding:3px 7px;font-size:.74rem;white-space:nowrap;border:1px solid var(--border)">🔄 ' + calcPrice.toLocaleString('ru-RU') + ' ₽</button>') : '') +
+        (calcPrice > 0 ? ('<span class="badge b-blue" style="font-size:.7rem;padding:2px 6px;white-space:nowrap" title="Автоматический расчет: ' + curAmount + ' ÷ ' + curPorts + ' портов">=(Сумма/План)</span>') : '') +
       '</div>';
     }
     else if (key === 'priemka' || key === 'obsledovanie' || key === 'dostup') {
@@ -2390,10 +2390,6 @@ function pageCard() {
             field('Проект-менеджер (ПМ)', 'assignee', 'select', true) +
             (isWorker ? '' : field('Ответственное лицо (Заказчик)', 'manager', 'text', true)) +
           '</div>' +
-          '<div style="margin-bottom:6px">' +
-            field('Субподрядчик (наш)', 'contractor', 'text', true) +
-            renderContrPhoneHtml(true) +
-          '</div>' +
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">' +
             field('Дата распределения', 'distributedAt', 'date', true) +
             field('Дедлайн Заказчика (план)', 'deadline', 'date', true) +
@@ -2831,14 +2827,17 @@ function pageCard() {
   var paneFiles = '<div id="cardTabPane-files" class="card-tab-pane" style="display:' + ((curTab === 'files' || curTab === 'docs') ? 'block' : 'none') + '">' +
     docsRegistryBlock +
     remarksBlock +
-    '<div class="card p mb">' +
-      '<div class="sec-title" style="margin-bottom:.5rem">Облачные ссылки на документацию</div>' +
-      field('Ссылка на материалы (исходники)', 'materialsLink', 'url') +
-      field('Ссылка на готовую ИД (альбом)', 'idLink', 'url') +
-      (isWorker ? '' : field('Ссылка на тех.инфо', 'techLink', 'url')) +
-      (isWorker ? '' : field('Заказ подписан на портале поставщика', 'supplierOrderSigned', 'checkbox') +
-      field('ИД загружена на портал поставщика', 'supplierIdUploaded', 'checkbox')) +
-    '</div>' +
+    (!isWorker ? ('<div class="card p mb" style="display:flex;align-items:center;gap:1.5rem;flex-wrap:wrap;padding:10px 14px;background:#f8fafc;border:1px solid var(--border)">' +
+      '<span style="font-size:.78rem;font-weight:700;color:var(--text)">🌐 Отметки Портала поставщика:</span>' +
+      '<label style="display:inline-flex;align-items:center;gap:6px;font-size:.8rem;cursor:pointer;user-select:none">' +
+        '<input type="checkbox" name="supplierOrderSigned" data-key="supplierOrderSigned" ' + (t.supplierOrderSigned ? 'checked' : '') + ' style="width:16px;height:16px;cursor:pointer"> ' +
+        '<span>Заказ подписан на Портале</span>' +
+      '</label>' +
+      '<label style="display:inline-flex;align-items:center;gap:6px;font-size:.8rem;cursor:pointer;user-select:none">' +
+        '<input type="checkbox" name="supplierIdUploaded" data-key="supplierIdUploaded" ' + (t.supplierIdUploaded ? 'checked' : '') + ' style="width:16px;height:16px;cursor:pointer"> ' +
+        '<span>ИД загружена на Портал</span>' +
+      '</label>' +
+    '</div>') : '') +
     '<div class="card p mb">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
         '<div class="sec-title" style="margin:0">Акты и финансовые документы</div>' +
@@ -3166,6 +3165,76 @@ function pageCard() {
             '</div>' +
 
           '</div>' +
+
+          (function() {
+            var settlements = (t.rawData && Array.isArray(t.rawData.contractorSettlements)) ? t.rawData.contractorSettlements : [];
+            var totalInvoiced = settlements.reduce(function(acc, s){ return acc + (Number(s.invoice_amount) || 0); }, 0);
+            var totalSettlementPaid = settlements.reduce(function(acc, s){ return acc + (Number(s.payment_amount) || 0); }, 0);
+            var settlementRemaining = Math.max(0, totalInvoiced - totalSettlementPaid);
+
+            var settlementsTableRows = settlements.length ? settlements.map(function(s, idx) {
+              var invDate = s.invoice_date ? safeDateRu(s.invoice_date) : '—';
+              var payDate = s.payment_date ? safeDateRu(s.payment_date) : '—';
+              var invAmt = Number(s.invoice_amount) || 0;
+              var payAmt = Number(s.payment_amount) || 0;
+              var remAmt = Math.max(0, invAmt - payAmt);
+              var pTypeBadge = s.payment_type === 'advance'
+                ? '<span class="badge b-yellow" style="font-size:.65rem">Аванс</span>'
+                : (s.payment_type === 'final' ? '<span class="badge b-green" style="font-size:.65rem">Расчёт</span>' : '<span class="badge b-gray" style="font-size:.65rem">' + escHtml(s.payment_type || '—') + '</span>');
+
+              return '<tr>' +
+                '<td style="padding:5px 8px;font-size:.78rem;font-weight:600">' + escHtml(s.invoice_number || 'б/н') + ' <span class="t3">от ' + invDate + '</span></td>' +
+                '<td style="padding:5px 8px;font-size:.78rem;font-weight:700;color:var(--text);text-align:right">' + fmtMoney(invAmt) + '</td>' +
+                '<td style="padding:5px 8px;font-size:.78rem;text-align:center">' + payDate + ' ' + pTypeBadge + '</td>' +
+                '<td style="padding:5px 8px;font-size:.78rem;font-weight:700;color:var(--green);text-align:right">' + fmtMoney(payAmt) + '</td>' +
+                '<td style="padding:5px 8px;font-size:.78rem;font-weight:700;color:' + (remAmt === 0 ? 'var(--green)' : 'var(--orange-dark)') + ';text-align:right">' + fmtMoney(remAmt) + '</td>' +
+                '<td style="padding:5px 8px;text-align:center">' +
+                  '<button type="button" class="btn btn-xs btn-ghost" onclick="window.removeContractorSettlement(\'' + eid + '\', ' + idx + ')" style="color:var(--red);padding:1px 5px" title="Удалить запись">✕</button>' +
+                '</td>' +
+              '</tr>';
+            }).join('') : '<tr><td colspan="6" style="text-align:center;padding:10px;font-size:.76rem;color:var(--text-3)">Счета и оплаты подрядчика пока не зафиксированы. Нажмите «+ Добавить счёт / оплату».</td></tr>';
+
+            var settlementComparisonHtml = totalCustomerAmount > 0 ? (
+              '<div style="background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-top:8px;font-size:.75rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">' +
+                '<span>📥 Вход: <b>' + fmtMoney(totalCustomerAmount) + '</b></span>' +
+                '<span>📤 Счета подрядчика: <b>' + fmtMoney(totalInvoiced) + '</b></span>' +
+                '<span>📊 Доля: <b>' + (totalCustomerAmount > 0 ? Math.round(totalInvoiced / totalCustomerAmount * 100) : 0) + '%</b></span>' +
+                '<span style="color:' + ((totalCustomerAmount - totalInvoiced) >= 0 ? 'var(--green)' : 'var(--red)') + ';font-weight:700">Ожидаемая маржа: ' + fmtMoney(totalCustomerAmount - totalInvoiced) + '</span>' +
+              '</div>'
+            ) : '';
+
+            return '<div class="card p" id="contractorSettlementsBlock" style="border:1.5px solid var(--border);margin-top:.75rem">' +
+              '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;flex-wrap:wrap;gap:6px">' +
+                '<div>' +
+                  '<div class="sec-title" style="margin:0;font-size:.88rem">💼 Взаиморасчёты с подрядчиком (счета и оплаты)</div>' +
+                  '<div style="font-size:.73rem;color:var(--text-3)">Фиксация счетов исполнителя, авансов и окончательных расчетов</div>' +
+                '</div>' +
+                '<button type="button" class="btn btn-sm btn-primary" onclick="window.openAddContractorSettlementModal(\'' + eid + '\')" style="font-size:.74rem;padding:3px 8px">+ Добавить счёт / оплату</button>' +
+              '</div>' +
+              '<div style="overflow-x:auto;border:1px solid var(--border);border-radius:6px">' +
+                '<table style="width:100%;border-collapse:collapse;font-size:.78rem">' +
+                  '<thead><tr style="background:var(--bg);border-bottom:1px solid var(--border);color:var(--text-3);font-size:.72rem">' +
+                    '<th style="padding:6px 8px;text-align:left">№ и дата счёта</th>' +
+                    '<th style="padding:6px 8px;text-align:right">Сумма счёта</th>' +
+                    '<th style="padding:6px 8px;text-align:center">Оплата (дата / тип)</th>' +
+                    '<th style="padding:6px 8px;text-align:right">Сумма оплаты</th>' +
+                    '<th style="padding:6px 8px;text-align:right">Остаток к выплате</th>' +
+                    '<th style="padding:6px 8px;text-align:center;width:40px"></th>' +
+                  '</tr></thead>' +
+                  '<tbody>' + settlementsTableRows + '</tbody>' +
+                  (settlements.length ? ('<tfoot><tr style="background:var(--bg);font-weight:700;border-top:1.5px solid var(--border);font-size:.78rem">' +
+                    '<td style="padding:6px 8px">ИТОГО:</td>' +
+                    '<td style="padding:6px 8px;text-align:right">' + fmtMoney(totalInvoiced) + '</td>' +
+                    '<td></td>' +
+                    '<td style="padding:6px 8px;text-align:right;color:var(--green)">' + fmtMoney(totalSettlementPaid) + '</td>' +
+                    '<td style="padding:6px 8px;text-align:right;color:' + (settlementRemaining === 0 ? 'var(--green)' : 'var(--orange-dark)') + '">' + fmtMoney(settlementRemaining) + '</td>' +
+                    '<td></td>' +
+                  '</tr></tfoot>') : '') +
+                '</table>' +
+              '</div>' +
+              settlementComparisonHtml +
+            '</div>';
+          })() +
 
           // КАРТОЧКА 4: СКВОЗНОЙ ФИНАНСОВЫЙ БАЛАНС И 5 СТАТЕЙ ЗАТРАТ
           '<div class="card p" style="border:1.5px solid ' + (operatingMargin >= 0 ? '#bbf7d0' : '#fecaca') + ';background:' + (operatingMargin >= 0 ? '#f0fdf4' : '#fef2f2') + '">' +
@@ -9775,18 +9844,142 @@ window.removeSubPayment = function(taskId, idx) {
   if (!t.rawData) t.rawData = {};
   t.rawData.subPayments = t._payments;
 
+  renderApp();
+};
+
+// ─── ВЗАИМОРАСЧЁТЫ С ПОДРЯДЧИКОМ (СЧЕТА И ОПЛАТЫ - EXT-2) ────────────────────
+window.openAddContractorSettlementModal = function(taskId) {
+  var old = document.getElementById('_add_settlement_modal');
+  if (old) old.remove();
+
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+
+  var m = document.createElement('div');
+  m.id = '_add_settlement_modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:1000;display:flex;align-items:center;justify-content:center;padding:1rem';
+
+  var todayIso = new Date().toISOString().slice(0, 10);
+  m.innerHTML =
+    '<div class="card" style="width:100%;max-width:480px;background:#fff;border-radius:12px;box-shadow:0 20px 40px rgba(0,0,0,0.25);overflow:hidden;animation:fadeIn 0.15s ease">' +
+      '<div style="background:#f8fafc;padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">' +
+        '<div style="font-weight:700;font-size:1rem;color:var(--text)">+ Взаиморасчёт с подрядчиком: ' + escHtml(t.id) + '</div>' +
+        '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_add_settlement_modal\').remove()">✕</button>' +
+      '</div>' +
+      '<div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+          '<div>' +
+            '<label class="t3" style="display:block;font-size:.72rem;font-weight:700;margin-bottom:2px">№ счёта подрядчика:</label>' +
+            '<input type="text" id="_settle_inv_num" placeholder="№ 123" style="width:100%;padding:5px 8px;font-size:.84rem">' +
+          '</div>' +
+          '<div>' +
+            '<label class="t3" style="display:block;font-size:.72rem;font-weight:700;margin-bottom:2px">Дата счёта:</label>' +
+            '<input type="date" id="_settle_inv_date" value="' + todayIso + '" style="width:100%;padding:4px 8px;font-size:.84rem">' +
+          '</div>' +
+        '</div>' +
+        '<div>' +
+          '<label class="t3" style="display:block;font-size:.72rem;font-weight:700;margin-bottom:2px">Сумма счёта (₽):</label>' +
+          '<input type="number" id="_settle_inv_amt" placeholder="0" style="width:100%;padding:5px 8px;font-size:.9rem;font-weight:700">' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+          '<div>' +
+            '<label class="t3" style="display:block;font-size:.72rem;font-weight:700;margin-bottom:2px">Дата оплаты (если была):</label>' +
+            '<input type="date" id="_settle_pay_date" style="width:100%;padding:4px 8px;font-size:.84rem">' +
+          '</div>' +
+          '<div>' +
+            '<label class="t3" style="display:block;font-size:.72rem;font-weight:700;margin-bottom:2px">Тип оплаты:</label>' +
+            '<select class="select" id="_settle_pay_type" style="width:100%">' +
+              '<option value="advance">Аванс</option>' +
+              '<option value="final" selected>Окончательный расчёт</option>' +
+              '<option value="partial">Частичная оплата</option>' +
+            '</select>' +
+          '</div>' +
+        '</div>' +
+        '<div>' +
+          '<label class="t3" style="display:block;font-size:.72rem;font-weight:700;margin-bottom:2px">Сумма оплаты (₽):</label>' +
+          '<input type="number" id="_settle_pay_amt" placeholder="0" style="width:100%;padding:5px 8px;font-size:.9rem;font-weight:700;color:var(--green)">' +
+        '</div>' +
+        '<div>' +
+          '<label class="t3" style="display:block;font-size:.72rem;font-weight:700;margin-bottom:2px">Примечание / основание:</label>' +
+          '<input type="text" id="_settle_notes" placeholder="Акт №... / СМР по объекту" style="width:100%;padding:5px 8px;font-size:.82rem">' +
+        '</div>' +
+        '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px">' +
+          '<button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById(\'_add_settlement_modal\').remove()">Отмена</button>' +
+          '<button type="button" class="btn btn-sm btn-primary" onclick="window.saveContractorSettlement(\'' + escHtml(taskId) + '\')">✓ Сохранить</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(m);
+};
+
+window.saveContractorSettlement = function(taskId) {
+  var invNum = (document.getElementById('_settle_inv_num').value || '').trim();
+  var invDate = document.getElementById('_settle_inv_date').value || '';
+  var invAmt = parseFloat(document.getElementById('_settle_inv_amt').value) || 0;
+  var payDate = document.getElementById('_settle_pay_date').value || '';
+  var payType = document.getElementById('_settle_pay_type').value || 'final';
+  var payAmt = parseFloat(document.getElementById('_settle_pay_amt').value) || 0;
+  var notes = (document.getElementById('_settle_notes').value || '').trim();
+
+  if (invAmt <= 0 && payAmt <= 0) {
+    alert('Укажите сумму счёта или сумму оплаты');
+    return;
+  }
+
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+
+  t.rawData = (t.rawData && typeof t.rawData === 'object') ? t.rawData : {};
+  if (!Array.isArray(t.rawData.contractorSettlements)) {
+    t.rawData.contractorSettlements = [];
+  }
+
+  var item = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    invoice_number: invNum,
+    invoice_date: invDate,
+    invoice_amount: invAmt,
+    payment_date: payDate,
+    payment_amount: payAmt,
+    payment_type: payType,
+    notes: notes,
+    created_at: new Date().toISOString()
+  };
+
+  t.rawData.contractorSettlements.push(item);
+
   api('/tasks/' + encodeURIComponent(taskId), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ rawData: t.rawData })
-  }).then(function(){
-    if (typeof showToast === 'function') showToast('🗑️ Выплата удалена', 'info');
-  }).catch(function(e){
-    console.error('Error removing sub payment:', e);
-    if (typeof showToast === 'function') showToast('⚠️ Ошибка удаления: ' + e.message, 'error');
+  }).then(function() {
+    var m = document.getElementById('_add_settlement_modal');
+    if (m) m.remove();
+    renderApp();
+    if (typeof showToast === 'function') showToast('✓ Запись взаиморасчёта с подрядчиком сохранена', 'success');
+  }).catch(function(err) {
+    alert('Ошибка сохранения: ' + err.message);
   });
+};
 
-  renderApp();
+window.removeContractorSettlement = function(taskId, idx) {
+  if (!confirm('Удалить эту запись взаиморасчёта?')) return;
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t || !t.rawData || !Array.isArray(t.rawData.contractorSettlements)) return;
+
+  t.rawData.contractorSettlements.splice(idx, 1);
+
+  api('/tasks/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rawData: t.rawData })
+  }).then(function() {
+    renderApp();
+    if (typeof showToast === 'function') showToast('Запись взаиморасчёта удалена', 'info');
+  }).catch(function(err) {
+    alert('Ошибка удаления: ' + err.message);
+  });
 };
 
 // ─── СОПУТСТВУЮЩИЕ ЗАТРАТЫ (ДОПЫ + ТК): МОДАЛКА И ОБРАБОТЧИКИ ────────────────

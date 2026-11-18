@@ -282,6 +282,7 @@ function go(page) {
   renderNav();
   renderApp();
 }
+window.go = go;
 
 // ─── SIDEBAR & NAV ───────────────────────────────────────────────────────────
 
@@ -945,6 +946,21 @@ function bindEvents() {
       } else {
         S.cardDraft[fieldName] = newVal;
       }
+
+      if (fieldName === 'amount' || fieldName === 'inOrder') {
+        var aInput = cardForm.querySelector('input[name="amount"]');
+        var oInput = cardForm.querySelector('input[name="inOrder"]');
+        var pInput = cardForm.querySelector('input[name="pricePerUnit"]');
+        if (aInput && oInput && pInput) {
+          var aVal = parseFloat(aInput.value) || 0;
+          var oVal = parseFloat(oInput.value) || 0;
+          if (aVal > 0 && oVal > 0) {
+            var calcUnitPrice = Math.round(aVal / oVal);
+            pInput.value = calcUnitPrice;
+            S.cardDraft['pricePerUnit'] = calcUnitPrice;
+          }
+        }
+      }
       updateCardSaveBar();
     });
 
@@ -1005,6 +1021,10 @@ function bindEvents() {
       e.preventDefault(); uzone.classList.remove('drag');
       if (e.dataTransfer.files[0]) doUpload(e.dataTransfer.files[0]);
     });
+  }
+
+  if (typeof window.bindTasksEvents === 'function') {
+    window.bindTasksEvents();
   }
 }
 

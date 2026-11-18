@@ -344,7 +344,10 @@ export async function generateShipmentExcel(taskId, shipmentId) {
   wsData.push([`ОТГРУЗКА МАТЕРИАЛОВ № ${shipment.shipment_number}`]);
   wsData.push([`Заказ-наряд / Заявка: ${task.id} | Объект: ${task.title || task.address || ''}`]);
   wsData.push([`Дата отгрузки: ${shipment.shipment_date ? new Date(shipment.shipment_date).toLocaleDateString('ru-RU') : ''} | Статус: ${fmtStatus(shipment.status)}`]);
-  wsData.push([`Перевозчик / Способ доставки: ${shipment.carrier || ''}`]);
+  wsData.push([`Перевозчик / Способ доставки: ${shipment.carrier || ''}${shipment.waybill_number ? ` | № ТТН / накладной: ${shipment.waybill_number}` : ''}`]);
+  if (shipment.delivery_cost && Number(shipment.delivery_cost) > 0) {
+    wsData.push([`Стоимость доставки: ${Number(shipment.delivery_cost)} ₽`]);
+  }
   wsData.push([`Сформировал: ${shipment.creator_name || ''} | Отправил: ${shipment.shipper_name || ''}`]);
 
   if (shipment.accepted_at) {
@@ -444,6 +447,38 @@ export async function generateShipmentExcel(taskId, shipmentId) {
     ''
   ];
   wsData.push(totalRow);
+
+  if (shipment.delivery_cost && Number(shipment.delivery_cost) > 0) {
+    const delCost = Number(shipment.delivery_cost);
+    wsData.push([
+      'Доставка (ТК)',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      delCost,
+      shipment.waybill_number ? `ТТН: ${shipment.waybill_number}` : ''
+    ]);
+    wsData.push([
+      'ИТОГО С ДОСТАВКОЙ',
+      '',
+      '',
+      '',
+      '',
+      totalShippedQty,
+      hasAnyAccepted ? totalAcceptedQty : '',
+      '',
+      '',
+      '',
+      hasAnyPrice ? (totalSum + delCost) : delCost,
+      ''
+    ]);
+  }
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(wsData);

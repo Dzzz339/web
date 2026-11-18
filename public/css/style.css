@@ -638,7 +638,9 @@
     /* INPUTS */
     input, select, textarea { font-family: inherit; font-size: .875rem; border: 1.5px solid var(--border); border-radius: 7px; padding: 7px 11px; color: var(--text); background: #fff; outline: none; transition: border-color .12s; }
     input:focus, select:focus { border-color: var(--orange); }
-    select { cursor: pointer; }
+    select, .select { cursor: pointer; }
+    .select { font-family: inherit; font-size: .82rem; border: 1.5px solid var(--border); border-radius: 6px; padding: 4px 8px; color: var(--text); background: #fff; outline: none; transition: border-color .12s; }
+    .select:focus { border-color: var(--orange); }
 
     /* TABLE */
     .tbl-wrap { 

@@ -995,7 +995,7 @@ router.post('/tasks/:id/decline', authenticateToken, async (req, res) => {
     });
 
     await pool.query(
-      `UPDATE tasks SET assignment_status='declined', overdue_reason = COALESCE(NULLIF($2, ''), overdue_reason), status = 'cancelled', history = $3::jsonb, updated_at = NOW() WHERE id=$1`,
+      `UPDATE tasks SET assignment_status='declined', overdue_reason = COALESCE(NULLIF($2, ''), overdue_reason), raw_data = jsonb_set(COALESCE(raw_data, '{}'::jsonb), '{rejectReason}', to_jsonb($2::text)), status = 'cancelled', history = $3::jsonb, updated_at = NOW() WHERE id=$1`,
       [req.params.id, reason, JSON.stringify(hist.slice(-500))]
     );
 
@@ -1020,6 +1020,210 @@ router.delete('/tasks/:id', authenticateToken, requireRole('admin', 'director'),
     await pool.query('DELETE FROM tasks WHERE id=$1', [req.params.id]);
     res.json({ success: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── EXT-2: ГРУППОВЫЕ ДЕЙСТВИЯ СО СПИСКОМ ЗАЯВОК ──────────────────────────────
+router.post('/tasks/batch-action', authenticateToken, requireRole('admin', 'director', 'manager', 'to_engineer'), async (req, res) => {
+  const { task_ids, action, status, reason, contractor, contractor_name, contractor_id } = req.body || {};
+  if (!Array.isArray(task_ids) || task_ids.length === 0) {
+    return res.status(400).json({ error: 'Необходимо указать список идентификаторов заявок (task_ids)' });
+  }
+
+  const allowedActions = ['set_status', 'accept', 'reject', 'assign_contractor', 'clear_contractor'];
+  if (!allowedActions.includes(action)) {
+    return res.status(400).json({ error: `Недопустимое действие: ${action}` });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const authorName = (req.user && (req.user.fullName || req.user.username)) || 'Система';
+    const nowRu = new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
+    let updatedCount = 0;
+
+    for (const tid of task_ids) {
+      const { rows } = await client.query('SELECT id, status, assignee, contractor, assignment_status, history, raw_data FROM tasks WHERE id = $1', [tid]);
+      if (!rows.length) continue;
+      const t = rows[0];
+      let hist = Array.isArray(t.history) ? [...t.history] : [];
+      let rawData = (t.raw_data && typeof t.raw_data === 'object') ? { ...t.raw_data } : {};
+
+      if (action === 'set_status') {
+        if (!status) throw new Error('Не указан статус для обновления');
+        hist.push({
+          date: nowRu,
+          author: authorName,
+          field: 'Статус заявки',
+          old: t.status || '—',
+          new: `Пакетное изменение: ${status}`
+        });
+        await client.query(`
+          UPDATE tasks
+          SET status = $2,
+              history = $3::jsonb,
+              updated_at = NOW()
+          WHERE id = $1
+        `, [tid, status, JSON.stringify(hist.slice(-500))]);
+        updatedCount++;
+      } else if (action === 'accept') {
+        hist.push({
+          date: nowRu,
+          author: authorName,
+          field: 'Входной контроль',
+          old: t.assignment_status || 'Ожидает входного контроля',
+          new: `Принято в работу (пакетно, автор: ${authorName})`
+        });
+        await client.query(`
+          UPDATE tasks
+          SET assignment_status = 'accepted',
+              status = CASE WHEN status IN ('new', 'pending', 'in_progress', 'cancelled', 'rejected') THEN 'progress' ELSE status END,
+              stage_num = CASE WHEN stage_num = 0 THEN 1 ELSE stage_num END,
+              assignee = COALESCE(NULLIF(assignee, ''), $2),
+              history = $3::jsonb,
+              updated_at = NOW()
+          WHERE id = $1
+        `, [tid, authorName, JSON.stringify(hist.slice(-500))]);
+        updatedCount++;
+      } else if (action === 'reject') {
+        const rejReason = reason ? String(reason).trim() : 'Отклонено при групповом разборе';
+        rawData.rejectReason = rejReason;
+        rawData.rejectedAt = new Date().toISOString();
+        rawData.rejectedBy = authorName;
+        hist.push({
+          date: nowRu,
+          author: authorName,
+          field: 'Входной контроль',
+          old: t.assignment_status || 'Ожидает входного контроля',
+          new: `Отклонено на доработку (пакетно): ${rejReason}`
+        });
+        await client.query(`
+          UPDATE tasks
+          SET assignment_status = 'declined',
+              status = 'cancelled',
+              overdue_reason = $2,
+              raw_data = $3::jsonb,
+              history = $4::jsonb,
+              updated_at = NOW()
+          WHERE id = $1
+        `, [tid, rejReason, JSON.stringify(rawData), JSON.stringify(hist.slice(-500))]);
+        updatedCount++;
+      } else if (action === 'assign_contractor') {
+        const contrName = (contractor_name || contractor) ? String(contractor_name || contractor).trim() : '';
+        if (!contrName) throw new Error('Не указано имя субподрядчика');
+        hist.push({
+          date: nowRu,
+          author: authorName,
+          field: 'Субподрядчик',
+          old: t.contractor || 'Не назначен',
+          new: `Назначен субподрядчик (пакетно): ${contrName}`
+        });
+        await client.query(`
+          UPDATE tasks
+          SET contractor = $2,
+              history = $3::jsonb,
+              updated_at = NOW()
+          WHERE id = $1
+        `, [tid, contrName, JSON.stringify(hist.slice(-500))]);
+        updatedCount++;
+      } else if (action === 'clear_contractor') {
+        hist.push({
+          date: nowRu,
+          author: authorName,
+          field: 'Субподрядчик',
+          old: t.contractor || 'Не назначен',
+          new: 'Снят субподрядчик (пакетно)'
+        });
+        await client.query(`
+          UPDATE tasks
+          SET contractor = NULL,
+              history = $2::jsonb,
+              updated_at = NOW()
+          WHERE id = $1
+        `, [tid, JSON.stringify(hist.slice(-500))]);
+        updatedCount++;
+      }
+    }
+
+    const { rows: updatedRows } = await client.query('SELECT * FROM tasks WHERE id = ANY($1)', [task_ids]);
+    const updatedTasks = updatedRows.map(rowToTask);
+
+    await client.query('COMMIT');
+    res.json({ success: true, updated_count: updatedCount, updatedCount, tasks: updatedTasks });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ─── EXT-2: ФИКСАЦИЯ И РЕЕСТР ПЕРЕНОСОВ ДЕДЛАЙНА ─────────────────────────────
+router.post('/tasks/:id/reschedule', authenticateToken, requireRole('admin', 'director', 'manager', 'to_engineer'), async (req, res) => {
+  try {
+    const { new_deadline, reason, customer_status } = req.body || {};
+    if (!new_deadline) {
+      return res.status(400).json({ error: 'Не указан новый дедлайн (new_deadline)' });
+    }
+
+    const { rows } = await pool.query('SELECT id, deadline, history, raw_data FROM tasks WHERE id = $1', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'Заявка не найдена' });
+    const task = rows[0];
+
+    const validStatus = ['pending', 'approved', 'rejected'].includes(customer_status) ? customer_status : 'pending';
+    const authorName = (req.user && (req.user.fullName || req.user.username)) || 'Система';
+    const nowRu = new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
+    let hist = Array.isArray(task.history) ? [...task.history] : [];
+    let rawData = (task.raw_data && typeof task.raw_data === 'object') ? { ...task.raw_data } : {};
+
+    const reqItem = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      old_deadline: task.deadline ? new Date(task.deadline).toLocaleDateString('en-CA') : null,
+      new_deadline,
+      reason: reason ? String(reason).trim() : '',
+      customer_status: validStatus,
+      requested_at: new Date().toISOString(),
+      requested_by: authorName,
+      updated_at: new Date().toISOString()
+    };
+
+    if (!Array.isArray(rawData.rescheduleRequests)) {
+      rawData.rescheduleRequests = [];
+    }
+    rawData.rescheduleRequests.push(reqItem);
+    rawData.rescheduleStatus = validStatus;
+    rawData.lastRescheduleReason = reqItem.reason;
+
+    hist.push({
+      date: nowRu,
+      author: authorName,
+      field: 'Срок окончания работ (перенос)',
+      old: task.deadline ? new Date(task.deadline).toLocaleDateString('en-CA') : '—',
+      new: `${new_deadline} (Статус согласования: ${validStatus}${reqItem.reason ? ', причина: ' + reqItem.reason : ''})`
+    });
+
+    const { rows: updatedRows } = await pool.query(`
+      UPDATE tasks
+      SET deadline = $2::date,
+          overdue_reason = COALESCE(NULLIF($3, ''), overdue_reason),
+          raw_data = $4::jsonb,
+          history = $5::jsonb,
+          updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+    `, [
+      req.params.id,
+      new_deadline,
+      reqItem.reason,
+      JSON.stringify(rawData),
+      JSON.stringify(hist.slice(-500))
+    ]);
+
+    const updatedTask = updatedRows[0] ? rowToTask(updatedRows[0]) : null;
+    res.json({ success: true, task: updatedTask, request: reqItem });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ─── API: ЖИЗНЕННЫЙ ЦИКЛ ИД И ЗАМЕЧАНИЯ СБЕРА ─────────────────────────────────

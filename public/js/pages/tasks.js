@@ -536,7 +536,7 @@ window._rejectTaskForRoadCorrection = function(taskId) {
   });
 };
 
-// ─── ЭКСПРЕСС-ПЕРЕНОС СРОКА / ДЕДЛАЙНА ────────────────────────────────────────
+// ─── ЭКСПРЕСС-ПЕРЕНОС СРОКА / ДЕДЛАЙНА (EXT-2) ───────────────────────────────
 window.openQuickDeadlinePostponeModal = function(taskId) {
   var old = document.getElementById('_quick_postpone_modal');
   if (old) old.remove();
@@ -545,6 +545,7 @@ window.openQuickDeadlinePostponeModal = function(taskId) {
   if (!t) return;
 
   var curDl = t.deadline ? safeDateIso(t.deadline) : '';
+  var curCustStatus = (t.rawData && t.rawData.rescheduleStatus) || 'pending';
 
   var m = document.createElement('div');
   m.id = '_quick_postpone_modal';
@@ -565,7 +566,15 @@ window.openQuickDeadlinePostponeModal = function(taskId) {
           '<input type="date" id="_qpostpone_date" value="' + curDl + '" style="width:100%;padding:7px 10px;font-size:.95rem;font-weight:600">' +
         '</div>' +
         '<div style="margin-bottom:14px">' +
-          '<label class="t3" style="display:block;font-size:.75rem;font-weight:700;margin-bottom:4px">Причина переноса / статус согласования:</label>' +
+          '<label class="t3" style="display:block;font-size:.75rem;font-weight:700;margin-bottom:4px">Статус согласования Заказчиком:</label>' +
+          '<select class="select" id="_qpostpone_customer_status" style="width:100%">' +
+            '<option value="pending"' + (curCustStatus === 'pending' ? ' selected' : '') + '>⏳ Ожидает согласования Заказчиком (На согласовании)</option>' +
+            '<option value="approved"' + (curCustStatus === 'approved' ? ' selected' : '') + '>✓ Перенос принят Заказчиком (Принято Заказчиком)</option>' +
+            '<option value="rejected"' + (curCustStatus === 'rejected' ? ' selected' : '') + '>✕ Перенос отклонён Заказчиком (Не принято)</option>' +
+          '</select>' +
+        '</div>' +
+        '<div style="margin-bottom:14px">' +
+          '<label class="t3" style="display:block;font-size:.75rem;font-weight:700;margin-bottom:4px">Причина переноса / сообщение для Портала:</label>' +
           '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">' +
             '<button type="button" class="btn btn-xs btn-ghost" onclick="document.getElementById(\'_qpostpone_reason\').value=this.textContent" style="font-size:.7rem">Ожидание доступа на объект</button>' +
             '<button type="button" class="btn btn-xs btn-ghost" onclick="document.getElementById(\'_qpostpone_reason\').value=this.textContent" style="font-size:.7rem">Задержка поставки ТМЦ</button>' +
@@ -587,47 +596,38 @@ window.openQuickDeadlinePostponeModal = function(taskId) {
 window.saveQuickDeadlinePostpone = function(taskId) {
   var newDate = document.getElementById('_qpostpone_date').value;
   var reason = (document.getElementById('_qpostpone_reason').value || '').trim();
+  var custStatus = (document.getElementById('_qpostpone_customer_status') && document.getElementById('_qpostpone_customer_status').value) || 'pending';
   if (!newDate) { alert('Укажите новую дату дедлайна'); return; }
 
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
   if (!t) return;
 
-  var now = new Date().toLocaleString('ru');
-  var author = S.user ? (S.user.full_name || S.user.username) : 'Система';
-  var hist = t._history || t.history || [];
-  hist.push({
-    date: now,
-    author: author,
-    field: 'Срок окончания работ',
-    old: t.deadline || '—',
-    new: newDate + (reason ? (' (' + reason + ')') : '')
-  });
-
-  api('/tasks/' + encodeURIComponent(taskId), {
-    method: 'PUT',
+  api('/tasks/' + encodeURIComponent(taskId) + '/reschedule', {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      deadline: newDate,
-      overdueReason: reason || t.overdueReason,
-      _history: hist
+      new_deadline: newDate,
+      reason: reason,
+      customer_status: custStatus
     })
   }).then(function(res) {
     t.deadline = newDate;
     if (reason) t.overdueReason = reason;
-    t._history = hist;
+    t.rawData = t.rawData || {};
+    t.rawData.rescheduleStatus = custStatus;
     if (res && res.task) {
       Object.assign(t, res.task);
     }
     var m = document.getElementById('_quick_postpone_modal');
     if (m) m.remove();
     renderApp();
-    if (typeof showToast === 'function') showToast('✓ Новый дедлайн сохранён: ' + newDate.split('-').reverse().join('.'), 'success');
+    if (typeof showToast === 'function') showToast('✓ Перенос дедлайна сохранён: ' + newDate.split('-').reverse().join('.'), 'success');
   }).catch(function(err) {
     alert('Ошибка переноса срока: ' + err.message);
   });
 };
 
-// ─── БЫСТРЫЙ ВХОДНОЙ КОНТРОЛЬ («ПРИНЯТЬ») ────────────────────────────────────
+// ─── БЫСТРЫЙ ВХОДНОЙ КОНТРОЛЬ («ПРИНЯТЬ» И «ОТКЛОНИТЬ НА ДОРАБОТКУ») ─────────
 window.quickAcceptTask = function(taskId) {
   var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
   if (!t) return;
@@ -652,6 +652,378 @@ window.quickAcceptTask = function(taskId) {
   }).catch(function(err) {
     alert('Ошибка входного контроля: ' + err.message);
   });
+};
+
+window.quickRejectTask = function(taskId) {
+  var t = (S.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!t) return;
+  var reason = prompt('Укажите причину отклонения заявки ' + taskId + ' на доработку:', (t.rawData && t.rawData.rejectReason) || t.overdueReason || '');
+  if (reason === null) return;
+  reason = reason.trim() || 'Отклонено на доработку';
+
+  api('/tasks/' + encodeURIComponent(taskId) + '/decline', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: reason })
+  }).then(function(res) {
+    t.assignmentStatus = 'declined';
+    t.assignment_status = 'declined';
+    t.status = 'cancelled';
+    t.overdueReason = reason;
+    t.rawData = t.rawData || {};
+    t.rawData.rejectReason = reason;
+    if (res && res.task) {
+      Object.assign(t, res.task);
+    }
+    renderApp();
+    if (typeof showToast === 'function') showToast('✕ Заявка ' + taskId + ' отклонена на доработку', 'warning');
+  }).catch(function(err) {
+    alert('Ошибка отклонения заявки: ' + err.message);
+  });
+};
+
+// ─── СИНХРОНИЗАЦИЯ ДАННЫХ С СЕРВЕРОМ БЕЗ ВЫХОДА/ВХОДА (EXT-2) ─────────────────
+window.syncTasksFromServer = function(isManual) {
+  var btn = document.getElementById('btnRefreshTasksServer');
+  if (btn && isManual) {
+    btn.disabled = true;
+    btn.textContent = '🔄 Загрузка…';
+  }
+
+  return api('/tasks').then(function(newTasks) {
+    if (Array.isArray(newTasks)) {
+      S.tasks = newTasks;
+      if (typeof idbSet === 'function') {
+        idbSet('tasks', newTasks);
+      }
+    }
+    if (S.page === 'tasks') {
+      renderApp();
+    }
+    if (btn && isManual) {
+      btn.disabled = false;
+      btn.textContent = '🔄 Обновить данные';
+      if (typeof showToast === 'function') {
+        showToast('✓ Данные заявок успешно синхронизированы с сервером', 'success');
+      }
+    }
+    return newTasks;
+  }).catch(function(err) {
+    console.warn('[syncTasksFromServer] Ошибка синхронизации:', err);
+    if (btn && isManual) {
+      btn.disabled = false;
+      btn.textContent = '🔄 Обновить данные';
+      alert('Ошибка обновления данных с сервера: ' + err.message);
+    }
+  });
+};
+
+if (!window._tasksAutoSyncInterval) {
+  window._tasksAutoSyncInterval = setInterval(function() {
+    if (S.page !== 'tasks') return;
+    if (document.querySelector('.modal-overlay') || document.querySelector('#_quick_postpone_modal') || document.querySelector('#_add_settlement_modal')) {
+      return;
+    }
+    var activeEl = document.activeElement;
+    if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT')) {
+      return;
+    }
+    if (typeof window.syncTasksFromServer === 'function') {
+      window.syncTasksFromServer(false);
+    }
+  }, 30000);
+}
+
+// ─── ГРУППОВЫЕ ДЕЙСТВИЯ НАД ТАБЛИЦЕЙ ЗАЯВОК (EXT-2) ─────────────────────────
+window.updateTasksBatchBar = function() {
+  var bar = document.getElementById('tasksBatchActionBar');
+  var countEl = document.getElementById('tasksSelectedCount');
+  var count = S.selectedTasks ? S.selectedTasks.size : 0;
+  if (countEl) countEl.textContent = count;
+  if (bar) {
+    bar.style.display = count > 0 ? 'flex' : 'none';
+  }
+  var allChk = document.getElementById('selectAllTasksListChk');
+  if (allChk) {
+    var rowChks = document.querySelectorAll('.task-list-chk');
+    if (rowChks.length === 0) {
+      allChk.checked = false;
+      allChk.indeterminate = false;
+    } else {
+      var allChecked = true;
+      var anyChecked = false;
+      rowChks.forEach(function(c) {
+        if (c.checked) anyChecked = true;
+        else allChecked = false;
+      });
+      allChk.checked = allChecked && anyChecked;
+      allChk.indeterminate = anyChecked && !allChecked;
+    }
+  }
+};
+
+window.bindTasksEvents = function() {
+  var btnSync = document.getElementById('btnRefreshTasksServer');
+  if (btnSync && !btnSync._bound) {
+    btnSync._bound = true;
+    btnSync.addEventListener('click', function() {
+      if (typeof window.syncTasksFromServer === 'function') {
+        window.syncTasksFromServer(true);
+      }
+    });
+  }
+
+  var allChk = document.getElementById('selectAllTasksListChk');
+  if (allChk && !allChk._bound) {
+    allChk._bound = true;
+    allChk.addEventListener('change', function() {
+      var isChecked = this.checked;
+      var rowChks = document.querySelectorAll('.task-list-chk');
+      S.selectedTasks = S.selectedTasks || new Set();
+      rowChks.forEach(function(c) {
+        c.checked = isChecked;
+        var tid = c.getAttribute('data-task-id');
+        if (tid) {
+          if (isChecked) S.selectedTasks.add(String(tid));
+          else S.selectedTasks.delete(String(tid));
+        }
+      });
+      window.updateTasksBatchBar();
+    });
+  }
+
+  var rowChks = document.querySelectorAll('.task-list-chk');
+  rowChks.forEach(function(c) {
+    if (!c._bound) {
+      c._bound = true;
+      c.addEventListener('change', function() {
+        var tid = this.getAttribute('data-task-id');
+        S.selectedTasks = S.selectedTasks || new Set();
+        if (this.checked) {
+          if (tid) S.selectedTasks.add(String(tid));
+        } else {
+          if (tid) S.selectedTasks.delete(String(tid));
+        }
+        window.updateTasksBatchBar();
+      });
+    }
+  });
+
+  var btnDeselect = document.getElementById('btnTasksBatchDeselectAll');
+  if (btnDeselect && !btnDeselect._bound) {
+    btnDeselect._bound = true;
+    btnDeselect.addEventListener('click', function() {
+      if (S.selectedTasks) S.selectedTasks.clear();
+      document.querySelectorAll('.task-list-chk').forEach(function(c){ c.checked = false; });
+      window.updateTasksBatchBar();
+    });
+  }
+
+  var btnApplyStatus = document.getElementById('btnTasksBatchApplyStatus');
+  if (btnApplyStatus && !btnApplyStatus._bound) {
+    btnApplyStatus._bound = true;
+    btnApplyStatus.addEventListener('click', function() {
+      if (!S.selectedTasks || S.selectedTasks.size === 0) {
+        alert('Выберите хотя бы одну заявку');
+        return;
+      }
+      var sel = document.getElementById('tasksBatchStatusSelect');
+      var stVal = sel ? sel.value : '';
+      if (!stVal) {
+        alert('Выберите статус для применения');
+        return;
+      }
+      var ids = Array.from(S.selectedTasks);
+      btnApplyStatus.disabled = true;
+      api('/tasks/batch-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_ids: ids,
+          action: 'set_status',
+          status: stVal
+        })
+      }).then(function(res) {
+        btnApplyStatus.disabled = false;
+        if (res && res.tasks && Array.isArray(res.tasks)) {
+          res.tasks.forEach(function(upd) {
+            var local = (S.tasks || []).find(function(x){ return String(x.id) === String(upd.id); });
+            if (local) Object.assign(local, upd);
+          });
+        }
+        if (typeof showToast === 'function') {
+          showToast('✓ Статус успешно обновлен для ' + (res.updated_count || ids.length) + ' заявок', 'success');
+        }
+        renderApp();
+      }).catch(function(err) {
+        btnApplyStatus.disabled = false;
+        alert('Ошибка групповой смены статуса: ' + err.message);
+      });
+    });
+  }
+
+  var btnBatchAccept = document.getElementById('btnTasksBatchAccept');
+  if (btnBatchAccept && !btnBatchAccept._bound) {
+    btnBatchAccept._bound = true;
+    btnBatchAccept.addEventListener('click', function() {
+      if (!S.selectedTasks || S.selectedTasks.size === 0) {
+        alert('Выберите хотя бы одну заявку');
+        return;
+      }
+      var ids = Array.from(S.selectedTasks);
+      if (!confirm('Принять в работу выбранные заявки (' + ids.length + ' шт.)?')) return;
+      btnBatchAccept.disabled = true;
+      api('/tasks/batch-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_ids: ids,
+          action: 'accept'
+        })
+      }).then(function(res) {
+        btnBatchAccept.disabled = false;
+        if (res && res.tasks && Array.isArray(res.tasks)) {
+          res.tasks.forEach(function(upd) {
+            var local = (S.tasks || []).find(function(x){ return String(x.id) === String(upd.id); });
+            if (local) Object.assign(local, upd);
+          });
+        }
+        if (typeof showToast === 'function') {
+          showToast('✓ Принято в работу ' + (res.updated_count || ids.length) + ' заявок', 'success');
+        }
+        renderApp();
+      }).catch(function(err) {
+        btnBatchAccept.disabled = false;
+        alert('Ошибка группового принятия заявок: ' + err.message);
+      });
+    });
+  }
+
+  var btnBatchReject = document.getElementById('btnTasksBatchReject');
+  if (btnBatchReject && !btnBatchReject._bound) {
+    btnBatchReject._bound = true;
+    btnBatchReject.addEventListener('click', function() {
+      if (!S.selectedTasks || S.selectedTasks.size === 0) {
+        alert('Выберите хотя бы одну заявку');
+        return;
+      }
+      var ids = Array.from(S.selectedTasks);
+      var reason = prompt('Укажите причину отклонения на доработку для выбранных заявок (' + ids.length + ' шт.):', 'Отклонено на доработку');
+      if (reason === null) return;
+      reason = reason.trim() || 'Отклонено на доработку';
+
+      btnBatchReject.disabled = true;
+      api('/tasks/batch-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_ids: ids,
+          action: 'reject',
+          reason: reason
+        })
+      }).then(function(res) {
+        btnBatchReject.disabled = false;
+        if (res && res.tasks && Array.isArray(res.tasks)) {
+          res.tasks.forEach(function(upd) {
+            var local = (S.tasks || []).find(function(x){ return String(x.id) === String(upd.id); });
+            if (local) Object.assign(local, upd);
+          });
+        }
+        if (typeof showToast === 'function') {
+          showToast('✕ Отклонено на доработку ' + (res.updated_count || ids.length) + ' заявок', 'warning');
+        }
+        renderApp();
+      }).catch(function(err) {
+        btnBatchReject.disabled = false;
+        alert('Ошибка группового отклонения: ' + err.message);
+      });
+    });
+  }
+
+  var btnApplyContr = document.getElementById('btnTasksBatchApplyContractor');
+  if (btnApplyContr && !btnApplyContr._bound) {
+    btnApplyContr._bound = true;
+    btnApplyContr.addEventListener('click', function() {
+      if (!S.selectedTasks || S.selectedTasks.size === 0) {
+        alert('Выберите хотя бы одну заявку');
+        return;
+      }
+      var sel = document.getElementById('tasksBatchContractorSelect');
+      var cName = sel ? sel.value : '';
+      if (!cName) {
+        alert('Выберите подрядчика из списка');
+        return;
+      }
+      var contrObj = (S.contractors || []).find(function(c){ return (c.name_short || c.name || '') === cName; });
+      var cId = contrObj ? contrObj.id : null;
+      var ids = Array.from(S.selectedTasks);
+
+      btnApplyContr.disabled = true;
+      api('/tasks/batch-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_ids: ids,
+          action: 'assign_contractor',
+          contractor_name: cName,
+          contractor_id: cId
+        })
+      }).then(function(res) {
+        btnApplyContr.disabled = false;
+        if (res && res.tasks && Array.isArray(res.tasks)) {
+          res.tasks.forEach(function(upd) {
+            var local = (S.tasks || []).find(function(x){ return String(x.id) === String(upd.id); });
+            if (local) Object.assign(local, upd);
+          });
+        }
+        if (typeof showToast === 'function') {
+          showToast('✓ Подрядчик «' + cName + '» назначен на ' + (res.updated_count || ids.length) + ' заявок', 'success');
+        }
+        renderApp();
+      }).catch(function(err) {
+        btnApplyContr.disabled = false;
+        alert('Ошибка назначения подрядчика: ' + err.message);
+      });
+    });
+  }
+
+  var btnClearContr = document.getElementById('btnTasksBatchClearContractor');
+  if (btnClearContr && !btnClearContr._bound) {
+    btnClearContr._bound = true;
+    btnClearContr.addEventListener('click', function() {
+      if (!S.selectedTasks || S.selectedTasks.size === 0) {
+        alert('Выберите хотя бы одну заявку');
+        return;
+      }
+      var ids = Array.from(S.selectedTasks);
+      if (!confirm('Снять подрядчика с выбранных заявок (' + ids.length + ' шт.)?')) return;
+
+      btnClearContr.disabled = true;
+      api('/tasks/batch-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_ids: ids,
+          action: 'clear_contractor'
+        })
+      }).then(function(res) {
+        btnClearContr.disabled = false;
+        if (res && res.tasks && Array.isArray(res.tasks)) {
+          res.tasks.forEach(function(upd) {
+            var local = (S.tasks || []).find(function(x){ return String(x.id) === String(upd.id); });
+            if (local) Object.assign(local, upd);
+          });
+        }
+        if (typeof showToast === 'function') {
+          showToast('✓ Подрядчик снят с ' + (res.updated_count || ids.length) + ' заявок', 'warning');
+        }
+        renderApp();
+      }).catch(function(err) {
+        btnClearContr.disabled = false;
+        alert('Ошибка снятия подрядчика: ' + err.message);
+      });
+    });
+  }
 };
 
 
@@ -717,6 +1089,13 @@ window.openQuickSupplyModal = function(taskId) {
 };
 
 function pageTasks() {
+  S.selectedTasks = S.selectedTasks || new Set();
+  if (S.selectedTasks.size > 0) {
+    var existingIds = new Set((S.tasks || []).map(function(x){ return String(x.id); }));
+    Array.from(S.selectedTasks).forEach(function(id) {
+      if (!existingIds.has(String(id))) S.selectedTasks.delete(id);
+    });
+  }
   S.taskSort = S.taskSort || 'date_desc';
   function taskSortIndicator(field) {
     if (!S.taskSort || !S.taskSort.startsWith(field + '_')) return '';
@@ -1109,6 +1488,7 @@ function pageTasks() {
       '<button type="button" class="btn btn-sm ' + (S.tasksFiltersOpen ? 'btn-primary' : (activeCount > 0 ? 'btn-secondary' : 'btn-ghost')) + '" onclick="toggleTasksFilters()" style="display:inline-flex;align-items:center;gap:6px;height:36px;white-space:nowrap;padding:0 12px">' +
         '⚙️ Фильтры' + (activeCount > 0 ? ' <span class="badge ' + (S.tasksFiltersOpen ? 'b-white' : 'b-blue') + '" style="font-size:.7rem;padding:2px 7px">' + activeCount + '</span>' : '') + ' ' + (S.tasksFiltersOpen ? '▴' : '▾') +
       '</button>' +
+      '<button type="button" class="btn btn-sm btn-ghost" id="btnRefreshTasksServer" title="Синхронизировать данные с сервером без выхода" style="display:inline-flex;align-items:center;gap:5px;height:36px;white-space:nowrap;padding:0 10px;font-weight:600">🔄 Обновить данные</button>' +
       (hasFilter ? '<button type="button" class="btn btn-sm btn-ghost" onclick="clearFilters()" title="Сбросить все фильтры" style="height:36px">✕ Сброс</button>' : '') +
     '</div>' +
     modeSwitcher +
@@ -1561,6 +1941,8 @@ function pageTasks() {
   var tableRows = '';
   filtered.slice(0, 300).forEach(function(t) {
     var tid = (t.id || '').replace(/'/g, "\\'");
+    var isChecked = S.selectedTasks && S.selectedTasks.has(String(t.id));
+    var colChk = '<td style="vertical-align:top;text-align:center;width:36px"><input type="checkbox" class="task-list-chk" data-task-id="' + tid + '"' + (isChecked ? ' checked' : '') + '></td>';
 
     if (appMode === 'supply') {
       var sStatus = t.status_supply === 'delivered' 
@@ -1574,6 +1956,7 @@ function pageTasks() {
       var sDate = t.supply_date ? safeDateRu(t.supply_date) : (t.deadline ? safeDateRu(t.deadline) : '—');
 
       tableRows += '<tr id="task_row_' + tid + '" data-tid="' + tid + '" style="transition:background .2s">' +
+        colChk +
         // 1. № и адрес
         '<td style="vertical-align:top;max-width:280px">' +
           '<div style="font-weight:700;font-size:.85rem"><button class="btn-link" onclick="openCard(\'' + tid + '\')">⇒ ' + highlight(t.id, q) + '</button></div>' +
@@ -1614,6 +1997,7 @@ function pageTasks() {
       var hasScheme = (t.tech_link && t.tech_link.length > 3) || t.id_link;
 
       tableRows += '<tr id="task_row_' + tid + '" data-tid="' + tid + '" style="transition:background .2s">' +
+        colChk +
         // 1. № и адрес
         '<td style="vertical-align:top;max-width:280px">' +
           '<div style="font-weight:700;font-size:.85rem"><button class="btn-link" onclick="openCard(\'' + tid + '\')">⇒ ' + highlight(t.id, q) + '</button></div>' +
@@ -1645,14 +2029,18 @@ function pageTasks() {
     var fin = getTaskFinance(t);
     var cFin = getTaskContractorFinance(t);
 
-    // 1. Номер + статус + маркер высокого приоритета + номер ЭДО
+    // 1. Номер + статус + маркер высокого приоритета + номер ЭДО + бейдж отклонения на доработку
     var isHighPr = (t.priority === 'high');
     var prMark = isHighPr ? '<span title="Высокий приоритет" style="color:var(--red);font-size:.85rem;margin-right:3px">🔴</span>' : '';
     var effStatus = t.status;
     if (effStatus === 'pending' && ((t.contractor && String(t.contractor).trim()) || (t.assignee && String(t.assignee).trim()))) {
       effStatus = 'progress';
     }
-    var stBdg = '<div style="margin-top:3px">' + stBadge(effStatus) + (Number(t.openRemarksCount) > 0 ? ' <span class="badge b-red" style="font-size:.65rem;padding:1px 4px" title="Замечания">⚠️ ' + t.openRemarksCount + '</span>' : '') + '</div>';
+    var rejectReason = (t.rawData && t.rawData.rejectReason) || (t.raw_data && t.raw_data.rejectReason) || t.overdueReason || '';
+    var rejectBadge = (rejectReason && (t.assignmentStatus === 'declined' || t.assignment_status === 'declined' || effStatus === 'cancelled' || t.status === 'cancelled'))
+      ? '<div style="margin-top:2px"><span class="badge b-red" style="font-size:.68rem;padding:2px 5px;display:inline-block;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Причина: ' + escHtml(rejectReason) + '">⛔ На доработке: ' + escHtml(rejectReason) + '</span></div>'
+      : '';
+    var stBdg = '<div style="margin-top:3px">' + stBadge(effStatus) + (Number(t.openRemarksCount) > 0 ? ' <span class="badge b-red" style="font-size:.65rem;padding:1px 4px" title="Замечания">⚠️ ' + t.openRemarksCount + '</span>' : '') + '</div>' + rejectBadge;
     var edoBadge = t.edoNumber
       ? '<div class="t3" style="font-size:.68rem;color:var(--blue);margin-top:2px;font-family:monospace" title="Номер документа в ЭДО Заказчика">ЭДО: ' + highlight(t.edoNumber, q) + '</div>'
       : '';
@@ -1670,12 +2058,21 @@ function pageTasks() {
       (datePpFormatted ? '<div class="t3" style="font-size:.7rem;margin-top:2px" title="Дата ПП (планового подтверждения / дата внесения)">ПП: ' + datePpFormatted + '</div>' : '') +
     '</td>';
 
-    // 3. Дедлайн + светофор риска + быстрый перенос
+    // 3. Дедлайн + светофор риска + быстрый перенос + статус переноса Заказчиком (EXT-2)
     var dlDate = t.deadline ? safeDateRu(t.deadline) : '';
     var risk = getTaskDeadlineRisk(t);
     var riskBadge = '<div style="margin-top:2px"><span class="badge ' + risk.cls + '" style="font-size:.67rem;padding:1px 5px;font-weight:700" title="' + escHtml(risk.hint) + '">' + escHtml(risk.label) + '</span></div>';
+    var reschedStatus = (t.rawData && t.rawData.rescheduleStatus) || (t.raw_data && t.raw_data.rescheduleStatus) || '';
+    var reschedIndicator = '';
+    if (reschedStatus === 'approved') {
+      reschedIndicator = '<div style="margin-top:2px"><span class="badge b-green" style="font-size:.65rem;padding:1px 5px" title="Перенос дедлайна согласован Заказчиком">✓ Согласован перенос</span></div>';
+    } else if (reschedStatus === 'pending') {
+      reschedIndicator = '<div style="margin-top:2px"><span class="badge b-yellow" style="font-size:.65rem;padding:1px 5px" title="Перенос дедлайна на согласовании у Заказчика">⏳ Перенос на согласовании</span></div>';
+    } else if (reschedStatus === 'rejected') {
+      reschedIndicator = '<div style="margin-top:2px"><span class="badge b-red" style="font-size:.65rem;padding:1px 5px" title="Перенос дедлайна отклонён Заказчиком">✕ Перенос отклонён</span></div>';
+    }
     var postponeBtn = '<button type="button" class="btn-link" onclick="openQuickDeadlinePostponeModal(\'' + tid + '\')" title="Календарное планирование: быстрый перенос дедлайна с обоснованием" style="font-size:.68rem;color:var(--text-3);display:block;margin-top:2px;padding:0;text-decoration:none">⏱️ Перенос срока</button>';
-    var dlHtml = dlDate ? ('<div style="font-weight:600;color:var(--text)">' + dlDate + '</div>' + riskBadge + postponeBtn) : (riskBadge + postponeBtn);
+    var dlHtml = (dlDate ? ('<div style="font-weight:600;color:var(--text)">' + dlDate + '</div>' + riskBadge) : riskBadge) + reschedIndicator + postponeBtn;
     var colDeadline = '<td style="vertical-align:top;white-space:nowrap;font-size:.8rem">' + dlHtml + '</td>';
 
     // 4. Адрес объекта (компактно с картой и замером км)
@@ -1717,19 +2114,20 @@ function pageTasks() {
       (factPorts === null ? '—' : factPorts) + ' / ' + inOrderPorts + ' <span class="t3" style="font-size:.68rem;font-weight:normal">п.</span>' +
     '</td>';
 
-    // 7. Подрядчик / Исполнитель, ПМ и быстрый входной контроль
+    // 7. Подрядчик / Исполнитель, ПМ и быстрый входной контроль («Принять» / «На доработку»)
     var pmBadge = t.assignee
       ? '<div class="t3" style="font-size:.7rem;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-2)" title="Проект-менеджер (ПМ): ' + escHtml(t.assignee) + '">👔 ПМ: ' + highlight(t.assignee, q) + '</div>'
       : '';
-    var quickAcceptBtn = (!t.assignee && effStatus === 'pending')
-      ? '<div style="margin-top:3px"><button type="button" class="btn btn-xs" style="background:#22c55e;color:#fff;border:none;border-radius:4px;padding:2px 6px;font-size:.67rem;font-weight:700" onclick="quickAcceptTask(\'' + tid + '\')" title="Входной контроль: принять заявку в работу">✓ В работу</button></div>'
-      : '';
+    var quickTriageBtns = '<div style="display:flex;gap:3px;margin-top:3px">' +
+      '<button type="button" class="btn btn-xs" style="background:#22c55e;color:#fff;border:none;border-radius:4px;padding:2px 5px;font-size:.67rem;font-weight:700" onclick="quickAcceptTask(\'' + tid + '\')" title="Входной контроль: принять заявку в работу">✓ Принять</button>' +
+      '<button type="button" class="btn btn-xs" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:2px 5px;font-size:.67rem;font-weight:700" onclick="quickRejectTask(\'' + tid + '\')" title="Отклонить заявку на доработку">✕ На доработку</button>' +
+    '</div>';
     var colContr = '<td style="vertical-align:top;max-width:130px">' +
       '<button class="btn-link" style="text-align:left;max-width:130px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem" onclick="openContractorPicker(\'' + tid + '\')" title="' + escHtml(t.contractor || 'Назначить подрядчика') + '">' +
         (t.contractor ? ('👤 ' + escHtml(t.contractor)) : '<span class="t3" style="border-bottom:1px dashed var(--orange);color:var(--orange)">+ Назначить</span>') +
       '</button>' +
       pmBadge +
-      quickAcceptBtn +
+      quickTriageBtns +
     '</td>';
 
     // 8 & 9. Цена и Стоимость / Дорога
@@ -1817,6 +2215,7 @@ function pageTasks() {
     var colActions = '<td style="vertical-align:top;text-align:right"><button class="btn btn-sm btn-ghost btn-icon" onclick="exportTask(\'' + tid + '\')" title="Экспорт заявки / печать">&#x2B07;</button></td>';
 
     tableRows += '<tr id="task_row_' + tid + '" data-tid="' + tid + '" style="transition:background .2s">' +
+      colChk +
       colNumber +
       colDate +
       colDeadline +
@@ -1831,16 +2230,61 @@ function pageTasks() {
   });
 
   var more = filtered.length > 300
-    ? '<tr><td colspan="10" style="text-align:center;padding:1rem;color:var(--text-3)">… ещё ' + (filtered.length - 300) + ' заявок — уточните фильтр</td></tr>'
+    ? '<tr><td colspan="11" style="text-align:center;padding:1rem;color:var(--text-3)">… ещё ' + (filtered.length - 300) + ' заявок — уточните фильтр</td></tr>'
     : '';
+
+  var contrOptions = (S.contractors || []).filter(function(c) {
+    return c && (c.name_short || c.name) && c.type !== 'customer' && !String(c.inn || '').startsWith('CUST-');
+  }).map(function(c) {
+    var name = c.name_short || c.name || '';
+    return '<option value="' + escHtml(name) + '">' + escHtml(name) + '</option>';
+  }).join('');
+
+  var batchActionBarHtml = '<div id="tasksBatchActionBar" class="card" style="background:#f0f9ff;border:1.5px solid #0284c7;border-radius:8px;padding:8px 12px;margin-bottom:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;' + (S.selectedTasks && S.selectedTasks.size > 0 ? 'display:flex' : 'display:none') + '">' +
+    '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+      '<span style="font-weight:700;font-size:.85rem;color:#0369a1">' +
+        'Выбрано: <span id="tasksSelectedCount">' + (S.selectedTasks ? S.selectedTasks.size : 0) + '</span>' +
+      '</span>' +
+      '<button type="button" class="btn btn-xs btn-ghost" id="btnTasksBatchDeselectAll" style="font-size:.74rem;padding:2px 8px">Снять выделение</button>' +
+      '<span style="color:#cbd5e1">|</span>' +
+      '<div style="display:flex;align-items:center;gap:4px">' +
+        '<select class="select" id="tasksBatchStatusSelect">' +
+          '<option value="">— Статус —</option>' +
+          '<option value="new">Новая</option>' +
+          '<option value="assigned">Назначена / В работе</option>' +
+          '<option value="in_progress">В процессе</option>' +
+          '<option value="done">Выполнена (СМР)</option>' +
+          '<option value="cancelled">Отменена</option>' +
+          '<option value="inspection">Контроль / Инспекция</option>' +
+          '<option value="rework">На доработке</option>' +
+        '</select>' +
+        '<button type="button" class="btn btn-xs btn-primary" id="btnTasksBatchApplyStatus" style="font-size:.75rem;padding:3px 8px">Применить статус</button>' +
+      '</div>' +
+      '<span style="color:#cbd5e1">|</span>' +
+      '<div style="display:flex;align-items:center;gap:4px">' +
+        '<button type="button" class="btn btn-xs" id="btnTasksBatchAccept" style="background:#16a34a;color:#fff;border:none;border-radius:4px;font-size:.75rem;padding:3px 8px;font-weight:600">✓ Принять выбранные</button>' +
+        '<button type="button" class="btn btn-xs" id="btnTasksBatchReject" style="background:#dc2626;color:#fff;border:none;border-radius:4px;font-size:.75rem;padding:3px 8px;font-weight:600">✕ На доработку выбранные</button>' +
+      '</div>' +
+    '</div>' +
+    '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+      '<select class="select" id="tasksBatchContractorSelect">' +
+        '<option value="">— Назначить подрядчика —</option>' +
+        contrOptions +
+      '</select>' +
+      '<button type="button" class="btn btn-xs btn-primary" id="btnTasksBatchApplyContractor" style="font-size:.75rem;padding:3px 8px">Назначить</button>' +
+      '<button type="button" class="btn btn-xs btn-ghost" id="btnTasksBatchClearContractor" style="font-size:.75rem;padding:3px 8px;color:#dc2626;border-color:#fca5a5">Снять подрядчика</button>' +
+    '</div>' +
+  '</div>';
 
   return '<h1 class="page-title">Заявки</h1>' +
     topControls +
     filtersPanelHtml +
     chipsHtml +
     totals +
+    batchActionBarHtml +
     '<div class="card tbl-wrap">' +
       '<table class="tasks-table"><thead><tr>' +
+        '<th style="width:36px;text-align:center"><input type="checkbox" id="selectAllTasksListChk" title="Выбрать все (по текущему отбору фильтра)"></th>' +
         (function() {
           if (appMode === 'supply') {
             return '<th style="width:280px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'address\')" title="Сортировать по адресу">№ Заявки / Адрес объекта' + taskSortIndicator('address') + '</th>' +
