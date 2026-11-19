@@ -1104,15 +1104,15 @@ function pageTasks() {
   var q=S.taskQ, st=S.taskSt, pr=S.taskPr, reg=S.taskReg, mgr=S.taskMgr, pm=S.taskPm, yr=S.taskYear, ovd=S.taskOverdue, cust=S.taskCustomer, contr=S.taskContractor, distFilter=S.taskDistanceFilter;
   var isWorker = S.user && (S.user.role === 'worker' || S.user.role === 'installer' || S.user.role === 'contractor');
   var defaultModeForRole = (function() {
-    if (isWorker) return 'contractor';
+    if (isWorker) return 'subcontract';
     var r = S.user ? String(S.user.role || '').toLowerCase() : '';
     if (r === 'logistics') return 'supply';
     if (r === 'designer') return 'docs';
     if (r === 'accountant') return 'finance';
     return 'customer';
   })();
-  var appMode = isWorker ? 'contractor' : (S.taskAppMode || defaultModeForRole);
-  if (!isWorker && appMode === 'contractor') appMode = 'customer';
+  var appMode = isWorker ? 'subcontract' : (S.taskAppMode || defaultModeForRole);
+  if (appMode === 'contractor') appMode = 'subcontract';
   
   if (S.tasksStatsExpanded === undefined) {
     try {
@@ -1436,6 +1436,35 @@ function pageTasks() {
   var sumMargin = sumAll - sumContAll;
   var marginPct = sumAll > 0 ? Math.round(sumMargin / sumAll * 100) : 0;
 
+  // Контекстные метрики: Подряд и субподрядчики
+  var totalSubTasks = filtered.length;
+  var cntSubAssigned = filtered.filter(function(t) {
+    return (Number(t.subcontractsCount || t.subcontracts_count) > 0) ||
+      (Array.isArray(t.subcontractsSummary || t.subcontracts_summary) && (t.subcontractsSummary || t.subcontracts_summary).length > 0) ||
+      (t.contractor && String(t.contractor).trim().length > 0);
+  }).length;
+  var cntSubUnassigned = totalSubTasks - cntSubAssigned;
+
+  var sumSubcontractsTotal = filtered.reduce(function(s, t) {
+    var p = Number(t.subcontractsTotalPrice || t.subcontracts_total_price);
+    if (!p) p = getTaskContractorFinance(t).total || 0;
+    return s + p;
+  }, 0);
+
+  var sumSubcontractsPaid = filtered.reduce(function(s, t) {
+    var settlements = (t.rawData && Array.isArray(t.rawData.contractorSettlements)) ? t.rawData.contractorSettlements : [];
+    var sPaid = settlements.reduce(function(a, it){ return a + (Number(it.payment_amount) || 0); }, 0);
+    var payments = (t._payments || (t.rawData && Array.isArray(t.rawData.subPayments) ? t.rawData.subPayments : []));
+    var pPaid = payments.reduce(function(a, it){ return a + (Number(it.amount) || 0); }, 0);
+    var paid = Math.max(sPaid, pPaid);
+    if (paid === 0 && String(t.oplata || '').toLowerCase().includes('оплач')) {
+      paid = Number(t.subcontractsTotalPrice || t.subcontracts_total_price) || getTaskContractorFinance(t).total || 0;
+    }
+    return s + paid;
+  }, 0);
+
+  var sumSubcontractsRemaining = Math.max(0, sumSubcontractsTotal - sumSubcontractsPaid);
+
   // Контекстные метрики: Логистика и ТМЦ
   var cntSupplyDelivered = filtered.filter(function(t) { return t.status_supply === 'delivered'; }).length;
   var cntSupplyShipped = filtered.filter(function(t) { return t.status_supply === 'shipped'; }).length;
@@ -1476,7 +1505,7 @@ function pageTasks() {
   
   var modeSwitcher = isWorker ? '' : '<div style="display:flex;align-items:center;gap:4px;background:#f1f5f9;padding:3px 4px;border-radius:8px;border:1px solid var(--border)">' +
     (canSeeCustomer ? '<button type="button" class="btn btn-sm ' + (appMode === 'customer' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'customer\')" style="font-size:.78rem;padding:4px 12px;height:auto">🏦 Сводка Заказчика</button>' : '') +
-    '<button type="button" class="btn btn-sm btn-ghost" disabled title="Управление подрядом оптимизируется под мобильные устройства (скоро)" style="font-size:.78rem;padding:4px 10px;height:auto;opacity:0.4;cursor:not-allowed">👷 Подряд (скоро)</button>' +
+    '<button type="button" class="btn btn-sm ' + (appMode === 'subcontract' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'subcontract\')" style="font-size:.78rem;padding:4px 12px;height:auto">👷 Подряд</button>' +
     '<button type="button" class="btn btn-sm ' + (appMode === 'supply' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'supply\')" style="font-size:.78rem;padding:4px 12px;height:auto">📦 Логистика и ТМЦ</button>' +
     '<button type="button" class="btn btn-sm ' + (appMode === 'docs' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'docs\')" style="font-size:.78rem;padding:4px 12px;height:auto">📐 Проектирование (ИД)</button>' +
     '<button type="button" class="btn btn-sm ' + (appMode === 'finance' ? 'btn-primary' : 'btn-ghost') + '" onclick="setTaskAppMode(\'finance\')" style="font-size:.78rem;padding:4px 12px;height:auto">💰 Бухгалтерия</button>' +
@@ -1661,39 +1690,30 @@ function pageTasks() {
           '<span style="font-size:.72rem;color:' + (portBalance > 0 ? 'var(--orange)' : 'var(--green)') + ';font-weight:600">(' + (portBalance > 0 ? '+' : '') + fmtN(portBalance) + ' шт.)</span>' +
         '</div>' +
       '</div>';
-  } else if (appMode === 'contractor') {
-    var regResLabel = '👥 Ресурс: Всего ' + regResource.total + ' · В работе ' + regResource.busy + ' · Свободны ' + regResource.free;
+  } else if (appMode === 'subcontract' || appMode === 'contractor') {
     statsCompactHtml = 
       '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.82rem">' +
-        '<div style="display:inline-flex;align-items:center;gap:4px" title="Заявок: ' + fmtN(filtered.length) + ' из ' + fmtN(S.tasks.length) + '">' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Всего заявок: ' + fmtN(totalSubTasks) + ' (с подрядчиком: ' + fmtN(cntSubAssigned) + ', без подрядчика: ' + fmtN(cntSubUnassigned) + ')">' +
           '<span style="color:var(--text-3)">Заявки:</span>' +
-          '<b style="color:var(--orange)">' + fmtN(filtered.length) + '</b>' +
+          '<b style="color:var(--orange)">' + fmtN(totalSubTasks) + '</b>' +
+          '<span style="font-size:.72rem;color:var(--text-3)">(' + fmtN(cntSubAssigned) + ' с подрядчиком / ' + fmtN(cntSubUnassigned) + ' без)</span>' +
         '</div>' +
         '<span style="color:var(--border)">|</span>' +
-        '<div style="display:inline-flex;align-items:center;gap:4px;cursor:pointer" onclick="openRegionalContractorResourceModal(\'' + escHtml(reg || '') + '\')" title="Баланс ресурсов подрядчиков (кликните для просмотра свободных бригад)">' +
-          '<span class="badge ' + (regResource.free > 0 ? 'b-green' : 'b-orange') + '" style="font-size:.72rem;padding:2px 7px;cursor:pointer">' + regResLabel + ' 🔍</span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Общая сумма субподрядов: ' + fmtMoney(sumSubcontractsTotal) + '">' +
+          '<span style="color:var(--text-3)">Сумма субподрядов:</span>' +
+          '<b style="font-family:monospace;font-size:.85rem;color:var(--orange-dark)">' + fmtMoneyShort(sumSubcontractsTotal) + '</b>' +
         '</div>' +
         '<span style="color:var(--border)">|</span>' +
-        '<div style="display:inline-flex;align-items:center;gap:4px" title="Общая сумма к выплате подрядчикам: ' + fmtMoney(sumContAll) + '">' +
-          '<span style="color:var(--text-3)">Подрядчикам:</span>' +
-          '<b style="font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumContAll) + '</b>' +
-        '</div>' +
-        '<span style="color:var(--border)">|</span>' +
-        '<div style="display:inline-flex;align-items:center;gap:4px" title="Выплачено подрядчикам: ' + fmtMoney(sumContPaid) + '">' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Оплачено подрядчикам: ' + fmtMoney(sumSubcontractsPaid) + '">' +
           '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green)"></span>' +
-          '<span style="color:var(--text-3)">Выплачено:</span>' +
-          '<b style="color:var(--green);font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumContPaid) + '</b>' +
+          '<span style="color:var(--text-3)">Оплачено:</span>' +
+          '<b style="color:var(--green);font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumSubcontractsPaid) + '</b>' +
         '</div>' +
         '<span style="color:var(--border)">|</span>' +
-        '<div style="display:inline-flex;align-items:center;gap:4px" title="Остаток к выплате: ' + fmtMoney(sumContPending) + '">' +
-          '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--orange)"></span>' +
+        '<div style="display:inline-flex;align-items:center;gap:4px" title="Остаток к выплате: ' + fmtMoney(sumSubcontractsRemaining) + '">' +
+          '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:' + (sumSubcontractsRemaining > 0 ? 'var(--orange)' : 'var(--green)') + '"></span>' +
           '<span style="color:var(--text-3)">К выплате:</span>' +
-          '<b style="color:var(--orange);font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumContPending) + '</b>' +
-        '</div>' +
-        '<span style="color:var(--border)">|</span>' +
-        '<div style="display:inline-flex;align-items:center;gap:4px" title="Плановая маржа: ' + fmtMoney(sumMargin) + ' (' + marginPct + '% от договора Заказчика)">' +
-          '<span style="color:var(--text-3)">Маржа:</span>' +
-          '<b style="color:var(--green);font-family:monospace;font-size:.85rem">' + marginPct + '% (' + fmtMoneyShort(sumMargin) + ')</b>' +
+          '<b style="color:' + (sumSubcontractsRemaining > 0 ? 'var(--orange-dark)' : 'var(--green)') + ';font-family:monospace;font-size:.85rem">' + fmtMoneyShort(sumSubcontractsRemaining) + '</b>' +
         '</div>' +
       '</div>';
   } else if (appMode === 'supply') {
@@ -1814,38 +1834,38 @@ function pageTasks() {
             '<span>В работе: <b>' + actPct + '%</b></span>' +
           '</div>' +
         '</div>';
-    } else if (appMode === 'contractor') {
-      var paidPct = pct(sumContPaid, sumContAll);
-      var pendingPct = pct(sumContPending, sumContAll);
+    } else if (appMode === 'subcontract' || appMode === 'contractor') {
+      var paidSubPct = sumSubcontractsTotal > 0 ? Math.round(sumSubcontractsPaid / sumSubcontractsTotal * 100) : 0;
+      var remSubPct = sumSubcontractsTotal > 0 ? Math.round(sumSubcontractsRemaining / sumSubcontractsTotal * 100) : 0;
+      var assignedSubPct = totalSubTasks > 0 ? Math.round(cntSubAssigned / totalSubTasks * 100) : 0;
 
       statsExpandedHtml = 
         '<div class="card mb" style="background:#f8fafc;border:1.5px solid var(--border);border-radius:10px;padding:12px 16px;margin-top:6px;animation:fadeIn 0.15s ease">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;border-bottom:1px solid #e2e8f0;padding-bottom:6px">' +
             '<span style="font-weight:700;font-size:.82rem;color:var(--text);display:flex;align-items:center;gap:6px">' +
-              '👷 Управление подрядом, баланс ресурсов и маржинальность' +
+              '👷 Управление подрядом, баланс ресурсов и взаиморасчёты' +
             '</span>' +
             '<div style="display:flex;align-items:center;gap:8px">' +
               '<button type="button" class="btn btn-xs btn-primary" onclick="openRegionalContractorResourceModal(\'' + escHtml(reg || '') + '\')" style="font-size:.72rem;padding:3px 8px">' +
                 '👥 Баланс ресурсов региона' +
               '</button>' +
-              '<span style="font-size:.74rem;color:var(--text-3)">Заявок: <b>' + fmtN(filtered.length) + '</b></span>' +
+              '<span style="font-size:.74rem;color:var(--text-3)">Заявок: <b>' + fmtN(totalSubTasks) + '</b> из <b>' + fmtN(S.tasks.length) + '</b></span>' +
             '</div>' +
           '</div>' +
           '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px">' +
-            statBox('Заявок в работе', fmtN(filtered.length), 'из ' + fmtN(S.tasks.length), 'var(--orange)') +
-            statBox('Свободных бригад', fmtN(regResource.free), 'из ' + regResource.total + ' подрядчиков', regResource.free > 0 ? 'var(--green)' : 'var(--orange)') +
-            statBox('К выплате подряду', fmtMoney(sumContAll), 'общая себестоимость', null) +
-            statBox('Выплачено', fmtMoney(sumContPaid), paidPct + '% выплачено', 'var(--green)') +
-            statBox('Остаток к выплате', fmtMoney(sumContPending), pendingPct + '% долг', 'var(--orange)') +
-            statBox('Транспорт подряду', fmtMoney(sumContTransport), 'компенсация дороги', null) +
-            statBox('Плановая маржа', fmtMoney(sumMargin), marginPct + '% от договора', 'var(--green)') +
+            statBox('Всего заявок', fmtN(totalSubTasks), 'в текущей выборке', 'var(--orange)') +
+            statBox('С подрядчиком', fmtN(cntSubAssigned), assignedSubPct + '% назначено', 'var(--green)') +
+            statBox('Без подрядчика', fmtN(cntSubUnassigned), cntSubUnassigned > 0 ? '⚠️ требуется назначение' : 'все назначены', cntSubUnassigned > 0 ? 'var(--orange)' : 'var(--green)') +
+            statBox('Сумма субподрядов', fmtMoney(sumSubcontractsTotal), 'по сметам и заказам', null) +
+            statBox('Оплачено подряду', fmtMoney(sumSubcontractsPaid), paidSubPct + '% от суммы', 'var(--green)') +
+            statBox('Остаток к выплате', fmtMoney(sumSubcontractsRemaining), sumSubcontractsRemaining > 0 ? 'долг перед исполнителями' : 'долгов нет', sumSubcontractsRemaining > 0 ? 'var(--orange)' : 'var(--green)') +
           '</div>' +
           '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #e2e8f0;display:flex;align-items:center;gap:12px;font-size:.76rem;color:var(--text-3)">' +
-            '<span>Выплаты подрядчикам: <b>' + paidPct + '%</b></span>' +
+            '<span>Выплаты подрядчикам: <b>' + paidSubPct + '%</b></span>' +
             '<div style="flex:1;background:#e2e8f0;height:6px;border-radius:3px;overflow:hidden">' +
-              '<div style="width:' + paidPct + '%;background:var(--green);height:100%;border-radius:3px"></div>' +
+              '<div style="width:' + paidSubPct + '%;background:var(--green);height:100%;border-radius:3px"></div>' +
             '</div>' +
-            '<span>Остаток: <b>' + pendingPct + '%</b></span>' +
+            '<span>Остаток: <b>' + remSubPct + '%</b></span>' +
           '</div>' +
         '</div>';
     } else if (appMode === 'supply') {
@@ -1943,6 +1963,172 @@ function pageTasks() {
     var tid = (t.id || '').replace(/'/g, "\\'");
     var isChecked = S.selectedTasks && S.selectedTasks.has(String(t.id));
     var colChk = '<td style="vertical-align:top;text-align:center;width:36px"><input type="checkbox" class="task-list-chk" data-task-id="' + tid + '"' + (isChecked ? ' checked' : '') + '></td>';
+
+    if (appMode === 'subcontract') {
+      var subs = Array.isArray(t.subcontractsSummary || t.subcontracts_summary) ? (t.subcontractsSummary || t.subcontracts_summary) : [];
+      var factPorts = (t.fact !== null && t.fact !== undefined && t.fact !== '') ? Number(t.fact) : null;
+      var inOrderPorts = Number(t.inOrder) || Number(t.in_order) || 0;
+
+      // 1. Чекбокс уже в colChk
+      // 2. № заявки / статус
+      var stCls = (function(st) {
+        if (st === 'done') return 'b-green';
+        if (st === 'in_progress' || st === 'assigned') return 'b-blue';
+        if (st === 'cancelled') return 'b-red';
+        return 'b-gray';
+      })(t.status);
+      var stLabel = (function(st) {
+        if (st === 'done') return 'Выполнена';
+        if (st === 'in_progress') return 'В процессе';
+        if (st === 'assigned') return 'Назначена';
+        if (st === 'cancelled') return 'Отменена';
+        return 'Новая';
+      })(t.status);
+
+      var colNumber = '<td style="vertical-align:top;max-width:130px">' +
+        '<div style="font-weight:700;font-size:.85rem"><button class="btn-link" onclick="openCard(\'' + tid + '\')">⇒ ' + highlight(t.id, q) + '</button></div>' +
+        (t.edoNumber ? '<div style="font-size:.72rem;color:var(--text-3)" title="Номер в ЭДО">ЭДО: ' + escHtml(t.edoNumber) + '</div>' : '') +
+        '<div style="margin-top:3px"><span class="badge ' + stCls + '" style="font-size:.68rem">' + escHtml(stLabel) + '</span></div>' +
+      '</td>';
+
+      // 3. Объект и адрес
+      var colObj = '<td style="vertical-align:top;max-width:260px">' +
+        '<div style="font-weight:600;font-size:.82rem;color:var(--text)">' + escHtml(t.customer || 'Заказчик') + (t.tipObj ? ' · <span style="color:var(--text-2);font-weight:500">' + escHtml(t.tipObj) + '</span>' : '') + '</div>' +
+        '<div style="font-size:.78rem;color:var(--text-2);margin-top:2px;line-height:1.25" title="' + escHtml(t.address || '') + '">' + highlight(t.address || 'Адрес не указан', q) + '</div>' +
+        (t.region ? '<span class="badge b-gray" style="font-size:.65rem;margin-top:3px">' + escHtml(t.region) + '</span>' : '') +
+      '</td>';
+
+      // 4. Дедлайн / риск
+      var dStr = t.deadline ? safeDateRu(t.deadline) : '—';
+      var dRisk = '';
+      if (t.deadline) {
+        var daysLeft = Math.ceil((new Date(t.deadline).setHours(0,0,0,0) - new Date().setHours(0,0,0,0)) / (1000 * 60 * 60 * 24));
+        if (t.status !== 'done') {
+          if (daysLeft < 0) {
+            dRisk = '<span class="badge b-red" style="font-size:.68rem;margin-top:2px">⚠️ Просрочено (' + Math.abs(daysLeft) + ' дн.)</span>';
+          } else if (daysLeft <= 3) {
+            dRisk = '<span class="badge b-yellow" style="font-size:.68rem;margin-top:2px">🟡 Риск (' + daysLeft + ' дн.)</span>';
+          } else {
+            dRisk = '<div style="font-size:.7rem;color:var(--text-3);margin-top:2px">в графике (' + daysLeft + ' дн.)</div>';
+          }
+        }
+      }
+      var colDeadline = '<td style="vertical-align:top;font-size:.8rem;white-space:nowrap">' +
+        '<div style="font-weight:600;color:var(--text)">' + dStr + '</div>' +
+        dRisk +
+      '</td>';
+
+      // 5. Подрядчик(и) и договор
+      var colContractor = '';
+      if (subs.length > 1) {
+        var subsListHtml = subs.map(function(s, idx) {
+          var cNumStr = s.contract_number ? (' <span class="t3" style="font-size:.7rem">(дог. № ' + escHtml(s.contract_number) + ')</span>') : '';
+          return '<div style="font-size:.76rem;line-height:1.3;margin-bottom:2px">' +
+            (idx + 1) + ') <b>' + escHtml(s.contractor_name || 'Подрядчик') + '</b>' + cNumStr +
+          '</div>';
+        }).join('');
+        colContractor = '<td style="vertical-align:top;max-width:210px">' +
+          '<div style="margin-bottom:3px"><span class="badge b-blue" style="font-size:.68rem">👥 ' + subs.length + ' субподрядчика</span></div>' +
+          subsListHtml +
+        '</td>';
+      } else if (subs.length === 1) {
+        var s0 = subs[0];
+        var cNum0 = s0.contract_number ? ('<div style="font-size:.7rem;color:var(--text-3);margin-top:2px">дог. № <b>' + escHtml(s0.contract_number) + '</b></div>') : '<div class="t3" style="font-size:.7rem;margin-top:2px">рамочный договор не указан</div>';
+        colContractor = '<td style="vertical-align:top;max-width:210px">' +
+          '<div style="font-weight:600;font-size:.82rem;color:var(--text)">' + escHtml(s0.contractor_name || 'Подрядчик') + '</div>' +
+          cNum0 +
+        '</td>';
+      } else if (t.contractor && String(t.contractor).trim()) {
+        colContractor = '<td style="vertical-align:top;max-width:210px">' +
+          '<div style="font-weight:600;font-size:.82rem;color:var(--text)">' + escHtml(t.contractor) + '</div>' +
+          (t.contract_number || t.contractorContractNumber ? ('<div style="font-size:.7rem;color:var(--text-3);margin-top:2px">дог. № <b>' + escHtml(t.contract_number || t.contractorContractNumber) + '</b></div>') : '') +
+        '</td>';
+      } else {
+        colContractor = '<td style="vertical-align:top;max-width:210px">' +
+          '<button type="button" class="btn btn-xs btn-ghost" style="color:var(--orange);border:1px dashed var(--orange);font-size:.74rem;padding:2px 8px;font-weight:600" onclick="openContractorPicker(\'' + tid + '\')" title="Назначить подрядчика СМР">+ Назначить</button>' +
+        '</td>';
+      }
+
+      // 6. Объём (порты: факт / план и распределение по субподрядчикам, например 616 + 718)
+      var colVolume = '';
+      if (subs.length > 1) {
+        var portsArr = subs.map(function(s) { return Number(s.ports_count) || 0; });
+        var portsDistStr = portsArr.join(' + ');
+        colVolume = '<td style="vertical-align:top;white-space:nowrap;font-size:.8rem">' +
+          '<div style="font-weight:700">' + (factPorts !== null ? factPorts : '—') + ' / ' + inOrderPorts + ' шт.</div>' +
+          '<div style="font-size:.72rem;color:var(--text-2);margin-top:2px" title="Распределение портов по субподрядам">распр: <b>' + escHtml(portsDistStr) + '</b></div>' +
+        '</td>';
+      } else {
+        colVolume = '<td style="vertical-align:top;white-space:nowrap;font-size:.8rem">' +
+          '<div style="font-weight:700">' + (factPorts !== null ? factPorts : '—') + ' / ' + inOrderPorts + ' шт.</div>' +
+          '<div style="font-size:.72rem;color:var(--text-3);margin-top:2px">' + (factPorts !== null ? (factPorts >= inOrderPorts ? '🟢 план закрыт' : 'остаток: ' + (inOrderPorts - factPorts)) : 'план портов') + '</div>' +
+        '</td>';
+      }
+
+      // 7. Сумма субподряда (₽) (из subcontracts_total_price / getTaskContractorFinance(t))
+      var subTotalPrice = Number(t.subcontractsTotalPrice || t.subcontracts_total_price);
+      if (!subTotalPrice) subTotalPrice = getTaskContractorFinance(t).total || 0;
+      var colPrice = '';
+      if (subTotalPrice > 0) {
+        var partsPricesStr = subs.length > 1 ? ('<div style="font-size:.7rem;color:var(--text-3);text-align:right;margin-top:2px">' + subs.map(function(s){ return fmtMoneyShort(Number(s.price_agreed)||0); }).join(' + ') + '</div>') : '';
+        colPrice = '<td style="vertical-align:top;white-space:nowrap;text-align:right">' +
+          '<div style="font-weight:700;color:var(--orange-dark);font-size:.84rem">' + fmtMoney(subTotalPrice) + '</div>' +
+          partsPricesStr +
+        '</td>';
+      } else {
+        colPrice = '<td style="vertical-align:top;white-space:nowrap;text-align:right"><span class="t3">—</span></td>';
+      }
+
+      // 8. Взаиморасчёты (счета / оплачено / остаток к выплате из rawData.contractorSettlements и subPayments)
+      var settlements = (t.rawData && Array.isArray(t.rawData.contractorSettlements)) ? t.rawData.contractorSettlements : [];
+      var sInvoiced = settlements.reduce(function(a, s){ return a + (Number(s.invoice_amount) || 0); }, 0);
+      var sPaid = settlements.reduce(function(a, s){ return a + (Number(s.payment_amount) || 0); }, 0);
+      var subPayments = (t._payments || (t.rawData && Array.isArray(t.rawData.subPayments) ? t.rawData.subPayments : []));
+      var pPaid = subPayments.reduce(function(a, p){ return a + (Number(p.amount) || 0); }, 0);
+      var totalPaid = Math.max(sPaid, pPaid);
+      if (totalPaid === 0 && String(t.oplata || '').toLowerCase().includes('оплач') && subTotalPrice > 0) {
+        totalPaid = subTotalPrice;
+      }
+      var totalInvoiced = sInvoiced > 0 ? sInvoiced : subTotalPrice;
+      var remaining = Math.max(0, (subTotalPrice > 0 ? subTotalPrice : totalInvoiced) - totalPaid);
+
+      var colSettlement = '<td style="vertical-align:top;white-space:nowrap;font-size:.76rem">' +
+        '<div><span style="color:var(--text-3)">Счета:</span> <b>' + (totalInvoiced > 0 ? fmtMoney(totalInvoiced) : '—') + '</b></div>' +
+        '<div style="margin-top:1px"><span style="color:var(--green)">Оплачено:</span> <b style="color:var(--green)">' + fmtMoney(totalPaid) + '</b></div>' +
+        '<div style="font-size:.72rem;font-weight:600;margin-top:1px;color:' + (remaining > 0 ? 'var(--orange-dark)' : 'var(--green)') + '">' +
+          (remaining > 0 ? ('Остаток: ' + fmtMoney(remaining)) : '🟢 Оплачено') +
+        '</div>' +
+      '</td>';
+
+      // 9. Статус СМР и быстрое действие (открыть карточку сразу на вкладке «Исполнение / СМР» или открыть «🪄 Мастер»)
+      var smrStatus = t.statusSmr || t.status_smr || 'pending';
+      var smrBadge = smrStatus === 'done'
+        ? '<span class="badge b-green" style="font-size:.68rem">СМР выполнены</span>'
+        : (smrStatus === 'in_progress'
+          ? '<span class="badge b-orange" style="font-size:.68rem">СМР в работе</span>'
+          : ((subs.length > 0 || t.contractor) ? '<span class="badge b-blue" style="font-size:.68rem">Назначен</span>' : '<span class="badge b-gray" style="font-size:.68rem">Не назначен</span>'));
+
+      var colSmr = '<td style="vertical-align:top;text-align:right;white-space:nowrap">' +
+        '<div>' + smrBadge + '</div>' +
+        '<div style="display:flex;align-items:center;justify-content:flex-end;gap:4px;margin-top:4px">' +
+          '<button type="button" class="btn btn-xs btn-primary" onclick="location.hash=\'#card/\' + tid + \'?tab=execution\'" style="font-size:.74rem;padding:3px 8px" title="Открыть карточку на вкладке Исполнение / СМР">👷 СМР</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost" onclick="window.openSubcontractWizardModal ? window.openSubcontractWizardModal(\'' + tid + '\') : (location.hash=\'#card/' + tid + '?tab=execution\')" style="font-size:.74rem;padding:3px 7px;border:1px solid #f97316;color:#c2410c;font-weight:600" title="Открыть Мастер субподряда">🪄 Мастер</button>' +
+        '</div>' +
+      '</td>';
+
+      tableRows += '<tr id="task_row_' + tid + '" data-tid="' + tid + '" style="transition:background .2s">' +
+        colChk +
+        colNumber +
+        colObj +
+        colDeadline +
+        colContractor +
+        colVolume +
+        colPrice +
+        colSettlement +
+        colSmr +
+      '</tr>';
+      return;
+    }
 
     if (appMode === 'supply') {
       var sStatus = t.status_supply === 'delivered' 
@@ -2286,6 +2472,16 @@ function pageTasks() {
       '<table class="tasks-table"><thead><tr>' +
         '<th style="width:36px;text-align:center"><input type="checkbox" id="selectAllTasksListChk" title="Выбрать все (по текущему отбору фильтра)"></th>' +
         (function() {
+          if (appMode === 'subcontract') {
+            return '<th style="width:130px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'id\')" title="Сортировать по номеру заявки">№ Заявки / Статус' + taskSortIndicator('id') + '</th>' +
+              '<th style="width:260px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'address\')" title="Сортировать по адресу">Объект и адрес' + taskSortIndicator('address') + '</th>' +
+              '<th style="width:115px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'deadline\')" title="Сортировать по дедлайну">Дедлайн / Риск' + taskSortIndicator('deadline') + '</th>' +
+              '<th style="width:210px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'contractor\')" title="Сортировать по подрядчику">Подрядчик(и) и договор' + taskSortIndicator('contractor') + '</th>' +
+              '<th style="width:125px">Объём (порты)</th>' +
+              '<th style="width:135px;text-align:right">Сумма субподряда (₽)</th>' +
+              '<th style="width:160px">Взаиморасчёты</th>' +
+              '<th style="width:170px;text-align:right">Статус СМР / Действия</th>';
+          }
           if (appMode === 'supply') {
             return '<th style="width:280px;cursor:pointer;user-select:none" onclick="window.sortTasksBy(\'address\')" title="Сортировать по адресу">№ Заявки / Адрес объекта' + taskSortIndicator('address') + '</th>' +
               '<th style="width:180px">Поставщик / Склад</th>' +

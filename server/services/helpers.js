@@ -88,6 +88,14 @@ export function rowToTask(r) {
     statusActs:   r.status_acts || 'pending',
     statusPaymentSub: r.status_payment_sub || 'pending',
     statusPaymentCustomer: r.status_payment_customer || 'pending',
+    subcontractsCount: Number(r.subcontracts_count) || 0,
+    subcontractsTotalPrice: Number(r.subcontracts_total_price) || 0,
+    subcontractsPortsSum: Number(r.subcontracts_ports_sum) || 0,
+    subcontractsSummary: Array.isArray(r.subcontracts_summary) ? r.subcontracts_summary : (typeof r.subcontracts_summary === 'string' ? JSON.parse(r.subcontracts_summary || '[]') : []),
+    subcontracts_count: Number(r.subcontracts_count) || 0,
+    subcontracts_total_price: Number(r.subcontracts_total_price) || 0,
+    subcontracts_ports_sum: Number(r.subcontracts_ports_sum) || 0,
+    subcontracts_summary: Array.isArray(r.subcontracts_summary) ? r.subcontracts_summary : (typeof r.subcontracts_summary === 'string' ? JSON.parse(r.subcontracts_summary || '[]') : []),
   };
 }
 

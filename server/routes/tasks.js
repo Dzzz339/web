@@ -47,7 +47,11 @@ router.get('/tasks', authenticateToken, async (req, res) => {
   try {
     let query = `
       SELECT t.*,
-        COALESCE(rm.cnt, 0)::integer AS open_remarks_count
+        COALESCE(rm.cnt, 0)::integer AS open_remarks_count,
+        COALESCE(sub_agg.subcontracts_count, 0)::integer AS subcontracts_count,
+        COALESCE(sub_agg.subcontracts_total_price, 0)::numeric AS subcontracts_total_price,
+        COALESCE(sub_agg.subcontracts_ports_sum, 0)::integer AS subcontracts_ports_sum,
+        COALESCE(sub_agg.subcontracts_summary, '[]'::json) AS subcontracts_summary
       FROM tasks t
       LEFT JOIN (
         SELECT task_id, COUNT(*) AS cnt
@@ -55,6 +59,28 @@ router.get('/tasks', authenticateToken, async (req, res) => {
         WHERE resolved_at IS NULL
         GROUP BY task_id
       ) rm ON rm.task_id = t.id
+      LEFT JOIN (
+        SELECT
+          ts.task_id,
+          COUNT(*)::integer AS subcontracts_count,
+          COALESCE(SUM(ts.price_agreed), 0)::numeric AS subcontracts_total_price,
+          COALESCE(SUM(ts.ports_count), 0)::integer AS subcontracts_ports_sum,
+          json_agg(
+            json_build_object(
+              'id', ts.id,
+              'contractor_id', ts.contractor_id,
+              'contractor_name', COALESCE(ts.contractor_name, ct.name_short, ct.name_full, ''),
+              'ports_count', COALESCE(ts.ports_count, 0),
+              'price_agreed', COALESCE(ts.price_agreed, 0),
+              'contract_number', COALESCE(cc.contract_number, ''),
+              'status', ts.status
+            ) ORDER BY ts.id
+          ) AS subcontracts_summary
+        FROM task_subcontracts ts
+        LEFT JOIN contractors ct ON ct.id = ts.contractor_id
+        LEFT JOIN contractor_contracts cc ON cc.id = ts.contractor_contract_id
+        GROUP BY ts.task_id
+      ) sub_agg ON sub_agg.task_id = t.id
     `;
     let params = [];
 
@@ -103,6 +129,22 @@ router.get('/tasks', authenticateToken, async (req, res) => {
         task.pricePerUnit = 0;
         task.price_per_unit = 0;
         task.kmRate = 0;
+        if (Array.isArray(task.subcontractsSummary)) {
+          const userCid = req.user?.contractorId;
+          const userFio = (req.user?.fullName || '').toLowerCase().trim();
+          task.subcontractsSummary = task.subcontractsSummary.filter(s => {
+            if (userCid && s.contractor_id === userCid) return true;
+            if (userFio && s.contractor_name && (s.contractor_name.toLowerCase().includes(userFio) || userFio.includes(s.contractor_name.toLowerCase()))) return true;
+            return false;
+          });
+          task.subcontractsCount = task.subcontractsSummary.length;
+          task.subcontractsTotalPrice = task.subcontractsSummary.reduce((acc, s) => acc + (Number(s.price_agreed) || 0), 0);
+          task.subcontractsPortsSum = task.subcontractsSummary.reduce((acc, s) => acc + (Number(s.ports_count) || 0), 0);
+          task.subcontracts_summary = task.subcontractsSummary;
+          task.subcontracts_count = task.subcontractsCount;
+          task.subcontracts_total_price = task.subcontractsTotalPrice;
+          task.subcontracts_ports_sum = task.subcontractsPortsSum;
+        }
       }
       return task;
     });
@@ -116,8 +158,34 @@ router.get('/tasks/:id', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT t.*,
-        (SELECT COUNT(*) FROM remarks rm WHERE rm.task_id = t.id AND rm.resolved_at IS NULL)::integer AS open_remarks_count
+        (SELECT COUNT(*) FROM remarks rm WHERE rm.task_id = t.id AND rm.resolved_at IS NULL)::integer AS open_remarks_count,
+        COALESCE(sub_agg.subcontracts_count, 0)::integer AS subcontracts_count,
+        COALESCE(sub_agg.subcontracts_total_price, 0)::numeric AS subcontracts_total_price,
+        COALESCE(sub_agg.subcontracts_ports_sum, 0)::integer AS subcontracts_ports_sum,
+        COALESCE(sub_agg.subcontracts_summary, '[]'::json) AS subcontracts_summary
       FROM tasks t
+      LEFT JOIN (
+        SELECT
+          ts.task_id,
+          COUNT(*)::integer AS subcontracts_count,
+          COALESCE(SUM(ts.price_agreed), 0)::numeric AS subcontracts_total_price,
+          COALESCE(SUM(ts.ports_count), 0)::integer AS subcontracts_ports_sum,
+          json_agg(
+            json_build_object(
+              'id', ts.id,
+              'contractor_id', ts.contractor_id,
+              'contractor_name', COALESCE(ts.contractor_name, ct.name_short, ct.name_full, ''),
+              'ports_count', COALESCE(ts.ports_count, 0),
+              'price_agreed', COALESCE(ts.price_agreed, 0),
+              'contract_number', COALESCE(cc.contract_number, ''),
+              'status', ts.status
+            ) ORDER BY ts.id
+          ) AS subcontracts_summary
+        FROM task_subcontracts ts
+        LEFT JOIN contractors ct ON ct.id = ts.contractor_id
+        LEFT JOIN contractor_contracts cc ON cc.id = ts.contractor_contract_id
+        GROUP BY ts.task_id
+      ) sub_agg ON sub_agg.task_id = t.id
       WHERE t.id = $1
     `, [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: 'Заявка не найдена' });

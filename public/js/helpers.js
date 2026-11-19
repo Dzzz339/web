@@ -610,6 +610,20 @@ function getTaskContractorFinance(t) {
   }
 
   // 2. Если есть назначенные субподряды с зафиксированной стоимостью (task_subcontracts)
+  var subTotalAgg = Number(t.subcontractsTotalPrice || t.subcontracts_total_price) || 0;
+  if (subTotalAgg > 0) {
+    total = subTotalAgg;
+    work = total;
+    var count = ports || 1;
+    unitPrice = count > 0 ? Math.round(work / count) : work;
+    return {
+      unitPrice: unitPrice,
+      work: work,
+      transport: transport,
+      total: total,
+      isPaid: (String(t.oplata || '')).toLowerCase().includes('оплач')
+    };
+  }
   if (t.subcontracts && Array.isArray(t.subcontracts) && t.subcontracts.length > 0) {
     t.subcontracts.forEach(function(s) {
       total += Number(s.price_agreed || 0);
