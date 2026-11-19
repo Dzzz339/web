@@ -1024,6 +1024,46 @@ window.bindTasksEvents = function() {
       });
     });
   }
+
+  var subSmrBtns = document.querySelectorAll('[data-sub-action="open-smr"]');
+  subSmrBtns.forEach(function(btn) {
+    if (!btn._bound) {
+      btn._bound = true;
+      btn.addEventListener('click', function() {
+        var taskId = this.getAttribute('data-task-id');
+        if (taskId) {
+          S.cardTab = 'items';
+          if (typeof openCard === 'function') {
+            openCard(taskId);
+          } else if (typeof window.openCard === 'function') {
+            window.openCard(taskId);
+          }
+        }
+      });
+    }
+  });
+
+  var subWizBtns = document.querySelectorAll('[data-sub-action="open-wizard"]');
+  subWizBtns.forEach(function(btn) {
+    if (!btn._bound) {
+      btn._bound = true;
+      btn.addEventListener('click', function() {
+        var taskId = this.getAttribute('data-task-id');
+        if (taskId) {
+          if (typeof window.openSubcontractWizardModal === 'function') {
+            window.openSubcontractWizardModal(taskId);
+          } else {
+            S.cardTab = 'items';
+            if (typeof openCard === 'function') {
+              openCard(taskId);
+            } else if (typeof window.openCard === 'function') {
+              window.openCard(taskId);
+            }
+          }
+        }
+      });
+    }
+  });
 };
 
 
@@ -2111,8 +2151,8 @@ function pageTasks() {
       var colSmr = '<td style="vertical-align:top;text-align:right;white-space:nowrap">' +
         '<div>' + smrBadge + '</div>' +
         '<div style="display:flex;align-items:center;justify-content:flex-end;gap:4px;margin-top:4px">' +
-          '<button type="button" class="btn btn-xs btn-primary" onclick="location.hash=\'#card/\' + tid + \'?tab=execution\'" style="font-size:.74rem;padding:3px 8px" title="Открыть карточку на вкладке Исполнение / СМР">👷 СМР</button>' +
-          '<button type="button" class="btn btn-xs btn-ghost" onclick="window.openSubcontractWizardModal ? window.openSubcontractWizardModal(\'' + tid + '\') : (location.hash=\'#card/' + tid + '?tab=execution\')" style="font-size:.74rem;padding:3px 7px;border:1px solid #f97316;color:#c2410c;font-weight:600" title="Открыть Мастер субподряда">🪄 Мастер</button>' +
+          '<button type="button" class="btn btn-xs btn-primary" data-sub-action="open-smr" data-task-id="' + tid + '" style="font-size:.74rem;padding:3px 8px" title="Открыть карточку на вкладке СМР / Спецификация">👷 СМР</button>' +
+          '<button type="button" class="btn btn-xs btn-ghost" data-sub-action="open-wizard" data-task-id="' + tid + '" style="font-size:.74rem;padding:3px 7px;border:1px solid #f97316;color:#c2410c;font-weight:600" title="Открыть Мастер субподряда">🪄 Мастер</button>' +
         '</div>' +
       '</td>';
 
