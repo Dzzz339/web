@@ -1110,6 +1110,27 @@ function setCardTab(tabName) {
 }
 window.setCardTab = setCardTab;
 
+window.hydrateCardAsyncBlocks = function(taskId) {
+  var id = taskId || S.cardId;
+  if (!id) return;
+  if (typeof refreshTaskItemsList === 'function') refreshTaskItemsList(id);
+  if (typeof loadCardMaterials === 'function') loadCardMaterials(id);
+  if (typeof loadCardSubcontracts === 'function') loadCardSubcontracts(id);
+  if (typeof loadCardShipments === 'function') loadCardShipments(id);
+  if (typeof renderCardSmrCalculator === 'function') renderCardSmrCalculator(id);
+  if (typeof renderSmrChecklist === 'function') renderSmrChecklist(id);
+  if (typeof refreshPortsList === 'function') refreshPortsList(id);
+  if (typeof loadCardDocuments === 'function') loadCardDocuments(id);
+  if (typeof refreshAttachmentsList === 'function') refreshAttachmentsList(id);
+  if (typeof refreshRemarksList === 'function') refreshRemarksList(id);
+  if (S.cardTab === 'chat' || S.taskChatDrawerOpen) {
+    if (typeof loadTaskChat === 'function') loadTaskChat(id);
+  }
+  if (S.cardTab === 'history' && window.refreshCardHistory) {
+    window.refreshCardHistory(id);
+  }
+};
+
 function openCard(id) {
   if (S.page !== 'card') {
     S._cardOriginPage = S.page || 'tasks';
@@ -1130,21 +1151,7 @@ function openCard(id) {
   renderNav();
   renderApp();
   window.scrollTo(0,0);
-  refreshAttachmentsList(id);
-  refreshPortsList(id);
-  refreshRemarksList(id);
-  refreshTaskItemsList(id);
-  loadCardMaterials(id);
-  if (window.loadCardSubcontracts) window.loadCardSubcontracts(id);
-  if (window.loadCardShipments) window.loadCardShipments(id);
-  if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(id);
-  if (window.renderSmrChecklist) window.renderSmrChecklist(id);
-  if (S.cardTab === 'chat' || S.taskChatDrawerOpen) {
-    loadTaskChat(id);
-  }
-  if (S.cardTab === 'history' && window.refreshCardHistory) {
-    window.refreshCardHistory(id);
-  }
+  window.hydrateCardAsyncBlocks(id);
 
   // Принудительно запрашиваем свежие актуальные данные заявки с сервера,
   // чтобы исключить рассинхрон при совместной работе нескольких пользователей
@@ -1160,8 +1167,7 @@ function openCard(id) {
       if (S.page === 'card' && String(S.cardId) === String(id)) {
         if (!S.cardDraft || Object.keys(S.cardDraft).length === 0) {
           renderApp();
-          if (window.renderCardSmrCalculator) window.renderCardSmrCalculator(id);
-          if (window.renderSmrChecklist) window.renderSmrChecklist(id);
+          if (window.hydrateCardAsyncBlocks) window.hydrateCardAsyncBlocks(id);
         }
       }
     }
@@ -2693,82 +2699,6 @@ function pageCard() {
     '</div>';
   })();
 
-  var quickIdWidget = (function() {
-    var techVal = String(t.tech_link || t.techLink || t.materials_link || t.materialsLink || '').trim();
-    var portsCnt = (window._curTaskPorts && window._curTaskPorts[t.id] !== undefined) ? window._curTaskPorts[t.id] : (window._curPortsCount || 0);
-    return '<div class="card p mb" style="border:1.5px solid #cbd5e1;background:linear-gradient(to right, #f8fafc, #f1f5f9);border-radius:8px;margin-bottom:1rem">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">' +
-        '<div style="display:flex;align-items:center;gap:8px">' +
-          '<span style="font-size:1.35rem">📁</span>' +
-          '<div>' +
-            '<div style="font-weight:700;font-size:.95rem;color:#0f172a">Комплект Исполнительной Документации (ИД) и файлы объекта</div>' +
-            '<div style="font-size:.76rem;color:#64748b">Быстрый доступ к альбому ИД, спецификации ТМЦ, кабельному журналу и облачной папке объекта</div>' +
-          '</div>' +
-        '</div>' +
-        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-          '<button type="button" class="btn btn-sm" style="background:#15803d;color:#fff;font-weight:700" onclick="window.downloadAuthFile(\'/api/tasks/' + encodeURIComponent(t.id) + '/id-album.xlsx\', \'ID_Album_' + encodeURIComponent(t.id) + '.xlsx\')" title="Скачать сформированный альбом ИД в Excel по ГОСТу">' +
-            '📊 Скачать альбом ИД (.xlsx)' +
-          '</button>' +
-          '<button type="button" class="btn btn-sm btn-primary" onclick="window.openDocumentEditor({ templateCode: \'id_album\', taskId: \'' + eid + '\' })" title="Открыть альбом ИД во встроенном Редакторе документов">' +
-            '📄 Альбом ИД (DOCX)' +
-          '</button>' +
-          '<div style="position:relative;display:inline-block">' +
-            '<button type="button" class="btn btn-sm btn-ghost" onclick="var m=document.getElementById(\'id_doc_dropdown_' + eid + '\');if(m)m.style.display=(m.style.display===\'none\'?\'block\':\'none\');" style="border:1.5px solid #93c5fd;color:#1d4ed8;font-weight:700;display:inline-flex;align-items:center;gap:4px" title="Сформировать закрывающие акты и протоколы в редакторе Stockeasy">' +
-              '⚡ Закрывающие акты ▾' +
-            '</button>' +
-            '<div id="id_doc_dropdown_' + eid + '" style="display:none;position:absolute;right:0;top:100%;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 20px rgba(0,0,0,0.15);z-index:999;min-width:270px;padding:6px 0;margin-top:4px">' +
-              '<a href="javascript:void(0)" onclick="this.parentElement.style.display=\'none\';window.openDocumentEditor({ templateCode: \'aosr_act\', taskId: \'' + eid + '\' })" style="display:block;padding:7px 12px;font-size:.8rem;color:var(--text);text-decoration:none;font-weight:600" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'transparent\'">📋 Акт скрытых работ (АОСР)</a>' +
-              '<a href="javascript:void(0)" onclick="this.parentElement.style.display=\'none\';window.openDocumentEditor({ templateCode: \'equipment_acceptance_act\', taskId: \'' + eid + '\' })" style="display:block;padding:7px 12px;font-size:.8rem;color:var(--text);text-decoration:none;font-weight:600" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'transparent\'">📦 Акт приемки оборудования</a>' +
-              '<a href="javascript:void(0)" onclick="this.parentElement.style.display=\'none\';window.openDocumentEditor({ templateCode: \'technical_readiness_act\', taskId: \'' + eid + '\' })" style="display:block;padding:7px 12px;font-size:.8rem;color:var(--text);text-decoration:none;font-weight:600" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'transparent\'">⚙️ Акт технической готовности</a>' +
-              '<a href="javascript:void(0)" onclick="this.parentElement.style.display=\'none\';window.openDocumentEditor({ templateCode: \'input_control_journal\', taskId: \'' + eid + '\' })" style="display:block;padding:7px 12px;font-size:.8rem;color:var(--text);text-decoration:none;font-weight:600" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'transparent\'">📝 Журнал входного контроля</a>' +
-              '<a href="javascript:void(0)" onclick="this.parentElement.style.display=\'none\';window.openDocumentEditor({ templateCode: \'protocol_psi_sks\', taskId: \'' + eid + '\' })" style="display:block;padding:7px 12px;font-size:.8rem;color:var(--text);text-decoration:none;font-weight:600" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'transparent\'">📊 Протокол ПСИ СКС (PASS)</a>' +
-              '<a href="javascript:void(0)" onclick="this.parentElement.style.display=\'none\';window.openDocumentEditor({ templateCode: \'ip_addressing_statement\', taskId: \'' + eid + '\' })" style="display:block;padding:7px 12px;font-size:.8rem;color:var(--text);text-decoration:none;font-weight:600" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'transparent\'">🌐 Ведомость IP-адресации</a>' +
-            '</div>' +
-          '</div>' +
-          (techVal ? (
-            '<a href="' + escHtml(techVal) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-ghost" style="border:1px solid #3b82f6;color:#2563eb;font-weight:600">' +
-              '☁️ Облако объекта (Seafile) ↗' +
-            '</a>'
-          ) : (
-            '<button type="button" class="btn btn-sm btn-ghost" style="border:1px solid #3b82f6;color:#2563eb;font-weight:600" onclick="window.editCardTechLink(\'' + eid + '\')">' +
-              '⚡ Создать папку на Cloud' +
-            '</button>'
-          )) +
-        '</div>' +
-      '</div>' +
-      '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:8px;margin-top:10px">' +
-        '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:.78rem">' +
-          '<div style="color:#64748b;font-size:.72rem">1. Кабельный журнал (КЖ):</div>' +
-          '<div style="font-weight:700;color:#0f172a;display:flex;justify-content:space-between;align-items:center;margin-top:2px">' +
-            '<span>' + portsCnt + ' линий</span>' +
-            '<button type="button" class="btn btn-xs btn-ghost" onclick="var el=document.getElementById(\'portsBlock\');if(el)el.scrollIntoView({behavior:\'smooth\'});" style="font-size:.7rem;padding:1px 5px">Перейти ↓</button>' +
-          '</div>' +
-        '</div>' +
-        '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:.78rem">' +
-          '<div style="color:#64748b;font-size:.72rem">2. Спецификация ТМЦ:</div>' +
-          '<div style="font-weight:700;color:#0f172a;display:flex;justify-content:space-between;align-items:center;margin-top:2px">' +
-            '<span>Единый сквозной учет</span>' +
-            '<button type="button" class="btn btn-xs btn-ghost" onclick="setCardTab(\'supply\')" style="font-size:.7rem;padding:1px 5px">Открыть ТМЦ →</button>' +
-          '</div>' +
-        '</div>' +
-        '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:.78rem">' +
-          '<div style="color:#64748b;font-size:.72rem">3. Протокол измерений Fluke:</div>' +
-          '<div style="font-weight:700;color:#0f172a;display:flex;justify-content:space-between;align-items:center;margin-top:2px">' +
-            '<span>MS2-100 (Pass)</span>' +
-            '<button type="button" class="btn btn-xs btn-ghost" onclick="window.openIdModerationModal(\'' + eid + '\')" style="font-size:.7rem;padding:1px 5px">Проверка 👁️</button>' +
-          '</div>' +
-        '</div>' +
-        '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:.78rem">' +
-          '<div style="color:#64748b;font-size:.72rem">4. Фотоотчет монтажа:</div>' +
-          '<div style="font-weight:700;color:#0f172a;display:flex;justify-content:space-between;align-items:center;margin-top:2px">' +
-            '<span>Фотоотчет объекта</span>' +
-            '<button type="button" class="btn btn-xs btn-ghost" onclick="var p=document.querySelector(\'[data-tab=files]\');if(p)setCardTab(\'files\');" style="font-size:.7rem;padding:1px 5px">Галерея 📸</button>' +
-          '</div>' +
-        '</div>' +
-      '</div>' +
-    '</div>';
-  })();
-
   var shipmentsBlock = '<div class="card p" id="shipmentsBlock" style="margin-bottom:1rem;border:1.5px solid var(--border)">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:.75rem">' +
       '<div style="display:flex;align-items:center;gap:10px">' +
@@ -2789,7 +2719,6 @@ function pageCard() {
   var paneItems = '<div id="cardTabPane-items" class="card-tab-pane" style="display:' + (curTab === 'items' ? 'block' : 'none') + '">' +
     '<div id="cardSmrCalculatorBlock" style="margin-bottom:1rem"></div>' +
     subcontractsBlock +
-    quickIdWidget +
     itemsBlock +
     shipmentsBlock +
     smrClosingBlock +
@@ -6815,8 +6744,9 @@ function saveCard(silent) {
     var taxCfg = window._getTaskSmrTaxConfig ? window._getTaskSmrTaxConfig(taskId) : { mode: 'usn', included: true };
     var taxCalc = window._calculateSmrTaxes ? window._calculateSmrTaxes(totalBase, taxCfg.mode, taxCfg.included, taskId) : { totalWithTax: totalBase, taxTitle: 'Без налога' };
 
+    var orderTotalAmount = (typeof window._getSubOrderTotalAmount === 'function') ? window._getSubOrderTotalAmount(taskId) : taxCalc.totalWithTax;
     var oldAgreedStr = t.price_agreed ? fmtMoney(t.price_agreed) : '—';
-    var newAgreedStr = fmtMoney(taxCalc.totalWithTax) + ' (позиций: ' + spec.length + ', режим: ' + taxCalc.taxTitle + (taxCalc.isRounded ? ', округлено до целых рублей' : '') + ')';
+    var newAgreedStr = fmtMoney(orderTotalAmount) + ' (позиций: ' + spec.length + ', режим: ' + taxCalc.taxTitle + (taxCalc.isRounded ? ', округлено до целых рублей' : '') + ')';
     hist.push({
       date: now,
       author: author,
@@ -6824,7 +6754,7 @@ function saveCard(silent) {
       old: oldAgreedStr,
       new: newAgreedStr
     });
-    data.price_agreed = taxCalc.totalWithTax;
+    data.price_agreed = orderTotalAmount;
   }
 
   data.history = hist;
@@ -6884,6 +6814,9 @@ function saveCard(silent) {
       }
       if (!silent) {
         renderApp();
+        if (typeof window.hydrateCardAsyncBlocks === 'function') {
+          window.hydrateCardAsyncBlocks(t.id);
+        }
         if (typeof showToast === 'function') showToast('✓ Все изменения успешно сохранены в базу данных', 'success');
       }
       if (S.cardTab === 'history' && window.refreshCardHistory) {

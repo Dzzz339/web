@@ -890,6 +890,24 @@ function renderUsersView(container) {
       </table>
     </div>
   `;
+
+  var specSelect = document.getElementById('nu_specialist');
+  if (specSelect) {
+    specSelect.addEventListener('change', function() {
+      var sId = this.value;
+      if (!sId) return;
+      var s = (S.specialists || []).find(function(x) { return String(x.id) === String(sId); });
+      if (!s) return;
+      var fnInp = document.getElementById('nu_full');
+      var phInp = document.getElementById('nu_phone');
+      var roleSel = document.getElementById('nu_role');
+      var contSel = document.getElementById('nu_contractor');
+      if (fnInp && s.full_name) fnInp.value = s.full_name;
+      if (phInp && s.phone) phInp.value = s.phone;
+      if (roleSel) roleSel.value = 'installer';
+      if (contSel && s.contractor_id) contSel.value = String(s.contractor_id);
+    });
+  }
 }
 
 function toggleUserForm(open) {

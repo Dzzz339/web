@@ -353,16 +353,23 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
   const unitPrice = numberOrNull(task?.price_per_unit);
   const taskAmount = numberOrNull(task?.amount);
   const lineTotals = calculationLines.map((item) => numberOrNull(item.total)).filter((value) => value !== null);
+  const sumFromLines = lineTotals.length > 0 ? lineTotals.reduce((acc, value) => acc + value, 0) : null;
 
-  // Общая сумма Заявки: согласованная цена или сумма по строкам калькулятора
-  if (agreedAmount !== null && agreedAmount > 0) {
+  // Общая сумма Заявки: если сумма строк калькулятора (включая допрасходы через подрядчика) больше или цена не задана
+  if (sumFromLines !== null && (agreedAmount === null || agreedAmount <= 0 || sumFromLines > agreedAmount)) {
+    totalAmount = sumFromLines;
+  } else if (agreedAmount !== null && agreedAmount > 0) {
     totalAmount = agreedAmount;
-  } else if (lineTotals.length > 0) {
-    totalAmount = lineTotals.reduce((acc, value) => acc + value, 0);
+  } else if (sumFromLines !== null) {
+    totalAmount = sumFromLines;
   } else if (unitPrice !== null && unitPrice !== 0) {
     totalAmount = unitPrice;
   } else if (taskAmount !== null && taskAmount !== 0) {
     totalAmount = taskAmount;
+  }
+
+  if (totalAmount !== null && subcontract) {
+    subcontract.price_agreed = totalAmount;
   }
 
   // Параметры Заявки / Заказ-наряда
@@ -645,6 +652,8 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
       id: subcontract?.id || '',
       number: subcontract?.subcontract_number || docNumber,
       status: subcontract?.status || '',
+      price_agreed: totalAmount,
+      price_agreed_formatted: formatMoney(totalAmount),
       ports_count: String(subcontract?.ports_count ?? (task?.fact !== null && task?.fact !== undefined && task?.fact !== '' ? task.fact : '')),
       distance_km: String(subcontract?.distance_km ?? task?.distance_km ?? '')
     },
@@ -654,9 +663,17 @@ export async function collectDocumentContext({ pool, taskId, contractId, subcont
       total_amount: totalAmount,
       total_amount_formatted: formatMoney(totalAmount),
       total_amount_words: totalAmount === null ? '' : formatSumWordsRu(totalAmount),
+      advance_amount: advanceAmount,
+      advance_amount_formatted: formatMoney(advanceAmount),
+      interim_amount: interimAmount,
+      final_amount: finalAmount,
+      final_amount_formatted: formatMoney(finalAmount),
       vat_text: customData.vat_text || subcontractContract?.vat_text || '',
       margin: numberOrNull(task?.margin) === null ? '' : formatMoney(task.margin)
     },
+    total_amount: totalAmount,
+    advance_amount: advanceAmount,
+    final_amount: finalAmount,
 
     // Массивы данных для итераций
     works: calculationLines.map((w, idx) => ({

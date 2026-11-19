@@ -1230,6 +1230,13 @@ export async function initDB() {
     console.warn('[DB] Пропуск автоимпорта договоров:', err.message);
   }
 
+  // Синхронизация последовательностей ID для исключения duplicate key при вставках
+  try {
+    await syncDatabaseSequences(pool);
+  } catch (err) {
+    console.warn('[DB] Ошибка синхронизации последовательностей:', err.message);
+  }
+
   console.log('DB initialized');
 }
 
@@ -1408,4 +1415,27 @@ export async function syncExistingUsersAndSpecialists(dbPool = pool) {
   } catch (err) {
     console.error('[DB] Ошибка авто-сшивки пользователей и специалистов:', err.message);
   }
-}
+}
+
+export async function syncDatabaseSequences(targetPool = pool) {
+  const tables = [
+    'material_shipments', 'material_shipment_items',
+    'task_materials', 'task_subcontracts', 'subcontracts', 'subcontract_orders',
+    'contractors', 'users', 'contractor_specialists', 'specialists', 'contracts',
+    'cable_journal', 'cable_routes', 'cable_port_bindings',
+    'project_documents', 'documents'
+  ];
+  for (const tbl of tables) {
+    try {
+      await targetPool.query(`
+        SELECT setval(
+          pg_get_serial_sequence($1, 'id'),
+          COALESCE((SELECT MAX(id) FROM ${tbl}), 1),
+          (SELECT MAX(id) FROM ${tbl}) IS NOT NULL
+        )
+      `, [tbl]);
+    } catch (err) {
+      // Игнорируем таблицы без serial sequence или отсутствующие
+    }
+  }
+}

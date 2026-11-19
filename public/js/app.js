@@ -587,8 +587,12 @@ function renderApp() {
     else if (S.page === 'tasks')     setApp(pageTasks());
     else if (S.page === 'card') {
       setApp(pageCard());
-      if (window.renderCardSmrCalculator && S.cardId) window.renderCardSmrCalculator(S.cardId);
-      if (window.renderSmrChecklist && S.cardId) window.renderSmrChecklist(S.cardId);
+      if (S.cardId && typeof window.hydrateCardAsyncBlocks === 'function') {
+        window.hydrateCardAsyncBlocks(S.cardId);
+      } else {
+        if (window.renderCardSmrCalculator && S.cardId) window.renderCardSmrCalculator(S.cardId);
+        if (window.renderSmrChecklist && S.cardId) window.renderSmrChecklist(S.cardId);
+      }
     }
     else if (S.page === 'data')      setApp(pageData());
     else if (S.page === 'marches')   setApp(pageMarches());

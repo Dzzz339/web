@@ -1580,6 +1580,9 @@ function openAddInstallerModal(contractorId, contractorName) {
       if (S.specialists) {
         api('/specialists').then(specs => { S.specialists = specs; });
       }
+      if (S.users) {
+        api('/users').then(list => { S.users = list; });
+      }
     });
   });
 }

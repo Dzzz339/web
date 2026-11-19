@@ -1036,7 +1036,9 @@
     });
     var totalThirdPartyAmount = 0;
     thirdParty.forEach(function(tp) {
-      totalThirdPartyAmount += Math.round(Number(tp.amount) || 0);
+      if (tp.payment_type !== 'direct') {
+        totalThirdPartyAmount += Math.round(Number(tp.amount) || 0);
+      }
     });
     var taxCfg = window._getTaskSmrTaxConfig(taskId);
     var taxCalc = window._calculateSmrTaxes(totalSubAmount, taxCfg.mode, taxCfg.included, taskId);
@@ -2388,7 +2390,7 @@
       agreement_number: (curSub && curSub.agreement_number) || 'Приложение № ' + orderParams.appendix_num + ' (Заявка № ' + orderParams.order_num + ')',
       agreement_date: (curSub && curSub.agreement_date) || new Date().toISOString().slice(0, 10),
       work_type: t.work_type || 'Монтаж СКС',
-      price_agreed: taxCalc.totalWithTax,
+      price_agreed: (typeof window._getSubOrderTotalAmount === 'function') ? window._getSubOrderTotalAmount(taskId) : taxCalc.totalWithTax,
       deadline: t.deadline || null,
       order_params: orderParams,
       calculation_details: {
@@ -2410,8 +2412,9 @@
       body: JSON.stringify(payload)
     })
     .then(function(res) {
+      var savedTotal = (typeof window._getSubOrderTotalAmount === 'function') ? window._getSubOrderTotalAmount(taskId) : taxCalc.totalWithTax;
       if (!options.silent && typeof showToast === 'function') showToast('✅ Спецификация и расчет СМР сохранены!', 'success');
-      t.price_agreed = taxCalc.totalWithTax;
+      t.price_agreed = savedTotal;
       t.rawData = t.rawData || {};
       t.rawData.smrTaxDetails = taxCalc;
       if (res && res.subcontract) {
