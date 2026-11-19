@@ -1445,7 +1445,8 @@ export async function syncDatabaseSequences(targetPool = pool) {
     'task_materials', 'task_subcontracts', 'subcontracts', 'subcontract_orders',
     'contractors', 'users', 'contractor_specialists', 'specialists', 'contracts',
     'cable_journal', 'cable_routes', 'cable_port_bindings',
-    'project_documents', 'documents'
+    'project_documents', 'documents',
+    'task_items', 'contractor_contracts', 'task_documents', 'task_ports'
   ];
   for (const tbl of tables) {
     try {

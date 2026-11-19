@@ -1534,7 +1534,7 @@ function openAddInstallerModal(contractorId, contractorName) {
       ]
     },
     { key: 'username', label: 'Логин для входа в ЛК', placeholder: 'например: ivanov_ii' },
-    { key: 'password', label: 'Пароль для входа в ЛК', placeholder: 'пароль (по умолчанию: 123456)' },
+    { key: 'password', label: 'Пароль для входа в ЛК', placeholder: 'минимум 6 символов (обязательно при создании ЛК)' },
     { key: 'employmentType', label: 'Форма занятости / Статус', type: 'select', value: 'subcontractor_worker', options: [
         { value: 'subcontractor_worker', label: '👷 Монтажник субподрядчика' },
         { value: 'self_employed', label: '💼 Самозанятый (СЗ)' },

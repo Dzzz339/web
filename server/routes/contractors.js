@@ -94,6 +94,22 @@ router.post('/contractors/:id/specialists', authenticateToken, async (req, res) 
       return res.status(400).json({ error: 'ФИО специалиста обязательно' });
     }
 
+    if (req.body.createLogin) {
+      const uname = String(req.body.username || '').trim();
+      const rawPass = String(req.body.password || '');
+      if (!uname) {
+        return res.status(400).json({ error: 'Логин обязателен для создания учетной записи' });
+      }
+      if (!rawPass || rawPass.length < 6) {
+        return res.status(400).json({ error: 'Пароль должен содержать минимум 6 символов' });
+      }
+    } else if (req.body.username) {
+      const rawPass = String(req.body.password || '');
+      if (!rawPass || rawPass.length < 6) {
+        return res.status(400).json({ error: 'Пароль должен содержать минимум 6 символов' });
+      }
+    }
+
     // Получаем краткое имя подрядчика для поля organization
     const { rows: cRows } = await pool.query('SELECT name_short FROM contractors WHERE id = $1', [contractorId]);
     const contractorOrgName = cRows.length ? cRows[0].name_short : null;
@@ -208,46 +224,16 @@ router.post('/contractors/:id/specialists', authenticateToken, async (req, res) 
         ]);
         await pool.query('UPDATE specialists SET user_id = $1 WHERE id = $2', [uId, resultRow.id]);
         resultRow.user_id = uId;
-      } else if (!req.body.username && !req.body.createLogin) {
-        // Создаем учетную запись пользователя с ролью installer и привязкой к подрядчику
-        const nameParts = targetName.toLowerCase().split(/\s+/).filter(Boolean);
-        const baseName = nameParts.length ? nameParts[0].replace(/[^a-zа-я0-9]/gi, '') : 'installer';
-        const genUsername = `${baseName}_${resultRow.id}`;
-        const rawPass = 'password123';
-        const hash = await bcrypt.hash(rawPass, 10);
-        const { rows: newU } = await pool.query(`
-          INSERT INTO users (username, password_hash, role, full_name, phone, contractor_id, specialist_id, passport_series_number, passport_issued_by, passport_code)
-          VALUES ($1, $2, 'installer', $3, $4, $5, $6, $7, $8, $9)
-          ON CONFLICT (username) DO UPDATE SET
-            role = 'installer',
-            contractor_id = EXCLUDED.contractor_id,
-            specialist_id = EXCLUDED.specialist_id,
-            full_name = EXCLUDED.full_name
-          RETURNING id, username
-        `, [
-          genUsername,
-          hash,
-          targetName,
-          resultRow.phone || null,
-          contractorId,
-          resultRow.id,
-          resultRow.passport_series_number || null,
-          resultRow.passport_issued_by || null,
-          resultRow.passport_code || null
-        ]);
-        if (newU.length) {
-          const uId = newU[0].id;
-          await pool.query('UPDATE specialists SET user_id = $1 WHERE id = $2', [uId, resultRow.id]);
-          resultRow.user_id = uId;
-          resultRow.user_username = newU[0].username;
-        }
       }
     }
 
     // Создание или привязка логина в ЛК (если запрошено явно)
     if ((req.body.createLogin || req.body.username) && req.body.username) {
       const uname = String(req.body.username).trim();
-      const rawPass = req.body.password || 'password123';
+      const rawPass = String(req.body.password || '');
+      if (!rawPass || rawPass.length < 6) {
+        return res.status(400).json({ error: 'Пароль должен содержать минимум 6 символов' });
+      }
       const hash = await bcrypt.hash(rawPass, 10);
       const specFinalId = resultRow.id;
 
@@ -255,7 +241,7 @@ router.post('/contractors/:id/specialists', authenticateToken, async (req, res) 
       let uId;
       if (existUsers.length > 0) {
         uId = existUsers[0].id;
-        await pool.query('UPDATE users SET specialist_id = $1, contractor_id = $2, role = \'installer\' WHERE id = $3', [specFinalId, contractorId, uId]);
+        await pool.query('UPDATE users SET specialist_id = $1, contractor_id = $2, role = \'installer\', password_hash = $3 WHERE id = $4', [specFinalId, contractorId, hash, uId]);
       } else {
         const { rows: newU } = await pool.query(`
           INSERT INTO users (username, password_hash, role, full_name, phone, contractor_id, specialist_id)
