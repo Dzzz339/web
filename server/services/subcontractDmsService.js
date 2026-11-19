@@ -37,6 +37,14 @@ export async function initSubcontractDms(pool) {
   await pool.query(`ALTER TABLE own_companies ADD COLUMN IF NOT EXISTS city TEXT`);
   await pool.query(`ALTER TABLE own_companies ADD COLUMN IF NOT EXISTS sro_info TEXT`);
 
+  // Проверяем наличие зависимой таблицы contracts перед созданием связанных таблиц
+  const contractsTableCheck = await pool.query(`
+    SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'contracts'
+  `);
+  if (!contractsTableCheck.rows.length) {
+    return;
+  }
+
   // 2. Справочник рамочных договоров с подрядчиками
   await pool.query(`
     CREATE TABLE IF NOT EXISTS contractor_contracts (
@@ -108,21 +116,30 @@ export async function initSubcontractDms(pool) {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_price_items_code ON price_list_items(work_code)`);
 
   // 5. Расширение таблицы task_subcontracts (связка с собственным юрлицом, договором, прайсом и деталями расчёта)
-  await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS own_company_id INTEGER REFERENCES own_companies(id) ON DELETE SET NULL`);
-  await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS contractor_contract_id INTEGER REFERENCES contractor_contracts(id) ON DELETE SET NULL`);
-  await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS price_list_id INTEGER REFERENCES contractor_price_lists(id) ON DELETE SET NULL`);
-  await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS calculation_details JSONB DEFAULT '{}'`);
-  await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS ports_count INTEGER DEFAULT 0`);
-  await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS distance_km NUMERIC DEFAULT 0`);
+  const taskSubcontractsCheck = await pool.query(`
+    SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'task_subcontracts'
+  `);
+  if (taskSubcontractsCheck.rows.length) {
+    await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS own_company_id INTEGER REFERENCES own_companies(id) ON DELETE SET NULL`);
+    await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS contractor_contract_id INTEGER REFERENCES contractor_contracts(id) ON DELETE SET NULL`);
+    await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS price_list_id INTEGER REFERENCES contractor_price_lists(id) ON DELETE SET NULL`);
+    await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS calculation_details JSONB DEFAULT '{}'`);
+    await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS ports_count INTEGER DEFAULT 0`);
+    await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS distance_km NUMERIC DEFAULT 0`);
+  }
 
   // 6. Расширение таблицы tasks
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS own_company_id INTEGER REFERENCES own_companies(id) ON DELETE SET NULL`);
 
-  // 7. Посев начальных данных
-  await seedInitialData(pool);
+  // 7. Посев начальных данных (ТОЛЬКО если явно задан ALLOW_DEMO_SEED === 'true')
+  if (process.env.ALLOW_DEMO_SEED === 'true') {
+    await seedInitialData(pool);
+  } else {
+    console.log('[DMS] Пропущен демо-сид (ALLOW_DEMO_SEED !== "true", режим защиты боевой БД)');
+  }
 }
 
-async function seedInitialData(pool) {
+export async function seedInitialData(pool) {
   // 1. Посев трех собственных юрлиц
   const ownList = [
     {

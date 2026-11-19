@@ -267,99 +267,103 @@ export async function initDB() {
   await pool.query(`ALTER TABLE specialists ADD COLUMN IF NOT EXISTS acting_basis TEXT`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_specialists_employment ON specialists(employment_type)`);
 
-  // Классификация и нормализация типов контрагентов (Заказчики, Поставщики, Подрядчики СМР, Логистика, Прочие)
-  await pool.query(`
-    UPDATE contractors SET type = 'customer'
-    WHERE inn IN ('7707083893', '2901004169')
-       OR name_short ILIKE '%сбербанк%'
-       OR name_short ILIKE '%осфр%'
-       OR name_short ILIKE '%пенсионный%'
-       OR name_short ILIKE '%социальный фонд%';
-  `);
+  // Классификация контрагентов и синхронизация собственных юрлиц (ТОЛЬКО при ALLOW_DEMO_SEED === 'true')
+  if (process.env.ALLOW_DEMO_SEED === 'true') {
+    await pool.query(`
+      UPDATE contractors SET type = 'customer'
+      WHERE inn IN ('7707083893', '2901004169')
+         OR name_short ILIKE '%сбербанк%'
+         OR name_short ILIKE '%осфр%'
+         OR name_short ILIKE '%пенсионный%'
+         OR name_short ILIKE '%социальный фонд%';
+    `);
 
-  await pool.query(`
-    UPDATE contractors SET type = 'supplier'
-    WHERE name_short ILIKE '%электротехмонтаж%'
-       OR name_short ILIKE '%этм%'
-       OR name_short ILIKE '%русский свет%'
-       OR name_short ILIKE '%дкс%'
-       OR name_short ILIKE '%рубеж%'
-       OR name_short ILIKE '%телеком-снаб%'
-       OR name_short ILIKE '%кабельторг%';
-  `);
+    await pool.query(`
+      UPDATE contractors SET type = 'supplier'
+      WHERE name_short ILIKE '%электротехмонтаж%'
+         OR name_short ILIKE '%этм%'
+         OR name_short ILIKE '%русский свет%'
+         OR name_short ILIKE '%дкс%'
+         OR name_short ILIKE '%рубеж%'
+         OR name_short ILIKE '%телеком-снаб%'
+         OR name_short ILIKE '%кабельторг%';
+    `);
 
-  await pool.query(`
-    UPDATE contractors SET type = 'logistics'
-    WHERE name_short ILIKE '%деловые линии%'
-       OR name_short ILIKE '%сдэк%'
-       OR name_short ILIKE '%пэк%'
-       OR name_short ILIKE '%витэка%'
-       OR name_short ILIKE '%энергия%'
-       OR name_short ILIKE '%байкал%'
-       OR name_short ILIKE '%желдор%'
-       OR name_short ILIKE '%транспортн%'
-       OR name_short ILIKE '%логистик%'
-       OR name_short ILIKE '%возовоз%'
-       OR name_short ILIKE '%грузовоз%';
-  `);
+    await pool.query(`
+      UPDATE contractors SET type = 'logistics'
+      WHERE name_short ILIKE '%деловые линии%'
+         OR name_short ILIKE '%сдэк%'
+         OR name_short ILIKE '%пэк%'
+         OR name_short ILIKE '%витэка%'
+         OR name_short ILIKE '%энергия%'
+         OR name_short ILIKE '%байкал%'
+         OR name_short ILIKE '%желдор%'
+         OR name_short ILIKE '%транспортн%'
+         OR name_short ILIKE '%логистик%'
+         OR name_short ILIKE '%возовоз%'
+         OR name_short ILIKE '%грузовоз%';
+    `);
 
-  await pool.query(`
-    UPDATE contractors SET type = 'other_expense'
-    WHERE name_short ILIKE '%аренда%'
-       OR name_short ILIKE '%вышк%'
-       OR name_short ILIKE '%бурен%'
-       OR name_short ILIKE '%спецтехник%'
-       OR name_short ILIKE '%манипулятор%'
-       OR name_short ILIKE '%инструмент%';
-  `);
+    await pool.query(`
+      UPDATE contractors SET type = 'other_expense'
+      WHERE name_short ILIKE '%аренда%'
+         OR name_short ILIKE '%вышк%'
+         OR name_short ILIKE '%бурен%'
+         OR name_short ILIKE '%спецтехник%'
+         OR name_short ILIKE '%манипулятор%'
+         OR name_short ILIKE '%инструмент%';
+    `);
 
-  await pool.query(`
-    UPDATE contractors SET type = 'subcontractor'
-    WHERE (type = 'executor' OR type = 'internal' OR type IS NULL) AND is_own IS NOT TRUE;
-  `);
+    await pool.query(`
+      UPDATE contractors SET type = 'subcontractor'
+      WHERE (type = 'executor' OR type = 'internal' OR type IS NULL) AND is_own IS NOT TRUE;
+    `);
 
-  // Синхронизация собственных юрлиц (ООО «К10», ООО «Кабельные Системы», ООО «Ультима») в справочник организаций
-  await pool.query(`
-    INSERT INTO contractors (
-      inn, kpp, ogrn, name_short, name_full, legal_form, address_legal, address_postal, director,
-      signer_name, signer_position, acting_basis, bank_name, bik, account_corr, account_pay, phone, email,
-      type, is_own, own_company_id, status
-    )
-    SELECT
-      oc.inn, oc.kpp, oc.ogrn, oc.name_short, oc.name_full, 'ООО', oc.address_legal, oc.address_postal, oc.director,
-      oc.director, oc.director_title, 'Устава', oc.bank_name, oc.bik, oc.account_corr, oc.account_pay, oc.phone, oc.email,
-      'own', true, oc.id, 'active'
-    FROM own_companies oc
-    ON CONFLICT (inn) DO UPDATE SET
-      is_own = true,
-      own_company_id = EXCLUDED.own_company_id,
-      type = 'own',
-      name_short = EXCLUDED.name_short,
-      name_full = EXCLUDED.name_full,
-      director = EXCLUDED.director,
-      signer_name = EXCLUDED.signer_name,
-      signer_position = EXCLUDED.signer_position,
-      address_legal = EXCLUDED.address_legal,
-      address_postal = EXCLUDED.address_postal,
-      bank_name = EXCLUDED.bank_name,
-      bik = EXCLUDED.bik,
-      account_corr = EXCLUDED.account_corr,
-      account_pay = EXCLUDED.account_pay;
-  `);
+    // Синхронизация собственных юрлиц (ООО «К10», ООО «Кабельные Системы», ООО «Ультима») в справочник организаций
+    await pool.query(`
+      INSERT INTO contractors (
+        inn, kpp, ogrn, name_short, name_full, legal_form, address_legal, address_postal, director,
+        signer_name, signer_position, acting_basis, bank_name, bik, account_corr, account_pay, phone, email,
+        type, is_own, own_company_id, status
+      )
+      SELECT
+        oc.inn, oc.kpp, oc.ogrn, oc.name_short, oc.name_full, 'ООО', oc.address_legal, oc.address_postal, oc.director,
+        oc.director, oc.director_title, 'Устава', oc.bank_name, oc.bik, oc.account_corr, oc.account_pay, oc.phone, oc.email,
+        'own', true, oc.id, 'active'
+      FROM own_companies oc
+      ON CONFLICT (inn) DO UPDATE SET
+        is_own = true,
+        own_company_id = EXCLUDED.own_company_id,
+        type = 'own',
+        name_short = EXCLUDED.name_short,
+        name_full = EXCLUDED.name_full,
+        director = EXCLUDED.director,
+        signer_name = EXCLUDED.signer_name,
+        signer_position = EXCLUDED.signer_position,
+        address_legal = EXCLUDED.address_legal,
+        address_postal = EXCLUDED.address_postal,
+        bank_name = EXCLUDED.bank_name,
+        bik = EXCLUDED.bik,
+        account_corr = EXCLUDED.account_corr,
+        account_pay = EXCLUDED.account_pay;
+    `);
+
+    await pool.query(`
+      INSERT INTO contractors (inn, name_short, name_full, type, status, contract_number)
+      VALUES ('7707083893', 'ПАО СБЕРБАНК', 'Публичное акционерное общество «Сбербанк России»', 'customer', 'active', 'ГК-СБЕР-2024')
+      ON CONFLICT (inn) DO UPDATE SET type = 'customer';
+    `);
+    await pool.query(`
+      INSERT INTO contractors (inn, name_short, name_full, type, status, contract_number)
+      VALUES ('2901004169', 'ОСФР по Архангельской обл.', 'Отделение Фонда пенсионного и социального страхования РФ по Архангельской обл. и НАО', 'customer', 'active', '0224100001826000158')
+      ON CONFLICT (inn) DO UPDATE SET type = 'customer';
+    `);
+  } else {
+    console.log('[DB] Пропущен демо-сид контрагентов и собственных юрлиц (ALLOW_DEMO_SEED !== "true", режим защиты боевой БД)');
+  }
 
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS customer TEXT DEFAULT 'ПАО Сбербанк'`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_customer ON tasks(customer)`);
-
-  await pool.query(`
-    INSERT INTO contractors (inn, name_short, name_full, type, status, contract_number)
-    VALUES ('7707083893', 'ПАО СБЕРБАНК', 'Публичное акционерное общество «Сбербанк России»', 'customer', 'active', 'ГК-СБЕР-2024')
-    ON CONFLICT (inn) DO UPDATE SET type = 'customer';
-  `);
-  await pool.query(`
-    INSERT INTO contractors (inn, name_short, name_full, type, status, contract_number)
-    VALUES ('2901004169', 'ОСФР по Архангельской обл.', 'Отделение Фонда пенсионного и социального страхования РФ по Архангельской обл. и НАО', 'customer', 'active', '0224100001826000158')
-    ON CONFLICT (inn) DO UPDATE SET type = 'customer';
-  `);
 
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS stage_num INTEGER DEFAULT 0`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 0`);
@@ -442,17 +446,19 @@ export async function initDB() {
   } catch (dmsErr) {
     console.error('[DB] Subcontract DMS post-contracts init error:', dmsErr.message);
   }
-  await pool.query(`
-    UPDATE contracts c SET own_company_id = oc.id
-    FROM own_companies oc
-    WHERE c.own_company_id IS NULL AND (
-      oc.name_short = c.our_entity_name
-      OR oc.name_full = c.our_entity_name
-      OR (c.our_entity_name ILIKE '%К10%' AND oc.code = 'K10')
-      OR (c.our_entity_name ILIKE '%Кабельные%' AND oc.code = 'KS')
-      OR (c.our_entity_name ILIKE '%Ультима%' AND oc.code = 'ULTIMA')
-    )
-  `);
+  if (process.env.ALLOW_DEMO_SEED === 'true') {
+    await pool.query(`
+      UPDATE contracts c SET own_company_id = oc.id
+      FROM own_companies oc
+      WHERE c.own_company_id IS NULL AND (
+        oc.name_short = c.our_entity_name
+        OR oc.name_full = c.our_entity_name
+        OR (c.our_entity_name ILIKE '%К10%' AND oc.code = 'K10')
+        OR (c.our_entity_name ILIKE '%Кабельные%' AND oc.code = 'KS')
+        OR (c.our_entity_name ILIKE '%Ультима%' AND oc.code = 'ULTIMA')
+      )
+    `);
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS contract_attachments (
@@ -573,6 +579,13 @@ export async function initDB() {
   await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS ports_count INTEGER DEFAULT 0`);
   await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS distance_km NUMERIC DEFAULT 0`);
   await pool.query(`ALTER TABLE task_subcontracts ADD COLUMN IF NOT EXISTS order_locked BOOLEAN DEFAULT false`);
+
+  // Инициализация инфраструктуры договоров субподряда и прайс-листов
+  try {
+    await initSubcontractDms(pool);
+  } catch (dmsErr) {
+    console.error('[DB] Subcontract DMS post-subcontracts init error:', dmsErr.message);
+  }
 
   // Реестр сформированных и прикрепленных документов
   await pool.query(`
@@ -1160,74 +1173,78 @@ export async function initDB() {
     }
   }
 
-  try {
-    await pool.query(`
-      UPDATE tasks SET stage = CASE
-        WHEN LOWER(COALESCE(oplata, '')) ~ '(оплач|да|\\+)' OR status = 'paid' OR LOWER(COALESCE(id_status, '')) ~ 'оплач' THEN 'payment'
-        WHEN LOWER(COALESCE(priemka, '')) ~ '(принят|да|\\+)' OR status = 'done' OR LOWER(COALESCE(id_status, '')) ~ 'принят' THEN 'acceptance'
-        WHEN fact > 0 AND in_order > 0 AND fact >= in_order THEN 'control'
-        WHEN data_vyhoda IS NOT NULL OR fact > 0 OR status = 'progress' THEN 'install'
-        WHEN obsledovanie IS NOT NULL AND obsledovanie NOT IN ('', '-', 'нет') THEN 'survey'
-        ELSE 'request'
-      END
-      WHERE stage IS NULL OR stage = '' OR (stage = 'install' AND status = 'pending' AND fact = 0 AND data_vyhoda IS NULL);
-    `);
-    await pool.query(`
-      UPDATE tasks SET stage_num = CASE
-        WHEN LOWER(COALESCE(oplata, '')) ~ '(оплач|да|\\+)' OR status = 'paid' OR LOWER(COALESCE(id_status, '')) ~ 'оплач' THEN 9
-        WHEN LOWER(COALESCE(priemka, '')) ~ '(принят|да|\\+)' OR status = 'done' OR LOWER(COALESCE(id_status, '')) ~ 'принят' THEN 7
-        WHEN stage = 'payment' THEN 7
-        WHEN stage = 'acceptance' THEN 6
-        WHEN stage = 'control' THEN 3
-        WHEN stage = 'install' OR stage = 'survey' THEN 1
-        ELSE 0
-      END
-      WHERE stage_num IS NULL OR stage_num = 0;
-    `);
+  if (process.env.ALLOW_DEMO_SEED === 'true') {
+    try {
+      await pool.query(`
+        UPDATE tasks SET stage = CASE
+          WHEN LOWER(COALESCE(oplata, '')) ~ '(оплач|да|\\+)' OR status = 'paid' OR LOWER(COALESCE(id_status, '')) ~ 'оплач' THEN 'payment'
+          WHEN LOWER(COALESCE(priemka, '')) ~ '(принят|да|\\+)' OR status = 'done' OR LOWER(COALESCE(id_status, '')) ~ 'принят' THEN 'acceptance'
+          WHEN fact > 0 AND in_order > 0 AND fact >= in_order THEN 'control'
+          WHEN data_vyhoda IS NOT NULL OR fact > 0 OR status = 'progress' THEN 'install'
+          WHEN obsledovanie IS NOT NULL AND obsledovanie NOT IN ('', '-', 'нет') THEN 'survey'
+          ELSE 'request'
+        END
+        WHERE stage IS NULL OR stage = '' OR (stage = 'install' AND status = 'pending' AND fact = 0 AND data_vyhoda IS NULL);
+      `);
+      await pool.query(`
+        UPDATE tasks SET stage_num = CASE
+          WHEN LOWER(COALESCE(oplata, '')) ~ '(оплач|да|\\+)' OR status = 'paid' OR LOWER(COALESCE(id_status, '')) ~ 'оплач' THEN 9
+          WHEN LOWER(COALESCE(priemka, '')) ~ '(принят|да|\\+)' OR status = 'done' OR LOWER(COALESCE(id_status, '')) ~ 'принят' THEN 7
+          WHEN stage = 'payment' THEN 7
+          WHEN stage = 'acceptance' THEN 6
+          WHEN stage = 'control' THEN 3
+          WHEN stage = 'install' OR stage = 'survey' THEN 1
+          ELSE 0
+        END
+        WHERE stage_num IS NULL OR stage_num = 0;
+      `);
 
-    await pool.query(`
-      UPDATE tasks SET macro_status = CASE
-        WHEN stage_num >= 9 OR LOWER(COALESCE(oplata, '')) ~ '(оплач|да|\\+)' OR status = 'paid' THEN 'paid'
-        WHEN stage_num >= 7 OR LOWER(COALESCE(priemka, '')) ~ '(принят|да|\\+)' OR status = 'done' THEN 'accepted'
-        WHEN stage_num = 6 THEN 'id_delivered'
-        WHEN stage_num = 5 THEN 'id_in_progress'
-        WHEN stage_num = 4 OR stage_num = 3 THEN 'install'
-        WHEN stage_num = 2 OR stage_num = 1 THEN 'assigned'
-        ELSE 'new'
-      END
-      WHERE macro_status IS NULL OR macro_status = 'new';
-    `);
+      await pool.query(`
+        UPDATE tasks SET macro_status = CASE
+          WHEN stage_num >= 9 OR LOWER(COALESCE(oplata, '')) ~ '(оплач|да|\\+)' OR status = 'paid' THEN 'paid'
+          WHEN stage_num >= 7 OR LOWER(COALESCE(priemka, '')) ~ '(принят|да|\\+)' OR status = 'done' THEN 'accepted'
+          WHEN stage_num = 6 THEN 'id_delivered'
+          WHEN stage_num = 5 THEN 'id_in_progress'
+          WHEN stage_num = 4 OR stage_num = 3 THEN 'install'
+          WHEN stage_num = 2 OR stage_num = 1 THEN 'assigned'
+          ELSE 'new'
+        END
+        WHERE macro_status IS NULL OR macro_status = 'new';
+      `);
 
-    // Исправление рассинхрона: если подрядчик или ПМ назначен, задача не может быть в 'pending' ("Не распределено")
-    await pool.query(`
-      UPDATE tasks
-      SET status = 'progress',
-          macro_status = CASE WHEN macro_status IS NULL OR macro_status = 'new' THEN 'assigned' ELSE macro_status END,
-          stage_num = CASE WHEN stage_num IS NULL OR stage_num = 0 THEN 1 ELSE stage_num END
-      WHERE status = 'pending'
-        AND (
-          (contractor IS NOT NULL AND TRIM(contractor) != '')
-          OR (assignee IS NOT NULL AND TRIM(assignee) != '')
-        );
-    `);
-  } catch(err) {
-    console.error('Stage/macro_status backfill migration error:', err.message);
-  }
-
-  // Автоматический импорт договоров при первой инициализации
-  try {
-    const { rows: contractCount } = await pool.query('SELECT COUNT(*) as cnt FROM contracts');
-    if (parseInt(contractCount[0]?.cnt || 0, 10) === 0) {
-      const excelPath = path.join(process.cwd(), 'Reestr_kontraktov_ot_14_10_2017.xlsx');
-      if (fs.existsSync(excelPath)) {
-        console.log('[DB] Реестр договоров пуст, запускаем автоматический импорт...');
-        const { importContractsFromExcel } = await import('../services/contractsImporter.js');
-        const res = await importContractsFromExcel(excelPath, pool);
-        console.log(`[DB] Автоимпорт договоров завершен: импортировано ${res.importedCount} шт.`);
-      }
+      // Исправление рассинхрона: если подрядчик или ПМ назначен, задача не может быть в 'pending' ("Не распределено")
+      await pool.query(`
+        UPDATE tasks
+        SET status = 'progress',
+            macro_status = CASE WHEN macro_status IS NULL OR macro_status = 'new' THEN 'assigned' ELSE macro_status END,
+            stage_num = CASE WHEN stage_num IS NULL OR stage_num = 0 THEN 1 ELSE stage_num END
+        WHERE status = 'pending'
+          AND (
+            (contractor IS NOT NULL AND TRIM(contractor) != '')
+            OR (assignee IS NOT NULL AND TRIM(assignee) != '')
+          );
+      `);
+    } catch(err) {
+      console.error('Stage/macro_status backfill migration error:', err.message);
     }
-  } catch (err) {
-    console.warn('[DB] Пропуск автоимпорта договоров:', err.message);
+
+    // Автоматический импорт договоров при первой инициализации
+    try {
+      const { rows: contractCount } = await pool.query('SELECT COUNT(*) as cnt FROM contracts');
+      if (parseInt(contractCount[0]?.cnt || 0, 10) === 0) {
+        const excelPath = path.join(process.cwd(), 'Reestr_kontraktov_ot_14_10_2017.xlsx');
+        if (fs.existsSync(excelPath)) {
+          console.log('[DB] Реестр договоров пуст, запускаем автоматический импорт...');
+          const { importContractsFromExcel } = await import('../services/contractsImporter.js');
+          const res = await importContractsFromExcel(excelPath, pool);
+          console.log(`[DB] Автоимпорт договоров завершен: импортировано ${res.importedCount} шт.`);
+        }
+      }
+    } catch (err) {
+      console.warn('[DB] Пропуск автоимпорта договоров:', err.message);
+    }
+  } else {
+    console.log('[DB] Пропущен массовый пересчет stage/status задач и автоимпорт договоров (ALLOW_DEMO_SEED !== "true", режим защиты боевой БД)');
   }
 
   // Синхронизация последовательностей ID для исключения duplicate key при вставках
@@ -1242,63 +1259,67 @@ export async function initDB() {
 
 export async function seedMaterialsAndWarehouses() {
   try {
-    // 1. Создаем Центральный склад по умолчанию
-    await pool.query(`
-      INSERT INTO warehouses (name, type, region, address)
-      SELECT 'Центральный склад', 'central', 'Москва', 'г. Москва'
-      WHERE NOT EXISTS (SELECT 1 FROM warehouses WHERE type = 'central');
-    `);
-
-    // 2. Создаем виртуальные склады для всех подрядчиков
-    await pool.query(`
-      INSERT INTO warehouses (name, type, contractor_id)
-      SELECT 'Склад ' || name_short, 'contractor', id
-      FROM contractors
-      WHERE id NOT IN (SELECT contractor_id FROM warehouses WHERE contractor_id IS NOT NULL);
-    `);
-
-    // 3. Базовый справочник материалов СКС (типовик Сбера)
-    const defaultMaterials = [
-      { code: 'CABLE-UTP-5E-CU', name: 'Кабель UTP 4 пары Cat.5e Cu (бухта 305м)', category: 'cable', unit: 'м', package_qty: 305, package_unit: 'бухта 305м', price: 45, min_alert: 610 },
-      { code: 'KEYSTONE-RJ45-5E', name: 'Модуль Keystone RJ-45 Cat.5e UTP', category: 'keystone', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 120, min_alert: 50 },
-      { code: 'PATCH-CORD-2M', name: 'Патч-корд UTP Cat.5e 2.0м', category: 'patchcord', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 150, min_alert: 40 },
-      { code: 'PATCH-CORD-1M', name: 'Патч-корд UTP Cat.5e 1.0м', category: 'patchcord', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 110, min_alert: 40 },
-      { code: 'FACEPLATE-1P', name: 'Лицевая панель / рамка суппорта 1 порт', category: 'hardware', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 80, min_alert: 30 },
-      { code: 'SURFACE-BOX-1P', name: 'Коробка накладная 1 порт RJ-45', category: 'box', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 95, min_alert: 30 },
-      { code: 'CORRUGATED-16', name: 'Труба гофрированная ПВХ ф16 с протяжкой', category: 'conduit', unit: 'м', package_qty: 100, package_unit: 'бухта 100м', price: 15, min_alert: 200 },
-      { code: 'CABLE-TRUNK-40X25', name: 'Кабель-канал 40х25 мм с крышкой (хлыст 2м)', category: 'conduit', unit: 'м', package_qty: 2, package_unit: 'хлыст 2м', price: 110, min_alert: 40 },
-      { code: 'CABLE-TRUNK-25X16', name: 'Кабель-канал 25х16 мм с крышкой (хлыст 2м)', category: 'conduit', unit: 'м', package_qty: 2, package_unit: 'хлыст 2м', price: 75, min_alert: 40 },
-      { code: 'PATCH-PANEL-24', name: 'Патч-панель 19" 1U 24 порта Cat.5e', category: 'hardware', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 2800, min_alert: 5 },
-      { code: 'CABLE-ORG-1U', name: 'Кабельный органайзер 19" 1U', category: 'hardware', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 650, min_alert: 5 },
-      { code: 'MARKING-LABEL', name: 'Маркировочные этикетки / бирки', category: 'hardware', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 5, min_alert: 100 }
-    ];
-
-    for (const m of defaultMaterials) {
+    if (process.env.ALLOW_DEMO_SEED === 'true') {
+      // 1. Создаем Центральный склад по умолчанию
       await pool.query(`
-        INSERT INTO materials (code, name, category, unit, package_qty, package_unit, price_default, min_stock_alert)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (code) DO UPDATE SET
-          name = EXCLUDED.name,
-          category = EXCLUDED.category,
-          unit = EXCLUDED.unit,
-          package_qty = EXCLUDED.package_qty,
-          package_unit = EXCLUDED.package_unit
-      `, [m.code, m.name, m.category, m.unit, m.package_qty, m.package_unit, m.price, m.min_alert]);
-    }
+        INSERT INTO warehouses (name, type, region, address)
+        SELECT 'Центральный склад', 'central', 'Москва', 'г. Москва'
+        WHERE NOT EXISTS (SELECT 1 FROM warehouses WHERE type = 'central');
+      `);
 
-    // 4. Базовые поставщики ТМЦ
-    const defaultSuppliers = [
-      { name: 'ТД ТЕЛЕКОМ-СНАБ', contact: 'Иванов С.В.', phone: '+7 (495) 123-45-67', email: 'sales@telecom-snab.ru', lead_time_days: 14, min_order: 50000 },
-      { name: 'ЛКС Кабель-Системы', contact: 'Петрова Е.А.', phone: '+7 (495) 765-43-21', email: 'orders@lks-cable.ru', lead_time_days: 10, min_order: 30000 },
-      { name: 'СпецЭлектроКомплект', contact: 'Смирнов Д.М.', phone: '+7 (812) 555-88-99', email: 'zakaz@specelectro.ru', lead_time_days: 7, min_order: 15000 }
-    ];
-
-    for (const s of defaultSuppliers) {
+      // 2. Создаем виртуальные склады для всех подрядчиков
       await pool.query(`
-        INSERT INTO suppliers (name, contact, phone, email, lead_time_days, min_order_amount)
-        SELECT $1, $2, $3, $4, $5, $6
-        WHERE NOT EXISTS (SELECT 1 FROM suppliers WHERE name = $1);
-      `, [s.name, s.contact, s.phone, s.email, s.lead_time_days, s.min_order]);
+        INSERT INTO warehouses (name, type, contractor_id)
+        SELECT 'Склад ' || name_short, 'contractor', id
+        FROM contractors
+        WHERE id NOT IN (SELECT contractor_id FROM warehouses WHERE contractor_id IS NOT NULL);
+      `);
+
+      // 3. Базовый справочник материалов СКС (типовик Сбера)
+      const defaultMaterials = [
+        { code: 'CABLE-UTP-5E-CU', name: 'Кабель UTP 4 пары Cat.5e Cu (бухта 305м)', category: 'cable', unit: 'м', package_qty: 305, package_unit: 'бухта 305м', price: 45, min_alert: 610 },
+        { code: 'KEYSTONE-RJ45-5E', name: 'Модуль Keystone RJ-45 Cat.5e UTP', category: 'keystone', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 120, min_alert: 50 },
+        { code: 'PATCH-CORD-2M', name: 'Патч-корд UTP Cat.5e 2.0м', category: 'patchcord', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 150, min_alert: 40 },
+        { code: 'PATCH-CORD-1M', name: 'Патч-корд UTP Cat.5e 1.0м', category: 'patchcord', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 110, min_alert: 40 },
+        { code: 'FACEPLATE-1P', name: 'Лицевая панель / рамка суппорта 1 порт', category: 'hardware', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 80, min_alert: 30 },
+        { code: 'SURFACE-BOX-1P', name: 'Коробка накладная 1 порт RJ-45', category: 'box', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 95, min_alert: 30 },
+        { code: 'CORRUGATED-16', name: 'Труба гофрированная ПВХ ф16 с протяжкой', category: 'conduit', unit: 'м', package_qty: 100, package_unit: 'бухта 100м', price: 15, min_alert: 200 },
+        { code: 'CABLE-TRUNK-40X25', name: 'Кабель-канал 40х25 мм с крышкой (хлыст 2м)', category: 'conduit', unit: 'м', package_qty: 2, package_unit: 'хлыст 2м', price: 110, min_alert: 40 },
+        { code: 'CABLE-TRUNK-25X16', name: 'Кабель-канал 25х16 мм с крышкой (хлыст 2м)', category: 'conduit', unit: 'м', package_qty: 2, package_unit: 'хлыст 2м', price: 75, min_alert: 40 },
+        { code: 'PATCH-PANEL-24', name: 'Патч-панель 19" 1U 24 порта Cat.5e', category: 'hardware', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 2800, min_alert: 5 },
+        { code: 'CABLE-ORG-1U', name: 'Кабельный органайзер 19" 1U', category: 'hardware', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 650, min_alert: 5 },
+        { code: 'MARKING-LABEL', name: 'Маркировочные этикетки / бирки', category: 'hardware', unit: 'шт', package_qty: 1, package_unit: 'шт', price: 5, min_alert: 100 }
+      ];
+
+      for (const m of defaultMaterials) {
+        await pool.query(`
+          INSERT INTO materials (code, name, category, unit, package_qty, package_unit, price_default, min_stock_alert)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          ON CONFLICT (code) DO UPDATE SET
+            name = EXCLUDED.name,
+            category = EXCLUDED.category,
+            unit = EXCLUDED.unit,
+            package_qty = EXCLUDED.package_qty,
+            package_unit = EXCLUDED.package_unit
+        `, [m.code, m.name, m.category, m.unit, m.package_qty, m.package_unit, m.price, m.min_alert]);
+      }
+
+      // 4. Базовые поставщики ТМЦ
+      const defaultSuppliers = [
+        { name: 'ТД ТЕЛЕКОМ-СНАБ', contact: 'Иванов С.В.', phone: '+7 (495) 123-45-67', email: 'sales@telecom-snab.ru', lead_time_days: 14, min_order: 50000 },
+        { name: 'ЛКС Кабель-Системы', contact: 'Петрова Е.А.', phone: '+7 (495) 765-43-21', email: 'orders@lks-cable.ru', lead_time_days: 10, min_order: 30000 },
+        { name: 'СпецЭлектроКомплект', contact: 'Смирнов Д.М.', phone: '+7 (812) 555-88-99', email: 'zakaz@specelectro.ru', lead_time_days: 7, min_order: 15000 }
+      ];
+
+      for (const s of defaultSuppliers) {
+        await pool.query(`
+          INSERT INTO suppliers (name, contact, phone, email, lead_time_days, min_order_amount)
+          SELECT $1, $2, $3, $4, $5, $6
+          WHERE NOT EXISTS (SELECT 1 FROM suppliers WHERE name = $1);
+        `, [s.name, s.contact, s.phone, s.email, s.lead_time_days, s.min_order]);
+      }
+    } else {
+      console.log('[DB] Пропущен демо-сид складов, материалов и поставщиков (ALLOW_DEMO_SEED !== "true", режим защиты боевой БД)');
     }
 
     // 5. Безопасные витрины данных для ИИ (AI Read-Only Views)
@@ -1351,9 +1372,10 @@ export async function seedMaterialsAndWarehouses() {
     await syncExistingUsersAndSpecialists(pool);
 
     try {
-      const { syncSubcontractsForTasks } = await import('../scripts/sync_task_subcontracts.js');
-      await syncSubcontractsForTasks(pool);
-      await initSubcontractDms(pool);
+      if (process.env.ALLOW_DEMO_SEED === 'true') {
+        const { syncSubcontractsForTasks } = await import('../scripts/sync_task_subcontracts.js');
+        await syncSubcontractsForTasks(pool);
+      }
       const { seedTemplates } = await import('../scripts/seed_document_templates.js');
       await seedTemplates();
     } catch (e) {
@@ -1392,7 +1414,7 @@ export async function syncExistingUsersAndSpecialists(dbPool = pool) {
 
       await dbPool.query(`
         UPDATE users SET
-          specialist_id = $1,
+          specialist_id = COALESCE(specialist_id, $1),
           contractor_id = COALESCE(contractor_id, $2),
           phone = COALESCE(NULLIF(phone, ''), $3),
           passport_series_number = COALESCE(NULLIF(passport_series_number, ''), $4),
@@ -1403,7 +1425,7 @@ export async function syncExistingUsersAndSpecialists(dbPool = pool) {
 
       await dbPool.query(`
         UPDATE specialists SET
-          user_id = $1,
+          user_id = COALESCE(user_id, $1),
           contractor_id = COALESCE(contractor_id, $2),
           phone = COALESCE(NULLIF(phone, ''), $3),
           passport_series_number = COALESCE(NULLIF(passport_series_number, ''), $4),
